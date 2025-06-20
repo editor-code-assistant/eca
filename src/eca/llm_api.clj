@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   [eca.llm-providers.google :as llm-providers.google]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]))
 
@@ -35,6 +36,17 @@
       :context context
       :user-prompt user-prompt
       :api-key (:anthropic-api-key config)}
+     {:on-message-received on-message-received
+      :on-error on-error})
+    
+    (contains? #{"gemini-2.5-pro"
+                 "gemini-2.5-flash"
+                 "gemini-2.5-flash-lite-preview-06-17"} model)
+    (llm-providers.google/completion!
+     {:model model
+      :context context
+      :user-prompt user-prompt
+      :api-key (:google-gemini-api-key config)}
      {:on-message-received on-message-received
       :on-error on-error})
 

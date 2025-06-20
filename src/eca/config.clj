@@ -15,6 +15,7 @@
 (def initial-config
   {:openai-api-key nil
    :anthropic-api-key nil
+   :google-gemini-api-key nil
    :ollama {:host "http://localhost"
             :port 11434}
    :chat {:welcome-message "Welcome to ECA! What you have in mind?\n\n"}
