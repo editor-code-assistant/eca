@@ -7,13 +7,17 @@
 
 (def ^:private logger-tag "[OLLAMA]")
 
-(def ^:private chat-url "%s:%s/api/chat")
-(def ^:private list-running-models-url "%s:%s/api/ps")
+(def ^:private chat-url "%s/api/chat")
+(def ^:private list-running-models-url "%s/api/ps")
+
+(defn ^:private base-url [host port]
+  (or (System/getenv "OLLAMA_API_BASE")
+      (str host ":" port)))
 
 (defn list-running-models [{:keys [host port]}]
   (try
     (let [{:keys [status body]} (http/get
-                                 (format list-running-models-url host port)
+                                 (format list-running-models-url (base-url host port))
                                  {:throw-exceptions? false
                                   :as :json})]
       (if (= 200 status)
@@ -31,17 +35,18 @@
       message (assoc :message (:content message))
       done_reason (assoc :finish-reason done_reason))))
 
-(defn ^:private ->message [{:keys [role behavior context]} user-prompt]
-  (format "%s\n%s\n%s\nThe user is asking: '%s'"
-          role behavior context user-prompt))
+(defn ^:private ->message-with-context [context user-prompt]
+  (format "%s\nThe user is asking: '%s'" context user-prompt))
 
-(defn completion! [{:keys [model user-prompt context host port]}
+(defn completion! [{:keys [model user-prompt context host port past-messages]}
                    {:keys [on-message-received on-error]}]
   (let [body {:model model
-              :messages [{:role "user" :content (->message context user-prompt)}]
+              :messages (if (empty? past-messages)
+                          [{:role "user" :content (->message-with-context context user-prompt)}]
+                          (conj past-messages {:role "user" :content user-prompt}))
               :stream true}]
     (http/post
-     (format chat-url host port)
+     (format chat-url (base-url host port))
      {:body (json/generate-string body)
       :throw-exceptions? false
       :async? true

@@ -9,38 +9,40 @@
    [eca.messenger :as messenger]
    [eca.shared :as shared]))
 
-(defn ^:private raw-context->refined [context]
+(defn ^:private raw-contexts->refined [contexts]
   (mapcat (fn [{:keys [type path]}]
             (case type
               "file" [{:type :file
                        :path path
-                       :content-map (llm-api/refine-file-context path)}]
+                       :content (llm-api/refine-file-context path)}]
               "directory" (->> (fs/glob path "**")
                                (remove fs/directory?)
                                (map (fn [path]
                                       (let [filename (str (fs/canonicalize path))]
                                         {:type :file
                                          :path filename
-                                         :content-map (llm-api/refine-file-context filename)}))))
+                                         :content (llm-api/refine-file-context filename)}))))
               nil))
-          context))
+          contexts))
 
-(defn ^:private build-context [behavior refined-context]
-  {:role (str "You are an expert AI coding tool called ECA (Editor Code Assistant).\n"
-              "Structure your answer in markdown *WITHOUT* using markdown code block.")
-   :behavior (format "Your behavior is to '%s'."
-                     (case (keyword behavior)
-                       :agent "Help suggesting what needs to be changed if requested, offering help to make itself."
-                       :chat "Help suggesting what needs to be changed not suggesting to fix it itself."
-                       ""))
-   :context (format "<context>\n%s\n</context>"
-                    (reduce (fn [msg {:keys [type path content-map]}]
-                              (str
-                               msg
-                               (case type
-                                 :file (str path ":\n" content-map)
-                                 "")
-                               "\n")) "" refined-context))})
+(defn ^:private build-context-str [refined-contexts rules]
+  (str
+   "<rules>\n"
+   (reduce
+    (fn [rule-str {:keys [name content]}]
+      (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
+    ""
+    rules)
+   "</rules>\n"
+   "<contexts>\n"
+   (reduce
+    (fn [context-str {:keys [type path content]}]
+      (str context-str (case type
+                         :file (format "<file path=\"%s\">%s</file>\n" path content)
+                         "")))
+    ""
+    refined-contexts)
+   "</contexts>"))
 
 (defn default-model [db]
   (if-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (:models db)))]
@@ -54,75 +56,90 @@
    config]
   (let [chat-id (or chat-id
                     (let [new-id (str (random-uuid))]
-                      (swap! db* update :chats conj {:id new-id})
-                      new-id))]
+                      (swap! db* assoc-in [:chats new-id] {:id new-id})
+                      new-id))
+        _ (messenger/chat-content-received
+           messenger
+           {:chat-id chat-id
+            :request-id request-id
+            :is-complete false
+            :role :user
+            :content {:type :text
+                      :text (str message "\n")}})
+        _ (when (seq contexts)
+            (messenger/chat-content-received
+             messenger
+             {:chat-id chat-id
+              :request-id request-id
+              :is-complete false
+              :role :system
+              :content {:type :progress
+                        :state :running
+                        :text "Parsing given context"}}))
+        db @db*
+        rules (config/rules config
+                            (:workspace-folders db)
+                            {:behavior (or behavior (:chat-default-behavior db))})
+        refined-contexts (raw-contexts->refined contexts)
+        context-str (build-context-str refined-contexts rules)
+        chosen-model (or model (default-model db))
+        past-messages (get-in db [:chats chat-id :messages] [])
+        user-prompt message
+        received-msgs* (atom "")]
     (messenger/chat-content-received
      messenger
      {:chat-id chat-id
       :request-id request-id
-      :is-complete false
-      :role :user
-      :content {:type :text
-                :text (str message "\n")}})
-    (when (seq contexts)
-      (messenger/chat-content-received
-       messenger
-       {:chat-id chat-id
-        :request-id request-id
-        :is-complete false
-        :role :system
-        :content {:type :progress
-                  :state :running
-                  :text "Parsing given context"}}))
-    (let [refined-contexts (raw-context->refined contexts)
-          context (build-context (or behavior (:chat-default-behavior @db*)) refined-contexts)
-          chosen-model (or model (default-model @db*))]
-      (messenger/chat-content-received
-       messenger
-       {:chat-id chat-id
-        :request-id request-id
-        :role :system
-        :content {:type :progress
-                  :state :running
-                  :text "Generating"}})
-      (llm-api/complete! {:model chosen-model
-                          :user-prompt message
-                          :context context
-                          :config config
-                          :on-message-received (fn [{:keys [message finish-reason]}]
+      :role :system
+      :content {:type :progress
+                :state :running
+                :text "Generating"}})
+    (swap! db* update-in [:chats chat-id :messages] (fnil conj []) {:role "user" :content user-prompt})
+    (llm-api/complete! {:model chosen-model
+                        :user-prompt user-prompt
+                        :context context-str
+                        :past-messages past-messages
+                        :config config
+                        :on-message-received (fn [{:keys [message finish-reason]}]
+                                               (when message
+                                                 (swap! received-msgs* str message)
                                                  (messenger/chat-content-received
                                                   messenger
                                                   {:chat-id chat-id
                                                    :request-id request-id
                                                    :role :assistant
                                                    :content {:type :text
-                                                             :text message}})
-                                                 (when finish-reason
-                                                   (messenger/chat-content-received
-                                                    messenger
-                                                    {:chat-id chat-id
-                                                     :request-id request-id
-                                                     :role :system
-                                                     :content {:type :progress
-                                                               :state :finished}})))
-                          :on-error (fn [{:keys [message exception]}]
-                                      (messenger/chat-content-received
-                                       messenger
-                                       {:chat-id chat-id
-                                        :request-id request-id
-                                        :role :system
-                                        :content {:type :text
-                                                  :text (str (or message (ex-message exception)) "\n")}})
-                                      (messenger/chat-content-received
-                                       messenger
-                                       {:chat-id chat-id
-                                        :request-id request-id
-                                        :role :system
-                                        :content {:type :progress
-                                                  :state :finished}}))})
-      {:chat-id chat-id
-       :model chosen-model
-       :status :success})))
+                                                             :text message}}))
+                                               (when finish-reason
+                                                 (swap! db* update-in [:chats chat-id :messages]
+                                                        (fnil conj [])
+                                                        {:role "assistant"
+                                                         :content @received-msgs*})
+                                                 (messenger/chat-content-received
+                                                  messenger
+                                                  {:chat-id chat-id
+                                                   :request-id request-id
+                                                   :role :system
+                                                   :content {:type :progress
+                                                             :state :finished}})))
+                        :on-error (fn [{:keys [message exception]}]
+                                    (messenger/chat-content-received
+                                     messenger
+                                     {:chat-id chat-id
+                                      :request-id request-id
+                                      :role :system
+                                      :content {:type :text
+                                                :text (str (or message (ex-message exception)) "\n")}})
+                                    (messenger/chat-content-received
+                                     messenger
+                                     {:chat-id chat-id
+                                      :request-id request-id
+                                      :role :system
+                                      :content {:type :progress
+                                                :state :finished}}))})
+    {:chat-id chat-id
+     :model chosen-model
+     :status :success}))
 
 (defn query-context
   [{:keys [query contexts chat-id]}

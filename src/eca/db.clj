@@ -4,9 +4,9 @@
   {:client-info {}
    :workspace-folders []
    :client-capabilities {}
-   :chats []
+   :chats {}
    :chat-behaviors ["agent" "chat"]
-   :chat-default-behavior "agent"
+   :chat-default-behavior "chat"
    :models ["o4-mini"
             "gpt-4.1"
             "claude-sonnet-4-0"

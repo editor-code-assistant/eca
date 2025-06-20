@@ -13,16 +13,17 @@ _Demo using [eca-emacs](https://github.com/editor-code-assistant/eca-emacs)_
 
 <img src="images/rationale.jpg" width="500">
 
-An OpenSource editor agnostic tool that aims to easily link LLMs <-> Editors, giving the best UX possible for AI pair programming using a well-defined protocol.
+A Free and OpenSource editor-agnostic tool that aims to easily link LLMs <-> Editors, giving the best UX possible for AI pair programming using a well-defined protocol. The server is written in Clojure and heavily inspired by the [LSP protocol](https://microsoft.github.io/language-server-protocol/) which is a success case for this kind of integration.
 
-- **Editor-agnostic** protocol for any editor integrate.
+- **Editor-agnostic** protocol for any editor to integrate.
+- **Single configuration**: Configure eca making it work the same in any editor.
 - **Chat** interface: ask questions, review diffs, work together with an agent in your codebase.
-- **AI-powered completions**, docs & refactorings.
-- **Streaming responses** and structured error handling.
+- **Context** support: giving more details about your code to the LLM.
 - **Pluggable models**: Ollama local models, OpenAI, Anthropic, more on the way.
-- **Single configuration**: Configure eca behavior making it feel the same in any editor.
 
 ## Installation
+
+Eca is written in Clojure and compiled into a native binary via graalvm. You can download the binaries from Github Releases or use the install script for convenience:
 
 Stable release:
 
@@ -38,12 +39,12 @@ sudo bash <(curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/
 
 ## Usage
 
-Editors should spawn server via `eca server` and communicate via stdin/stdout.
+Editors should spawn the server via `eca server` and communicate via stdin/stdout.
 
 ## Configuration
 
 Check all available configs [here](./src/eca/config.clj#L15).
-There are 3 ways to configure ECA following following this order of priority:
+There are 3 ways to configure ECA following this order of priority:
 
 ### InitializationOptions (convenient for editors)
 
@@ -55,7 +56,7 @@ Client editors can pass custom settings when sending the `initialize` request vi
 }
 ```
 
-### Config file (conveninent for users)
+### Config file (convenient for users)
 
 `.eca/config.json`
 
@@ -73,10 +74,38 @@ Via env var during server process spawn:
 ECA_CONFIG='{"my_config": "my_value"}' eca server
 ```
 
+## Rules
+
+Rules are contexts that are passed to the LLM during a prompt.
+There are 2 possible ways following this order of priority:
+
+### Project file
+
+A `.eca/rules` folder from the workspace root containing `.md` files with the rules.
+
+`.eca/rules/talk_funny.md`
+```markdown
+--- 
+name: Funny rule
+---
+
+- Talk funny like Mickey!
+```
+
+### Config 
+
+Just add to your config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
+
+```javascript
+{
+  "rules": [{"path": "my-rule.md"}]
+}
+```
+
 ## Supported editors
 
-- Emacs
-- VsCode: WIP
+- [Emacs](https://github.com/editor-code-assistant/eca-emacs)
+- [VsCode](https://github.com/editor-code-assistant/eca-vscode): WIP
 - Intellij: Planned
 - Vim: Planned, help welcome
 
@@ -86,19 +115,9 @@ The protocol can be found [here](./docs/protocol.md), it follows the same standa
 
 ## Roadmap
 
-- Centralize roadmap in a Github Project.
-- Error handling
-- Support more editors: VScode, IntelliJ and Vim.
-- Rules configuration
-- Improve docs
-- Support more model options like thinking.
-- Improve context passed to LLM, creating a repo map or translating to embedded vectors.
-- Support more models.
-- Support MCP configuration.
-- Code completion using AI.
-- Doc generation using AI.
-- Edit/fix me support using AI.
+Check the planned work [here](https://github.com/orgs/editor-code-assistant/projects/1/views/1).
 
 ## Contributing
 
-Contributions are very welcome, please open a issue for discussion or pull request.
+Contributions are very welcome, please open an issue for discussion or a pull request.
+For developer details, check [this doc](./docs/development.md).

@@ -2,32 +2,35 @@
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]
-   [clojure.string :as str]
+   [clojure.string :as string]
    [eca.logger :as logger]
-   [hato.client :as http]))
+   [hato.client :as http])
+  (:import
+   [java.io BufferedReader]))
+
+(set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[OPENAI]")
 
-(def ^:private url "https://api.openai.com/v1/chat/completions")
+(def ^:private url "https://api.openai.com/v1/responses")
 
-(defn ^:private raw-data->messages [data]
-  (let [{:keys [choices]} (json/parse-string data true)]
-    (map (fn [{:keys [delta finish_reason]}]
-           (cond-> {}
-             (:content delta) (assoc :message (:content delta))
-             finish_reason (assoc :finish-reason finish_reason)))
-         choices)))
+(defn ^:private event-data-seq [^BufferedReader rdr]
+  (when-let [event (.readLine rdr)]
+    (when (string/starts-with? event "event:")
+      (when-let [data (.readLine rdr)]
+        (.readLine rdr) ;; blank line
+        (when (string/starts-with? data "data:")
+          (cons [(subs event 7)
+                 (json/parse-string (subs data 6) true)]
+                (lazy-seq (event-data-seq rdr))))))))
 
-(defn ^:private ->message [{:keys [role behavior context]} user-prompt]
-  (format "%s\n%s\n%s\nThe user is asking: '%s'"
-          role behavior context user-prompt))
-
-(defn completion! [{:keys [model user-prompt context temperature api-key]
+(defn completion! [{:keys [model user-prompt context temperature api-key past-messages]
                     :or {temperature 1.0}}
                    {:keys [on-message-received on-error]}]
-  (let [messages [{:role "user" :content (->message context user-prompt)}]
-        body {:model model
-              :messages messages
+  (let [body {:model model
+              :input (conj past-messages {:role "user" :content user-prompt})
+              :user (str (System/getProperty "user.name") "@ECA")
+              :instructions context
               :temperature temperature
               :stream true}
         api-key (or api-key
@@ -47,12 +50,11 @@
              (logger/warn logger-tag "Unexpected response status" status)
              (on-error {:message (str "OpenAI response status: " status)}))
            (with-open [rdr (io/reader body)]
-             (doseq [line (line-seq rdr)]
-               (when (str/starts-with? line "data: ")
-                 (let [data (subs line 6)]
-                   (when-not (= "[DONE]" data)
-                     (doseq [message (raw-data->messages data)]
-                       (on-message-received message))))))))
+             (doseq [[event data] (event-data-seq rdr)]
+               (case event
+                 "response.output_text.delta" (on-message-received {:message (:delta data)})
+                 "response.completed" (on-message-received {:finish-reason (-> data :response :status)})
+                 nil))))
          (catch Exception e
            (on-error {:exception e}))))
      (fn [e]

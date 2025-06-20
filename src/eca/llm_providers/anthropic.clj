@@ -19,21 +19,17 @@
       "message_stop" {:finish-reason type}
       nil)))
 
-(defn ^:private context->system [{:keys [role behavior context]}]
-  (format "%s\n%s\n%s\n"
-          role behavior context))
-
-(defn completion! [{:keys [model user-prompt temperature context max-tokens api-key]
+(defn completion! [{:keys [model user-prompt temperature context max-tokens api-key past-messages]
                     :or {max-tokens 1024
                          temperature 1.0}}
                    {:keys [on-message-received on-error]}]
   (let [body {:model model
-              :messages [{:role "user" :content user-prompt}]
+              :messages (conj past-messages {:role "user" :content user-prompt})
               :max_tokens max-tokens
               :temperature temperature
               ;; TODO support :thinking
               :stream true
-              :system (context->system context)}
+              :system context}
         api-key (or api-key
                     (System/getenv "ANTHROPIC_API_KEY"))]
     (http/post

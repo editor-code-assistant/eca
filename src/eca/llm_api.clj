@@ -17,13 +17,15 @@
   ;; TODO ask LLM for the most relevant parts of the path
   (slurp path))
 
-(defn complete! [{:keys [model context user-prompt config on-message-received on-error]}]
+(defn complete!
+  [{:keys [model context user-prompt config on-message-received on-error past-messages]}]
   (cond
     (contains? #{"o4-mini" "gpt-4.1"} model)
     (llm-providers.openai/completion!
      {:model model
       :context context
       :user-prompt user-prompt
+      :past-messages past-messages
       :api-key (:openai-api-key config)}
      {:on-message-received on-message-received
       :on-error on-error})
@@ -35,6 +37,7 @@
      {:model model
       :context context
       :user-prompt user-prompt
+      :past-messages past-messages
       :api-key (:anthropic-api-key config)}
      {:on-message-received on-message-received
       :on-error on-error})
@@ -55,6 +58,7 @@
      {:host (-> config :ollama :host)
       :port (-> config :ollama :port)
       :model (string/replace-first model config/ollama-model-prefix "")
+      :past-messages past-messages
       :context context
       :user-prompt user-prompt}
      {:on-message-received on-message-received

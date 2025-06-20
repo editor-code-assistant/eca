@@ -215,7 +215,6 @@ jobs:
         with:
           java-version: '21'
           distribution: 'graalvm'
-          native-image-musl: 'true'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build MacOS native image
@@ -263,7 +262,6 @@ jobs:
         with:
           java-version: '21'
           distribution: 'graalvm'
-          native-image-musl: 'true'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build MacOS native image
@@ -291,7 +289,7 @@ jobs:
           path: eca-native-macos-aarch64.zip.sha256
           name: eca-native-macos-aarch64.zip.sha256
 
-  windows:
+  windows-amd64:
     name: Build native Windows binary
     needs: [ build-jar]
     runs-on: windows-latest
@@ -370,7 +368,7 @@ jobs:
   release:
     name: Create Release
     environment: prod-release
-    needs: [build-jar, linux-amd64, linux-amd64-static, linux-aarch64, macos-amd64, macos-aarch64, windows]
+    needs: [build-jar, linux-amd64, linux-amd64-static, linux-aarch64, macos-amd64, macos-aarch64, windows-amd64]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
