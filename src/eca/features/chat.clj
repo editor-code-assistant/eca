@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.index :as f.index]
+   [eca.features.rules :as f.rules]
    [eca.llm-api :as llm-api]
    [eca.messenger :as messenger]
    [eca.shared :as shared]))
@@ -77,9 +78,9 @@
                         :state :running
                         :text "Parsing given context"}}))
         db @db*
-        rules (config/rules config
-                            (:workspace-folders db)
-                            {:behavior (or behavior (:chat-default-behavior db))})
+        rules (f.rules/all config
+                           (:workspace-folders db)
+                           {:behavior (or behavior (:chat-default-behavior db))})
         refined-contexts (raw-contexts->refined contexts)
         context-str (build-context-str refined-contexts rules)
         chosen-model (or model (default-model db))
