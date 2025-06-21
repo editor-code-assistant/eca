@@ -16,6 +16,7 @@
 (def ^:private initial-config
   {:openai-api-key nil
    :anthropic-api-key nil
+   :google-gemini-api-key nil
    :rules []
    :mcp-servers []
    :ollama {:host "http://localhost"
