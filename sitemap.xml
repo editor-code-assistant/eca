@@ -9,15 +9,23 @@
          <lastmod>2025-07-23</lastmod>
     </url>
     <url>
-         <loc>https://eca.dev/capabilities/</loc>
-         <lastmod>2025-07-23</lastmod>
-    </url>
-    <url>
          <loc>https://eca.dev/configuration/</loc>
          <lastmod>2025-07-23</lastmod>
     </url>
     <url>
          <loc>https://eca.dev/development/</loc>
+         <lastmod>2025-07-23</lastmod>
+    </url>
+    <url>
+         <loc>https://eca.dev/features/</loc>
+         <lastmod>2025-07-23</lastmod>
+    </url>
+    <url>
+         <loc>https://eca.dev/installation/</loc>
+         <lastmod>2025-07-23</lastmod>
+    </url>
+    <url>
+         <loc>https://eca.dev/models/</loc>
          <lastmod>2025-07-23</lastmod>
     </url>
     <url>
