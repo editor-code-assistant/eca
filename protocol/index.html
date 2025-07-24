@@ -716,9 +716,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mcp-server-updated" class="md-nav__link">
+  <a href="#tool-updated" class="md-nav__link">
     <span class="md-ellipsis">
-      MCP server updated (⬅️)
+      Tool updated (⬅️)
     </span>
   </a>
   
@@ -1092,9 +1092,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mcp-server-updated" class="md-nav__link">
+  <a href="#tool-updated" class="md-nav__link">
     <span class="md-ellipsis">
-      MCP server updated (⬅️)
+      Tool updated (⬅️)
     </span>
   </a>
   
@@ -1874,17 +1874,26 @@ After response, clients should reset chat UI to a clean state.</p>
 <h3 id="edit">Edit (↩️)<a class="headerlink" href="#edit" title="Permanent link">#</a></h3>
 <p>Soon</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
-<h3 id="mcp-server-updated">MCP server updated (⬅️)<a class="headerlink" href="#mcp-server-updated" title="Permanent link">#</a></h3>
-<p>A server notification about a configured MCP server status update.
-This is useful for clients present to user the list of configured MCPs,
-their status and available tools.</p>
+<h3 id="tool-updated">Tool updated (⬅️)<a class="headerlink" href="#tool-updated" title="Permanent link">#</a></h3>
+<p>A server notification about a tool status update like a MCP or native tool.
+This is useful for clients present to user the list of configured tools/MCPs,
+their status and available tools and actions.</p>
 <p><em>Request:</em> </p>
 <ul>
-<li>method: <code>mcp/serverUpdated</code></li>
-<li>params: <code>MCPServerUpdatedParams</code> defined as follows:</li>
+<li>method: <code>tool/serverUpdated</code></li>
+<li>params: <code>ToolServerUpdatedParams</code> defined as follows:</li>
 </ul>
 <p><em>Response:</em></p>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPServerUpdatedParams</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="kr">type</span><span class="w"> </span><span class="nx">ToolServerUpdatedParams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">EcaServerUpdatedParams</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">MCPServerUpdatedParams</span><span class="p">;</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">EcaServerUpdatedParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The built-in tools supported by eca.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">tools</span><span class="o">:</span><span class="w"> </span><span class="kt">ServerTool</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">MCPServerUpdatedParams</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The server name.</span>
 <span class="cm">     */</span>
@@ -1908,22 +1917,22 @@ their status and available tools.</p>
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The tools supported by this mcp server if not disabled.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">tools?</span><span class="o">:</span><span class="w"> </span><span class="kt">MCPServerTool</span><span class="p">[];</span>
+<span class="w">    </span><span class="nx">tools?</span><span class="o">:</span><span class="w"> </span><span class="kt">ServerTool</span><span class="p">[];</span>
 <span class="p">}</span>
 
-<span class="kd">interface</span><span class="w"> </span><span class="nx">MCPServerTool</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ServerTool</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The MCP server tool name.</span>
+<span class="cm">     * The server tool name.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The MCP server tool description.</span>
+<span class="cm">     * The server tool description.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The MCP server tool parameters.</span>
+<span class="cm">     * The server tool parameters.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">parameters</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="p">;</span><span class="w"> </span>
 <span class="p">}</span>
@@ -1972,7 +1981,7 @@ their status and available tools.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 24, 2025 14:32:03">July 24, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 24, 2025 15:20:05">July 24, 2025</span>
   </span>
 
     
