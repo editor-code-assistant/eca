@@ -638,15 +638,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#chat-query-context" class="md-nav__link">
-    <span class="md-ellipsis">
-      Chat Query Context (↩️)
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#chat-approve-tool-call" class="md-nav__link">
     <span class="md-ellipsis">
       Chat approve tool call (➡️)
@@ -659,6 +650,24 @@
   <a href="#chat-reject-tool-call" class="md-nav__link">
     <span class="md-ellipsis">
       Chat reject tool call (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-query-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat Query Context (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-query-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat Query Commands (↩️)
     </span>
   </a>
   
@@ -1014,15 +1023,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#chat-query-context" class="md-nav__link">
-    <span class="md-ellipsis">
-      Chat Query Context (↩️)
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#chat-approve-tool-call" class="md-nav__link">
     <span class="md-ellipsis">
       Chat approve tool call (➡️)
@@ -1035,6 +1035,24 @@
   <a href="#chat-reject-tool-call" class="md-nav__link">
     <span class="md-ellipsis">
       Chat reject tool call (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-query-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat Query Context (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-query-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat Query Commands (↩️)
     </span>
   </a>
   
@@ -1762,43 +1780,6 @@ Used for broader questions or continuous discussion of project/files.</p>
 
 <span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallOrigin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;mcp&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="p">;</span>
 </code></pre></div>
-<h3 id="chat-query-context">Chat Query Context (↩️)<a class="headerlink" href="#chat-query-context" title="Permanent link">#</a></h3>
-<p>A request sent from client to server, querying for the available context to user add to prompt calls.</p>
-<p><em>Request:</em> </p>
-<ul>
-<li>method: <code>chat/queryContext</code></li>
-<li>params: <code>ChatQueryParams</code> defined as follows:</li>
-</ul>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryContextParams</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The chat session identifier.</span>
-<span class="cm">     */</span>
-<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
-
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The query to filter results, blank string returns all available contexts.</span>
-<span class="cm">     */</span>
-<span class="w">    </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
-
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The already considered contexts.</span>
-<span class="cm">     */</span>
-<span class="w">    </span><span class="nx">contexts</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
-<span class="p">}</span>
-</code></pre></div>
-<p><em>Response:</em></p>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryContextResponse</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The chat session identifier.</span>
-<span class="cm">     */</span>
-<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
-
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The returned available contexts.</span>
-<span class="cm">     */</span>
-<span class="w">    </span><span class="nx">contexts</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
-<span class="p">}</span>
-</code></pre></div>
 <h3 id="chat-approve-tool-call">Chat approve tool call (➡️)<a class="headerlink" href="#chat-approve-tool-call" title="Permanent link">#</a></h3>
 <p>A client notification for server to approve a waiting tool call.
 This will execute the tool call and continue the LLM chat loop.</p>
@@ -1837,6 +1818,98 @@ This will not execute the tool call and return to the LLM chat loop.</p>
 <span class="cm">     * The tool call identifier to reject.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">toolCallId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="chat-query-context">Chat Query Context (↩️)<a class="headerlink" href="#chat-query-context" title="Permanent link">#</a></h3>
+<p>A request sent from client to server, querying for all the available contexts for user add to prompt calls.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>chat/queryContext</code></li>
+<li>params: <code>ChatQueryContextParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryContextParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The query to filter results, blank string returns all available contexts.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The already considered contexts.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contexts</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryContextResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The returned available contexts.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contexts</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="chat-query-commands">Chat Query Commands (↩️)<a class="headerlink" href="#chat-query-commands" title="Permanent link">#</a></h3>
+<p>A request sent from client to server, querying for all the available commands for user to call.
+Commands are multiple possible actions like MCP prompts, doctor, costs. Usually the 
+UX follows <code>/&lt;command&gt;</code> to spawn a command.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>chat/queryCommands</code></li>
+<li>params: <code>ChatQueryCommandsParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryCommandsParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The query to filter results, blank string returns all available commands.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryCommandsResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The returned available Commands.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatCommand</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatCommand</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The name of the command.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The description of the command.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The arguments of the command.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">arguments</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">       </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">       </span><span class="nx">description?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">       </span><span class="nx">required</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w"> </span>
+<span class="w">    </span><span class="p">}];</span>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="chat-stop-prompt">Chat stop prompt (➡️)<a class="headerlink" href="#chat-stop-prompt" title="Permanent link">#</a></h3>
@@ -1997,7 +2070,7 @@ their status and available tools and actions.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 31, 2025 13:29:42">July 31, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 31, 2025 17:49:58">July 31, 2025</span>
   </span>
 
     
