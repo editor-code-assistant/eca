@@ -471,6 +471,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#project-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Project structure
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Project structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#files-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Files overview
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tests
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#coding" class="md-nav__link">
     <span class="md-ellipsis">
       Coding
@@ -665,6 +698,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#project-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Project structure
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Project structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#files-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      Files overview
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tests
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#coding" class="md-nav__link">
     <span class="md-ellipsis">
       Coding
@@ -702,6 +768,131 @@
 
 
 <h1 id="eca-development">ECA Development<a class="headerlink" href="#eca-development" title="Permanent link">#</a></h1>
+<h2 id="project-structure">Project structure<a class="headerlink" href="#project-structure" title="Permanent link">#</a></h2>
+<p>The ECA codebase follows a pragmatic <strong>layered layout</strong> that separates concerns clearly so that you can jump straight to the part you need to change.</p>
+<h3 id="files-overview">Files overview<a class="headerlink" href="#files-overview" title="Permanent link">#</a></h3>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bb.edn</code></td>
+<td>Babashka tasks (e.g. <code>bb test</code>, <code>bb debug-cli</code>) for local workflows and CI, the main entrypoint for most tasks.</td>
+</tr>
+<tr>
+<td><code>deps.edn</code></td>
+<td>Clojure dependency coordinates and aliases used by the JVM build and the native GraalVM image.</td>
+</tr>
+<tr>
+<td><code>docs/</code></td>
+<td>Markdown documentation shown at https://eca.dev</td>
+</tr>
+<tr>
+<td><code>src/eca/config.clj</code></td>
+<td>Centralized place to get ECA configs from multiple places.</td>
+</tr>
+<tr>
+<td><code>src/eca/logger.clj</code></td>
+<td>Logger interface to log to stderr.</td>
+</tr>
+<tr>
+<td><code>src/eca/shared.clj</code></td>
+<td>shared utility fns to whole project.</td>
+</tr>
+<tr>
+<td><code>src/eca/db.clj</code></td>
+<td>Simple in-memory KV store that backs sessions/MCP, all in-memory statue lives here.</td>
+</tr>
+<tr>
+<td><code>src/eca/llm_api.clj</code></td>
+<td>Public façade used by features to call an LLM.</td>
+</tr>
+<tr>
+<td><code>src/eca/llm_providers/</code></td>
+<td>Vendor adapters (<code>openai.clj</code>, <code>anthropic.clj</code>, <code>ollama.clj</code>).</td>
+</tr>
+<tr>
+<td><code>src/eca/llm_util.clj</code></td>
+<td>Token counting, chunking, rate-limit helpers.</td>
+</tr>
+<tr>
+<td><code>src/eca/features/</code></td>
+<td><strong>High-level capabilities exposed to the editor</strong></td>
+</tr>
+<tr>
+<td>├─ <code>chat.clj</code></td>
+<td>Streaming chat orchestration &amp; tool-call pipeline.</td>
+</tr>
+<tr>
+<td>├─ <code>prompt.clj</code></td>
+<td>Prompt templates and variable interpolation.</td>
+</tr>
+<tr>
+<td>├─ <code>index.clj</code></td>
+<td>Embedding &amp; retrieval-augmented generation helpers.</td>
+</tr>
+<tr>
+<td>├─ <code>rules.clj</code></td>
+<td>Guards that enforce user-defined project rules.</td>
+</tr>
+<tr>
+<td>├─ <code>tools.clj</code></td>
+<td>Registry of built-in tool descriptors (run, approve…).</td>
+</tr>
+<tr>
+<td>└─ <code>tools/</code></td>
+<td>Implementation of side-effectful tools:</td>
+</tr>
+<tr>
+<td>• <code>filesystem.clj</code></td>
+<td>read/write/edit helpers </td>
+</tr>
+<tr>
+<td>• <code>shell.clj</code></td>
+<td>runs user-approved shell commands </td>
+</tr>
+<tr>
+<td>• <code>mcp.clj</code></td>
+<td>Multi-Command Plan supervisor </td>
+</tr>
+<tr>
+<td>• <code>util.clj</code></td>
+<td>misc helpers shared by tools.</td>
+</tr>
+<tr>
+<td><code>src/eca/messenger.clj</code></td>
+<td>To send back to client requests/notifications over stdio.</td>
+</tr>
+<tr>
+<td><code>src/eca/handlers.clj</code></td>
+<td>Entrypoint for all features.</td>
+</tr>
+<tr>
+<td><code>src/eca/server.clj</code></td>
+<td>stdio <strong>entry point</strong>; wires everything together via <code>lsp4clj</code>.</td>
+</tr>
+<tr>
+<td><code>src/eca/main.clj</code></td>
+<td>The CLI interface.</td>
+</tr>
+<tr>
+<td><code>src/eca/nrepl.clj</code></td>
+<td>Starts an nREPL when <code>:debug</code> flag is passed.</td>
+</tr>
+</tbody>
+</table>
+<p>Together these files implement the request flow: 
+<code>client/editor</code> → <code>stdin JSON-RPC</code> → <code>handlers</code> → <code>features</code> → <code>llm_api</code> → <code>llm_provider</code> → results streamed back.</p>
+<p>With this map you can usually answer:
+• <em>“Where does request X enter the system?”</em> – look in <code>handlers.clj</code>.
+• <em>“How is tool Y executed?”</em> – see <code>src/eca/features/tools/&lt;y&gt;.clj</code>.
+• <em>“How do we talk to provider Z?”</em> – adapter under <code>llm_providers/</code>.</p>
+<h3 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">#</a></h3>
+<p>Run with <code>bb test</code> or run test via Clojure REPL. CI will run the same task.</p>
 <h2 id="coding">Coding<a class="headerlink" href="#coding" title="Permanent link">#</a></h2>
 <p>There are several ways of finding and fixing a bug or implementing a new feature:</p>
 <ul>
@@ -741,7 +932,8 @@
 <span class="w">  </span><span class="k">- [ ]</span> Receive MCP server updates and update chat and mcp-details ux.
 <span class="k">- [ ]</span> Basic plugin/extension documentation
 </code></pre></div>
-<p>Create a issue to help track the effort copying and pasting these check box to help track progress.</p>
+<p>Create a issue to help track the effort copying and pasting these check box to help track progress, <a href="https://github.com/editor-code-assistant/eca/issues/5">example</a>.</p>
+<p>Please provide feedback of the dificulties implementing your server, especially missing docs, to make next integrations smoother!</p>
 
 
 
@@ -762,7 +954,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 2, 2025 00:40:55">August 2, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 2, 2025 01:05:16">August 2, 2025</span>
   </span>
 
     
