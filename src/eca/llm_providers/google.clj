@@ -20,6 +20,40 @@
               gemini-url)
           path))
 
+;; TODO: this is not 100% correct, just a sketch
+(defn ->request+auth [{:keys [;; gemini API:
+                              gemini-api-key
+                              ;; vertex + api key
+                              google-api-key
+
+                              ;; vertex + ADC
+                              google-project-id
+                              google-project-location
+                              ;; optional, we will try to look in GOOGLE_APPLICATION_CREDENTIALS env var
+                              application-default-credentials]}]
+
+  (cond
+    gemini-api-key
+    {:auth-type :gemini-api
+     :url (str gemini-url responses-path)
+     :auth-headers {"x-goog-api-key" gemini-api-key}}
+
+    google-api-key
+    {:auth-type :vertex-api-key
+     :url "some.google.url"
+     :headers {"x-goog-api-key" google-api-key}}
+
+    (and google-project-id google-project-location)
+    {:auth-type :vertex-adc
+     :url (str "https://"
+               google-project-location
+               "-aiplatform.googleapis.com/v1/projects/"
+               google-project-id
+               "/locations/"
+               google-project-location
+               "/publishers/google/models/$model:streamGenerateContent?alt=sse")
+     :headers {"Authorization" (str "Bearer " (or application-default-credentials
+                                                  (System/getenv "GOOGLE_APPLICATION_CREDENTIALS")))}}))
 
 (defn ^:private base-completion-request! [{:keys [rid body api-key on-error on-response]}]
   (let [api-key (or api-key
@@ -30,6 +64,7 @@
                                      (:instructions body)
                                      (:tools body)
                                      url))
+    ;; TODO: use ->request+auth to get the right URL and headers
     (http/post
      url
      {:headers {"x-goog-api-key" (str api-key)

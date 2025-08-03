@@ -52,7 +52,24 @@
                                        :input-token-cost (/ 0.8 one-million)
                                        :input-cache-creation-token-cost (/ 1.0 one-million)
                                        :input-cache-read-token-cost (/ 0.08 one-million)
-                                       :output-token-cost (/ 4.0 one-million)}} ;; + ollama local models + custom provider models
+                                       :output-token-cost (/ 4.0 one-million)}
+
+            ;; TODO: finalize these!
+            "gemini-2.5-pro" {:tools true
+                              :web-search true
+                              :reason? true
+                              :max-output-tokens 32000
+                              :input-token-cost (/ 1.0 one-million)
+                              :output-token-cost (/ 4.0 one-million)}
+            "gemini-2.5-flash" {:tools true
+                                :web-search true
+                                :reason? false
+                                :max-output-tokens 32000
+                                :input-token-cost (/ 1.0 one-million)
+                                :output-token-cost (/ 4.0 one-million)}
+
+            ;; + ollama local models + custom provider models
+            }
    :mcp-clients {}})
 
 (defonce db* (atom initial-db))

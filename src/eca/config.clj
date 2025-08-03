@@ -16,8 +16,26 @@
 (set! *warn-on-reflection* true)
 
 (def initial-config
-  {:openaiApiKey nil
+  {;; LLM providers authentication configuration
+   :openaiApiKey nil
+
    :anthropicApiKey nil
+
+   ;; Gemini can be authenticated using different methods - setting only one of them is enough
+   ;; but will depend on the provider configuration, IAM and other bits outof the scope of this project.
+   ;; api key for Gemini API
+   :geminiApiKey nil
+
+   ;; Vertex AI with API key:
+   :googleApiKey nil
+
+   ;; Google Cloud ADC + Vertex and requires injection of applicaton credentials
+   ;; obtained via `gcloud auth application-default login`
+   :googleProjectId nil
+   :googleProjectLocation nil
+   :googleApplicationCredentials nil
+
+   ;; all other settings
    :rules []
    :nativeTools {:filesystem {:enabled true}
                  :shell {:enabled true
