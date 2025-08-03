@@ -26,14 +26,22 @@
    ;; api key for Gemini API
    :geminiApiKey nil
 
-   ;; Vertex AI with API key:
-   :googleApiKey nil
-
-   ;; Google Cloud ADC + Vertex and requires injection of applicaton credentials
-   ;; obtained via `gcloud auth application-default login`
-   :googleProjectId nil
+   ;; Vertex AI:
    :googleProjectLocation nil
    :googleApplicationCredentials nil
+   ;; auth with  API key:
+   :googleApiKey nil
+   ;; or Google Cloud ADC + Vertex and requires injection of applicaton credentials
+   ;; obtained via `gcloud auth application-default login`
+   :googleProjectId nil
+
+   ;; Ollama API
+   :ollama {:host "http://localhost"
+            :port 11434
+            :useTools true
+            :think true}
+
+   :customProviders {}
 
    ;; all other settings
    :rules []
@@ -43,12 +51,9 @@
    :disabledTools []
    :mcpTimeoutSeconds 60
    :mcpServers {}
-   :ollama {:host "http://localhost"
-            :port 11434
-            :useTools true
-            :think true}
+
    :chat {:welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
-   :customProviders {}
+
    :index {:ignoreFiles [{:type :gitignore}]}})
 
 (defn get-env [env] (System/getenv env))
