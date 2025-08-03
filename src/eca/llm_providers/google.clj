@@ -40,6 +40,9 @@
     {:auth-type :vertex-adc
      :url (gemini-vertex-url {:project google-project-id
                               :location google-project-location})
+     ;; TODO if nethier google-api-key nor application-default-credentials are provided, we could try reading in
+     ;; ~/.config/gcloud/application_default_credentials.json
+     ;; and if that fails, then we should throw an error
      :headers {"Authorization" (str "Bearer " (or google-api-key
                                                   application-default-credentials))}}))
 
