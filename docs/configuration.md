@@ -103,6 +103,87 @@ For MCP servers configuration, use the `mcpServers` config, example:
 }
 ```
 
+## Google Gemini
+
+ECA supports Google's Gemini models through two main APIs: the **Gemini Developer API** and the **Vertex AI API**. Each has distinct configuration and authentication methods. Configuration keys are set at the root of the config file.
+
+### Gemini Developer API (API Key)
+
+This is the simplest way to get started. It uses an API key from Google AI Studio.
+
+-   **Authentication:** API Key
+-   **Endpoint:** `https://generativelanguage.googleapis.com/v1beta/`
+-   **Configuration:**
+
+    ```json
+    {
+      "geminiApiKey": "YOUR_GEMINI_API_KEY"
+    }
+    ```
+
+    Alternatively, you can set the `GEMINI_API_KEY` environment variable.
+
+### Vertex AI (API Key)
+
+For projects integrated with Google Cloud Platform (GCP), you can use an API key associated with your GCP project.
+
+-   **Authentication:** API Key (from GCP)
+-   **Endpoint:** `https://<LOCATION>-aiplatform.googleapis.com/v1/`
+-   **Configuration:**
+
+    ```json
+    {
+      "googleApiKey": "YOUR_GCP_API_KEY",
+      "googleProjectId": "your-gcp-project-id",
+      "googleProjectLocation": "your-gcp-region"
+    }
+    ```
+    You can also use the `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, and `GOOGLE_PROJECT_LOCATION` environment variables.
+
+### Vertex AI (Application Default Credentials - ADC)
+
+For a more secure and flexible setup, you can use Application Default Credentials (ADC). This method is used when no `googleApiKey` is provided.
+
+There are two common ways to provide these credentials:
+
+1.  **User ADC (for local development):**
+    Authenticate with the `gcloud` CLI. ECA will automatically pick up the credentials.
+    ```bash
+    gcloud auth application-default login
+    ```
+
+2.  **Service Account ADC (for automated environments):**
+    Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the absolute path of your service account JSON file.
+    ```bash
+    export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-file.json"
+    ```
+    Alternatively, you can set this path in your configuration file:
+    ```json
+    {
+      "googleApplicationCredentials": "/path/to/your/service-account-file.json"
+    }
+    ```
+
+In all ADC scenarios, you still need to provide the project ID and location:
+
+```json
+{
+  "googleProjectId": "your-gcp-project-id",
+  "googleProjectLocation": "your-gcp-region"
+}
+```
+You can also set the `GOOGLE_PROJECT_ID` and `GOOGLE_PROJECT_LOCATION` environment variables.
+
+**Summary of Configuration Options:**
+
+| Key                              | Environment Variable                 | Description                                                                  | Required For                               |
+| -------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------ |
+| `geminiApiKey`                   | `GEMINI_API_KEY`                     | API key for the Gemini Developer API.                                        | Gemini Developer API                       |
+| `googleApiKey`                   | `GOOGLE_API_KEY`                     | API key for Vertex AI. If not provided, ADC will be used.                    | Vertex AI (API Key)                        |
+| `googleProjectId`                | `GOOGLE_PROJECT_ID`                  | Your Google Cloud project ID.                                                | Vertex AI (API Key), Vertex AI (ADC)       |
+| `googleProjectLocation`          | `GOOGLE_PROJECT_LOCATION`            | The GCP region for your project (e.g., `us-central1`).                       | Vertex AI (API Key), Vertex AI (ADC)       |
+| `googleApplicationCredentials`   | `GOOGLE_APPLICATION_CREDENTIALS`     | Path to a service account JSON file for ADC.                                 | Vertex AI (ADC)                            |
+
 ## Custom LLM providers
 
 It's possible to configure ECA to be aware of custom LLM providers if they follow a API schema similar to currently supported ones (openai, anthropic), example for a custom hosted litellm server:
@@ -131,6 +212,11 @@ With that, ECA will include in the known models something like: `my-company/gpt-
 interface Config {
     openaiApiKey?: string;
     anthropicApiKey?: string;
+    geminiApiKey?: string;
+    googleApiKey?: string;
+    googleProjectId?: string;
+    googleProjectLocation?: string;
+    googleApplicationCredentials?: string;
     rules: [{path: string;}];
     nativeTools: {
         filesystem: {enabled: boolean};
@@ -179,6 +265,11 @@ interface Config {
 {
   "openaiApiKey" : null,
   "anthropicApiKey" : null,
+  "geminiApiKey": null,
+  "googleApiKey": null,
+  "googleProjectId": null,
+  "googleProjectLocation": null,
+  "googleApplicationCredentials": null,
   "rules" : [],
   "nativeTools": {"filesystem": {"enabled": true},
                   "shell": {"enabled": true, 
@@ -200,9 +291,10 @@ interface Config {
     "welcomeMessage" : "Welcome to ECA! What you have in mind?\n\n"
   },
   "index" : {
-    "ignoreFiles" : [ {
+    "ignoreFiles" : [ { 
       "type" : "gitignore"
     } ]
   }
 }
 ```
+

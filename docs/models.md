@@ -7,6 +7,7 @@
 | OpenAI    | √           | √           | X                   | X              | √          |
 | Anthropic | √           | √           | X                   | √              | √          |
 | Ollama    | √           | √           | X                   | X              | X          |
+| Google    | √           | √           | √                   | √              | √          |
 
 ### OpenAI
 
