@@ -47,8 +47,9 @@ Install the plugin for your editor and ECA server will be downloaded and started
 
 - [Emacs](https://github.com/editor-code-assistant/eca-emacs)
 - [VsCode](https://github.com/editor-code-assistant/eca-vscode)
+- [Vim](https://github.com/editor-code-assistant/eca-nvim)
 - Intellij: Planned, help welcome
-- Vim: Planned, help welcome
+
 
 ## How it works
 

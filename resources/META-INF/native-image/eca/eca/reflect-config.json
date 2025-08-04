@@ -6,16 +6,31 @@
     },
     {
         "name": "io.modelcontextprotocol.spec.McpSchema$ClientCapabilities",
+        "allDeclaredConstructors":true,
+        "allDeclaredFields":true,
+        "allDeclaredMethods":true
+    },
+    {
+        "name": "io.modelcontextprotocol.spec.McpSchema$ClientCapabilities$Elicitation",
+        "allDeclaredConstructors":true,
         "allDeclaredFields":true,
         "allDeclaredMethods":true
     },
     {
         "name": "io.modelcontextprotocol.spec.McpSchema$ClientCapabilities$RootCapabilities",
+        "allDeclaredConstructors":true,
         "allDeclaredFields":true,
         "allDeclaredMethods":true
     },
     {
         "name": "io.modelcontextprotocol.spec.McpSchema$ClientCapabilities$RootCapabilities",
+        "allDeclaredConstructors":true,
+        "allDeclaredFields":true,
+        "allDeclaredMethods":true
+    },
+    {
+        "name": "io.modelcontextprotocol.spec.McpSchema$ClientCapabilities$Sampling",
+        "allDeclaredConstructors":true,
         "allDeclaredFields":true,
         "allDeclaredMethods":true
     },
@@ -27,6 +42,7 @@
     },
     {
         "name": "io.modelcontextprotocol.spec.McpSchema$InitializeRequest",
+        "allDeclaredConstructors":true,
         "allDeclaredFields":true,
         "allDeclaredMethods":true
     },
@@ -98,6 +114,7 @@
     },
     {
         "name":"io.modelcontextprotocol.spec.McpSchema$PaginatedRequest",
+        "allDeclaredConstructors":true,
         "allDeclaredFields":true,
         "allDeclaredMethods":true
     },
@@ -121,6 +138,7 @@
     },
     {
         "name":"io.modelcontextprotocol.spec.McpSchema$Role",
+        "allDeclaredConstructors":true,
         "allDeclaredFields":true
     },
     {
