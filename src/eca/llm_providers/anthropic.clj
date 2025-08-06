@@ -3,10 +3,12 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.llm-providers.auth :as llm-providers.auth]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :as shared :refer [assoc-some]]
-   [hato.client :as http]))
+   [hato.client :as http]
+   [ring.util.codec :as ring.util]))
 
 (set! *warn-on-reflection* true)
 
@@ -191,3 +193,67 @@
       :content-block* (atom nil)
       :on-error on-error
       :on-response on-response-fn})))
+
+(def client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+
+(defn authorization-oauth [mode]
+  (let [url (str (if (= :console mode) "https://console.anthropic.com" "https://claude.ai") "/oauth/authorize")
+        {:keys [challenge verifier]} (llm-providers.auth/generate-pkce)]
+    {:verifier verifier
+     :url (str url "?" (ring.util/form-encode {:code true
+                                               :client_id client-id
+                                               :response_type "code"
+                                               :redirect_uri "https://console.anthropic.com/oauth/code/callback"
+                                               :scope "org:create_api_key user:inference user:profile"
+                                               :code_challenge challenge
+                                               :code_challenge_method "S256"
+                                               :state verifier}))}))
+
+(defn exchange [code verifier]
+  (let [[code state] (string/split code #"#")
+        url "https://console.anthropic.com/v1/oauth/token"
+        body {:grant_type "authorization_code"
+              :code code
+              :state state
+              :client_id client-id
+              :redirect_uri "https://console.anthropic.com/oauth/code/callback"
+              :code_verifier verifier}
+        {:keys [status body]} (http/post
+                               url
+                               {:headers {"Content-Type" "application/json"}
+                                :body (json/generate-string body)
+                                :as :json})]
+    (if (= 200 status)
+      {:refresh-token (:refresh_token body)
+       :access-token (:access_token body)
+       :expires (+ (System/currentTimeMillis) (* 1000 (:expires_in body)))}
+      (throw (ex-info (format "Anthropic token exchange failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+(defn create-api-key [access-token]
+  (let [url "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
+        {:keys [status body]} (http/post
+                               url
+                               {:headers {"Authorization" (str "Bearer " access-token)
+                                          "Content-Type" "application/x-www-form-urlencoded"
+                                          "Accept" "application/json, text/plain, */*"}
+                                :as :json})]
+    (if (= 200 status)
+      (let [raw-key (:raw_key body)]
+        (when-not (string/blank? raw-key)
+          raw-key))
+      (throw (ex-info (format "Anthropic create API token failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+(comment
+  (def a (authorization-oauth :console))
+  (:verifier a)
+  (:url a)
+
+  (def credentials (exchange "<paste-code-here>" (:verifier a)))
+
+  (:access-token credentials)
+
+  (def api-key (create-api-key (:access-token credentials))))

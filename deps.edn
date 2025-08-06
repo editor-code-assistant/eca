@@ -7,6 +7,7 @@
         borkdude/dynaload {:mvn/version "0.3.5"}
         babashka/fs {:mvn/version "0.5.26"}
         hato/hato {:mvn/version "1.0.0"}
+        ring/ring-codec {:mvn/version "1.3.0"}
         org.slf4j/slf4j-simple {:mvn/version "2.0.17"}
         com.googlecode.java-diff-utils/diffutils {:mvn/version "1.3.0"}
         cheshire/cheshire {:mvn/version "6.0.0"}}
