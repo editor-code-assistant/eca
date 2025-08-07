@@ -559,6 +559,48 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#custom-command-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom command prompts
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom command prompts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-custom-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local custom commands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#global-custom-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Global custom commands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Config
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#all-configs" class="md-nav__link">
     <span class="md-ellipsis">
       All configs
@@ -902,6 +944,48 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#custom-command-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom command prompts
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom command prompts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-custom-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local custom commands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#global-custom-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Global custom commands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Config
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#all-configs" class="md-nav__link">
     <span class="md-ellipsis">
       All configs
@@ -1038,12 +1122,32 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
 <span class="p">}</span>
 </code></pre></div>
 <p>With that, ECA will include in the known models something like: <code>my-company/gpt-4.1</code>, <code>my-company/deepseek-r1</code>.</p>
+<h2 id="custom-command-prompts">Custom command prompts<a class="headerlink" href="#custom-command-prompts" title="Permanent link">#</a></h2>
+<p>You can configure custom command prompts for project, global or via <code>commands</code> config pointing to the path of the commands.
+Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG2</code>, to replace in the prompt during command call.</p>
+<h3 id="local-custom-commands">Local custom commands<a class="headerlink" href="#local-custom-commands" title="Permanent link">#</a></h3>
+<p>A <code>.eca/commands</code> folder from the workspace root containing <code>.md</code> files with the custom prompt.</p>
+<p><code>.eca/commands/check-performance.md</code>
+<div class="highlight"><pre><span></span><code>Check for performance issues in $ARG1 and optimize if needed.
+</code></pre></div></p>
+<h3 id="global-custom-commands">Global custom commands<a class="headerlink" href="#global-custom-commands" title="Permanent link">#</a></h3>
+<p>A <code>$XDG_CONFIG_HOME/eca/commands</code> or <code>~/.config/eca/commands</code> folder containing <code>.md</code> files with the custom command prompt.</p>
+<p><code>~/.config/eca/commands/check-performance.mdc</code>
+<div class="highlight"><pre><span></span><code>Check for performance issues in $ARG1 and optimize if needed.
+</code></pre></div></p>
+<h3 id="config_1">Config<a class="headerlink" href="#config_1" title="Permanent link">#</a></h3>
+<p>Just add to your config the <code>commands</code> pointing to <code>.md</code> files that will be searched from the workspace root if not an absolute path:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;commands&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-custom-prompt.md&quot;</span><span class="p">}]</span>
+<span class="p">}</span>
+</code></pre></div>
 <h2 id="all-configs">All configs<a class="headerlink" href="#all-configs" title="Permanent link">#</a></h2>
 <h3 id="schema">Schema<a class="headerlink" href="#schema" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">Config</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">openaiApiKey?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">    </span><span class="nx">anthropicApiKey?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">    </span><span class="nx">rules</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;}];</span>
+<span class="w">    </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;}];</span>
 <span class="w">    </span><span class="nx">systemPromptTemplate?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">    </span><span class="nx">nativeTools</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">filesystem</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">enabled</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">};</span>
@@ -1090,6 +1194,7 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
 <span class="w">  </span><span class="s2">&quot;openaiApiKey&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;anthropicApiKey&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="s2">&quot;commands&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
 <span class="w">  </span><span class="s2">&quot;nativeTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;filesystem&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
 <span class="w">                  </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span>
 <span class="w">                            </span><span class="s2">&quot;excludeCommands&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[]}},</span>
@@ -1136,7 +1241,7 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 7, 2025 20:14:49">August 7, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 7, 2025 20:49:18">August 7, 2025</span>
   </span>
 
     
