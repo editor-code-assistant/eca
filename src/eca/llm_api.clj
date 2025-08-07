@@ -211,7 +211,6 @@
             provider-fn (case (:api provider-config)
                           "openai" llm-providers.openai/completion!
                           "anthropic" llm-providers.anthropic/completion!
-                          "gemini" llm-providers.google/completion!
                           (on-error-wrapper {:msg (format "Unknown custom model %s for provider %s" (:api provider-config) provider)}))
             url (or (:url provider-config) (config/get-env (:urlEnv provider-config)))
             key (or (:key provider-config) (config/get-env (:keyEnv provider-config)))]
