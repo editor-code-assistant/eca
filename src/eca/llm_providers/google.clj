@@ -1,5 +1,6 @@
 (ns eca.llm-providers.google
   (:require
+   [babashka.fs :as fs]
    [cheshire.core :as json]
    [clojure.string :as str]
    [clojure.java.io :as io]
@@ -18,6 +19,31 @@
   (format "https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/$model:streamGenerateContent?alt=sse"
           location project location))
 
+(defn refresh-access-token []
+  (if-let [adc-path (or
+                     (System/getenv "GOOGLE_APPLICATION_CREDENTIALS")
+                     (let [adc-path (fs/expand-home "~/.config/gcloud/application_default_credentials.json")]
+                       (when (fs/exists? adc-path)
+                         (str adc-path))))]
+
+    (let [{:keys [client_id client_secret refresh_token]} (json/parse-string
+                                                           (slurp adc-path)
+                                                           true)]
+
+      (-> (http/post "https://oauth2.googleapis.com/token"
+                     {:form-params {:client_id client_id
+                                    :client_secret client_secret
+                                    :refresh_token refresh_token
+                                    :grant_type "refresh_token"}
+                      :as :json
+                      :headers {"Content-Type" "application/x-www-form-urlencoded"}})
+          :body
+          :access_token))
+
+    (logger/error logger-tag
+                  (str "No GOOGLE_APPLICATION_CREDENTIALS env var or ~/.config/gcloud/application_default_credentials.json file found. "
+                       "Please run 'gcloud auth application-default login' to set up application default credentials."))))
+
 ;; TODO: this is not 100% correct, just a sketch
 (defn ->request+auth [{:keys [;; gemini API:
                               gemini-api-key
@@ -26,9 +52,8 @@
                               google-project-location
                               ;; w/ api key
                               google-api-key
-                              ;; w/ ADC
-                              ;; optional, we will try to look in GOOGLE_APPLICATION_CREDENTIALS env var
-                              application-default-credentials]}]
+                              ;; w/ ADC - we will get the token ourselves
+                              ]}]
 
   (cond
     gemini-api-key
@@ -40,18 +65,17 @@
     {:auth-type :vertex-adc
      :url (gemini-vertex-url {:project google-project-id
                               :location google-project-location})
-     ;; TODO if nethier google-api-key nor application-default-credentials are provided, we could try reading in
-     ;; ~/.config/gcloud/application_default_credentials.json
-     ;; and if that fails, then we should throw an error
+
+     ;; TODO: blow up when either are nil!
      :headers {"Authorization" (str "Bearer " (or google-api-key
-                                                  application-default-credentials))}}))
+                                                  (refresh-access-token)))}}))
 
 (defn ^:private base-completion-request! [{:keys [rid
                                                   body
 
                                                   gemini-api-key
+
                                                   google-api-key
-                                                  application-default-credentials
                                                   google-project-id
                                                   google-project-location
 
@@ -60,10 +84,10 @@
   (let [{:keys [url headers]} (->request+auth
                                {:gemini-api-key gemini-api-key
                                 :google-api-key google-api-key
-                                :application-default-credentials application-default-credentials
                                 :google-project-id google-project-id
-                                :google-project-location google-project-location})]
+                                :google-project-location google-project-location})
 
+        url (str/replace url "$model" (:model body))]
     (logger/debug logger-tag (format "Sending input: '%s' instructions: '%s' tools: '%s' url: '%s'"
                                      (:input body)
                                      (:instructions body)
