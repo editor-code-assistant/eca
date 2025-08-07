@@ -15,8 +15,7 @@
 (def base-url "https://api.openai.com")
 
 (defn ^:private base-completion-request! [{:keys [rid body api-url api-key on-error on-response]}]
-  (let [url (str api-url responses-path)
-        reason-id (str (random-uuid))]
+  (let [url (str api-url responses-path)]
     (llm-util/log-request logger-tag rid url body)
     (http/post
      url
@@ -35,7 +34,7 @@
            (with-open [rdr (io/reader body)]
              (doseq [[event data] (llm-util/event-data-seq rdr)]
                (llm-util/log-response logger-tag rid event data)
-               (on-response event data reason-id))))
+               (on-response event data))))
          (catch Exception e
            (on-error {:exception e}))))
      (fn [e]
@@ -52,6 +51,7 @@
             {:type "function_call_output"
              :call_id (:id content)
              :output (llm-util/stringfy-tool-result content)}
+            ;; TODO include reason blocks
             "reason" nil
             (update msg :content (fn [c]
                                    (if (string? c)
@@ -63,10 +63,9 @@
                                               %) c))))))
         past-messages))
 
-(defn completion! [{:keys [model user-messages instructions temperature api-key api-url
-                           max-output-tokens past-messages tools web-search]
-                    :or {temperature 1.0}}
-                   {:keys [on-message-received on-error on-prepare-tool-call on-tool-called on-reason]}]
+(defn completion! [{:keys [model user-messages instructions reason? temperature api-key api-url
+                           max-output-tokens past-messages tools web-search]}
+                   {:keys [on-message-received on-error on-prepare-tool-call on-tool-called on-reason on-usage-updated]}]
   (let [input (concat (normalize-messages past-messages)
                       (normalize-messages user-messages))
         tools (cond-> tools
@@ -77,13 +76,17 @@
               ;; TODO support parallel
               :parallel_tool_calls false
               :instructions instructions
+              ;; TODO allow user specify custom temperature (default 1.0)
               :temperature temperature
               :tools tools
+              :reasoning (when reason?
+                           {:effort "medium"
+                            :summary "detailed"})
               :stream true
               :max_output_tokens max-output-tokens}
         mcp-call-by-item-id* (atom {})
         on-response-fn
-        (fn handle-response [event data reason-id]
+        (fn handle-response [event data]
           (case event
             ;; text
             "response.output_text.delta"
@@ -112,7 +115,8 @@
                                   :on-response handle-response})
                                 (swap! mcp-call-by-item-id* dissoc (-> data :item :id)))
               "reasoning" (on-reason {:status :finished
-                                      :id reason-id})
+                                      :id (-> data :item :id)
+                                      :external-id (-> data :item :id)})
               nil)
 
             ;; URL mentioned
@@ -125,10 +129,15 @@
               nil)
 
             ;; reasoning / tools
+            "response.reasoning_summary_text.delta"
+            (on-reason {:status :thinking
+                        :id (:item_id data)
+                        :text (:delta data)})
+
             "response.output_item.added"
             (case (-> data :item :type)
               "reasoning" (on-reason {:status :started
-                                      :id reason-id})
+                                      :id (-> data :item :id)})
               "function_call" (let [call-id (-> data :item :call_id)
                                     item-id (-> data :item :id)
                                     name (-> data :item :name)]
@@ -140,11 +149,13 @@
 
             ;; done
             "response.completed"
-            (when-not (= "function_call" (-> data :response :output last :type))
-              (on-message-received {:type :finish
-                                    :usage {:input-tokens (-> data :response :usage :input_tokens)
-                                            :output-tokens (-> data :response :usage :output_tokens)}
-                                    :finish-reason (-> data :response :status)}))
+            (do
+              (on-usage-updated {:input-tokens (-> data :response :usage :input_tokens)
+                                 :output-tokens (-> data :response :usage :output_tokens)})
+              (when-not (= "function_call" (-> data :response :output last :type))
+                (on-message-received {:type :finish
+
+                                      :finish-reason (-> data :response :status)})))
             nil))]
     (base-completion-request!
      {:rid (llm-util/gen-rid)

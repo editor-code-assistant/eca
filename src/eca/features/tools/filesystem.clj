@@ -17,7 +17,7 @@
   [["path" fs/exists? "$path is not a valid path"]
    ["path" (partial allowed-path? db) (str "Access denied - path $path outside allowed directories: " (tools.util/workspace-roots-strs db))]])
 
-(defn ^:private list-directory [arguments {:keys [db]}]
+(defn ^:private directory-tree [arguments {:keys [db]}]
   (let [path (delay (fs/canonicalize (get arguments "path")))]
     (or (tools.util/invalid-arguments arguments (path-validations db))
         (tools.util/single-text-content
@@ -34,7 +34,8 @@
 
 (defn ^:private read-file [arguments {:keys [db]}]
   (or (tools.util/invalid-arguments arguments (concat (path-validations db)
-                                                      [["path" fs/readable? "File $path is not readable"]]))
+                                                      [["path" fs/readable? "File $path is not readable"]
+                                                       ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
       (let [line-offset (get arguments "line_offset")
             limit (or (get arguments "limit") read-file-max-lines)
             content (cond-> (slurp (fs/file (fs/canonicalize (get arguments "path"))))
@@ -53,23 +54,6 @@
         (fs/create-dirs (fs/parent (fs/path path)))
         (spit path content)
         (tools.util/single-text-content (format "Successfully wrote to %s" path)))))
-
-(defn ^:private search-files [arguments {:keys [db]}]
-  (or (tools.util/invalid-arguments arguments (concat (path-validations db)
-                                                      [["pattern" #(not (string/blank? %)) "Invalid glob pattern '$pattern'"]]))
-      (let [pattern (get arguments "pattern")
-            pattern (if (string/includes? pattern "*")
-                      pattern
-                      (format "**%s**" pattern))
-            paths (reduce
-                   (fn [paths {:keys [uri]}]
-                     (concat paths (fs/glob (shared/uri->filename uri)
-                                            pattern)))
-                   []
-                   (:workspace-folders db))]
-        (if (seq paths)
-          (tools.util/single-text-content (string/join "\n" paths))
-          (tools.util/single-text-content "No matches found" :error)))))
 
 (defn ^:private run-ripgrep [path pattern include]
   (let [cmd (cond-> ["rg" "--files-with-matches" "--no-heading"]
@@ -163,19 +147,25 @@
           (tools.util/single-text-content (string/join "\n" paths))
           (tools.util/single-text-content "No files found for given pattern" :error)))))
 
-(defn ^:private replace-in-file [arguments {:keys [db]}]
+(defn file-change-full-content [path original-content new-content all?]
+  (let [original-full-content (slurp path)
+        new-full-content (if all?
+                           (string/replace original-full-content original-content new-content)
+                           (string/replace-first original-full-content original-content new-content))]
+    (when (string/includes? original-full-content original-content)
+      {:original-full-content original-full-content
+       :new-full-content new-full-content})))
+
+(defn ^:private edit-file [arguments {:keys [db]}]
   (or (tools.util/invalid-arguments arguments (concat (path-validations db)
                                                       [["path" fs/readable? "File $path is not readable"]]))
       (let [path (get arguments "path")
             original-content (get arguments "original_content")
             new-content (get arguments "new_content")
-            all? (boolean (get arguments "all_occurrences"))
-            content (slurp path)]
-        (if (string/includes? content original-content)
-          (let [content (if all?
-                          (string/replace content original-content new-content)
-                          (string/replace-first content original-content new-content))]
-            (spit path content)
+            all? (boolean (get arguments "all_occurrences"))]
+        (if-let [{:keys [new-full-content]} (file-change-full-content path original-content new-content all?)]
+          (do
+            (spit path new-full-content)
             (tools.util/single-text-content (format "Successfully replaced content in %s." path)))
           (tools.util/single-text-content (format "Original content not found in %s" path) :error)))))
 
@@ -191,23 +181,25 @@
           (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))))))
 
 (def definitions
-  {"eca_list_directory"
-   {:description (str "Get a detailed listing of all files and directories in a specified path. "
-                      "Results clearly distinguish between files and directories with [FILE] and [DIR] "
-                      "prefixes. This tool is essential for understanding directory structure and "
-                      "finding specific files within a directory."
+  {"eca_directory_tree"
+   {:description (str "Returns a recursive tree view of files and directories starting from the specified path. "
+                      "The path parameter must be an absolute path, not a relative path. "
                       "**Only works within the directories: $workspaceRoots.**")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
-                                      :description "The absolute path to the directory to list."}}
+                                      :description "The absolute path to the directory."}
+                              "max_depth" {:type "integer"
+                                           :description "Maximum depth to traverse (optional)"}
+                              "limit" {:type "integer"
+                                       :description "Maxium number of entries to show (default: 100)"}}
                  :required ["path"]}
-    :handler #'list-directory}
+    :handler #'directory-tree}
    "eca_read_file"
-   {:description (str "Read the complete contents of a file from the file system. "
-                      "Handles various text encodings and provides detailed error messages "
-                      "if the file cannot be read. Use this tool when you need to examine "
+   {:description (str "Read the contents of a file from the file system. "
+                      "Use this tool when you need to examine "
                       "the contents of a single file. Optionally use the 'line_offset' and/or 'limit' "
-                      "parameters to read specific contents of the file when you know the lines."
+                      "parameters to read specific contents of the file when you know the range. "
+                      "Prefer call once this tool over multiple calls passing small offsets. "
                       "**Only works within the directories: $workspaceRoots.**")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
@@ -220,16 +212,35 @@
     :handler #'read-file}
    "eca_write_file"
    {:description (str "Create a new file or completely overwrite an existing file with new content. "
-                      "Use with caution as it will overwrite existing files without warning. "
-                      "Handles text content with proper encoding. "
+                      "This tool will automatically create any necessary parent directories if they don't exist. "
+                      "Use this tool when you want to create a new file from scratch or completely replace "
+                      "the entire content of an existing file. For partial edits or content replacement within "
+                      "existing files, use eca_edit_file instead. "
                       "**Only works within the directories: $workspaceRoots.**")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
-                                      :description "The absolute path to the new file"}
+                                      :description "The absolute path to the file to create or overwrite"}
                               "content" {:type "string"
-                                         :description "The content of the new file"}}
+                                         :description "The complete content to write to the file"}}
                  :required ["path" "content"]}
     :handler #'write-file}
+   "eca_edit_file"
+   {:description  (str "Replace a specific string or content block in a file with new content. "
+                       "Finds the exact original content and replaces it with new content. "
+                       "Be extra careful to format the original-content exactly correctly, "
+                       "taking extra care with whitespace and newlines. In addition to replacing strings, "
+                       "this can also be used to prepend, append, or delete contents from a file.")
+    :parameters  {:type "object"
+                  :properties {"path" {:type "string"
+                                       :description "The absolute file path to do the replace."}
+                               "original_content" {:type "string"
+                                                   :description "The exact content to find and replace"}
+                               "new_content" {:type "string"
+                                              :description "The new content to replace the original content with"}
+                               "all_occurrences" {:type "boolean"
+                                                  :description "Whether to replace all occurences of the file or just the first one (default)"}}
+                  :required ["path" "original_content" "new_content"]}
+    :handler #'edit-file}
    "eca_move_file"
    {:description (str "Move or rename files and directories. Can move files between directories "
                       "and rename them in a single operation. If the destination exists, the "
@@ -243,20 +254,6 @@
                                               :description "The new absolute file path to move to."}}
                   :required ["source" "destination"]}
     :handler #'move-file}
-   "eca_search_files"
-   {:description (str "Recursively search for files and directories matching a pattern. "
-                      "Searches through all subdirectories from the starting path. The search "
-                      "is case-insensitive and matches partial names following java's FileSystem#getPathMatcher. Returns full paths to all "
-                      "matching items. Great for finding files when you don't know their exact location. "
-                      "**Only works within the directories: $workspaceRoots.**")
-    :parameters {:type "object"
-                 :properties {"path" {:type "string"
-                                      :description "The absolute path to start searching files from there."}
-                              "pattern" {:type "string"
-                                         :description (str "Glob pattern following java FileSystem#getPathMatcher matching files or directory names."
-                                                           "Use '**' to match search in multiple levels like '**.txt'")}}
-                 :required ["path" "pattern"]}
-    :handler #'search-files}
    "eca_grep"
    {:description (str "Fast content search tool that works with any codebase size. "
                       "Finds the paths to files that have matching contents using regular expressions. "
@@ -274,21 +271,4 @@
                                "max_results" {:type "integer"
                                               :description "Maximum number of results to return (default: 1000)"}}
                   :required ["path" "pattern"]}
-    :handler #'grep}
-   "eca_replace_in_file"
-   {:description (str "Replace a specific string or content block in a file with new content. "
-                      "Finds the exact original content and replaces it with new content. "
-                      "Be extra careful to format the original-content exactly correctly, "
-                      "taking extra care with whitespace and newlines. In addition to replacing strings, "
-                      "this can also be used to prepend, append, or delete contents from a file.")
-    :parameters  {:type "object"
-                  :properties {"path" {:type "string"
-                                       :description "The absolute file path to do the replace."}
-                               "original_content" {:type "string"
-                                                   :description "The exact content to find and replace"}
-                               "new_content" {:type "string"
-                                              :description "The new content to replace the original content with"}
-                               "all_occurrences" {:type "boolean"
-                                                  :description "Whether to replace all occurences of the file or just the first one (default)"}}
-                  :required ["path" "original_content" "new_content"]}
-    :handler #'replace-in-file}})
+    :handler #'grep}})

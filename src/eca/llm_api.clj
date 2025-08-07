@@ -86,12 +86,12 @@
                                                                       model))
                                                                   (:models db)))]
               [:custom-provider-default-model custom-provider-default-model])
-            (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
-              [:ollama-running ollama-model])
             (when (anthropic-api-key config)
               [:api-key-found "claude-sonnet-4-0"])
             (when (openai-api-key config)
               [:api-key-found "o4-mini"])
+            (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
+              [:ollama-running ollama-model])
             [:default "claude-sonnet-4-0"])]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
     model))
@@ -102,7 +102,7 @@
 
 (defn complete!
   [{:keys [model model-config instructions reason? user-messages config on-first-response-received
-           on-message-received on-error on-prepare-tool-call on-tool-called on-reason
+           on-message-received on-error on-prepare-tool-call on-tool-called on-reason on-usage-updated
            past-messages tools]}]
   (let [first-response-received* (atom false)
         emit-first-message-fn (fn [& args]
@@ -135,7 +135,8 @@
                    :on-error on-error-wrapper
                    :on-prepare-tool-call on-prepare-tool-call-wrapper
                    :on-tool-called on-tool-called
-                   :on-reason on-reason-wrapper}]
+                   :on-reason on-reason-wrapper
+                   :on-usage-updated on-usage-updated}]
     (cond
       (contains? #{"o4-mini"
                    "o3"

@@ -133,7 +133,7 @@ interface ClientCapabilities {
     }
 }
 
-type ChatBehavior = 'agent' | 'chat';
+type ChatBehavior = 'agent' | 'plan';
 ```
 
 _Response:_
@@ -278,7 +278,7 @@ type ChatModel =
  */
 type OllamaRunningModel = string
 
-type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext;
+type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | McpResourceContext;
 
 /**
  * Context related to a file in the workspace
@@ -293,10 +293,12 @@ interface FileContext {
     /**
      * Range of lines to retrive from file, if nil consider whole file.
      */
-    linesRange?: {
-        start: number;
-        end: number;
-    }
+    linesRange?: LinesRange;
+}
+
+interface LinesRange {
+   start: number;
+   end: number;
 }
 
 /**
@@ -328,7 +330,39 @@ interface WebContext {
  */
 interface RepoMapContext {
     type: 'repoMap'; 
- }
+}
+
+/***
+ * A MCP resource available from a MCP server.
+ */
+interface McpResourceContext {
+    type: 'mcpResource';
+    
+   /** 
+    * The URI of the resource like file://foo/bar.clj
+    */
+    uri: string;
+
+    /** 
+     * The name of the resource.
+     */
+    name: string;
+    
+    /** 
+     * The description of the resource.
+     */
+    description: string;
+    
+    /** 
+     * The mimeType of the resource like `text/markdown`.
+     */
+    mimeType: string;
+    
+    /** 
+     * The server name of this MCP resource.
+     */
+    server: string;
+}
 ```
 
 _Response:_
@@ -398,6 +432,24 @@ interface TextContent {
     type: 'text';
     /**
      * The text content
+     */
+    text: string;
+}
+
+/**
+ * Progress messages about the chat. 
+ * Usually to mark what eca is doing/waiting or tell it finished processing messages.
+ */
+interface ProgressContent {
+    type: 'progress';
+
+    /**
+     * The state of this progress.
+     */
+    state: 'running' | 'finished';
+
+    /*
+     * Extra text to show in chat about current state of this chat.
      */
     text: string;
 }
@@ -522,6 +574,12 @@ interface ToolCallPrepareContent {
      * Whether this call requires manual approval from the user.
      */
     manualApproval: boolean;
+    
+    /**
+     * Extra details about this call. 
+     * Clients may use this to present different UX for this tool call.
+     */
+    details?: ToolCallDetails;
 }
 
 /**
@@ -551,6 +609,12 @@ interface ToolCallRunContent {
      * Whether this call requires manual approval from the user.
      */
     manualApproval: boolean;
+    
+    /**
+     * Extra details about this call. 
+     * Clients may use this to present different UX for this tool call.
+     */
+    details?: ToolCallDetails;
 }
 
 /**
@@ -595,6 +659,12 @@ interface ToolCalledContent {
          */
         content: string; 
     }];
+    
+    /**
+     * Extra details about this call. 
+     * Clients may use this to present different UX for this tool call.
+     */
+    details?: ToolCallDetails;
 }
 
 interface ToolCallRejected {
@@ -621,9 +691,41 @@ interface ToolCallRejected {
      * The reason why this tool call was rejected
      */
     reason: 'user';
+    
+    /**
+     * Extra details about this call. 
+     * Clients may use this to present different UX for this tool call.
+     */
+    details?: ToolCallDetails;
 }
 
 type ToolCallOrigin = 'mcp' | 'native';
+
+type ToolCallDetails = FileChangeDetails;
+
+interface FileChangeDetails {
+    type: 'fileChange';
+
+     /**
+      * The file path of this file change
+      */
+     path: string;
+     
+     /**
+      * The content diff of this file change
+      */
+     diff: string;
+     
+     /**
+      * The count of lines added in this change.
+      */
+     linesAdded: number;
+     
+     /**
+      * The count of lines removed in this change.
+      */
+     linesRemoved: number;
+}
 ```
 
 ### Chat approve tool call (➡️)

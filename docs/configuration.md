@@ -11,7 +11,7 @@ Client editors can pass custom settings when sending the `initialize` request vi
 
 ```javascript
 "initializationOptions": {
-  "chatBehavior": "chat"
+  "chatBehavior": "agent"
 }
 ```
 
@@ -20,7 +20,7 @@ Client editors can pass custom settings when sending the `initialize` request vi
 `.eca/config.json`
 ```javascript
 {
-  "chatBehavior": "chat"
+  "chatBehavior": "agent"
 }
 ```
 
@@ -29,7 +29,7 @@ Client editors can pass custom settings when sending the `initialize` request vi
 `~/.config/eca/config.json`
 ```javascript
 {
-  "chatBehavior": "chat"
+  "chatBehavior": "agent"
 }
 ```
 
@@ -218,6 +218,7 @@ interface Config {
     googleProjectLocation?: string;
     googleApplicationCredentials?: string;
     rules: [{path: string;}];
+    systemPromptTemplate?: string;
     nativeTools: {
         filesystem: {enabled: boolean};
          shell: {enabled: boolean;

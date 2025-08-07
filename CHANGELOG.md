@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+## 0.18.0
+
+- Replace `chat` behavior with `plan`.
+
+## 0.17.2
+
+- fix query context refactor
+
+## 0.17.1
+
+- Avoid crash MCP start if doesn't support some capabilities.
+- Improve tool calling to avoid stop LLM loop if any exception happens.
+
+## 0.17.0
+
+- Add `/repo-map-show` command. #37
+
+## 0.16.0
+
+- Support custom system prompts via config `systemPromptTemplate`.
+- Add support for file change diffs on `eca_edit_file` tool call.
+- Fix response output to LLM when tool call is rejected.
+
+## 0.15.3
+
+- Rename `eca_list_directory` to `eca_directory_tree` tool for better overview of project files/dirs.
+
+## 0.15.2
+
+- Improve `eca_edit_file` tool for better usage from LLM.
+
+## 0.15.1
+
+- Fix mcp tool calls.
+- Improve eca filesystem calls for better tool usage from LLM.
+- Fix default model selection to check anthropic api key before.
+
+## 0.15.0
+
+- Support MCP resources as a new context.
+
+## 0.14.4
+
+- Fix usage miscalculation.
+
+## 0.14.3
+
+- Fix reason-id on openai models afecting chat thoughts messages.
+- Support openai o models reason text when available.
+
 ## 0.14.2
 
 - Fix MCPs not starting because of graal reflection issue.

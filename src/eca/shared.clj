@@ -7,6 +7,10 @@
 
 (set! *warn-on-reflection* true)
 
+(def line-separator
+  "The system's line separator."
+  (System/lineSeparator))
+
 (defn uri->filename [uri]
   (let [uri (URI. uri)]
     (-> uri Paths/get .toString

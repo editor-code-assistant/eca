@@ -83,6 +83,7 @@ This step-by-step feature implementation help track progress and next steps:
   - [ ] Present and allow user change behaviors and models returned from `initialize` request.
   - [ ] Present and add contexts via `chat/queryContext` request
   - [ ] Support tools contents: run/approval/reject via `chat/toolCallApprove` or `chat/toolCallReject`.
+  - [ ] Support tools details: showing a file change like a diff.
   - [ ] Support reason/thoughts content blocks.
   - [ ] Show MCPs summary (running, failed, pending).
   - [ ] Support chat commands (`/`) auto completion, querying via `chat/queryCommands`.

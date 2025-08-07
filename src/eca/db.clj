@@ -9,7 +9,7 @@
    :workspace-folders []
    :client-capabilities {}
    :chats {}
-   :chat-behaviors ["agent" "chat"]
+   :chat-behaviors ["agent" "plan"]
    :chat-default-behavior "agent"
    :models {"o4-mini" {:tools true
                        :web-search false

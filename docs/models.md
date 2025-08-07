@@ -2,12 +2,13 @@
 
 ## Built-in providers and capabilities
 
-| model     | MCP / tools | MCP prompts | thinking/reasioning | prompt caching | web_search |
-|-----------|-------------|-------------|---------------------|----------------|------------|
-| OpenAI    | √           | √           | X                   | X              | √          |
-| Anthropic | √           | √           | X                   | √              | √          |
-| Ollama    | √           | √           | X                   | X              | X          |
-| Google    | √           | √           | √                   | √              | √          |
+
+| model     | tools (MCP) | reasoning / thinking | prompt caching | web_search |
+|-----------|-------------|----------------------|----------------|------------|
+| OpenAI    | √           | √                    | √              | √          |
+| Anthropic | √           | √                    | √              | √          |
+| Ollama    | √           | √                    | X              | X          |
+| Google    | X           | √                    | X              | X          |
 
 ### OpenAI
 
@@ -24,6 +25,11 @@
 ### Ollama
 
 - [any local ollama model](https://ollama.com/search)
+
+
+### Gemini
+
+- https://ai.google.dev/
 
 ## Custom providers
 

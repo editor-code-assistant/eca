@@ -23,22 +23,22 @@
                             {}))))
   (testing "Include enabled native tools"
     (is (match?
-         (m/embeds [{:name "eca_list_directory"
+         (m/embeds [{:name "eca_directory_tree"
                      :description string?
                      :parameters some?
                      :origin :native}])
          (f.tools/all-tools {} {:nativeTools {:filesystem {:enabled true}}}))))
   (testing "Do not include disabled native tools"
     (is (match?
-         (m/embeds [(m/mismatch {:name "eca_list_directory"})])
+         (m/embeds [(m/mismatch {:name "eca_directory_tree"})])
          (f.tools/all-tools {} {:nativeTools {:filesystem {:enabled false}}}))))
   (testing "Replace special vars description"
     (is (match?
-         (m/embeds [{:name "eca_list_directory"
+         (m/embeds [{:name "eca_directory_tree"
                      :description (format "Only in %s" (h/file-path "/path/to/project/foo"))
                      :parameters some?
                      :origin :native}])
-         (with-redefs [f.tools.filesystem/definitions {"eca_list_directory" {:description "Only in $workspaceRoots"
+         (with-redefs [f.tools.filesystem/definitions {"eca_directory_tree" {:description "Only in $workspaceRoots"
                                                                              :parameters {}}}]
            (f.tools/all-tools {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
                               {:nativeTools {:filesystem {:enabled true}}}))))))

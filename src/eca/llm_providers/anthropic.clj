@@ -98,7 +98,7 @@
   [{:keys [model user-messages temperature instructions max-output-tokens
            api-url api-key reason? reason-tokens past-messages tools web-search]
     :or {temperature 1.0}}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tool-called]}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tool-called on-usage-updated]}]
   (let [messages (concat (normalize-messages past-messages)
                          (normalize-messages user-messages))
         body (assoc-some
@@ -150,35 +150,38 @@
                                                                   :external-id (-> data :delta :signature)
                                                                   :id reason-id})
                                     nil)
-            "message_delta" (case (-> data :delta :stop_reason)
-                              "tool_use" (doseq [content-block (vals @content-block*)]
-                                           (when (= "tool_use" (:type content-block))
-                                             (let [function-name (:name content-block)
-                                                   function-args (:input-json content-block)
-                                                   {:keys [new-messages]} (on-tool-called {:id (:id content-block)
-                                                                                           :name function-name
-                                                                                           :arguments (json/parse-string function-args)})
-                                                   messages (-> (normalize-messages new-messages)
-                                                                add-cache-to-last-message)]
-                                               (base-request!
-                                                {:rid (llm-util/gen-rid)
-                                                 :body (assoc body :messages messages)
-                                                 :api-url api-url
-                                                 :api-key api-key
-                                                 :content-block* (atom nil)
-                                                 :on-error on-error
-                                                 :on-response handle-response}))))
-                              "end_turn" (do
-                                           (reset! content-block* {})
-                                           (on-message-received {:type :finish
-                                                                 :usage {:input-tokens (-> data :usage :input_tokens)
-                                                                         :input-cache-creation-tokens (-> data :usage :cache_creation_input_tokens)
-                                                                         :input-cache-read-tokens (-> data :usage :cache_read_input_tokens)
-                                                                         :output-tokens (-> data :usage :output_tokens)}
-                                                                 :finish-reason (-> data :delta :stop_reason)}))
-                              "max_tokens" (on-message-received {:type :limit-reached
-                                                                 :tokens (:usage data)})
-                              nil)
+            "message_delta" (do
+                              (when-let [usage (and (-> data :delta :stop_reason)
+                                                    (:usage data))]
+                                (on-usage-updated {:input-tokens (:input_tokens usage)
+                                                   :input-cache-creation-tokens (:cache_creation_input_tokens usage)
+                                                   :input-cache-read-tokens (:cache_read_input_tokens usage)
+                                                   :output-tokens (:output_tokens usage)}))
+                              (case (-> data :delta :stop_reason)
+                                "tool_use" (doseq [content-block (vals @content-block*)]
+                                             (when (= "tool_use" (:type content-block))
+                                               (let [function-name (:name content-block)
+                                                     function-args (:input-json content-block)
+                                                     {:keys [new-messages]} (on-tool-called {:id (:id content-block)
+                                                                                             :name function-name
+                                                                                             :arguments (json/parse-string function-args)})
+                                                     messages (-> (normalize-messages new-messages)
+                                                                  add-cache-to-last-message)]
+                                                 (base-request!
+                                                  {:rid (llm-util/gen-rid)
+                                                   :body (assoc body :messages messages)
+                                                   :api-url api-url
+                                                   :api-key api-key
+                                                   :content-block* (atom nil)
+                                                   :on-error on-error
+                                                   :on-response handle-response}))))
+                                "end_turn" (do
+                                             (reset! content-block* {})
+                                             (on-message-received {:type :finish
+                                                                   :finish-reason (-> data :delta :stop_reason)}))
+                                "max_tokens" (on-message-received {:type :limit-reached
+                                                                   :tokens (:usage data)})
+                                nil))
             nil))]
     (base-request!
      {:rid (llm-util/gen-rid)

@@ -19,6 +19,7 @@
                (fn [m model]
                  (assoc m
                         (str (name provider) "/" model)
+                        ;; TODO avoid hardcoding these capabilities
                         {:tools true
                          :web-search true
                          :custom-provider? true
