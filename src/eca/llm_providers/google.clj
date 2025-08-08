@@ -31,6 +31,7 @@
                                     :client_secret client_secret
                                     :refresh_token refresh_token
                                     :grant_type "refresh_token"}
+                      :throw-exceptions? false
                       :as :json
                       :headers {"Content-Type" "application/x-www-form-urlencoded"}})
           :body
@@ -112,7 +113,18 @@
      (fn [e]
        (on-error {:exception e})))))
 
-(defn completion! [{:keys [model user-prompt context temperature
+(defn ^:private normalize-messages [messages]
+  (mapv (fn [{:keys [role content]}]
+          {:role (if (= role "assistant") "model" role)
+           :parts (if (string? content)
+                    [{:text content}]
+                    (mapv (fn [c] (if (= "text" (name (:type c)))
+                                    (dissoc c :type)
+                                    c))
+                          content))})
+        messages))
+
+(defn completion! [{:keys [model user-messages instructions temperature max-output-tokens
 
                            google-api-key
                            gemini-api-key
@@ -120,19 +132,19 @@
                            google-project-location
                            application-default-credentials
 
-                           past-messages tools web-search]
+                           past-messages]
                     :or {temperature 1.0}}
-                   {:keys [on-message-received on-error on-tool-called on-reason]}]
-  (let [input (conj past-messages {:role "user" :parts [{:text user-prompt}]})
-        tools (cond-> tools
-                web-search (conj {:google_search {}}))
+                   {:keys [on-message-received on-error]}]
+  (let [messages (concat (normalize-messages past-messages)
+                         (normalize-messages user-messages))
         body {:model model
-              :contents input
-              :system_instruction {:parts [{:text context}]}
-              :tools tools
-              :stream true}
+              :contents messages
+              :system_instruction {:parts [{:text instructions}]}
+              :generationConfig {:temperature temperature
+                                 :maxOutputTokens max-output-tokens}}
         on-response-fn (fn handle-response [_event data]
-                         ())]
+                         (when-let [text (get-in data [:candidates 0 :content :parts 0 :text])]
+                           (on-message-received {:type :text, :text text})))]
     (base-completion-request!
      {:body body
       :rid (llm-util/gen-rid)
