@@ -21,7 +21,7 @@
           location project location))
 
 ;; TODO: this will need to run a refresh loop because this token will expire!
-(defn get-adc-token []
+(defn ^:private fetch-adc []
   (if-let [adc-path (let [adc-path (or (System/getenv "GOOGLE_APPLICATION_CREDENTIALS")
                                        (fs/expand-home "~/.config/gcloud/application_default_credentials.json"))]
                       (when (fs/exists? adc-path)
@@ -36,11 +36,31 @@
                       :as :json
                       :headers {"Content-Type" "application/x-www-form-urlencoded"}})
           :body
-          ;; TODO: get expires_in
-          :access_token))
+          (select-keys [:access_token :expires_in])))
     (logger/error logger-tag
                   (str "No GOOGLE_APPLICATION_CREDENTIALS env var or ~/.config/gcloud/application_default_credentials.json file found. "
                        "Please run 'gcloud auth application-default login' to set up application default credentials."))))
+
+(defonce adc-info (atom nil))
+
+(defn ^:private get-adc-token []
+  ;; if we have a token - just return it
+  (if-let [token (-> @adc-info :access_token)]
+    token
+    ;; looks like we're fetching for the first time
+    (let [{:keys [expires_in access_token] :as token-info} (fetch-adc)]
+      (reset! adc-info token-info)
+      (logger/info logger-tag (format "Scheduling token refresh in %d seconds" expires_in))
+      ;; spin up a future to refresh the token
+      (future
+        ;; wait for the token to expire, then fetch a new one
+        ;; we subtract 60 seconds to ensure we don't hit the expiration time
+        (Thread/sleep ^long (* 1000 (- expires_in 60)))
+        (logger/info logger-tag "Refreshing ADC token")
+        (let [new-token-info (fetch-adc)]
+          (reset! adc-info new-token-info)
+          (logger/info logger-tag "Fetched new ADC token")))
+      access_token)))
 
 ;; TODO: this is not 100% correct, just a sketch
 (defn ->request+auth [{:keys [;; gemini API:
@@ -121,23 +141,40 @@
                  (llm-util/log-response logger-tag rid event data)
                  (on-response event data))))
            (catch Exception e
+             (logger/error logger-tag "Error in Gemini request: %s" (-> e ex-data :body slurp))
              (on-error {:exception e}))))
        (fn [e]
+         (logger/error logger-tag "Error in Gemini request: %s" (-> e ex-data :body slurp))
          (on-error {:exception e})))
       (catch Exception e
         (on-error {:exception e})))))
 
-
 (defn ^:private normalize-messages [messages]
   (mapv (fn [{:keys [role content]}]
-          {:role (if (= role "assistant") "model" role)
-           :parts (if (string? content)
-                    [{:text content}]
-                    (mapv (fn [c] (if (= "text" (name (:type c)))
-                                    (dissoc c :type)
-                                    c))
-                          content))})
+          (case role
+            "tool_call"
+            {:role "model"
+             :parts [{:functionCall content}]}
+
+            "tool_call_output"
+            {:role "tool"
+             :parts [{:functionResponse
+                      {:name (:name content)
+                       :response {:name (:name content)
+                                  :content (:output content)}}}]}
+
+            {:role (if (= role "assistant") "model" role)
+             :parts (if (string? content)
+                      [{:text content}]
+                      (mapv (fn [c] (if (= "text" (name (:type c)))
+                                      (dissoc c :type)
+                                      c))
+                            content))}))
         messages))
+
+(defn ^:private ->tools [tools]
+  (when (seq tools)
+    [{:function_declarations (mapv #(dissoc % :type) tools)}]))
 
 (defn completion! [{:keys [model user-messages instructions temperature max-output-tokens
 
