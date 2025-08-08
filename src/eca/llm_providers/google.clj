@@ -2,10 +2,11 @@
   (:require
    [babashka.fs :as fs]
    [cheshire.core :as json]
-   [clojure.string :as str]
    [clojure.java.io :as io]
+   [clojure.string :as str]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.shared :as shared]
    [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
@@ -51,7 +52,6 @@
                               google-api-key
                               ;; w/ ADC - we will get the token ourselves
                               ]}]
-
   (cond
     gemini-api-key
     {:auth-type :gemini-api
@@ -83,7 +83,19 @@
                                 :google-api-key google-api-key
                                 :google-project-id google-project-id
                                 :google-project-location google-project-location})
+        _ (when-not url
+            (logger/error logger-tag
+                          (str "No URL for the request. url:" url))
 
+            (on-error {:message (format (str "Couldn't determine the request URL. "
+                                             "Please check your configuration for gemini-api-key or google-project-id and google-project-location.\n "
+                                             "Gemini API key: %s, "
+                                             "Google project ID: %s, Google project location: %s"
+                                             "Google API key: %s")
+                                        (shared/redact-api-key gemini-api-key)
+                                        google-project-id
+                                        google-project-location
+                                        (shared/redact-api-key google-api-key))}))
         url (str/replace url "$model" (:model body))]
     (logger/debug logger-tag (format "Sending input: '%s' instructions: '%s' tools: '%s' url: '%s'"
                                      (:input body)

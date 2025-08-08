@@ -44,3 +44,8 @@
        ret))))
 
 (defn multi-str [& strings] (string/join "\n" (remove nil? strings)))
+
+(defn redact-api-key
+  "Given a string, redacts everything after first 4 characters,"
+  [s]
+  (string/join "" (concat (take 4 s) (repeat (max 0 (- (count s) 4)) \*))))
