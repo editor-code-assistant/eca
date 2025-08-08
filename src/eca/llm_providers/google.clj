@@ -19,17 +19,13 @@
   (format "https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/$model:streamGenerateContent?alt=sse"
           location project location))
 
-(defn refresh-access-token []
-  (if-let [adc-path (or
-                     (System/getenv "GOOGLE_APPLICATION_CREDENTIALS")
-                     (let [adc-path (fs/expand-home "~/.config/gcloud/application_default_credentials.json")]
-                       (when (fs/exists? adc-path)
-                         (str adc-path))))]
-
-    (let [{:keys [client_id client_secret refresh_token]} (json/parse-string
-                                                           (slurp adc-path)
-                                                           true)]
-
+;; TODO: this will need to run a refresh loop because this token will expire!
+(defn get-adc-token []
+  (if-let [adc-path (let [adc-path (or (System/getenv "GOOGLE_APPLICATION_CREDENTIALS")
+                                       (fs/expand-home "~/.config/gcloud/application_default_credentials.json"))]
+                      (when (fs/exists? adc-path)
+                        (str adc-path)))]
+    (let [{:keys [client_id client_secret refresh_token]} (json/parse-string (slurp adc-path) true)]
       (-> (http/post "https://oauth2.googleapis.com/token"
                      {:form-params {:client_id client_id
                                     :client_secret client_secret
@@ -38,8 +34,8 @@
                       :as :json
                       :headers {"Content-Type" "application/x-www-form-urlencoded"}})
           :body
+          ;; TODO: get expires_in
           :access_token))
-
     (logger/error logger-tag
                   (str "No GOOGLE_APPLICATION_CREDENTIALS env var or ~/.config/gcloud/application_default_credentials.json file found. "
                        "Please run 'gcloud auth application-default login' to set up application default credentials."))))
@@ -68,7 +64,7 @@
 
      ;; TODO: blow up when either are nil!
      :headers {"Authorization" (str "Bearer " (or google-api-key
-                                                  (refresh-access-token)))}}))
+                                                  (get-adc-token)))}}))
 
 (defn ^:private base-completion-request! [{:keys [rid
                                                   body
