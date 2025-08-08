@@ -102,28 +102,31 @@
                                      (:instructions body)
                                      (:tools body)
                                      url))
-    ;; TODO: use ->request+auth to get the right URL and headers
-    (http/post
-     url
-     {:headers (merge {"Content-Type" "application/json"} headers)
-      :body (json/generate-string body)
-      :throw-exceptions? true
-      :async? true
-      :as :stream}
-     (fn [{:keys [status body]}]
-       (try
-         (if (not= 200 status)
-           (let [body-str (slurp body)]
-             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
-             (on-error {:message (format "Gemini response status: %s body: %s" status body-str)}))
-           (with-open [rdr (io/reader body)]
-             (doseq [[event data] (llm-util/event-data-seq rdr)]
-               (llm-util/log-response logger-tag rid event data)
-               (on-response event data))))
-         (catch Exception e
-           (on-error {:exception e}))))
-     (fn [e]
-       (on-error {:exception e})))))
+    (try
+      (http/post
+       url
+       {:headers (merge {"Content-Type" "application/json"} headers)
+        :body (json/generate-string body)
+        :throw-exceptions? true
+        :async? true
+        :as :stream}
+       (fn [{:keys [status body]}]
+         (try
+           (if (not= 200 status)
+             (let [body-str (slurp body)]
+               (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
+               (on-error {:message (format "Gemini response status: %s body: %s" status body-str)}))
+             (with-open [rdr (io/reader body)]
+               (doseq [[event data] (llm-util/event-data-seq rdr)]
+                 (llm-util/log-response logger-tag rid event data)
+                 (on-response event data))))
+           (catch Exception e
+             (on-error {:exception e}))))
+       (fn [e]
+         (on-error {:exception e})))
+      (catch Exception e
+        (on-error {:exception e})))))
+
 
 (defn ^:private normalize-messages [messages]
   (mapv (fn [{:keys [role content]}]
@@ -156,7 +159,9 @@
                                  :maxOutputTokens max-output-tokens}}
         on-response-fn (fn handle-response [_event data]
                          (when-let [text (get-in data [:candidates 0 :content :parts 0 :text])]
-                           (on-message-received {:type :text, :text text})))]
+                           (on-message-received {:type :text, :text text}))
+                         (when-let [finish-reason (get-in data [:candidates 0 :finishReason])]
+                           (on-message-received {:type :finish, :finish-reason finish-reason})))]
     (base-completion-request!
      {:body body
       :rid (llm-util/gen-rid)
