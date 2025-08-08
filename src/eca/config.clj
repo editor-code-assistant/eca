@@ -27,13 +27,10 @@
    :geminiApiKey nil
 
    ;; Vertex AI:
-   :googleProjectLocation nil
-   :googleApplicationCredentials nil
-   ;; auth with  API key:
-   :googleApiKey nil
-   ;; or Google Cloud ADC + Vertex and requires injection of applicaton credentials
-   ;; obtained via `gcloud auth application-default login`
    :googleProjectId nil
+   :googleProjectLocation nil
+   ;; auth with  API key, or leave blank to use ADC (Application Default Credentials)
+   :googleApiKey nil
 
    ;; Ollama API
    :ollama {:host "http://localhost"

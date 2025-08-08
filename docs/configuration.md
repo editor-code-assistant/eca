@@ -57,7 +57,7 @@ A `.eca/rules` folder from the workspace root containing `.mdc` files with the r
 
 `.eca/rules/talk_funny.mdc`
 ```markdown
---- 
+---
 description: Use when responding anything
 ---
 
@@ -70,7 +70,7 @@ A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.mdc`
 
 `~/.config/eca/rules/talk_funny.mdc`
 ```markdown
---- 
+---
 description: Use when responding anything
 ---
 
@@ -182,7 +182,7 @@ You can also set the `GOOGLE_PROJECT_ID` and `GOOGLE_PROJECT_LOCATION` environme
 | `googleApiKey`                   | `GOOGLE_API_KEY`                     | API key for Vertex AI. If not provided, ADC will be used.                    | Vertex AI (API Key)                        |
 | `googleProjectId`                | `GOOGLE_PROJECT_ID`                  | Your Google Cloud project ID.                                                | Vertex AI (API Key), Vertex AI (ADC)       |
 | `googleProjectLocation`          | `GOOGLE_PROJECT_LOCATION`            | The GCP region for your project (e.g., `us-central1`).                       | Vertex AI (API Key), Vertex AI (ADC)       |
-| `googleApplicationCredentials`   | `GOOGLE_APPLICATION_CREDENTIALS`     | Path to a service account JSON file for ADC.                                 | Vertex AI (ADC)                            |
+
 
 ## Custom LLM providers
 
@@ -216,7 +216,6 @@ interface Config {
     googleApiKey?: string;
     googleProjectId?: string;
     googleProjectLocation?: string;
-    googleApplicationCredentials?: string;
     rules: [{path: string;}];
     systemPromptTemplate?: string;
     nativeTools: {
@@ -232,7 +231,7 @@ interface Config {
     mcpServers: {[key: string]: {
         command: string;
         args?: string[];
-        disabled?: boolean; 
+        disabled?: boolean;
     }};
     customProviders: {[key: string]: {
         api: 'openai' | 'anthropic';
@@ -270,10 +269,9 @@ interface Config {
   "googleApiKey": null,
   "googleProjectId": null,
   "googleProjectLocation": null,
-  "googleApplicationCredentials": null,
   "rules" : [],
   "nativeTools": {"filesystem": {"enabled": true},
-                  "shell": {"enabled": true, 
+                  "shell": {"enabled": true,
                             "excludeCommands": []}},
   "disabledTools": [],
   "toolCall": {
@@ -292,10 +290,9 @@ interface Config {
     "welcomeMessage" : "Welcome to ECA! What you have in mind?\n\n"
   },
   "index" : {
-    "ignoreFiles" : [ { 
+    "ignoreFiles" : [ {
       "type" : "gitignore"
     } ]
   }
 }
 ```
-
