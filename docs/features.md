@@ -51,6 +51,10 @@ The built-in commands are:
 `/costs`: shows costs about current session.
 `/repo-map-show`: shows the current repoMap context of the session.
 
+#### Custom commands
+
+It's possible to configure custom command prompts, for more details check [its configuration](./configuration.md#custom-commands)
+
 ##  Completion
 
 Soon

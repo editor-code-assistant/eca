@@ -1,7 +1,7 @@
 (ns eca.features.tools.shell-test
   (:require
    [babashka.fs :as fs]
-   [clojure.java.shell :as shell]
+   [babashka.process :as p]
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.test-helper :as h]
@@ -26,7 +26,7 @@
                      {:type :text
                       :text "Stderr:\nSome error"}]}
          (with-redefs [fs/exists? (constantly true)
-                       shell/sh (constantly {:exit 1 :err "Some error"})]
+                       p/shell (constantly {:exit 1 :err "Some error"})]
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
@@ -36,7 +36,7 @@
           :contents [{:type :text
                       :text "Some text"}]}
          (with-redefs [fs/exists? (constantly true)
-                       shell/sh (constantly {:exit 0 :out "Some text" :err "Other text"})]
+                       p/shell (constantly {:exit 0 :out "Some text" :err "Other text"})]
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
@@ -46,7 +46,7 @@
           :contents [{:type :text
                       :text "Some text"}]}
          (with-redefs [fs/exists? (constantly true)
-                       shell/sh (constantly {:exit 0 :out "Some text" :err "Other text"})]
+                       p/shell (constantly {:exit 0 :out "Some text" :err "Other text"})]
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/project/foo/src")}
@@ -57,7 +57,7 @@
           :contents [{:type :text
                       :text "Some text"}]}
          (with-redefs [fs/exists? (constantly true)
-                       shell/sh (constantly {:exit 0 :out "Some text" :err "Other text"})]
+                       p/shell (constantly {:exit 0 :out "Some text" :err "Other text"})]
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "rm -r /project/foo/src"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}

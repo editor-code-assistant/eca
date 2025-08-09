@@ -95,13 +95,14 @@
            [:api-key-found "claude-sonnet-4-0"])
 
          (when (openai-api-key config)
-           [:api-key-found "o4-mini"])
+           [:api-key-found "gpt-5"])
 
          (when (google-any-auth? config)
            [:google-auth-found "gemini-2.5-pro"])
 
          (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
            [:ollama-running ollama-model])
+
          ;; else:
          [:default "claude-sonnet-4-0"])]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
@@ -142,6 +143,7 @@
         custom-models (set (mapcat (fn [[k v]]
                                      (map #(str (name k) "/" %) (:models v)))
                                    custom-providers))
+        extra-payload (get-in config [:models (keyword model) :extraPayload])
         callbacks {:on-message-received on-message-received-wrapper
                    :on-error on-error-wrapper
                    :on-prepare-tool-call on-prepare-tool-call-wrapper
@@ -151,7 +153,10 @@
     (cond
       (contains? #{"o4-mini"
                    "o3"
-                   "gpt-4.1"} model)
+                   "gpt-4.1"
+                   "gpt-5"
+                   "gpt-5-mini"
+                   "gpt-5-nano"} model)
       (llm-providers.openai/completion!
        {:model model
         :instructions instructions
@@ -162,12 +167,14 @@
         :past-messages past-messages
         :tools tools
         :web-search web-search
+        :extra-payload extra-payload
         :api-url (openai-api-url)
         :api-key (openai-api-key config)}
        callbacks)
 
       (contains? #{"claude-sonnet-4-0"
                    "claude-opus-4-0"
+                   "claude-opus-4-1"
                    "claude-3-5-haiku-latest"} model)
       (llm-providers.anthropic/completion!
        {:model model
@@ -179,6 +186,7 @@
         :past-messages past-messages
         :tools tools
         :web-search web-search
+        :extra-payload extra-payload
         :api-url (anthropic-api-url)
         :api-key (anthropic-api-key config)}
        callbacks)
@@ -212,7 +220,8 @@
         :instructions instructions
         :user-messages user-messages
         :past-messages past-messages
-        :tools tools}
+        :tools tools
+        :extra-payload extra-payload}
        callbacks)
 
       (contains? custom-models model)
@@ -234,6 +243,7 @@
           :past-messages past-messages
           :web-search web-search
           :tools tools
+          :extra-payload extra-payload
           :api-url url
           :api-key key}
          callbacks))

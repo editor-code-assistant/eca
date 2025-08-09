@@ -49,3 +49,20 @@
   "Given a string, redacts everything after first 4 characters,"
   [s]
   (string/join "" (concat (take 4 s) (repeat (max 0 (- (count s) 4)) \*))))
+
+(defn tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model db]
+  (let [normalized-model (if (string/includes? model "/")
+                           (last (string/split model #"/"))
+                           model)
+        {:keys [input-token-cost output-token-cost
+                input-cache-creation-token-cost input-cache-read-token-cost]} (get-in db [:models normalized-model])
+        input-cost (* input-tokens input-token-cost)
+        input-cost (if input-cache-creation-tokens
+                     (+ input-cost (* input-cache-creation-tokens input-cache-creation-token-cost))
+                     input-cost)
+        input-cost (if input-cache-read-tokens
+                     (+ input-cost (* input-cache-read-tokens input-cache-read-token-cost))
+                     input-cost)]
+    (when (and input-token-cost output-token-cost)
+      (format "%.2f" (+ input-cost
+                        (* output-tokens output-token-cost))))))

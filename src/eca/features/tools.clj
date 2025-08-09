@@ -33,8 +33,7 @@
             f.tools.shell/definitions))))
 
 (defn ^:private native-tools [db config]
-  (mapv #(select-keys % [:name :description :parameters])
-        (vals (native-definitions db config))))
+  (vals (native-definitions db config)))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
@@ -70,7 +69,9 @@
     (messenger/tool-server-updated messenger {:type :native
                                               :name "ECA"
                                               :status "running"
-                                              :tools (mapv with-tool-status (native-tools @db* config))})
+                                              :tools (->> (native-tools @db* config)
+                                                          (mapv #(select-keys % [:name :description :parameters]))
+                                                          (mapv with-tool-status))})
     (f.mcp/initialize-servers-async!
      {:on-server-updated (fn [server]
                            (messenger/tool-server-updated messenger (-> server
@@ -104,6 +105,16 @@
                            (messenger/tool-server-updated messenger (-> server
                                                                         (assoc :type :mcp)
                                                                         (update :tools #(mapv with-tool-status %)))))})))
+
+(defn tool-call-summary [all-tools name args]
+  (when-let [summary-fn (:summary-fn (first (filter #(= name (:name %))
+                                                    all-tools)))]
+    (try
+      (summary-fn args)
+      (catch Exception e
+        (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
+        nil))))
+
 (defn get-tool-call-details [name arguments]
   (case name
     "eca_write_file" (let [path (get arguments "path")

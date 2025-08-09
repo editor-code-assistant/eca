@@ -12,14 +12,18 @@
 
 ### OpenAI
 
-- [o4-mini](https://platform.openai.com/docs/models/o4-mini)
-- [o3](https://platform.openai.com/docs/models/o3)
+- [gpt-5](https://platform.openai.com/docs/models/gpt-5)
+- [gpt-5-mini](https://platform.openai.com/docs/models/gpt-5-mini)
+- [gpt-5-nano](https://platform.openai.com/docs/models/gpt-5-nano)
 - [gpt-4.1](https://platform.openai.com/docs/models/gpt-4.1)
+- [o3](https://platform.openai.com/docs/models/o3)
+- [o4-mini](https://platform.openai.com/docs/models/o4-mini)
 
 ### Anthropic
 
-- [claude-sonnet-4-0](https://docs.anthropic.com/en/docs/about-claude/models/overview)
+- [claude-opus-4-1](https://docs.anthropic.com/en/docs/about-claude/models/overview)
 - [claude-opus-4-0](https://docs.anthropic.com/en/docs/about-claude/models/overview)
+- [claude-sonnet-4-0](https://docs.anthropic.com/en/docs/about-claude/models/overview)
 - [claude-3-5-haiku-latest](https://docs.anthropic.com/en/docs/about-claude/models/overview)
 
 ### Ollama

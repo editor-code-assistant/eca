@@ -27,6 +27,24 @@
                        :max-output-tokens 32000
                        :input-token-cost (/ 2.0 one-million)
                        :output-token-cost (/ 8.0 one-million)}
+            "gpt-5" {:tools true
+                     :web-search true
+                     :reason? true
+                     :max-output-tokens 32000
+                     :input-token-cost (/ 1.25 one-million)
+                     :output-token-cost (/ 10.0 one-million)}
+            "gpt-5-mini" {:tools true
+                          :web-search true
+                          :reason? true
+                          :max-output-tokens 32000
+                          :input-token-cost (/ 0.25 one-million)
+                          :output-token-cost (/ 2.0 one-million)}
+            "gpt-5-nano" {:tools true
+                          :web-search true
+                          :reason? true
+                          :max-output-tokens 32000
+                          :input-token-cost (/ 0.05 one-million)
+                          :output-token-cost (/ 0.4 one-million)}
             "claude-sonnet-4-0" {:tools true
                                  :web-search true
                                  :max-output-tokens 8196
@@ -37,6 +55,15 @@
                                  :input-cache-read-token-cost (/ 0.3 one-million)
                                  :output-token-cost (/ 15.0 one-million)}
             "claude-opus-4-0" {:tools true
+                               :web-search true
+                               :max-output-tokens 8196
+                               :reason? true
+                               :reason-tokens 2048
+                               :input-token-cost (/ 15.0 one-million)
+                               :input-cache-creation-token-cost (/ 18.75 one-million)
+                               :input-cache-read-token-cost (/ 1.5 one-million)
+                               :output-token-cost (/ 75.0 one-million)}
+            "claude-opus-4-1" {:tools true
                                :web-search true
                                :max-output-tokens 8196
                                :reason? true

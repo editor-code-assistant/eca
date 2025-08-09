@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.set :as set]
    [clojure.string :as string]
+   [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
@@ -12,7 +13,7 @@
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :as shared :refer [assoc-some multi-str]]))
+   [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
 
@@ -45,23 +46,6 @@
 (defn ^:private tool-name->origin [name all-tools]
   (:origin (first (filter #(= name (:name %)) all-tools))))
 
-(defn ^:private tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model db]
-  (let [normalized-model (if (string/includes? model "/")
-                           (last (string/split model #"/"))
-                           model)
-        {:keys [input-token-cost output-token-cost
-                input-cache-creation-token-cost input-cache-read-token-cost]} (get-in db [:models normalized-model])
-        input-cost (* input-tokens input-token-cost)
-        input-cost (if input-cache-creation-tokens
-                     (+ input-cost (* input-cache-creation-tokens input-cache-creation-token-cost))
-                     input-cost)
-        input-cost (if input-cache-read-tokens
-                     (+ input-cost (* input-cache-read-tokens input-cache-read-token-cost))
-                     input-cost)]
-    (when (and input-token-cost output-token-cost)
-      (format "%.2f" (+ input-cost
-                        (* output-tokens output-token-cost))))))
-
 (defn ^:private usage-msg->usage
   [{:keys [input-tokens output-tokens
            input-cache-creation-tokens input-cache-read-tokens]}
@@ -84,8 +68,8 @@
       (assoc-some {:message-output-tokens output-tokens
                    :message-input-tokens (+ input-tokens message-input-cache-tokens)
                    :session-tokens (+ total-input-tokens total-input-cache-tokens total-output-tokens)}
-                  :message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model db)
-                  :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model db)))))
+                  :message-cost (shared/tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model db)
+                  :session-cost (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model db)))))
 
 (defn ^:private message->decision [message]
   (let [slash? (string/starts-with? message "/")
@@ -98,13 +82,14 @@
         {:type :mcp-prompt
          :server server
          :prompt (second (string/split (first parts) #":"))
-         :args (if (seq parts)
-                 (vec (rest parts))
-                 [])})
+         :args (vec (rest parts))})
 
       slash?
-      {:type :eca-command
-       :command (subs message 1)}
+      (let [command (subs message 1)
+            parts (string/split command #" ")]
+        {:type :eca-command
+         :command (first parts)
+         :args (vec (rest parts))})
 
       :else
       {:type :prompt-message
@@ -178,16 +163,19 @@
                               (assert-chat-not-stopped! chat-ctx)
                               (swap! tool-call-by-id* update-in [id :args] str arguments-text)
                               (send-content! chat-ctx :assistant
-                                             {:type :toolCallPrepare
-                                              :name name
-                                              :origin (tool-name->origin name all-tools)
-                                              :arguments-text (get-in @tool-call-by-id* [id :args])
-                                              :id id
-                                              :manual-approval manual-approval?}))
+                                             (assoc-some
+                                               {:type :toolCallPrepare
+                                                :name name
+                                                :origin (tool-name->origin name all-tools)
+                                                :arguments-text (get-in @tool-call-by-id* [id :args])
+                                                :id id
+                                                :manual-approval manual-approval?}
+                                               :summary (f.tools/tool-call-summary all-tools name nil))))
       :on-tool-called (fn [{:keys [id name arguments] :as tool-call}]
                         (assert-chat-not-stopped! chat-ctx)
                         (let [approved?* (promise)
-                              details (f.tools/get-tool-call-details name arguments)]
+                              details (f.tools/get-tool-call-details name arguments)
+                              summary (f.tools/tool-call-summary all-tools name arguments)]
                           (send-content! chat-ctx :assistant
                                          (assoc-some
                                           {:type :toolCallRun
@@ -196,7 +184,8 @@
                                            :arguments arguments
                                            :id id
                                            :manual-approval manual-approval?}
-                                          :details details))
+                                          :details details
+                                          :summary summary))
                           (swap! db* assoc-in [:chats chat-id :tool-calls id :approved?*] approved?*)
                           (when-not (string/blank? @received-msgs*)
                             (add-to-history! {:role "assistant" :content @received-msgs*})
@@ -221,7 +210,8 @@
                                                :error (:error result)
                                                :id id
                                                :outputs (:contents result)}
-                                              :details details)))
+                                              :details details
+                                              :summary summary)))
                             (do
                               (add-to-history! {:role "tool_call" :content tool-call})
                               (add-to-history! {:role "tool_call_output" :content (assoc tool-call :output {:error true
@@ -235,7 +225,8 @@
                                                :arguments arguments
                                                :reason :user
                                                :id id}
-                                              :details details))))
+                                              :details details
+                                              :summary summary))))
                           (swap! tool-call-by-id* dissoc id)
                           (send-content! chat-ctx :system {:type :progress :state :running :text "Generating"})
                           {:new-messages (get-in @db* [:chats chat-id :messages])}))
@@ -276,27 +267,13 @@
                       :text error-message})
       (prompt-messages! messages false chat-ctx))))
 
-(defn ^:private handle-command! [{:keys [command]} {:keys [chat-id db* model] :as chat-ctx}]
-  (let [db @db*]
-    (case command
-      "costs" (let [total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
-                    total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] nil)
-                    total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] nil)
-                    total-output-tokens (get-in db [:chats chat-id :total-output-tokens] 0)
-                    text (multi-str (str "Total input tokens: " total-input-tokens)
-                                    (when total-input-cache-creation-tokens
-                                      (str "Total input cache creation tokens: " total-input-cache-creation-tokens))
-                                    (when total-input-cache-read-tokens
-                                      (str "Total input cache read tokens: " total-input-cache-read-tokens))
-                                    (str "Total output tokens: " total-output-tokens)
-                                    (str "Total cost: $" (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model db)))]
-                (send-content! chat-ctx :system {:type :text
-                                                 :text text}))
-      "repo-map-show" (send-content! chat-ctx :system {:type :text
-                                                       :text (f.index/repo-map db {:as-string? true})})
-      (send-content! chat-ctx :system {:type :text
-                                       :text (str "Unknown command: " command)})))
-  (finish-chat-prompt! :idle chat-ctx))
+(defn ^:private handle-command! [{:keys [command args]} {:keys [chat-id db* config model] :as chat-ctx}]
+  (let [{:keys [type] :as result} (f.commands/handle-command! command args chat-id model config db*)]
+    (case type
+      :text (do (send-content! chat-ctx :system {:type :text :text (:text result)})
+                (finish-chat-prompt! :idle chat-ctx))
+      :send-prompt (prompt-messages! [{:role "user" :content (:prompt result)}] true chat-ctx)
+      nil)))
 
 (defn prompt
   [{:keys [message model behavior contexts chat-id request-id]}
@@ -346,23 +323,10 @@
 
 (defn query-commands
   [{:keys [query chat-id]}
-   db*]
+   db*
+   config]
   (let [query (string/lower-case query)
-        mcp-prompts (->> (f.mcp/all-prompts @db*)
-                         (mapv #(-> %
-                                    (assoc :name (str (:server %) ":" (:name %))
-                                           :type :mcpPrompt)
-                                    (dissoc :server))))
-        eca-commands [{:name "costs"
-                       :type :native
-                       :description "Show the total costs of the current chat session."
-                       :arguments []}
-                      {:name "repo-map-show"
-                       :type :native
-                       :description "Show the actual repoMap of current session."
-                       :arguments []}]
-        commands (concat mcp-prompts
-                         eca-commands)
+        commands (f.commands/all-commands @db* config)
         commands (if (string/blank? query)
                    commands
                    (filter #(or (string/includes? (string/lower-case (:name %)) query)

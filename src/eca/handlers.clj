@@ -74,10 +74,10 @@
    :eca/chat-query-context
    (f.chat/query-context params db* config)))
 
-(defn chat-query-commands [{:keys [db*]} params]
+(defn chat-query-commands [{:keys [db* config]} params]
   (logger/logging-task
    :eca/chat-query-commands
-   (f.chat/query-commands params db*)))
+   (f.chat/query-commands params db* config)))
 
 (defn chat-tool-call-approve [{:keys [db*]} params]
   (logger/logging-task

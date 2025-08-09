@@ -23,26 +23,35 @@
 
 (defn diff
   ([original revised file]
-   (let [patch (DiffUtils/diff (lines original) (lines revised))
+   (let [original-lines (lines original)
+         revised-lines (lines revised)
+         patch (DiffUtils/diff original-lines revised-lines)
          deltas (.getDeltas patch)
-         added (->> deltas
-                    (filter #(instance? InsertDelta %))
-                    (mapcat (fn [^InsertDelta delta]
-                              (.getLines (.getRevised delta))))
-                    count)
-         changed (->> deltas
-                      (filter #(instance? ChangeDelta %))
-                      (mapcat (fn [^ChangeDelta delta]
+         new-file? (= "" original)
+         added (if new-file?
+                 (count revised-lines)
+                 (->> deltas
+                      (filter #(instance? InsertDelta %))
+                      (mapcat (fn [^InsertDelta delta]
                                 (.getLines (.getRevised delta))))
-                      count)
-         removed (->> deltas
-                      (filter #(instance? DeleteDelta %))
-                      (mapcat (fn [^DeleteDelta delta]
-                                (.getLines (.getOriginal delta))))
-                      count)]
+                      count))
+         changed (if new-file?
+                   0
+                   (->> deltas
+                        (filter #(instance? ChangeDelta %))
+                        (mapcat (fn [^ChangeDelta delta]
+                                  (.getLines (.getRevised delta))))
+                        count))
+         removed (if new-file?
+                   0
+                   (->> deltas
+                        (filter #(instance? DeleteDelta %))
+                        (mapcat (fn [^DeleteDelta delta]
+                                  (.getLines (.getOriginal delta))))
+                        count))]
      {:added (+ added changed)
       :removed (+ removed changed)
       :diff
-      (->> (DiffUtils/generateUnifiedDiff file file (lines original) patch 3)
+      (->> (DiffUtils/generateUnifiedDiff file file original-lines patch 3)
            (drop 2) ;; removes file header
            unlines)})))

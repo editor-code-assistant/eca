@@ -262,21 +262,9 @@ interface ChatPromptParams {
 }
 
 /**
- * The currently supported models.
+ * The LLM model name.
  */
-type ChatModel = 
-    | 'o4-mini'
-    | 'o3'
-    | 'gpt-4.1'
-    | 'claude-sonnet-4-0'
-    | 'claude-opus-4-0'
-    | 'claude-3-5-haiku-latest'
-    OllamaRunningModel;
-    
-/**
- * Ollama running models available locally.
- */
-type OllamaRunningModel = string
+type ChatModel = string;
 
 type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | McpResourceContext;
 
@@ -576,6 +564,12 @@ interface ToolCallPrepareContent {
     manualApproval: boolean;
     
     /**
+     * Summary text to present about this tool call, 
+     * ex: 'Reading file "foo"...'.
+     */
+    summary?: string;
+    
+    /**
      * Extra details about this call. 
      * Clients may use this to present different UX for this tool call.
      */
@@ -609,6 +603,12 @@ interface ToolCallRunContent {
      * Whether this call requires manual approval from the user.
      */
     manualApproval: boolean;
+     
+    /**
+     * Summary text to present about this tool call, 
+     * ex: 'Reading file "foo"...'.
+     */
+    summary?: string;
     
     /**
      * Extra details about this call. 
@@ -661,6 +661,12 @@ interface ToolCalledContent {
     }];
     
     /**
+     * Summary text to present about this tool call, 
+     * ex: 'Reading file "foo"...'.
+     */
+    summary?: string;
+    
+    /**
      * Extra details about this call. 
      * Clients may use this to present different UX for this tool call.
      */
@@ -691,6 +697,12 @@ interface ToolCallRejected {
      * The reason why this tool call was rejected
      */
     reason: 'user';
+    
+    /**
+     * Summary text to present about this tool call, 
+     * ex: 'Reading file "foo"...'.
+     */
+    summary?: string;
     
     /**
      * Extra details about this call. 

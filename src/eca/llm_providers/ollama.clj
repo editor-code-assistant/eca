@@ -98,15 +98,16 @@
 
 (defn completion! [{:keys [model user-messages reason? instructions host port past-messages tools]}
                    {:keys [on-message-received on-error on-prepare-tool-call on-tool-called
-                           on-reason]}]
+                           on-reason extra-payload]}]
   (let [messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
                   (normalize-messages user-messages))
-        body {:model model
-              :messages messages
-              :think reason?
-              :tools (->tools tools)
-              :stream true}
+        body (merge {:model model
+                     :messages messages
+                     :think reason?
+                     :tools (->tools tools)
+                     :stream true}
+                    extra-payload)
         url (format chat-url (base-url host port))
         tool-calls* (atom {})
         on-response-fn (fn handle-response [rid _event data reasoning?* reason-id]

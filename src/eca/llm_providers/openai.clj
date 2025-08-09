@@ -64,27 +64,29 @@
         past-messages))
 
 (defn completion! [{:keys [model user-messages instructions reason? temperature api-key api-url
-                           max-output-tokens past-messages tools web-search]}
+                           max-output-tokens past-messages tools web-search extra-payload]}
                    {:keys [on-message-received on-error on-prepare-tool-call on-tool-called on-reason on-usage-updated]}]
   (let [input (concat (normalize-messages past-messages)
                       (normalize-messages user-messages))
         tools (cond-> tools
                 web-search (conj {:type "web_search_preview"}))
-        body {:model model
-              :input input
-              :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-              ;; TODO support parallel
-              :parallel_tool_calls false
-              :instructions instructions
-              ;; TODO allow user specify custom temperature (default 1.0)
-              :temperature temperature
-              :tools tools
-              :reasoning (when reason?
-                           {:effort "medium"
-                            :summary "detailed"})
-              :stream true
-              :max_output_tokens max-output-tokens}
-        mcp-call-by-item-id* (atom {})
+        body (merge {:model model
+                     :input input
+                     :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+                     ;; TODO support parallel
+                     :parallel_tool_calls false
+                     :instructions instructions
+                     ;; TODO allow user specify custom temperature (default 1.0)
+                     :temperature temperature
+                     :tools tools
+                     :reasoning (when reason?
+                                  {:effort "medium"
+                                   :summary "detailed"})
+                     :stream true
+                     ;; :verbosity "medium"
+                     :max_output_tokens max-output-tokens}
+                    extra-payload)
+        tool-call-by-item-id* (atom {})
         on-response-fn
         (fn handle-response [event data]
           (case event
@@ -93,27 +95,13 @@
             (on-message-received {:type :text
                                   :text (:delta data)})
             ;; tools
-            "response.function_call_arguments.delta" (let [call (get @mcp-call-by-item-id* (:item_id data))]
+            "response.function_call_arguments.delta" (let [call (get @tool-call-by-item-id* (:item_id data))]
                                                        (on-prepare-tool-call {:id (:id call)
                                                                               :name (:name call)
                                                                               :arguments-text (:delta data)}))
 
             "response.output_item.done"
             (case (:type (:item data))
-              "function_call" (let [function-name (-> data :item :name)
-                                    function-args (-> data :item :arguments)
-                                    {:keys [new-messages]} (on-tool-called {:id (-> data :item :call_id)
-                                                                            :name function-name
-                                                                            :arguments (json/parse-string function-args)})
-                                    input (normalize-messages new-messages)]
-                                (base-completion-request!
-                                 {:rid (llm-util/gen-rid)
-                                  :body (assoc body :input input)
-                                  :api-url api-url
-                                  :api-key api-key
-                                  :on-error on-error
-                                  :on-response handle-response})
-                                (swap! mcp-call-by-item-id* dissoc (-> data :item :id)))
               "reasoning" (on-reason {:status :finished
                                       :id (-> data :item :id)
                                       :external-id (-> data :item :id)})
@@ -140,22 +128,49 @@
                                       :id (-> data :item :id)})
               "function_call" (let [call-id (-> data :item :call_id)
                                     item-id (-> data :item :id)
-                                    name (-> data :item :name)]
-                                (swap! mcp-call-by-item-id* assoc item-id {:name name :id call-id})
-                                (on-prepare-tool-call {:id (-> data :item :call_id)
-                                                       :name (-> data :item :name)
-                                                       :arguments-text (-> data :item :arguments)}))
+                                    function-name (-> data :item :name)
+                                    function-args (-> data :item :arguments)]
+                                (swap! tool-call-by-item-id* assoc item-id {:name function-name :id call-id})
+                                (on-prepare-tool-call {:id call-id
+                                                       :name function-name
+                                                       :arguments-text function-args}))
               nil)
 
             ;; done
             "response.completed"
-            (do
+            (let [last-output (-> data :response :output last)]
               (on-usage-updated {:input-tokens (-> data :response :usage :input_tokens)
                                  :output-tokens (-> data :response :usage :output_tokens)})
-              (when-not (= "function_call" (-> data :response :output last :type))
-                (on-message-received {:type :finish
+              (case (:type last-output)
+                "function_call"
+                (let [function-name (:name last-output)
+                      function-args (:arguments last-output)
+                      call-id (:call_id last-output)
+                      item-id (:id last-output)]
+                  ;; Fallback case when the tool call was not prepared before when
+                  ;; some models/apis respond only with response.completed (skipping streaming).
+                  (when-not (get @tool-call-by-item-id* item-id)
+                    (swap! tool-call-by-item-id* assoc item-id {:name function-name :id call-id})
+                    (on-prepare-tool-call {:id call-id
+                                           :name function-name
+                                           :arguments-text function-args}))
+                  (let [{:keys [new-messages]} (on-tool-called {:id call-id
+                                                                :name function-name
+                                                                :arguments (json/parse-string function-args)})
+                        input (normalize-messages new-messages)]
+                    (base-completion-request!
+                     {:rid (llm-util/gen-rid)
+                      :body (assoc body :input input)
+                      :api-url api-url
+                      :api-key api-key
+                      :on-error on-error
+                      :on-response handle-response})
+                    (swap! tool-call-by-item-id* dissoc item-id)))
 
+                ;; else
+                (on-message-received {:type :finish
                                       :finish-reason (-> data :response :status)})))
+
             nil))]
     (base-completion-request!
      {:rid (llm-util/gen-rid)

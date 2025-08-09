@@ -6,6 +6,7 @@
         io.modelcontextprotocol.sdk/mcp {:mvn/version "0.11.0"}
         borkdude/dynaload {:mvn/version "0.3.5"}
         babashka/fs {:mvn/version "0.5.26"}
+        babashka/process {:mvn/version "0.6.23"}
         hato/hato {:mvn/version "1.0.0"}
         org.slf4j/slf4j-simple {:mvn/version "2.0.17"}
         com.googlecode.java-diff-utils/diffutils {:mvn/version "1.3.0"}
@@ -22,7 +23,7 @@
          :main-opts ["-m" "kaocha.runner"]}
   :build {:extra-paths ["resources"]
           :extra-deps {babashka/fs {:mvn/version "0.5.22"}
-                       babashka/process {:mvn/version "0.5.22"}}
+                       babashka/process {:mvn/version "0.6.23"}}
           :replace-deps {io.github.clojure/tools.build {:tag "v0.10.7" :sha "573711e"}
                          com.github.ericdallo/deps-bin {:mvn/version "1.0.0"}
                          slipset/deps-deploy {:mvn/version "0.2.2"}}

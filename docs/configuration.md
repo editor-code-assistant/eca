@@ -204,6 +204,58 @@ It's possible to configure ECA to be aware of custom LLM providers if they follo
 
 With that, ECA will include in the known models something like: `my-company/gpt-4.1`, `my-company/deepseek-r1`.
 
+## Custom command prompts
+
+You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
+Prompts can use variables like `$ARGS`, `$ARG1`, `ARG2`, to replace in the prompt during command call.
+
+### Local custom commands
+
+A `.eca/commands` folder from the workspace root containing `.md` files with the custom prompt.
+
+`.eca/commands/check-performance.md`
+```markdown
+Check for performance issues in $ARG1 and optimize if needed.
+```
+
+### Global custom commands
+
+A `$XDG_CONFIG_HOME/eca/commands` or `~/.config/eca/commands` folder containing `.md` files with the custom command prompt.
+
+`~/.config/eca/commands/check-performance.mdc`
+```markdown
+Check for performance issues in $ARG1 and optimize if needed.
+```
+
+### Config
+
+Just add to your config the `commands` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
+
+```javascript
+{
+  "commands": [{"path": "my-custom-prompt.md"}]
+}
+```
+
+## Overriding model payloads
+
+It's possible to override the payload sent to LLMs via `models <modelName> extraPayload` config, this way you can configure custom LLM settings like `temperature`, `reasoning_effort`, `verbosity` etc.
+This config will be merged with current default used by ECA.
+
+Example:
+
+```javascript
+{
+  "models": {
+    "gpt-5": {
+      "extraPayload": {
+        "verbosity": "high"
+      }
+    }
+  }
+}
+```
+
 ## All configs
 
 ### Schema
@@ -217,6 +269,7 @@ interface Config {
     googleProjectId?: string;
     googleProjectLocation?: string;
     rules: [{path: string;}];
+    commands: [{path: string;}];
     systemPromptTemplate?: string;
     nativeTools: {
         filesystem: {enabled: boolean};
@@ -241,6 +294,9 @@ interface Config {
         urlEnv?: string;
         key?: string;
         keyEnv?: string;
+    }};
+    models: {[key: string]: {
+      extraPayload: {[key: string]: any}
     }};
     ollama?: {
         host: string;
@@ -270,6 +326,7 @@ interface Config {
   "googleProjectId": null,
   "googleProjectLocation": null,
   "rules" : [],
+  "commands" : [],
   "nativeTools": {"filesystem": {"enabled": true},
                   "shell": {"enabled": true,
                             "excludeCommands": []}},
@@ -280,6 +337,7 @@ interface Config {
   "mcpTimeoutSeconds" : 10,
   "mcpServers" : [],
   "customProviders": {},
+  "models": {},
   "ollama" : {
     "host" : "http://localhost",
     "port" : 11434,

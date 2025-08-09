@@ -38,13 +38,13 @@
     (with-redefs [config/get-env (constantly nil)]
       (let [db {:models {}}
             config {:openaiApiKey "yes!"}]
-        (is (= "o4-mini" (llm-api/default-model db config))))))
+        (is (= "gpt-5" (llm-api/default-model db config))))))
 
   (testing "OpenAI API key present in ENV"
     (with-redefs [config/get-env (fn [k] (when (= k "OPENAI_API_KEY") "env-openai"))]
       (let [db {:models {}}
             config {}]
-        (is (= "o4-mini" (llm-api/default-model db config))))))
+        (is (= "gpt-5" (llm-api/default-model db config))))))
 
   (testing "Fallback default (no keys anywhere)"
     (with-redefs [config/get-env (constantly nil)]

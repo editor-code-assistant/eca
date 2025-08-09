@@ -43,12 +43,15 @@
 
    ;; all other settings
    :rules []
+   :commands []
    :nativeTools {:filesystem {:enabled true}
                  :shell {:enabled true
                          :excludeCommands []}}
    :disabledTools []
    :mcpTimeoutSeconds 60
    :mcpServers {}
+
+   :models {}
 
    :chat {:welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
 

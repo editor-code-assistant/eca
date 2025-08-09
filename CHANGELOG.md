@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.22.0
+
+- Improve `eca_shell_command` to handle better error outputs.
+- Add summary for eca commands via `summary` field on tool calls.
+
+## 0.21.1
+
+- Default to gpt-5 instead of o4-mini when openai-api-key found.
+- Considerably improve `eca_shell_command` to fix args parsing + git/PRs interactions.
+
+## 0.21.0
+
+- Fix openai skip streaming response corner cases.
+- Allow override payload of any LLM provider.
+
+## 0.20.0
+
+- Support custom commands via md files in `~/.config/eca/commands/` or `.eca/commands/`.
+
+## 0.19.0
+
+- Support `claude-opus-4-1` model.
+- Support `gpt-5`, `gpt-5-mini`, `gpt-5-nano` models.
+
 ## 0.18.0
 
 - Replace `chat` behavior with `plan`.
