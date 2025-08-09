@@ -57,7 +57,7 @@ A `.eca/rules` folder from the workspace root containing `.mdc` files with the r
 
 `.eca/rules/talk_funny.mdc`
 ```markdown
---- 
+---
 description: Use when responding anything
 ---
 
@@ -70,7 +70,7 @@ A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.mdc`
 
 `~/.config/eca/rules/talk_funny.mdc`
 ```markdown
---- 
+---
 description: Use when responding anything
 ---
 
@@ -102,6 +102,87 @@ For MCP servers configuration, use the `mcpServers` config, example:
   }
 }
 ```
+
+## Google Gemini
+
+ECA supports Google's Gemini models through two main APIs: the **Gemini Developer API** and the **Vertex AI API**. Each has distinct configuration and authentication methods. Configuration keys are set at the root of the config file.
+
+### Gemini Developer API (API Key)
+
+This is the simplest way to get started. It uses an API key from Google AI Studio.
+
+-   **Authentication:** API Key
+-   **Endpoint:** `https://generativelanguage.googleapis.com/v1beta/`
+-   **Configuration:**
+
+    ```json
+    {
+      "geminiApiKey": "YOUR_GEMINI_API_KEY"
+    }
+    ```
+
+    Alternatively, you can set the `GEMINI_API_KEY` environment variable.
+
+### Vertex AI (API Key)
+
+For projects integrated with Google Cloud Platform (GCP), you can use an API key associated with your GCP project.
+
+-   **Authentication:** API Key (from GCP)
+-   **Endpoint:** `https://<LOCATION>-aiplatform.googleapis.com/v1/`
+-   **Configuration:**
+
+    ```json
+    {
+      "googleApiKey": "YOUR_GCP_API_KEY",
+      "googleProjectId": "your-gcp-project-id",
+      "googleProjectLocation": "your-gcp-region"
+    }
+    ```
+    You can also use the `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, and `GOOGLE_PROJECT_LOCATION` environment variables.
+
+### Vertex AI (Application Default Credentials - ADC)
+
+For a more secure and flexible setup, you can use Application Default Credentials (ADC). This method is used when no `googleApiKey` is provided.
+
+There are two common ways to provide these credentials:
+
+1.  **User ADC (for local development):**
+    Authenticate with the `gcloud` CLI. ECA will automatically pick up the credentials.
+    ```bash
+    gcloud auth application-default login
+    ```
+
+2.  **Service Account ADC (for automated environments):**
+    Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the absolute path of your service account JSON file.
+    ```bash
+    export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-file.json"
+    ```
+    Alternatively, you can set this path in your configuration file:
+    ```json
+    {
+      "googleApplicationCredentials": "/path/to/your/service-account-file.json"
+    }
+    ```
+
+In all ADC scenarios, you still need to provide the project ID and location:
+
+```json
+{
+  "googleProjectId": "your-gcp-project-id",
+  "googleProjectLocation": "your-gcp-region"
+}
+```
+You can also set the `GOOGLE_PROJECT_ID` and `GOOGLE_PROJECT_LOCATION` environment variables.
+
+**Summary of Configuration Options:**
+
+| Key                              | Environment Variable                 | Description                                                                  | Required For                               |
+| -------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------ |
+| `geminiApiKey`                   | `GEMINI_API_KEY`                     | API key for the Gemini Developer API.                                        | Gemini Developer API                       |
+| `googleApiKey`                   | `GOOGLE_API_KEY`                     | API key for Vertex AI. If not provided, ADC will be used.                    | Vertex AI (API Key)                        |
+| `googleProjectId`                | `GOOGLE_PROJECT_ID`                  | Your Google Cloud project ID.                                                | Vertex AI (API Key), Vertex AI (ADC)       |
+| `googleProjectLocation`          | `GOOGLE_PROJECT_LOCATION`            | The GCP region for your project (e.g., `us-central1`).                       | Vertex AI (API Key), Vertex AI (ADC)       |
+
 
 ## Custom LLM providers
 
@@ -183,6 +264,10 @@ Example:
 interface Config {
     openaiApiKey?: string;
     anthropicApiKey?: string;
+    geminiApiKey?: string;
+    googleApiKey?: string;
+    googleProjectId?: string;
+    googleProjectLocation?: string;
     rules: [{path: string;}];
     commands: [{path: string;}];
     systemPromptTemplate?: string;
@@ -199,7 +284,7 @@ interface Config {
     mcpServers: {[key: string]: {
         command: string;
         args?: string[];
-        disabled?: boolean; 
+        disabled?: boolean;
     }};
     customProviders: {[key: string]: {
         api: 'openai' | 'anthropic';
@@ -236,10 +321,14 @@ interface Config {
 {
   "openaiApiKey" : null,
   "anthropicApiKey" : null,
+  "geminiApiKey": null,
+  "googleApiKey": null,
+  "googleProjectId": null,
+  "googleProjectLocation": null,
   "rules" : [],
   "commands" : [],
   "nativeTools": {"filesystem": {"enabled": true},
-                  "shell": {"enabled": true, 
+                  "shell": {"enabled": true,
                             "excludeCommands": []}},
   "disabledTools": [],
   "toolCall": {

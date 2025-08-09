@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   [eca.llm-providers.google :as llm-providers.google]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.logger :as logger]))
@@ -34,6 +35,7 @@
         (string/join "\n" (subvec lines start end)))
       content)))
 
+;; NTOE: this is not going to scale ;-)
 (defn ^:private anthropic-api-key [config]
   (or (:anthropicApiKey config)
       (config/get-env "ANTHROPIC_API_KEY")))
@@ -50,6 +52,28 @@
   (or (config/get-env "OPENAI_API_URL")
       llm-providers.openai/base-url))
 
+;; Google Gemini auth
+(defn ^:private gemini-api-key [config]
+  (or (:geminiApiKey config)
+      (config/get-env "GEMINI_API_KEY")))
+
+(defn ^:private google-api-key [config]
+  (or (:googleApiKey config)
+      (config/get-env "GOOGLE_API_KEY")))
+
+(defn ^:private google-project-id [config]
+  (or (:googleProjectId config)
+      (config/get-env "GOOGLE_PROJECT_ID")))
+
+(defn ^:private google-project-location [config]
+  (or (:googleProjectLocation config)
+      (config/get-env "GOOGLE_PROJECT_LOCATION")))
+
+(defn ^:private google-any-auth? [config]
+  (or (gemini-api-key config)
+      (and (google-project-id config) (google-project-location config) (google-api-key config))
+      (and (google-project-id config) (google-project-location config))))
+
 (defn default-model
   "Returns the default LLM model checking this waterfall:
   - Any custom provider with defaultModel set
@@ -59,19 +83,28 @@
   - Anthropic default model."
   [db config]
   (let [[decision model]
-        (or (when-let [custom-provider-default-model (first (keep (fn [[model config]]
-                                                                    (when (and (:custom-provider? config)
-                                                                               (:default-model? config))
-                                                                      model))
-                                                                  (:models db)))]
-              [:custom-provider-default-model custom-provider-default-model])
-            (when (anthropic-api-key config)
-              [:api-key-found "claude-sonnet-4-0"])
-            (when (openai-api-key config)
-              [:api-key-found "gpt-5"])
-            (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
-              [:ollama-running ollama-model])
-            [:default "claude-sonnet-4-0"])]
+        (or
+         (when-let [custom-provider-default-model (first (keep (fn [[model config]]
+                                                                 (when (and (:custom-provider? config)
+                                                                            (:default-model? config))
+                                                                   model))
+                                                               (:models db)))]
+           [:custom-provider-default-model custom-provider-default-model])
+
+         (when (anthropic-api-key config)
+           [:api-key-found "claude-sonnet-4-0"])
+
+         (when (openai-api-key config)
+           [:api-key-found "gpt-5"])
+
+         (when (google-any-auth? config)
+           [:google-auth-found "gemini-2.5-pro"])
+
+         (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
+           [:ollama-running ollama-model])
+
+         ;; else:
+         [:default "claude-sonnet-4-0"])]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
     model))
 
@@ -156,6 +189,26 @@
         :extra-payload extra-payload
         :api-url (anthropic-api-url)
         :api-key (anthropic-api-key config)}
+       callbacks)
+
+      (contains? #{"gemini-2.5-pro"
+                   "gemini-2.5-flash"} model)
+      (llm-providers.google/completion!
+       {:model model
+        :instructions instructions
+        :user-messages user-messages
+        :max-output-tokens max-output-tokens
+        :reason-tokens reason-tokens
+        :reason? (and reason? (:reason? model-config))
+        :past-messages past-messages
+        :tools tools
+        :web-search web-search
+        ;; NOTE: no :api-url here, because Google provider figures it out
+        ;;       because it depends on how we're authenticated
+        :gemini-api-key (gemini-api-key config)
+        :google-api-key (google-api-key config)
+        :google-project-id (google-project-id config)
+        :google-project-location (google-project-location config)}
        callbacks)
 
       (string/starts-with? model config/ollama-model-prefix)
