@@ -98,7 +98,7 @@
   [{:keys [model user-messages temperature instructions max-output-tokens
            api-url api-key reason? reason-tokens past-messages tools web-search extra-payload]
     :or {temperature 1.0}}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tool-called on-usage-updated]}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated]}]
   (let [messages (concat (normalize-messages past-messages)
                          (normalize-messages user-messages))
         body (merge (assoc-some
@@ -159,23 +159,25 @@
                                                    :input-cache-read-tokens (:cache_read_input_tokens usage)
                                                    :output-tokens (:output_tokens usage)}))
                               (case (-> data :delta :stop_reason)
-                                "tool_use" (doseq [content-block (vals @content-block*)]
-                                             (when (= "tool_use" (:type content-block))
-                                               (let [function-name (:name content-block)
-                                                     function-args (:input-json content-block)
-                                                     {:keys [new-messages]} (on-tool-called {:id (:id content-block)
-                                                                                             :name function-name
-                                                                                             :arguments (json/parse-string function-args)})
-                                                     messages (-> (normalize-messages new-messages)
-                                                                  add-cache-to-last-message)]
-                                                 (base-request!
-                                                  {:rid (llm-util/gen-rid)
-                                                   :body (assoc body :messages messages)
-                                                   :api-url api-url
-                                                   :api-key api-key
-                                                   :content-block* (atom nil)
-                                                   :on-error on-error
-                                                   :on-response handle-response}))))
+                                "tool_use" (let [tool-calls (keep
+                                                             (fn [content-block]
+                                                               (when (= "tool_use" (:type content-block))
+                                                                 {:id (:id content-block)
+                                                                  :name (:name content-block)
+                                                                  :arguments (json/parse-string (:input-json content-block))}))
+                                                             (vals @content-block*))
+                                                 {:keys [new-messages]} (on-tools-called tool-calls)
+                                                 messages (-> (normalize-messages new-messages)
+                                                              add-cache-to-last-message)]
+                                             (reset! content-block* {})
+                                             (base-request!
+                                              {:rid (llm-util/gen-rid)
+                                               :body (assoc body :messages messages)
+                                               :api-url api-url
+                                               :api-key api-key
+                                               :content-block* (atom nil)
+                                               :on-error on-error
+                                               :on-response handle-response}))
                                 "end_turn" (do
                                              (reset! content-block* {})
                                              (on-message-received {:type :finish

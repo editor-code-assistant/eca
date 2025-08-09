@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.23.1
+
+- Fix openai reasoning not being included in messages.
+
+## 0.23.0
+
+- Support parallel tool call.
+
 ## 0.22.0
 
 - Improve `eca_shell_command` to handle better error outputs.

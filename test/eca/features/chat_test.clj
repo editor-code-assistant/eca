@@ -209,12 +209,12 @@ for allowed directories and then list files"
             (fn [{:keys [on-first-response-received
                          on-message-received
                          on-prepare-tool-call
-                         on-tool-called]}]
+                         on-tools-called]}]
               (on-first-response-received {:type :text :text "Ok,"})
               (on-message-received {:type :text :text "Ok,"})
               (on-message-received {:type :text :text " working on it"})
               (on-prepare-tool-call {:id "call-1" :name "list_allowed_directories" :arguments-text ""})
-              (on-tool-called {:id "call-1" :name "list_allowed_directories" :arguments {}})
+              (on-tools-called [{:id "call-1" :name "list_allowed_directories" :arguments {}}])
               (on-message-received {:type :text :text "I can see: \n"})
               (on-message-received {:type :text :text "/foo/bar"})
               (on-message-received {:type :finish}))

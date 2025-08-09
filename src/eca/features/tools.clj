@@ -57,7 +57,7 @@
         (logger/debug logger-tag "Tool call result: " result)
         result)
       (catch Exception e
-        (logger/warn logger-tag (format "Error calling tool %s: %s" name (.getMessage e)))
+        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" name (.getMessage e) (with-out-str (.printStackTrace e))))
         {:error true
          :contents [{:type :text
                      :text (str "Error calling tool: " (.getMessage e))}]}))))

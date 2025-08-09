@@ -97,7 +97,7 @@
         past-messages))
 
 (defn completion! [{:keys [model user-messages reason? instructions host port past-messages tools]}
-                   {:keys [on-message-received on-error on-prepare-tool-call on-tool-called
+                   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
                            on-reason extra-payload]}]
   (let [messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
@@ -124,7 +124,8 @@
 
                              done_reason
                              (if-let [tool-call (get @tool-calls* rid)]
-                               (let [{:keys [new-messages]} (on-tool-called tool-call)]
+                               ;; TODO support multiple tool calls
+                               (let [{:keys [new-messages]} (on-tools-called [tool-call])]
                                  (swap! tool-calls* dissoc rid)
                                  (base-completion-request!
                                   {:rid (llm-util/gen-rid)

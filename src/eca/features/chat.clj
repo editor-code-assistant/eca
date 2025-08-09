@@ -164,72 +164,81 @@
                               (swap! tool-call-by-id* update-in [id :args] str arguments-text)
                               (send-content! chat-ctx :assistant
                                              (assoc-some
-                                               {:type :toolCallPrepare
-                                                :name name
-                                                :origin (tool-name->origin name all-tools)
-                                                :arguments-text (get-in @tool-call-by-id* [id :args])
-                                                :id id
-                                                :manual-approval manual-approval?}
-                                               :summary (f.tools/tool-call-summary all-tools name nil))))
-      :on-tool-called (fn [{:keys [id name arguments] :as tool-call}]
-                        (assert-chat-not-stopped! chat-ctx)
-                        (let [approved?* (promise)
-                              details (f.tools/get-tool-call-details name arguments)
-                              summary (f.tools/tool-call-summary all-tools name arguments)]
-                          (send-content! chat-ctx :assistant
-                                         (assoc-some
-                                          {:type :toolCallRun
-                                           :name name
-                                           :origin (tool-name->origin name all-tools)
-                                           :arguments arguments
-                                           :id id
-                                           :manual-approval manual-approval?}
-                                          :details details
-                                          :summary summary))
-                          (swap! db* assoc-in [:chats chat-id :tool-calls id :approved?*] approved?*)
-                          (when-not (string/blank? @received-msgs*)
-                            (add-to-history! {:role "assistant" :content @received-msgs*})
-                            (reset! received-msgs* ""))
-                          (if manual-approval?
-                            (send-content! chat-ctx :system
-                                           {:type :progress
-                                            :state :running
-                                            :text "Waiting for tool call approval"})
-                             ;; Otherwise auto approve
-                            (deliver approved?* true))
-                          (if @approved?*
-                            (let [result (f.tools/call-tool! name arguments @db* config)]
-                              (add-to-history! {:role "tool_call" :content tool-call})
-                              (add-to-history! {:role "tool_call_output" :content (assoc tool-call :output result)})
-                              (send-content! chat-ctx :assistant
-                                             (assoc-some
-                                              {:type :toolCalled
-                                               :origin (tool-name->origin name all-tools)
+                                              {:type :toolCallPrepare
                                                :name name
-                                               :arguments arguments
-                                               :error (:error result)
+                                               :origin (tool-name->origin name all-tools)
+                                               :arguments-text (get-in @tool-call-by-id* [id :args])
                                                :id id
-                                               :outputs (:contents result)}
-                                              :details details
-                                              :summary summary)))
-                            (do
-                              (add-to-history! {:role "tool_call" :content tool-call})
-                              (add-to-history! {:role "tool_call_output" :content (assoc tool-call :output {:error true
-                                                                                                            :contents [{:text "Tool call rejected by user"
-                                                                                                                        :type :text}]})})
-                              (send-content! chat-ctx :assistant
-                                             (assoc-some
-                                              {:type :toolCallRejected
-                                               :origin (tool-name->origin name all-tools)
-                                               :name name
-                                               :arguments arguments
-                                               :reason :user
-                                               :id id}
-                                              :details details
-                                              :summary summary))))
-                          (swap! tool-call-by-id* dissoc id)
-                          (send-content! chat-ctx :system {:type :progress :state :running :text "Generating"})
-                          {:new-messages (get-in @db* [:chats chat-id :messages])}))
+                                               :manual-approval manual-approval?}
+                                              :summary (f.tools/tool-call-summary all-tools name nil))))
+      :on-tools-called (fn [tool-calls]
+                         (assert-chat-not-stopped! chat-ctx)
+                         ;; Flush any pending assistant text once before processing multiple tool calls
+                         (when-not (string/blank? @received-msgs*)
+                           (add-to-history! {:role "assistant" :content @received-msgs*})
+                           (reset! received-msgs* ""))
+                         (let [calls (doall
+                                     (for [{:keys [id name arguments] :as tool-call} tool-calls]
+                                       (let [approved?* (promise)
+                                             details (f.tools/get-tool-call-details name arguments)
+                                             summary (f.tools/tool-call-summary all-tools name arguments)]
+                                         ;; Inform UI the tool is about to run and store approval promise
+                                         (send-content! chat-ctx :assistant
+                                                        (assoc-some
+                                                         {:type :toolCallRun
+                                                          :name name
+                                                          :origin (tool-name->origin name all-tools)
+                                                          :arguments arguments
+                                                          :id id
+                                                          :manual-approval manual-approval?}
+                                                         :details details
+                                                         :summary summary))
+                                         (swap! db* assoc-in [:chats chat-id :tool-calls id :approved?*] approved?*)
+                                         (if manual-approval?
+                                           (send-content! chat-ctx :system
+                                                          {:type :progress
+                                                           :state :running
+                                                           :text "Waiting for tool call approval"})
+                                           ;; Otherwise auto approve
+                                           (deliver approved?* true))
+                                         ;; Execute each tool call concurrently
+                                         (future
+                                           (if @approved?*
+                                             (let [result (f.tools/call-tool! name arguments @db* config)]
+                                               (add-to-history! {:role "tool_call" :content tool-call})
+                                               (add-to-history! {:role "tool_call_output" :content (assoc tool-call :output result)})
+                                               (send-content! chat-ctx :assistant
+                                                              (assoc-some
+                                                               {:type :toolCalled
+                                                                :origin (tool-name->origin name all-tools)
+                                                                :name name
+                                                                :arguments arguments
+                                                                :error (:error result)
+                                                                :id id
+                                                                :outputs (:contents result)}
+                                                               :details details
+                                                               :summary summary)))
+                                             (do
+                                               (add-to-history! {:role "tool_call" :content tool-call})
+                                               (add-to-history! {:role "tool_call_output"
+                                                                 :content (assoc tool-call :output {:error true
+                                                                                                    :contents [{:text "Tool call rejected by user"
+                                                                                                                :type :text}]})})
+                                               (send-content! chat-ctx :assistant
+                                                              (assoc-some
+                                                               {:type :toolCallRejected
+                                                                :origin (tool-name->origin name all-tools)
+                                                                :name name
+                                                                :arguments arguments
+                                                                :reason :user
+                                                                :id id}
+                                                               :details details
+                                                               :summary summary))))
+                                           (swap! tool-call-by-id* dissoc id)))))]
+                           ;; Wait all tool calls to complete before returning
+                           (run! deref calls)
+                           (send-content! chat-ctx :system {:type :progress :state :running :text "Generating"})
+                           {:new-messages (get-in @db* [:chats chat-id :messages])}))
       :on-reason (fn [{:keys [status id text external-id]}]
                    (assert-chat-not-stopped! chat-ctx)
                    (case status
@@ -243,7 +252,8 @@
                                                  :id id
                                                  :text text}))
                      :finished (do
-                                 (add-to-history! {:role "reason" :content {:external-id external-id
+                                 (add-to-history! {:role "reason" :content {:id id
+                                                                            :external-id external-id
                                                                             :text @received-thinking*}})
                                  (send-content! chat-ctx :assistant
                                                 {:type :reasonFinished
