@@ -11,6 +11,7 @@
    [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.logger :as logger]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -77,6 +78,7 @@
                             (io/file (get-property "user.home") ".config"))
         config-file (io/file xdg-config-home "eca" "config.json")]
     (when (.exists config-file)
+      (logger/debug "[CONFIG]" (format "Loading global config from %s" config-file))
       (safe-read-json-string (slurp config-file)))))
 
 (def ^:private config-from-global-file (memoize/ttl config-from-global-file* :ttl/threshold ttl-cache-config-ms))
@@ -88,6 +90,7 @@
       final-config
       (let [config-file (io/file (shared/uri->filename uri) ".eca" "config.json")]
         (when (.exists config-file)
+          (logger/debug "[CONFIG]" (format "Loading project config from %s" config-file))
           (safe-read-json-string (slurp config-file))))))
    {}
    roots))
