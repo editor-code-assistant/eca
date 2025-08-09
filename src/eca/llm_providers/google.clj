@@ -21,45 +21,59 @@
           location project location))
 
 ;; TODO: this will need to run a refresh loop because this token will expire!
-(defn ^:private fetch-adc []
+(defn ^:private fetch-adc [{:keys [project]}]
   (if-let [adc-path (let [adc-path (or (System/getenv "GOOGLE_APPLICATION_CREDENTIALS")
                                        (fs/expand-home "~/.config/gcloud/application_default_credentials.json"))]
                       (when (fs/exists? adc-path)
                         (str adc-path)))]
-    (let [{:keys [client_id client_secret refresh_token]} (json/parse-string (slurp adc-path) true)]
-      (-> (http/post "https://oauth2.googleapis.com/token"
-                     {:form-params {:client_id client_id
-                                    :client_secret client_secret
-                                    :refresh_token refresh_token
-                                    :grant_type "refresh_token"}
-                      :throw-exceptions? false
-                      :as :json
-                      :headers {"Content-Type" "application/x-www-form-urlencoded"}})
-          :body
-          (select-keys [:access_token :expires_in])))
+    (let [{:keys [client_id client_secret refresh_token]} (json/parse-string (slurp adc-path) true)
+
+          {:keys [status body] :as _Response} (http/post "https://oauth2.googleapis.com/token"
+                                                         {:form-params {:client_id client_id
+                                                                        :client_secret client_secret
+                                                                        :refresh_token refresh_token
+                                                                        :grant_type "refresh_token"}
+                                                          :throw-exceptions? false
+                                                          :as :json
+                                                          :headers {"Content-Type" "application/x-www-form-urlencoded"}})]
+
+      (if (= 200 status)
+        (select-keys body [:access_token :expires_in])
+        ;; NOTE: technically, we could run `gcloud --project=... auth application-default login` here and retry the request
+        (logger/error logger-tag
+                      (str "Failed to fetch ADC token. Status: " status
+                           ", body: " body
+                           "\nRun 'gcloud --project=" project " auth application-default login' to update application default credentials."))))
     (logger/error logger-tag
                   (str "No GOOGLE_APPLICATION_CREDENTIALS env var or ~/.config/gcloud/application_default_credentials.json file found. "
                        "Please run 'gcloud auth application-default login' to set up application default credentials."))))
 
 (defonce adc-info (atom nil))
 
-(defn ^:private get-adc-token []
+(defn ^:private get-adc-token [{:keys [project location]}]
   ;; if we have a token - just return it
   (if-let [token (-> @adc-info :access_token)]
     token
     ;; looks like we're fetching for the first time
-    (let [{:keys [expires_in access_token] :as token-info} (fetch-adc)]
+    (let [{:keys [expires_in access_token] :as token-info} (try
+                                                             (fetch-adc {:project project
+                                                                         :location location})
+                                                             (catch Exception e
+                                                               (logger/error logger-tag "Error fetching ADC token: %s" (ex-message e))
+                                                               (throw e)))]
       (reset! adc-info token-info)
       (logger/info logger-tag (format "Scheduling token refresh in %d seconds" expires_in))
       ;; spin up a future to refresh the token
-      (future
-        ;; wait for the token to expire, then fetch a new one
-        ;; we subtract 60 seconds to ensure we don't hit the expiration time
-        (Thread/sleep ^long (* 1000 (- expires_in 60)))
-        (logger/info logger-tag "Refreshing ADC token")
-        (let [new-token-info (fetch-adc)]
-          (reset! adc-info new-token-info)
-          (logger/info logger-tag "Fetched new ADC token")))
+      (when token-info
+        (future
+          ;; wait for the token to expire, then fetch a new one
+          ;; we subtract 60 seconds to ensure we don't hit the expiration time
+          (Thread/sleep ^long (* 1000 (- expires_in 60)))
+          (logger/info logger-tag "Refreshing ADC token")
+          (let [new-token-info (fetch-adc {:project project
+                                           :location location})]
+            (reset! adc-info new-token-info)
+            (logger/info logger-tag "Fetched new ADC token"))))
       access_token)))
 
 ;; TODO: this is not 100% correct, just a sketch
@@ -85,7 +99,8 @@
 
      ;; TODO: blow up when either are nil!
      :headers {"Authorization" (str "Bearer " (or google-api-key
-                                                  (get-adc-token)))}}))
+                                                  (get-adc-token {:project-id google-project-id
+                                                                  :location google-project-location})))}}))
 
 (defn ^:private base-completion-request! [{:keys [rid
                                                   body
