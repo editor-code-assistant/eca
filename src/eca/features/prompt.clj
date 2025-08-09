@@ -22,7 +22,7 @@
 (def ^:private agent-behavior (memoize agent-behavior*))
 
 (defn ^:private eca-prompt [behavior config]
-  (let [prompt (or (:systemPromptTemplate config)
+  (let [prompt (or (some-> (:systemPromptTemplateFile config) slurp)
                    (base-prompt-template))]
     (reduce
      (fn [p [k v]]

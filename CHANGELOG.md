@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Support loading system prompts from a file.
+- Fix model name parsing.
+
 ## 0.23.1
 
 - Fix openai reasoning not being included in messages.
@@ -159,7 +162,7 @@
 
 ## 0.10.2
 
-- Fix usage metrics for anthropic models. 
+- Fix usage metrics for anthropic models.
 
 ## 0.10.1
 
