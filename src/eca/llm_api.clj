@@ -90,15 +90,20 @@
                                                                    model))
                                                                (:models db)))]
            [:custom-provider-default-model custom-provider-default-model])
+
          (when (anthropic-api-key config)
            [:api-key-found "claude-sonnet-4-0"])
+
          (when (openai-api-key config)
            [:api-key-found "o4-mini"])
-         (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
-           [:ollama-running ollama-model])
+
          (when (google-any-auth? config)
            [:google-auth-found "gemini-2.5-pro"])
-         [:default #_"claude-sonnet-4-0" "gemini-2.5-pro"])]
+
+         (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
+           [:ollama-running ollama-model])
+         ;; else:
+         [:default "claude-sonnet-4-0"])]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
     model))
 
@@ -195,8 +200,7 @@
         :gemini-api-key (gemini-api-key config)
         :google-api-key (google-api-key config)
         :google-project-id (google-project-id config)
-        :google-project-location (google-project-location config)
-        :application-default-credentials (config/get-env "GOOGLE_APPLICATION_CREDENTIALS")}
+        :google-project-location (google-project-location config)}
        callbacks)
 
       (string/starts-with? model config/ollama-model-prefix)
