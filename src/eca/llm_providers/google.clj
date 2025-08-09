@@ -169,14 +169,16 @@
           (case role
             "tool_call"
             {:role "model"
-             :parts [{:functionCall content}]}
+             :parts [{:functionCall {:name (:name content)
+                                     :args (:arguments content)}}]}
 
-            "tool_call_output"
-            {:role "tool"
-             :parts [{:functionResponse
-                      {:name (:name content)
-                       :response {:name (:name content)
-                                  :content (:output content)}}}]}
+            "tool_call_output" (do
+                                 (logger/debug logger-tag (format "Tool call output: %s" content))
+                                 {:role "tool"
+                                  :parts [{:functionResponse
+                                           {:name (:name content)
+                                            :response {:name (:name content)
+                                                       :content (:output content)}}}]})
 
             {:role (if (= role "assistant") "model" role)
              :parts (if (string? content)
@@ -189,38 +191,60 @@
 
 (defn ^:private ->tools [tools]
   (when (seq tools)
-    [{:function_declarations (mapv #(dissoc % :type) tools)}]))
+    [{:function_declarations (mapv #(select-keys % [:description :name :parameters]) tools)}]))
 
-(defn completion! [{:keys [model user-messages instructions temperature max-output-tokens
+(defn completion! [{:keys [model user-messages instructions temperature max-output-tokens tools
+                           past-messages
 
                            google-api-key
                            gemini-api-key
                            google-project-id
-                           google-project-location
-                           application-default-credentials
+                           google-project-location]
 
-                           past-messages]
                     :or {temperature 1.0}}
-                   {:keys [on-message-received on-error]}]
+                   {:keys [on-message-received on-error on-tools-called]}]
   (let [messages (concat (normalize-messages past-messages)
                          (normalize-messages user-messages))
         body {:model model
+              :tools (->tools tools)
+              :tool_config {:function_calling_config {:mode "AUTO"}}
               :contents messages
               :system_instruction {:parts [{:text instructions}]}
               :generationConfig {:temperature temperature
                                  :maxOutputTokens max-output-tokens}}
         on-response-fn (fn handle-response [_event data]
-                         (when-let [text (get-in data [:candidates 0 :content :parts 0 :text])]
-                           (on-message-received {:type :text, :text text}))
-                         (when-let [finish-reason (get-in data [:candidates 0 :finishReason])]
-                           (on-message-received {:type :finish, :finish-reason finish-reason})))]
+                         (let [parts (get-in data [:candidates 0 :content :parts])
+                               text-parts (filter :text parts)
+                               function-call-parts (filter :functionCall parts)]
+                           (doseq [part text-parts]
+                             (on-message-received {:type :text, :text (:text part)}))
+                           (when (seq function-call-parts)
+                             (let [tool-calls (mapv
+                                               (fn [part]
+                                                 (let [function-call (:functionCall part)]
+                                                   {:id (str (random-uuid))
+                                                    :name (:name function-call)
+                                                    :arguments (:args function-call)}))
+                                               function-call-parts)
+                                   {:keys [new-messages]} (on-tools-called tool-calls)
+                                   final-messages (conj (vec new-messages) {:role "user" :content "Please continue."})]
+                               (base-completion-request!
+                                {:body (assoc body :contents (normalize-messages final-messages))
+                                 :rid (llm-util/gen-rid)
+                                 :gemini-api-key gemini-api-key
+                                 :google-api-key google-api-key
+                                 :google-project-id google-project-id
+                                 :google-project-location google-project-location
+                                 :on-error on-error
+                                 :on-response handle-response})))
+                           (when-let [finish-reason (get-in data [:candidates 0 :finishReason])]
+                             (on-message-received {:type :finish, :finish-reason finish-reason}))))]
     (base-completion-request!
      {:body body
       :rid (llm-util/gen-rid)
 
       :gemini-api-key gemini-api-key
       :google-api-key google-api-key
-      :application-default-credentials application-default-credentials
       :google-project-id google-project-id
       :google-project-location google-project-location
 
