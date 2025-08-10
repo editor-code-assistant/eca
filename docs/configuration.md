@@ -270,7 +270,7 @@ interface Config {
     googleProjectLocation?: string;
     rules: [{path: string;}];
     commands: [{path: string;}];
-    systemPromptTemplate?: string;
+    systemPromptTemplateFile?: string;
     nativeTools: {
         filesystem: {enabled: boolean};
          shell: {enabled: boolean;

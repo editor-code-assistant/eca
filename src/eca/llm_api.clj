@@ -225,7 +225,7 @@
        callbacks)
 
       (contains? custom-models model)
-      (let [[provider model] (string/split model #"/")
+      (let [[provider model] (string/split model #"/" 2)
             provider-config (get custom-providers (keyword provider))
             provider-fn (case (:api provider-config)
                           "openai" llm-providers.openai/completion!

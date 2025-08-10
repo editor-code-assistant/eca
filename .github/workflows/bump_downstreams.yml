@@ -53,7 +53,7 @@ jobs:
           git config --global user.name "Eric Dallo (ECA)"
           git config --global user.email "ercdll1337+eca@gmail.com"
           mkdir ~/.ssh && touch ~/.ssh/id_rsa
-          echo "${{ secrets.ECA_TOKEN }}" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.ECA_COMMIT_KEY }}" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
           git clone git@github.com:editor-code-assistant/homebrew-brew.git
           cd homebrew-brew
           bb -o render.clj --version "${{ env.VERSION }}" --mac-arm-sha "${{ env.MAC_ARM_SHA256 }}" --mac-amd-sha "${{ env.MAC_AMD_SHA256 }}" --linux-sha "${{ env.LINUX_SHA256 }}" --static-linux-sha "${{ env.STATIC_LINUX_SHA256 }}" > eca.rb
