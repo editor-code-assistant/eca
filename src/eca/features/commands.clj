@@ -76,6 +76,10 @@
                       {:name "repo-map-show"
                        :type :native
                        :description "Show the actual repoMap of current session."
+                       :arguments []}
+                      {:name "resume"
+                       :type :native
+                       :description "Resume the chats from this session workspaces."
                        :arguments []}]
         custom-commands (map (fn [custom]
                                {:name (:name custom)
@@ -111,8 +115,18 @@
                                       (str "Total input cache read tokens: " total-input-cache-read-tokens))
                                     (str "Total output tokens: " total-output-tokens)
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model db)))]
-                {:type :text :text text})
-      "repo-map-show" {:type :text :text (f.index/repo-map db {:as-string? true})}
+                {:type :chat-messages
+                 :chats {chat-id [{:role :system :content [{:type :text :text text}]}]}})
+      "repo-map-show" {:type :chat-messages
+                       :chats {chat-id [{:role :system :content [{:type :text :text (f.index/repo-map db {:as-string? true})}]}]}}
+
+      "resume" (let [chats (:chats db)]
+                 ;; Override current chat with first chat
+                 (when-let [first-chat (second (first chats))]
+                   (swap! db* assoc-in [:chats chat-id] first-chat)
+                   ;; TODO support multiple chats update
+                   {:type :chat-messages
+                    :chats {chat-id (:messages first-chat)}}))
 
       ;; else check if a custom command
       (if-let [custom-command-prompt (get-custom-command command args custom-commands)]

@@ -37,8 +37,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content "Hey!"}
-                                {:role "assistant" :content "Hey you!"}]}}
+                     :messages [{:role "user" :content [{:type :text :text "Hey!"}]}
+                                {:role "assistant" :content [{:type :text :text "Hey you!"}]}]}}
            (:chats (h/db))))
       (is (match?
            {:chat-content-received
@@ -117,8 +117,8 @@
           req-id-1 (:req-id res-1)]
       (is (match?
            {chat-id-1 {:id chat-id-1
-                       :messages [{:role "user" :content "Count with me: 1 mississippi"}
-                                  {:role "assistant" :content "2 mississippi"}]}}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                                  {:role "assistant" :content [{:type :text :text "2 mississippi"}]}]}}
            (:chats (h/db))))
       (is (match?
            {:chat-content-received
@@ -164,10 +164,10 @@
             req-id-2 (:req-id res-2)]
         (is (match?
              {chat-id-2 {:id chat-id-2
-                         :messages [{:role "user" :content "Count with me: 1 mississippi"}
-                                    {:role "assistant" :content "2 mississippi"}
-                                    {:role "user" :content "3 mississippi"}
-                                    {:role "assistant" :content "4 mississippi"}]}}
+                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                                    {:role "assistant" :content [{:type :text :text "2 mississippi"}]}
+                                    {:role "user" :content [{:type :text :text "3 mississippi"}]}
+                                    {:role "assistant" :content [{:type :text :text "4 mississippi"}]}]}}
              (:chats (h/db))))
         (is (match?
              {:chat-content-received
@@ -223,14 +223,14 @@ for allowed directories and then list files"
                          :contents [{:type :text :content "Allowed directories: /foo/bar"}]})})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content "List the files you are allowed to see"}
-                                {:role "assistant" :content "Ok, working on it"}
+                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}]}
+                                {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-1" :name "list_allowed_directories" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-1" :name "list_allowed_directories" :arguments {}
                                                                     :output {:error false
                                                                              :contents [{:content "Allowed directories: /foo/bar"
                                                                                          :type :text}]}}}
-                                {:role "assistant" :content "I can see: \n/foo/bar"}]}}
+                                {:role "assistant" :content [{:type :text :text "I can see: \n/foo/bar"}]}]}}
            (:chats (h/db))))
       (is (match?
            {:chat-content-received

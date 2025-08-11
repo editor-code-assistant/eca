@@ -57,10 +57,10 @@
         {:keys [input-token-cost output-token-cost
                 input-cache-creation-token-cost input-cache-read-token-cost]} (get-in db [:models normalized-model])
         input-cost (* input-tokens input-token-cost)
-        input-cost (if input-cache-creation-tokens
+        input-cost (if (and input-cache-creation-tokens input-cache-creation-token-cost)
                      (+ input-cost (* input-cache-creation-tokens input-cache-creation-token-cost))
                      input-cost)
-        input-cost (if input-cache-read-tokens
+        input-cost (if (and input-cache-read-tokens input-cache-read-token-cost)
                      (+ input-cost (* input-cache-read-tokens input-cache-read-token-cost))
                      input-cost)]
     (when (and input-token-cost output-token-cost)

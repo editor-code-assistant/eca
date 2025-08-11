@@ -1,5 +1,7 @@
 # Installation
 
+:warning: ECA is already automatically downloaded in all editor plugins, so you don't need to download it manually, even so, if you want that, follow below:
+
 Eca is written in Clojure and compiled into a native binary via graalvm. You can download the [native binaries from Github Releases](https://github.com/editor-code-assistant/eca/releases) or use one of the methods below:
 
 ## Script (recommended)

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.24.1
+
+- Fix build
+
+## 0.24.0
+
+- Get models and configs from models.dev instead of hardcoding in eca.
+- Allow custom models addition via `models <modelName>` config.
+- Add `/resume` command to resume previous chats.
 - Support loading system prompts from a file.
 - Fix model name parsing.
 

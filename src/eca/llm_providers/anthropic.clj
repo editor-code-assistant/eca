@@ -96,11 +96,12 @@
 
 (defn completion!
   [{:keys [model user-messages temperature instructions max-output-tokens
-           api-url api-key reason? reason-tokens past-messages tools web-search extra-payload]
+           api-url api-key reason? past-messages tools web-search extra-payload]
     :or {temperature 1.0}}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated]}]
   (let [messages (concat (normalize-messages past-messages)
                          (normalize-messages user-messages))
+        thinking (:thinking extra-payload)
         body (merge (assoc-some
                      {:model model
                       :messages (add-cache-to-last-message messages)
@@ -109,9 +110,8 @@
                       :stream true
                       :tools (->tools tools web-search)
                       :system [{:type "text" :text instructions :cache_control {:type "ephemeral"}}]}
-                     :thinking (when (and reason? reason-tokens (> reason-tokens 0))
-                                 {:type "enabled"
-                                  :budget_tokens reason-tokens}))
+                     :thinking (when (and reason? thinking)
+                                 thinking))
                     extra-payload)
 
         on-response-fn

@@ -6,28 +6,37 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
-   [eca.logger :as logger]))
+   [eca.logger :as logger]
+   [eca.models :as models]))
 
 (set! *warn-on-reflection* true)
 
-(defn ^:private initialize-extra-models! [db* config]
-  (when-let [custom-providers (seq (:customProviders config))]
-    (swap! db* update :models merge
-           (reduce
-            (fn [models [provider {provider-models :models default-model :defaultModel}]]
-              (reduce
-               (fn [m model]
-                 (assoc m
-                        (str (name provider) "/" model)
-                        ;; TODO avoid hardcoding these capabilities
-                        {:tools true
-                         :web-search true
-                         :custom-provider? true
-                         :default-model? (= model default-model)}))
-               models
-               provider-models))
-            {}
-            custom-providers)))
+(defn ^:private initialize-models! [db* config]
+  (let [all-models (models/all)
+        eca-models (filter
+                    (fn [[model _config]]
+                      (get-in config [:models model]))
+                    all-models)]
+    (swap! db* update :models merge eca-models)
+    (when-let [custom-providers (seq (:customProviders config))]
+      (let [models (reduce
+                    (fn [models [provider {provider-models :models default-model :defaultModel}]]
+                      (reduce
+                       (fn [m model]
+                         (let [known-model (get all-models model)]
+                           (assoc m
+                                  (str (name provider) "/" model)
+                                  {:tools (or (:tools known-model) true)
+                                   :reason? (or (:reason? known-model) true)
+                                   :web-search (or (:web-search known-model) true)
+                                   :max-output-tokens (:max-output-tokens known-model)
+                                   :custom-provider? true
+                                   :default-model? (= model default-model)})))
+                       models
+                       provider-models))
+                    {}
+                    custom-providers)]
+        (swap! db* update :models merge models))))
   (when-let [ollama-models (seq (llm-api/extra-models config))]
     (let [models (reduce
                   (fn [models {:keys [model] :as ollama-model}]
@@ -46,7 +55,8 @@
           :workspace-folders (:workspace-folders params)
           :client-capabilities (:capabilities params)
           :chat-behavior (or (-> params :initialization-options :chat-behavior) (:chat-behavior @db*)))
-   (initialize-extra-models! db* config)
+   (initialize-models! db* config)
+   (db/load-db-from-cache! db*)
    {:models (keys (:models @db*))
     :chat-default-model (f.chat/default-model @db* config)
     :chat-behaviors (:chat-behaviors @db*)

@@ -113,7 +113,7 @@
          :type "function"))
 
 (defn complete!
-  [{:keys [model model-config instructions reason? user-messages config on-first-response-received
+  [{:keys [model provider model-config instructions reason? user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            past-messages tools]}]
   (let [first-response-received* (atom false)
@@ -138,7 +138,6 @@
                 (mapv tool->llm-tool tools))
         web-search (:web-search model-config)
         max-output-tokens (:max-output-tokens model-config)
-        reason-tokens (:reason-tokens model-config)
         custom-providers (:customProviders config)
         custom-models (set (mapcat (fn [[k v]]
                                      (map #(str (name k) "/" %) (:models v)))
@@ -151,18 +150,12 @@
                    :on-reason on-reason-wrapper
                    :on-usage-updated on-usage-updated}]
     (cond
-      (contains? #{"o4-mini"
-                   "o3"
-                   "gpt-4.1"
-                   "gpt-5"
-                   "gpt-5-mini"
-                   "gpt-5-nano"} model)
+      (= "openai" provider)
       (llm-providers.openai/completion!
        {:model model
         :instructions instructions
         :user-messages user-messages
         :max-output-tokens max-output-tokens
-        :reason-tokens reason-tokens
         :reason? (and reason? (:reason? model-config))
         :past-messages past-messages
         :tools tools
@@ -172,16 +165,12 @@
         :api-key (openai-api-key config)}
        callbacks)
 
-      (contains? #{"claude-sonnet-4-0"
-                   "claude-opus-4-0"
-                   "claude-opus-4-1"
-                   "claude-3-5-haiku-latest"} model)
+      (= "anthropic" provider)
       (llm-providers.anthropic/completion!
        {:model model
         :instructions instructions
         :user-messages user-messages
         :max-output-tokens max-output-tokens
-        :reason-tokens reason-tokens
         :reason? (and reason? (:reason? model-config))
         :past-messages past-messages
         :tools tools
@@ -230,7 +219,7 @@
             provider-fn (case (:api provider-config)
                           "openai" llm-providers.openai/completion!
                           "anthropic" llm-providers.anthropic/completion!
-                          (on-error-wrapper {:msg (format "Unknown custom model %s for provider %s" (:api provider-config) provider)}))
+                          (on-error-wrapper {:message (format "Unknown custom model %s for provider %s" (:api provider-config) provider)}))
             url (or (:url provider-config) (config/get-env (:urlEnv provider-config)))
             key (or (:key provider-config) (config/get-env (:keyEnv provider-config)))]
         (provider-fn
@@ -238,7 +227,6 @@
           :instructions instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
-          :reason-tokens reason-tokens
           :reason? (and reason? (:reason? model-config))
           :past-messages past-messages
           :web-search web-search
@@ -249,4 +237,4 @@
          callbacks))
 
       :else
-      (on-error-wrapper {:msg (str "ECA Unsupported model: " model)}))))
+      (on-error-wrapper {:message (str "ECA Unsupported model: " model)}))))
