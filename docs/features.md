@@ -50,6 +50,7 @@ The built-in commands are:
 
 `/costs`: shows costs about current session.
 `/repo-map-show`: shows the current repoMap context of the session.
+`/resume`: resume a chat from previous session of this workspace folder.
 
 #### Custom commands
 

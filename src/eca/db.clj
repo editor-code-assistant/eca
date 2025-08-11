@@ -96,7 +96,15 @@
                  (merge state-db
                         (select-keys global-cache [:chats]))))))
 
-(defn update-workspaces-cache! [db]
+(defn ^:private normalize-db-for-write [db]
   (-> (select-keys db [:chats])
+      (update :chats (fn [chats]
+                       (into {}
+                             (map (fn [[k v]]
+                                    [k (dissoc v :tool-calls)]))
+                             chats)))))
+
+(defn update-workspaces-cache! [db]
+  (-> (normalize-db-for-write db)
       (assoc :version version)
       (upsert-cache! (transit-global-db-file (:workspace-folders db)))))

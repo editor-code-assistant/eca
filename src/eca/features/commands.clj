@@ -116,9 +116,9 @@
                                     (str "Total output tokens: " total-output-tokens)
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model db)))]
                 {:type :chat-messages
-                 :chats {chat-id [{:role :system :content [{:type :text :text text}]}]}})
+                 :chats {chat-id [{:role "system" :content [{:type :text :text text}]}]}})
       "repo-map-show" {:type :chat-messages
-                       :chats {chat-id [{:role :system :content [{:type :text :text (f.index/repo-map db {:as-string? true})}]}]}}
+                       :chats {chat-id [{:role "system" :content [{:type :text :text (f.index/repo-map db {:as-string? true})}]}]}}
 
       "resume" (let [chats (:chats db)]
                  ;; Override current chat with first chat

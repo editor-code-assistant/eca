@@ -295,6 +295,7 @@
 (defn ^:private message-content->chat-content [role message-content]
   (case role
     ("user"
+     "system"
      "assistant") (reduce
                    (fn [m content]
                      (case (:type content)
