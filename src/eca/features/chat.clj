@@ -277,7 +277,7 @@
       :on-error (fn [{:keys [message exception]}]
                   (send-content! chat-ctx :system
                                  {:type :text
-                                  :text (or message (ex-message exception))})
+                                  :text (or message (str "Error: " (ex-message exception)))})
                   (finish-chat-prompt! :idle chat-ctx))})))
 
 (defn ^:private send-mcp-prompt!

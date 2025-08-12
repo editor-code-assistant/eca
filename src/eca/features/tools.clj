@@ -10,7 +10,8 @@
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :refer [assoc-some]])
+   [eca.shared :refer [assoc-some]]
+   [babashka.fs :as fs])
   (:import
    [java.util Map]))
 
@@ -131,7 +132,7 @@
                           new-content (get arguments "new_content")
                           all? (get arguments "all_occurrences")]
                       (when-let [{:keys [original-full-content
-                                         new-full-content]} (and path original-content new-content
+                                         new-full-content]} (and path (fs/exists? path) original-content new-content
                                                                  (f.tools.filesystem/file-change-full-content path original-content new-content all?))]
                         (let [{:keys [added removed diff]} (diff/diff original-full-content new-full-content path)]
                           {:type :fileChange

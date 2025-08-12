@@ -45,9 +45,13 @@ With this map you can usually answer:
 - _"How is tool Y executed?"_ – see `src/eca/features/tools/<y>.clj`.
 - _"How do we talk to provider Z?"_ – adapter under `llm_providers/`.
 
-### Tests
+### Unit Tests
 
 Run with `bb test` or run test via Clojure REPL. CI will run the same task.
+
+### Integration Tests
+
+Run with `bb integration-test`, it will use your `eca` binary project root to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor.
 
 ## Coding 
 

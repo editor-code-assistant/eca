@@ -59,7 +59,11 @@
             "claude-sonnet-4-20250514" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
             "claude-opus-4-1-20250805" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
             "claude-opus-4-20250514" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
-            "claude-3-5-haiku-20241022" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}}
+            "claude-3-5-haiku-20241022" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
+
+            "gemni-2.0-flash" {}
+            "gemini-2.0-flash-pro" {}
+            "gemini-2.0-pro" {}}
 
 
    :chat {:welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
@@ -109,6 +113,8 @@
 
 (def ^:private config-from-local-file (memoize/ttl config-from-local-file* :ttl/threshold ttl-cache-config-ms))
 
+(def initialization-config* (atom {}))
+
 (defn ^:private deep-merge [& maps]
   (apply merge-with (fn [& args]
                       (if (every? #(or (map? %) (nil? %)) args)
@@ -124,7 +130,10 @@
 (def ollama-model-prefix "ollama/")
 
 (defn all [db]
-  (deep-merge initial-config
-              (config-from-envvar)
-              (config-from-global-file)
-              (config-from-local-file (:workspace-folders db))))
+  (let [initialization-config @initialization-config*
+        pure-config? (:pureConfig initialization-config)]
+    (deep-merge initial-config
+                initialization-config
+                (when-not pure-config? (config-from-envvar))
+                (when-not pure-config? (config-from-global-file))
+                (when-not pure-config? (config-from-local-file (:workspace-folders db))))))

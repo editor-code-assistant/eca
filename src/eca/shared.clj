@@ -1,6 +1,8 @@
 (ns eca.shared
   (:require
-   [clojure.string :as string])
+   [camel-snake-kebab.core :as csk]
+   [clojure.string :as string]
+   [clojure.walk :as walk])
   (:import
    [java.net URI]
    [java.nio.file Paths]))
@@ -66,3 +68,14 @@
     (when (and input-token-cost output-token-cost)
       (format "%.2f" (+ input-cost
                         (* output-tokens output-token-cost))))))
+
+(defn map->camel-cased-map [m]
+  (let [f (fn [[k v]]
+            (if (keyword? k)
+              [(csk/->camelCase k) v]
+              [k v]))]
+    (walk/postwalk (fn [x]
+                     (if (map? x)
+                       (into {} (map f x))
+                       x))
+                   m)))

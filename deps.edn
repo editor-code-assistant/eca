@@ -9,6 +9,7 @@
         babashka/process {:mvn/version "0.6.23"}
         com.cognitect/transit-clj {:mvn/version "1.0.333"}
         hato/hato {:mvn/version "1.0.0"}
+        camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.3"}
         org.slf4j/slf4j-simple {:mvn/version "2.0.17"}
         com.googlecode.java-diff-utils/diffutils {:mvn/version "1.3.0"}
         cheshire/cheshire {:mvn/version "6.0.0"}}
@@ -18,7 +19,8 @@
                      nrepl/nrepl {:mvn/version "1.3.0"}}}
   :test {:extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}
                       org.clojure/test.check {:mvn/version "1.1.1"}
-                      nubank/matcher-combinators {:mvn/version "3.9.1"}}
+                      nubank/matcher-combinators {:mvn/version "3.9.1"}
+                      http-kit/http-kit {:mvn/version "2.8.0"}}
          :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
          :extra-paths ["test"]
          :main-opts ["-m" "kaocha.runner"]}

@@ -26,13 +26,13 @@
     (with-redefs [config/get-env (constantly nil)]
       (let [db {:models {}}
             config {:anthropicApiKey "something"}]
-        (is (= "claude-sonnet-4-0" (llm-api/default-model db config))))))
+        (is (= "claude-sonnet-4-20250514" (llm-api/default-model db config))))))
 
   (testing "Anthropic API key present in ENV"
     (with-redefs [config/get-env (fn [k] (when (= k "ANTHROPIC_API_KEY") "env-anthropic"))]
       (let [db {:models {}}
             config {}]
-        (is (= "claude-sonnet-4-0" (llm-api/default-model db config))))))
+        (is (= "claude-sonnet-4-20250514" (llm-api/default-model db config))))))
 
   (testing "OpenAI API key present in config"
     (with-redefs [config/get-env (constantly nil)]
@@ -50,4 +50,4 @@
     (with-redefs [config/get-env (constantly nil)]
       (let [db {:models {}}
             config {}]
-        (is (= "claude-sonnet-4-0" (llm-api/default-model db config)))))))
+        (is (= "claude-sonnet-4-20250514" (llm-api/default-model db config)))))))

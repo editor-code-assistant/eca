@@ -65,6 +65,10 @@
 (defn prod-jar [opts]
   (aot-jar (merge opts {:extra-aliases [:native]})))
 
+(defn prod-cli [opts]
+  (aot-jar opts)
+  (bin {}))
+
 (defn native-cli [opts]
   (println "Building native image...")
   (if-let [graal-home (System/getenv "GRAALVM_HOME")]

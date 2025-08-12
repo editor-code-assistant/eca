@@ -41,15 +41,12 @@ The protocol makes easier for other editors integrate and having a server in the
 
 ## Getting started
 
-Install the plugin for your editor and ECA server will be downloaded and started automatically.
-
-### Supported editors
+Install the plugin for your editor and ECA server will be downloaded and started automatically:
 
 - [Emacs](https://github.com/editor-code-assistant/eca-emacs)
 - [VsCode](https://github.com/editor-code-assistant/eca-vscode)
 - [Vim](https://github.com/editor-code-assistant/eca-nvim)
 - Intellij: Planned, help welcome
-
 
 ## How it works
 
@@ -57,7 +54,7 @@ Editors spawn the server via `eca server` and communicate via stdin/stdout, simi
 
 ## Roadmap
 
-Check the planned work [here](https://github.com/orgs/editor-code-assistant/projects/1/views/1).
+Check the planned work [here](https://github.com/orgs/editor-code-assistant/projects/1).
 
 ## Troubleshooting
 

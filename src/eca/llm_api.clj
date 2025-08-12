@@ -35,7 +35,6 @@
         (string/join "\n" (subvec lines start end)))
       content)))
 
-;; NTOE: this is not going to scale ;-)
 (defn ^:private anthropic-api-key [config]
   (or (:anthropicApiKey config)
       (config/get-env "ANTHROPIC_API_KEY")))
@@ -83,28 +82,21 @@
   - Anthropic default model."
   [db config]
   (let [[decision model]
-        (or
-         (when-let [custom-provider-default-model (first (keep (fn [[model config]]
-                                                                 (when (and (:custom-provider? config)
-                                                                            (:default-model? config))
-                                                                   model))
-                                                               (:models db)))]
-           [:custom-provider-default-model custom-provider-default-model])
-
-         (when (anthropic-api-key config)
-           [:api-key-found "claude-sonnet-4-0"])
-
-         (when (openai-api-key config)
-           [:api-key-found "gpt-5"])
-
-         (when (google-any-auth? config)
-           [:google-auth-found "gemini-2.5-pro"])
-
-         (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
-           [:ollama-running ollama-model])
-
-         ;; else:
-         [:default "claude-sonnet-4-0"])]
+        (or (when-let [custom-provider-default-model (first (keep (fn [[model config]]
+                                                                    (when (and (:custom-provider? config)
+                                                                               (:default-model? config))
+                                                                      model))
+                                                                  (:models db)))]
+              [:custom-provider-default-model custom-provider-default-model])
+            (when (anthropic-api-key config)
+              [:api-key-found "claude-sonnet-4-20250514"])
+            (when (openai-api-key config)
+              [:api-key-found "gpt-5"])
+            (when (google-any-auth? config)
+              [:google-auth-found "gemini-2.5-pro"])
+            (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
+              [:ollama-running ollama-model])
+            [:default "claude-sonnet-4-20250514"])]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
     model))
 
@@ -149,92 +141,94 @@
                    :on-tools-called on-tools-called
                    :on-reason on-reason-wrapper
                    :on-usage-updated on-usage-updated}]
-    (cond
-      (= "openai" provider)
-      (llm-providers.openai/completion!
-       {:model model
-        :instructions instructions
-        :user-messages user-messages
-        :max-output-tokens max-output-tokens
-        :reason? (and reason? (:reason? model-config))
-        :past-messages past-messages
-        :tools tools
-        :web-search web-search
-        :extra-payload extra-payload
-        :api-url (openai-api-url)
-        :api-key (openai-api-key config)}
-       callbacks)
-
-      (= "anthropic" provider)
-      (llm-providers.anthropic/completion!
-       {:model model
-        :instructions instructions
-        :user-messages user-messages
-        :max-output-tokens max-output-tokens
-        :reason? (and reason? (:reason? model-config))
-        :past-messages past-messages
-        :tools tools
-        :web-search web-search
-        :extra-payload extra-payload
-        :api-url (anthropic-api-url)
-        :api-key (anthropic-api-key config)}
-       callbacks)
-
-      (contains? #{"gemini-2.5-pro"
-                   "gemini-2.5-flash"} model)
-      (llm-providers.google/completion!
-       {:model model
-        :instructions instructions
-        :user-messages user-messages
-        :max-output-tokens max-output-tokens
-        :reason-tokens reason-tokens
-        :reason? (and reason? (:reason? model-config))
-        :past-messages past-messages
-        :tools tools
-        :web-search web-search
-        ;; NOTE: no :api-url here, because Google provider figures it out
-        ;;       because it depends on how we're authenticated
-        :gemini-api-key (gemini-api-key config)
-        :google-api-key (google-api-key config)
-        :google-project-id (google-project-id config)
-        :google-project-location (google-project-location config)}
-       callbacks)
-
-      (string/starts-with? model config/ollama-model-prefix)
-      (llm-providers.ollama/completion!
-       {:host (-> config :ollama :host)
-        :port (-> config :ollama :port)
-        :reason? (and reason? (:reason? model-config))
-        :model (string/replace-first model config/ollama-model-prefix "")
-        :instructions instructions
-        :user-messages user-messages
-        :past-messages past-messages
-        :tools tools
-        :extra-payload extra-payload}
-       callbacks)
-
-      (contains? custom-models model)
-      (let [[provider model] (string/split model #"/" 2)
-            provider-config (get custom-providers (keyword provider))
-            provider-fn (case (:api provider-config)
-                          "openai" llm-providers.openai/completion!
-                          "anthropic" llm-providers.anthropic/completion!
-                          (on-error-wrapper {:message (format "Unknown custom model %s for provider %s" (:api provider-config) provider)}))
-            url (or (:url provider-config) (config/get-env (:urlEnv provider-config)))
-            key (or (:key provider-config) (config/get-env (:keyEnv provider-config)))]
-        (provider-fn
+    (try
+      (cond
+        (= "openai" provider)
+        (llm-providers.openai/completion!
          {:model model
           :instructions instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? (and reason? (:reason? model-config))
           :past-messages past-messages
-          :web-search web-search
           :tools tools
+          :web-search web-search
           :extra-payload extra-payload
-          :api-url url
-          :api-key key}
-         callbacks))
+          :api-url (openai-api-url)
+          :api-key (openai-api-key config)}
+         callbacks)
 
-      :else
-      (on-error-wrapper {:message (str "ECA Unsupported model: " model)}))))
+        (= "anthropic" provider)
+        (llm-providers.anthropic/completion!
+         {:model model
+          :instructions instructions
+          :user-messages user-messages
+          :max-output-tokens max-output-tokens
+          :reason? (and reason? (:reason? model-config))
+          :past-messages past-messages
+          :tools tools
+          :web-search web-search
+          :extra-payload extra-payload
+          :api-url (anthropic-api-url)
+          :api-key (anthropic-api-key config)}
+         callbacks)
+
+
+        (= "google" provider)
+        (llm-providers.google/completion!
+         {:model model
+          :instructions instructions
+          :user-messages user-messages
+          :max-output-tokens max-output-tokens
+          :reason? (and reason? (:reason? model-config))
+          :past-messages past-messages
+          :tools tools
+          :web-search web-search
+          ;; NOTE: no :api-url here, because Google provider figures it out
+          ;;       because it depends on how we're authenticated
+          :gemini-api-key (gemini-api-key config)
+          :google-api-key (google-api-key config)
+          :google-project-id (google-project-id config)
+          :google-project-location (google-project-location config)}
+         callbacks)
+
+        (string/starts-with? model config/ollama-model-prefix)
+        (llm-providers.ollama/completion!
+         {:host (-> config :ollama :host)
+          :port (-> config :ollama :port)
+          :reason? (and reason? (:reason? model-config))
+          :model (string/replace-first model config/ollama-model-prefix "")
+          :instructions instructions
+          :user-messages user-messages
+          :past-messages past-messages
+          :tools tools
+          :extra-payload extra-payload}
+         callbacks)
+
+        (contains? custom-models model)
+        (let [[provider model] (string/split model #"/" 2)
+              provider-config (get custom-providers (keyword provider))
+              provider-fn (case (:api provider-config)
+                            "openai" llm-providers.openai/completion!
+                            "anthropic" llm-providers.anthropic/completion!
+                            (on-error-wrapper {:message (format "Unknown custom model %s for provider %s" (:api provider-config) provider)}))
+              url (or (:url provider-config) (config/get-env (:urlEnv provider-config)))
+              key (or (:key provider-config) (config/get-env (:keyEnv provider-config)))]
+          (provider-fn
+           {:model model
+            :instructions instructions
+            :user-messages user-messages
+            :max-output-tokens max-output-tokens
+            :reason? (and reason? (:reason? model-config))
+            :past-messages past-messages
+            :web-search web-search
+            :tools tools
+            :extra-payload extra-payload
+            :api-url url
+            :api-key key}
+           callbacks))
+
+        :else
+        (on-error-wrapper {:message (str "ECA Unsupported model: " model)}))
+      (catch Exception e
+        (on-error-wrapper {:exception e})))))

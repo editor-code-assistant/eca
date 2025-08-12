@@ -27,7 +27,6 @@
                       (when (fs/exists? adc-path)
                         (str adc-path)))]
     (let [{:keys [client_id client_secret refresh_token]} (json/parse-string (slurp adc-path) true)
-
           {:keys [status body] :as _Response} (http/post "https://oauth2.googleapis.com/token"
                                                          {:form-params {:client_id client_id
                                                                         :client_secret client_secret
