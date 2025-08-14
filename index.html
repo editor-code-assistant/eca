@@ -18,7 +18,7 @@
       
       
       <link rel="icon" href="images/logo.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
     
     
       
@@ -438,6 +438,39 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Getting started">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-install-the-editor-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Install the editor plugin
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-set-up-your-first-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Set up your first model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-start-chatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Start chatting
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -723,6 +756,39 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Getting started">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-install-the-editor-plugin" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Install the editor plugin
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-set-up-your-first-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Set up your first model
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-start-chatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Start chatting
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -829,6 +895,7 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 - Same UX, easy to onboard people and teams. </p>
 <p>With the LLMs models race, the differences between them tend to be irrelevant in the future, but UX on how to edit code or plan changes is something that will exist, ECA helps editors focus on that.</p>
 <h2 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">#</a></h2>
+<h3 id="1-install-the-editor-plugin">1. Install the editor plugin<a class="headerlink" href="#1-install-the-editor-plugin" title="Permanent link">#</a></h3>
 <p>Install the plugin for your editor and ECA server will be downloaded and started automatically:</p>
 <ul>
 <li><a href="https://github.com/editor-code-assistant/eca-emacs">Emacs</a></li>
@@ -836,6 +903,22 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 <li><a href="https://github.com/editor-code-assistant/eca-nvim">Vim</a></li>
 <li>Intellij: Planned, help welcome</li>
 </ul>
+<h3 id="2-set-up-your-first-model">2. Set up your first model<a class="headerlink" href="#2-set-up-your-first-model" title="Permanent link">#</a></h3>
+<p>To use ECA, you need to configure at least one model with your API key. See the <a href="./models#adding-and-configuring-models">Models documentation</a> for detailed instructions on:</p>
+<ul>
+<li>Setting up API keys for OpenAI, Anthropic, or Ollama</li>
+<li>Adding and customizing models</li>
+<li>Configuring custom providers</li>
+</ul>
+<p><strong>Quick start</strong>: Create a <code>.eca/config.json</code> file in your project root with your API key:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;anthropicApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-anthropic-api-key-here&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>Note</strong>: For other providers or custom models, see the <a href="./models#setting-up-a-custom-provider">custom providers documentation</a>.</p>
+<h3 id="3-start-chatting">3. Start chatting<a class="headerlink" href="#3-start-chatting" title="Permanent link">#</a></h3>
+<p>Once your model is configured, you can start using ECA's chat interface in your editor to ask questions, review code, and work together on your project.</p>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">#</a></h2>
 <p>Editors spawn the server via <code>eca server</code> and communicate via stdin/stdout, similar to LSPs. Supported editors already download latest server on start and require no extra configuration.</p>
 <h2 id="roadmap">Roadmap<a class="headerlink" href="#roadmap" title="Permanent link">#</a></h2>
@@ -867,7 +950,7 @@ For developer details, check <a href="./docs/development.md">this doc</a>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 14, 2025 03:13:03">August 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 14, 2025 17:04:26 UTC">August 14, 2025</span>
   </span>
 
     
@@ -934,7 +1017,7 @@ For developer details, check <a href="./docs/development.md">this doc</a>.</p>
       <script id="__config" type="application/json">{"base": ".", "features": ["navigation.tabs"], "search": "assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.13a4f30d.min.js"></script>
+      <script src="assets/javascripts/bundle.56ea9cef.min.js"></script>
       
     
   </body>
