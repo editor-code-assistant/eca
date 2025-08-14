@@ -11,13 +11,37 @@
    [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.logger :as logger]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
 (def initial-config
-  {:openaiApiKey nil
+  {;; LLM providers authentication configuration
+   :openaiApiKey nil
+
    :anthropicApiKey nil
+
+   ;; Gemini can be authenticated using different methods - setting only one of them is enough
+   ;; but will depend on the provider configuration, IAM and other bits outof the scope of this project.
+   ;; api key for Gemini API
+   :geminiApiKey nil
+
+   ;; Vertex AI:
+   :googleProjectId nil
+   :googleProjectLocation nil
+   ;; auth with  API key, or leave blank to use ADC (Application Default Credentials)
+   :googleApiKey nil
+
+   ;; Ollama API
+   :ollama {:host "http://localhost"
+            :port 11434
+            :useTools true
+            :think true}
+
+   :customProviders {}
+
+   ;; all other settings
    :rules []
    :commands []
    :nativeTools {:filesystem {:enabled true}
@@ -35,13 +59,15 @@
             "claude-sonnet-4-20250514" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
             "claude-opus-4-1-20250805" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
             "claude-opus-4-20250514" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
-            "claude-3-5-haiku-20241022" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}}
-   :ollama {:host "http://localhost"
-            :port 11434
-            :useTools true
-            :think true}
+            "claude-3-5-haiku-20241022" {:extraPayload {:thinking {:type "enabled" :budget_tokens 2048}}}
+
+            "gemni-2.0-flash" {}
+            "gemini-2.0-flash-pro" {}
+            "gemini-2.0-pro" {}}
+
+
    :chat {:welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
-   :customProviders {}
+
    :index {:ignoreFiles [{:type :gitignore}]}})
 
 (defn get-env [env] (System/getenv env))
@@ -68,6 +94,7 @@
                             (io/file (get-property "user.home") ".config"))
         config-file (io/file xdg-config-home "eca" "config.json")]
     (when (.exists config-file)
+      (logger/debug "[CONFIG]" (format "Loading global config from %s" config-file))
       (safe-read-json-string (slurp config-file)))))
 
 (def ^:private config-from-global-file (memoize/ttl config-from-global-file* :ttl/threshold ttl-cache-config-ms))
@@ -79,6 +106,7 @@
       final-config
       (let [config-file (io/file (shared/uri->filename uri) ".eca" "config.json")]
         (when (.exists config-file)
+          (logger/debug "[CONFIG]" (format "Loading project config from %s" config-file))
           (safe-read-json-string (slurp config-file))))))
    {}
    roots))

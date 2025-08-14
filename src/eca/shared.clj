@@ -47,6 +47,11 @@
 
 (defn multi-str [& strings] (string/join "\n" (remove nil? strings)))
 
+(defn redact-api-key
+  "Given a string, redacts everything after first 4 characters,"
+  [s]
+  (string/join "" (concat (take 4 s) (repeat (max 0 (- (count s) 4)) \*))))
+
 (defn tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model db]
   (let [normalized-model (if (string/includes? model "/")
                            (last (string/split model #"/"))

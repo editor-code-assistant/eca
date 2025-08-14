@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   [eca.llm-providers.google :as llm-providers.google]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.logger :as logger]))
@@ -50,6 +51,28 @@
   (or (config/get-env "OPENAI_API_URL")
       llm-providers.openai/base-url))
 
+;; Google Gemini auth
+(defn ^:private gemini-api-key [config]
+  (or (:geminiApiKey config)
+      (config/get-env "GEMINI_API_KEY")))
+
+(defn ^:private google-api-key [config]
+  (or (:googleApiKey config)
+      (config/get-env "GOOGLE_API_KEY")))
+
+(defn ^:private google-project-id [config]
+  (or (:googleProjectId config)
+      (config/get-env "GOOGLE_PROJECT_ID")))
+
+(defn ^:private google-project-location [config]
+  (or (:googleProjectLocation config)
+      (config/get-env "GOOGLE_PROJECT_LOCATION")))
+
+(defn ^:private google-any-auth? [config]
+  (or (gemini-api-key config)
+      (and (google-project-id config) (google-project-location config) (google-api-key config))
+      (and (google-project-id config) (google-project-location config))))
+
 (defn default-model
   "Returns the default LLM model checking this waterfall:
   - Any custom provider with defaultModel set
@@ -69,6 +92,8 @@
               [:api-key-found "claude-sonnet-4-20250514"])
             (when (openai-api-key config)
               [:api-key-found "gpt-5"])
+            (when (google-any-auth? config)
+              [:google-auth-found "gemini-2.5-pro"])
             (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
               [:ollama-running ollama-model])
             [:default "claude-sonnet-4-20250514"])]
@@ -146,6 +171,25 @@
           :extra-payload extra-payload
           :api-url (anthropic-api-url)
           :api-key (anthropic-api-key config)}
+         callbacks)
+
+
+        (= "google" provider)
+        (llm-providers.google/completion!
+         {:model model
+          :instructions instructions
+          :user-messages user-messages
+          :max-output-tokens max-output-tokens
+          :reason? (and reason? (:reason? model-config))
+          :past-messages past-messages
+          :tools tools
+          :web-search web-search
+          ;; NOTE: no :api-url here, because Google provider figures it out
+          ;;       because it depends on how we're authenticated
+          :gemini-api-key (gemini-api-key config)
+          :google-api-key (google-api-key config)
+          :google-project-id (google-project-id config)
+          :google-project-location (google-project-location config)}
          callbacks)
 
         (string/starts-with? model config/ollama-model-prefix)

@@ -4,11 +4,13 @@ The models capabilities and configurations are retrieved from [models.dev](https
 
 ## Built-in providers and capabilities
 
+
 | model     | tools (MCP) | reasoning / thinking | prompt caching | web_search |
 |-----------|-------------|----------------------|----------------|------------|
 | OpenAI    | √           | √                    | √              | √          |
 | Anthropic | √           | √                    | √              | √          |
 | Ollama    | √           | √                    | X              | X          |
+| Google    | X           | √                    | X              | X          |
 
 ### OpenAI
 
@@ -30,6 +32,9 @@ The models capabilities and configurations are retrieved from [models.dev](https
 
 - [any local ollama model](https://ollama.com/search)
 
+### Gemini
+
+- https://ai.google.dev/
 ### Custom models for built-in providers
 
 Just configure the model in your eca `models` config, for more details check its [configuration](./configuration.md#adding-models).
