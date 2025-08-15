@@ -618,12 +618,7 @@
   
 </li>
         
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
+          <li class="md-nav__item">
   <a href="#adding-and-configuring-models" class="md-nav__link">
     <span class="md-ellipsis">
       Adding and Configuring Models
@@ -666,6 +661,11 @@
       Customizing model behavior
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -840,12 +840,7 @@
   
 </li>
         
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
+          <li class="md-nav__item">
   <a href="#adding-and-configuring-models" class="md-nav__link">
     <span class="md-ellipsis">
       Adding and Configuring Models
@@ -888,6 +883,11 @@
       Customizing model behavior
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1023,15 +1023,15 @@
 <ul>
 <li><a href="https://ollama.com/search">any local ollama model</a></li>
 </ul>
-<h2 id="adding-and-configuring-models">Adding and Configuring Models<a class="headerlink" href="#adding-and-configuring-models" title="Permanent link">#</a></h2>
-<h3 id="setting-up-your-first-model">Setting up your first model<a class="headerlink" href="#setting-up-your-first-model" title="Permanent link">#</a></h3>
+<h3 id="adding-and-configuring-models">Adding and Configuring Models<a class="headerlink" href="#adding-and-configuring-models" title="Permanent link">#</a></h3>
+<h4 id="setting-up-your-first-model">Setting up your first model<a class="headerlink" href="#setting-up-your-first-model" title="Permanent link">#</a></h4>
 <p>To start using ECA, you need to configure at least one model with your API key. Here's how to set up a model:</p>
 <ol>
 <li><strong>Choose your model</strong>: Pick from <a href="#openai">OpenAI</a>, <a href="#anthropic">Anthropic</a>, or <a href="#ollama">Ollama</a> models</li>
 <li><strong>Set your API key</strong>: Create a configuration file with your credentials</li>
 <li><strong>Start using ECA</strong>: The model will be available in your editor</li>
 </ol>
-<h3 id="setting-up-api-keys">Setting up API keys<a class="headerlink" href="#setting-up-api-keys" title="Permanent link">#</a></h3>
+<h4 id="setting-up-api-keys">Setting up API keys<a class="headerlink" href="#setting-up-api-keys" title="Permanent link">#</a></h4>
 <p>Create a configuration file at <code>.eca/config.json</code> in your project root or at <code>~/.config/eca/config.json</code> globally:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
@@ -1041,7 +1041,7 @@
 <p><strong>Environment Variables</strong>: You can also set API keys using environment variables:
 - <code>OPENAI_API_KEY</code> for OpenAI
 - <code>ANTHROPIC_API_KEY</code> for Anthropic</p>
-<h3 id="adding-new-models">Adding new models<a class="headerlink" href="#adding-new-models" title="Permanent link">#</a></h3>
+<h4 id="adding-new-models">Adding new models<a class="headerlink" href="#adding-new-models" title="Permanent link">#</a></h4>
 <p>You can add new models or override existing ones in your configuration:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
@@ -1051,7 +1051,7 @@
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
-<h3 id="customizing-model-behavior">Customizing model behavior<a class="headerlink" href="#customizing-model-behavior" title="Permanent link">#</a></h3>
+<h4 id="customizing-model-behavior">Customizing model behavior<a class="headerlink" href="#customizing-model-behavior" title="Permanent link">#</a></h4>
 <p>You can customize model parameters like temperature, reasoning effort, etc.:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
@@ -1199,7 +1199,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2025 14:52:49 UTC">August 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2025 14:54:31 UTC">August 15, 2025</span>
   </span>
 
     
