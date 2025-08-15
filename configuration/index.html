@@ -246,6 +246,25 @@
   
   
     <li class="md-tabs__item">
+      <a href="../models/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Models
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="https://github.com/sponsors/ericdallo" class="md-tabs__link">
         
   
@@ -499,6 +518,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#models" class="md-nav__link">
+    <span class="md-ellipsis">
+      Models
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rules" class="md-nav__link">
     <span class="md-ellipsis">
       Rules
@@ -550,15 +578,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-llm-providers" class="md-nav__link">
-    <span class="md-ellipsis">
-      Custom LLM providers
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#custom-command-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom command prompts
@@ -590,30 +609,6 @@
   <a href="#config_1" class="md-nav__link">
     <span class="md-ellipsis">
       Config
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      Adding models
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Adding models">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#overriding-model-payloads" class="md-nav__link">
-    <span class="md-ellipsis">
-      Overriding model payloads
     </span>
   </a>
   
@@ -793,6 +788,28 @@
   
   
     <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Models
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="https://github.com/sponsors/ericdallo" class="md-nav__link">
         
   
@@ -908,6 +925,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#models" class="md-nav__link">
+    <span class="md-ellipsis">
+      Models
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rules" class="md-nav__link">
     <span class="md-ellipsis">
       Rules
@@ -959,15 +985,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-llm-providers" class="md-nav__link">
-    <span class="md-ellipsis">
-      Custom LLM providers
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#custom-command-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom command prompts
@@ -999,30 +1016,6 @@
   <a href="#config_1" class="md-nav__link">
     <span class="md-ellipsis">
       Config
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#adding-models" class="md-nav__link">
-    <span class="md-ellipsis">
-      Adding models
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Adding models">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#overriding-model-payloads" class="md-nav__link">
-    <span class="md-ellipsis">
-      Overriding model payloads
     </span>
   </a>
   
@@ -1111,6 +1104,8 @@ There are 3 ways to configure ECA following this order of priority:</p>
 <p>Via env var during server process spawn:</p>
 <div class="highlight"><pre><span></span><code><span class="nv">ECA_CONFIG</span><span class="o">=</span><span class="s1">&#39;{&quot;myConfig&quot;: &quot;my_value&quot;}&#39;</span><span class="w"> </span>eca<span class="w"> </span>server
 </code></pre></div>
+<h2 id="models">Models<a class="headerlink" href="#models" title="Permanent link">#</a></h2>
+<p>For models configuration check the <a href="../models/#adding-and-configuring-models">dedicated models section</a>.</p>
 <h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h2>
 <p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
 Rules are Multi-Document context files (<code>.mdc</code>) and the following metadata is supported:</p>
@@ -1155,22 +1150,6 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div></p>
-<h2 id="custom-llm-providers">Custom LLM providers<a class="headerlink" href="#custom-llm-providers" title="Permanent link">#</a></h2>
-<p>It's possible to configure ECA to be aware of custom LLM providers if they follow a API schema similar to currently supported ones (openai, anthropic), example for a custom hosted litellm server:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;my-company&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">       </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="s2">&quot;urlEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;MY_COMPANY_API_URL&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;url&quot;: &quot;https://litellm.my-company.com&quot;,</span>
-<span class="w">       </span><span class="c1">// &quot;completionUrlRelativePath&quot;: &quot;/v1/responses&quot;, // only if default is not enough,</span>
-<span class="w">       </span><span class="s2">&quot;keyEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;MY_COMPANY_API_KEY&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;key&quot;: &quot;123&quot;,</span>
-<span class="w">       </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-r1&quot;</span><span class="p">],</span>
-<span class="w">       </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;deepseek-r1&quot;</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p>With that, ECA will include in the known models something like: <code>my-company/gpt-4.1</code>, <code>my-company/deepseek-r1</code>.</p>
 <h2 id="custom-command-prompts">Custom command prompts<a class="headerlink" href="#custom-command-prompts" title="Permanent link">#</a></h2>
 <p>You can configure custom command prompts for project, global or via <code>commands</code> config pointing to the path of the commands.
 Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG2</code>, to replace in the prompt during command call.</p>
@@ -1188,28 +1167,6 @@ Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG
 <p>Just add to your config the <code>commands</code> pointing to <code>.md</code> files that will be searched from the workspace root if not an absolute path:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;commands&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-custom-prompt.md&quot;</span><span class="p">}]</span>
-<span class="p">}</span>
-</code></pre></div>
-<h2 id="adding-models">Adding models<a class="headerlink" href="#adding-models" title="Permanent link">#</a></h2>
-<p>It's possible to add new models just adding <code>models &lt;yourmodel&gt;</code>, example:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;o1&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<h3 id="overriding-model-payloads">Overriding model payloads<a class="headerlink" href="#overriding-model-payloads" title="Permanent link">#</a></h3>
-<p>To override the payload sent to LLMs via <code>models &lt;modelName&gt; extraPayload</code> config, this way you can configure custom LLM settings like <code>temperature</code>, <code>reasoning_effort</code>, <code>verbosity</code> etc.
-This config will be merged with current default used by ECA.</p>
-<p>Example:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;gpt-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;extraPayload&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;verbosity&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <h2 id="all-configs">All configs<a class="headerlink" href="#all-configs" title="Permanent link">#</a></h2>
@@ -1321,7 +1278,7 @@ This config will be merged with current default used by ECA.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2025 14:23:52 UTC">August 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2025 14:47:09 UTC">August 15, 2025</span>
   </span>
 
     
