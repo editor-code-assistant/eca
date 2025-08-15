@@ -1088,8 +1088,8 @@
 <h4 id="setting-up-api-keys">Setting up API keys<a class="headerlink" href="#setting-up-api-keys" title="Permanent link">#</a></h4>
 <p>Create a configuration file at <code>.eca/config.json</code> in your project root or at <code>~/.config/eca/config.json</code> globally:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;anthropicApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-anthropic-api-key-here&quot;</span>
+<span class="w">  </span><span class="s2">&quot;openaiApiKey&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">&quot;anthropicApiKey&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-anthropic-api-key-here&quot;</span>
 <span class="p">}</span>
 </code></pre></div>
 <p><strong>Environment Variables</strong>: You can also set API keys using environment variables:
@@ -1098,23 +1098,23 @@
 <h4 id="adding-new-models">Adding new models<a class="headerlink" href="#adding-new-models" title="Permanent link">#</a></h4>
 <p>You can add new models or override existing ones in your configuration:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;gpt-5&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">    </span><span class="nt">&quot;claude-3-5-sonnet-20241022&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">  </span><span class="s2">&quot;openaiApiKey&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;gpt-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">    </span><span class="s2">&quot;claude-3-5-sonnet-20241022&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <h4 id="customizing-model-behavior">Customizing model behavior<a class="headerlink" href="#customizing-model-behavior" title="Permanent link">#</a></h4>
 <p>You can customize model parameters like temperature, reasoning effort, etc.:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;openaiApiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;gpt-5&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;extraPayload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;temperature&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.7</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;reasoning_effort&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;max_tokens&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4000</span>
+<span class="w">  </span><span class="s2">&quot;openaiApiKey&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-openai-api-key-here&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;gpt-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;extraPayload&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;temperature&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">0.7</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;reasoning_effort&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;high&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;max_tokens&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">4000</span>
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
@@ -1132,28 +1132,36 @@
 <p>When configuring custom providers, choose the appropriate API type:</p>
 <ul>
 <li><strong><code>openai-responses</code></strong>: OpenAI's new responses API endpoint (<code>/v1/responses</code>). Best for OpenAI models with enhanced features like reasoning and web search.</li>
-<li><strong><code>openai-chat</code></strong>: Standard OpenAI Chat Completions API (<code>/v1/chat/completions</code>). Use this for most third-party providers:</li>
-<li>OpenRouter</li>
+<li>
+<p><strong><code>openai-chat</code></strong>: Standard OpenAI Chat Completions API (<code>/v1/chat/completions</code>). Use this for most third-party providers:</p>
+</li>
+<li>
+<p>OpenRouter</p>
+</li>
 <li>DeepSeek</li>
 <li>Together AI</li>
 <li>Groq</li>
 <li>Local LiteLLM servers</li>
-<li>Any OpenAI-compatible provider</li>
-<li><strong><code>anthropic</code></strong>: Anthropic's native API for Claude models.</li>
+<li>
+<p>Any OpenAI-compatible provider</p>
+</li>
+<li>
+<p><strong><code>anthropic</code></strong>: Anthropic's native API for Claude models.</p>
+</li>
 </ul>
 <p>Most third-party providers use the <code>openai-chat</code> API for compatibility with existing tools and libraries.</p>
 <h3 id="setting-up-a-custom-provider">Setting up a custom provider<a class="headerlink" href="#setting-up-a-custom-provider" title="Permanent link">#</a></h3>
 <p>It's possible to configure ECA to be aware of custom LLM providers if they follow a API schema similar to currently supported ones (openai-responses, openai-chat or anthropic), example for a custom hosted litellm server:</p>
 <p>Example:</p>
-<p><code>~/.config/eca/config.json</code>
+<p><code>~/.config/eca/config.javascript</code>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;customProviders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;my-company&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">       </span><span class="nt">&quot;api&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;urlEnv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MY_COMPANY_API_URL&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;url&quot;</span>
-<span class="w">       </span><span class="nt">&quot;keyEnv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MY_COMPANY_API_KEY&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;key&quot;</span>
-<span class="w">       </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-r1&quot;</span><span class="p">],</span>
-<span class="w">       </span><span class="nt">&quot;defaultModel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;deepseek-r1&quot;</span>
+<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;my-company&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">       </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;urlEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;MY_COMPANY_API_URL&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;url&quot;</span>
+<span class="w">       </span><span class="s2">&quot;keyEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;MY_COMPANY_API_KEY&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;key&quot;</span>
+<span class="w">       </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-r1&quot;</span><span class="p">],</span>
+<span class="w">       </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;deepseek-r1&quot;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1222,26 +1230,26 @@
 <p><em>* Either the <code>url</code> or <code>urlEnv</code> option is required, and either the <code>key</code> or <code>keyEnv</code> option is required.</em></p>
 <h3 id="example-custom-litellm-server">Example: Custom LiteLLM server<a class="headerlink" href="#example-custom-litellm-server" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;customProviders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;litellm&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">       </span><span class="nt">&quot;api&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openai-responses&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://litellm.my-company.com&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;llama-3-70b&quot;</span><span class="p">],</span>
-<span class="w">       </span><span class="nt">&quot;defaultModel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;gpt-5&quot;</span>
+<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;litellm&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">       </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-responses&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://litellm.my-company.com&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;llama-3-70b&quot;</span><span class="p">],</span>
+<span class="w">       </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;gpt-5&quot;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="example-using-environment-variables">Example: Using environment variables<a class="headerlink" href="#example-using-environment-variables" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;customProviders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;enterprise&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">       </span><span class="nt">&quot;api&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;urlEnv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ENTERPRISE_LLM_URL&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;keyEnv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ENTERPRISE_LLM_KEY&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;claude-3-opus-20240229&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">],</span>
-<span class="w">       </span><span class="nt">&quot;defaultModel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span>
+<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;enterprise&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">       </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;urlEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ENTERPRISE_LLM_URL&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;keyEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ENTERPRISE_LLM_KEY&quot;</span><span class="p">,</span>
+<span class="w">       </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;claude-3-opus-20240229&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">],</span>
+<span class="w">       </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1249,13 +1257,13 @@
 <h3 id="example-openrouter">Example: OpenRouter<a class="headerlink" href="#example-openrouter" title="Permanent link">#</a></h3>
 <p><a href="https://openrouter.ai">OpenRouter</a> provides access to many models through a unified API:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;customProviders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;openrouter&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;api&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://openrouter.ai/api/v1&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;keyEnv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;OPENROUTER_API_KEY&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;anthropic/claude-3.5-sonnet&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;openai/gpt-4-turbo&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;meta-llama/llama-3.1-405b&quot;</span><span class="p">],</span>
-<span class="w">      </span><span class="nt">&quot;defaultModel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-3.5-sonnet&quot;</span>
+<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;openrouter&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://openrouter.ai/api/v1&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;keyEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;OPENROUTER_API_KEY&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;anthropic/claude-3.5-sonnet&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;openai/gpt-4-turbo&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;meta-llama/llama-3.1-405b&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-3.5-sonnet&quot;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1263,13 +1271,13 @@
 <h3 id="example-deepseek">Example: DeepSeek<a class="headerlink" href="#example-deepseek" title="Permanent link">#</a></h3>
 <p><a href="https://deepseek.com">DeepSeek</a> offers powerful reasoning and coding models:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;customProviders&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;deepseek&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;api&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://api.deepseek.com&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;keyEnv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;DEEPSEEK_API_KEY&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;deepseek-chat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-coder&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-reasoner&quot;</span><span class="p">],</span>
-<span class="w">      </span><span class="nt">&quot;defaultModel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;deepseek-chat&quot;</span>
+<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;deepseek&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.deepseek.com&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;keyEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;DEEPSEEK_API_KEY&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;deepseek-chat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-coder&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;deepseek-reasoner&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;deepseek-chat&quot;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1295,7 +1303,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2025 21:37:16 UTC">August 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 15, 2025 21:44:42 UTC">August 15, 2025</span>
   </span>
 
     
