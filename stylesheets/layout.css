@@ -16,3 +16,11 @@
 .md-typeset a {
   color: #026378;
 }
+
+.tabbed-content {
+  border: 1px solid #ccc;
+  border-top: none;
+  padding: 0 0.5em;
+  border-bottom-right-radius: 0.3em;
+  border-bottom-left-radius: 0.3em;
+}
