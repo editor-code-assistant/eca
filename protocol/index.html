@@ -710,6 +710,21 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor diagnostics (↪️)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Editor diagnostics (↪️)">
+      <ul class="md-nav__list">
+        
           <li class="md-nav__item">
   <a href="#completion" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1135,6 +1150,21 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editor-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor diagnostics (↪️)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Editor diagnostics (↪️)">
+      <ul class="md-nav__list">
+        
           <li class="md-nav__item">
   <a href="#completion" class="md-nav__link">
     <span class="md-ellipsis">
@@ -1382,9 +1412,19 @@ separated by a <code>\r\n</code>.</p>
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ClientCapabilities</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">codeAssistant</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">chat?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
-<span class="w">        </span><span class="nx">doc?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
-<span class="w">        </span><span class="nx">edit?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
-<span class="w">        </span><span class="nx">fix?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Whether client supports provide editor informations to server like</span>
+<span class="cm">         * diagnostics, cursor information and others.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">editor</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="cm">/**</span>
+<span class="cm">             * Whether client supports provide editor diagnostics </span>
+<span class="cm">             * information to server (Ex: LSP diagnostics) via `editor/getDiagnostics` </span>
+<span class="cm">             * server request.</span>
+<span class="cm">             */</span><span class="w"> </span>
+<span class="w">            </span><span class="nx">diagnostics?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 
@@ -2141,6 +2181,71 @@ After response, clients should reset chat UI to a clean state.</p>
 <p><em>Response:</em></p>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatDeleteResponse</span><span class="w"> </span><span class="p">{}</span>
 </code></pre></div>
+<h2 id="editor-diagnostics">Editor diagnostics (↪️)<a class="headerlink" href="#editor-diagnostics" title="Permanent link">#</a></h2>
+<p>A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
+Useful for server to provide to LLM information about errors/warnings about current code.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>editor/getDiagnostics</code></li>
+<li>params: <code>EditorGetDiagnosticsParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">EditorGetDiagnosticsParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional uri to get diagnostics, if nil return whole workspaces diagnostics.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">uri?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">EditorGetDiagnosticsResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The list of diagnostics.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">diagnostics</span><span class="o">:</span><span class="w"> </span><span class="kt">EditorDiagnostic</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">EditorDiagnostic</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The diagnostic file uri.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">uri</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The diagnostic severity.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">severity</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;warning&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;info&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;hint&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The diagnostic source. Ex: &#39;clojure-lsp&#39;</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">source</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The diagnostic range (1-based).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">start</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="p">};</span>
+
+<span class="w">        </span><span class="nx">end</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="p">};</span>
+<span class="w">    </span><span class="p">};</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The diagnostic code. Ex: &#39;wrong-args&#39;</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">code?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The diagnostic message. Ex: &#39;Wrong number of args for function X&#39;</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="completion">Completion (↩️)<a class="headerlink" href="#completion" title="Permanent link">#</a></h3>
 <p>Soon</p>
 <h3 id="edit">Edit (↩️)<a class="headerlink" href="#edit" title="Permanent link">#</a></h3>
@@ -2295,7 +2400,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 17, 2025 00:58:54 UTC">August 17, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 18, 2025 01:06:05 UTC">August 18, 2025</span>
   </span>
 
     
