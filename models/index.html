@@ -622,9 +622,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#providers-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      Examples
+      Providers setup
     </span>
   </a>
   
@@ -951,9 +951,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#providers-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      Examples
+      Providers setup
     </span>
   </a>
   
@@ -1173,9 +1173,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#providers-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      Examples
+      Providers setup
     </span>
   </a>
   
@@ -1415,9 +1415,16 @@
 </table>
 <p><em>* Either the <code>url</code> or <code>urlEnv</code> option is required, and either the <code>key</code> or <code>keyEnv</code> option is required.</em></p>
 <p>After configuring custom providers, the models will be available as <code>provider/model</code> (e.g., <code>openrouter/anthropic/claude-3.5-sonnet</code>, <code>deepseek/deepseek-chat</code>).</p>
-<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="litellm" name="__tabbed_1" type="radio" /><input id="environment-variables" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="litellm">LiteLLM</label><label for="environment-variables">Environment variables</label><label for="openrouter">OpenRouter</label><label for="deepseek">DeepSeek</label></div>
+<h3 id="providers-setup">Providers setup<a class="headerlink" href="#providers-setup" title="Permanent link">#</a></h3>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="github-copilot" name="__tabbed_1" type="radio" /><input id="litellm" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="github-copilot">Github Copilot</label><label for="litellm">LiteLLM</label><label for="openrouter">OpenRouter</label><label for="deepseek">DeepSeek</label></div>
 <div class="tabbed-content">
+<div class="tabbed-block">
+<ol>
+<li>Login to Github copilot via the chat command <code>/login github-copilot</code>.</li>
+<li>Authenticate in Github with the given code.</li>
+<li>Type anything in the chat to continue and done!</li>
+</ol>
+</div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1427,20 +1434,6 @@
 <span class="w">    </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gpt-5&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;llama-3-70b&quot;</span><span class="p">],</span>
 <span class="w">    </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;gpt-5&quot;</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;customProviders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;enterprise&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">       </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="s2">&quot;urlEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ENTERPRISE_LLM_URL&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="s2">&quot;keyEnv&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ENTERPRISE_LLM_KEY&quot;</span><span class="p">,</span>
-<span class="w">       </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;claude-3-opus-20240229&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span><span class="p">],</span>
-<span class="w">       </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;claude-3-sonnet-20240229&quot;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1498,7 +1491,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2025 18:40:47 UTC">August 20, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 20, 2025 18:44:04 UTC">August 20, 2025</span>
   </span>
 
     
