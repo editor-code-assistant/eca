@@ -917,7 +917,7 @@ Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG
 </div>
 <div class="tabbed-block">
 <p>A <code>$XDG_CONFIG_HOME/eca/commands</code> or <code>~/.config/eca/commands</code> folder containing <code>.md</code> files with the custom command prompt.</p>
-<p><code>~/.config/eca/commands/check-performance.mdc</code>
+<p><code>~/.config/eca/commands/check-performance.md</code>
 <div class="highlight"><pre><span></span><code>Check for performance issues in $ARG1 and optimize if needed.
 </code></pre></div></p>
 </div>
@@ -932,7 +932,8 @@ Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG
 </div>
 <h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h2>
 <p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
-Rules are Multi-Document context files (<code>.mdc</code>) and the following metadata is supported:</p>
+Rules are text files (typically <code>.md</code>, but any format works) with the following
+optional metadata:</p>
 <ul>
 <li><code>description</code>: a description used by LLM to decide whether to include this rule in context, absent means always include this rule.</li>
 <li><code>globs</code>: list of globs separated by <code>,</code>. When present the rule will be applied only when files mentioned matches those globs.</li>
@@ -941,8 +942,8 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
 <div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="project-file" name="__tabbed_3" type="radio" /><input id="global-file" name="__tabbed_3" type="radio" /><input id="config_1" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>A <code>.eca/rules</code> folder from the workspace root containing <code>.mdc</code> files with the rules.</p>
-<p><code>.eca/rules/talk_funny.mdc</code>
+<p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
+<p><code>.eca/rules/talk_funny.md</code>
 <div class="highlight"><pre><span></span><code>--- 
 <span class="gu">description: Use when responding anything</span>
 <span class="gu">---</span>
@@ -951,8 +952,8 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
 </code></pre></div></p>
 </div>
 <div class="tabbed-block">
-<p>A <code>$XDG_CONFIG_HOME/eca/rules</code> or <code>~/.config/eca/rules</code> folder containing <code>.mdc</code> files with the rules.</p>
-<p><code>~/.config/eca/rules/talk_funny.mdc</code>
+<p>A <code>$XDG_CONFIG_HOME/eca/rules</code> or <code>~/.config/eca/rules</code> folder containing <code>.md</code> files with the rules.</p>
+<p><code>~/.config/eca/rules/talk_funny.md</code>
 <div class="highlight"><pre><span></span><code>--- 
 <span class="gu">description: Use when responding anything</span>
 <span class="gu">---</span>
@@ -961,9 +962,9 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
 </code></pre></div></p>
 </div>
 <div class="tabbed-block">
-<p>Just add toyour config the <code>:rules</code> pointing to <code>.mdc</code> files that will be searched from the workspace root if not an absolute path:</p>
+<p>Just add toyour config the <code>:rules</code> pointing to <code>.md</code> files that will be searched from the workspace root if not an absolute path:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-rule.mdc&quot;</span><span class="p">}]</span>
+<span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-rule.md&quot;</span><span class="p">}]</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -1084,7 +1085,7 @@ Rules are Multi-Document context files (<code>.mdc</code>) and the following met
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 22, 2025 17:28:58 UTC">August 22, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 22, 2025 17:51:18 UTC">August 22, 2025</span>
   </span>
 
     
