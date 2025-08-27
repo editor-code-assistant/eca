@@ -1122,7 +1122,7 @@
 </ul>
 <p>Most third-party providers use the <code>openai-chat</code> API for compatibility with existing tools and libraries.</p>
 <h2 id="providers-examples">Providers examples<a class="headerlink" href="#providers-examples" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="github-copilot" name="__tabbed_1" type="radio" /><input id="litellm" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><input id="azure-openai" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="github-copilot">Github Copilot</label><label for="litellm">LiteLLM</label><label for="openrouter">OpenRouter</label><label for="deepseek">DeepSeek</label><label for="azure-openai">Azure OpenAI</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="github-copilot" name="__tabbed_1" type="radio" /><input id="litellm" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><input id="azure-openai" name="__tabbed_1" type="radio" /><input id="zai" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="github-copilot">Github Copilot</label><label for="litellm">LiteLLM</label><label for="openrouter">OpenRouter</label><label for="deepseek">DeepSeek</label><label for="azure-openai">Azure OpenAI</label><label for="zai">Z.ai</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <ol>
@@ -1201,7 +1201,23 @@
 <span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;keyEnv&quot;</span>
 <span class="w">      </span><span class="s2">&quot;completionUrlRelativePath&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/openai/responses?api-version=2025-04-01-preview&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;gpt-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;gpt-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">       </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;z-ai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.z.ai/api/anthropic&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or &quot;keyEnv&quot;</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;GLM-4.5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;extraPayload&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;max_tokens&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">8192</span><span class="p">}},</span>
+<span class="w">        </span><span class="s2">&quot;GLM-4.5-Air&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;extraPayload&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;max_tokens&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">8192</span><span class="p">}}</span>
 <span class="w">       </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
@@ -1230,7 +1246,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 27, 2025 20:44:28 UTC">August 27, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 27, 2025 20:48:24 UTC">August 27, 2025</span>
   </span>
 
     
