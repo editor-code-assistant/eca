@@ -542,6 +542,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="API Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#endpoint-override-completionurlrelativepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      Endpoint override (completionUrlRelativePath)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -784,6 +799,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="API Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#endpoint-override-completionurlrelativepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      Endpoint override (completionUrlRelativePath)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -918,6 +948,21 @@
       API Types
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="API Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#endpoint-override-completionurlrelativepath" class="md-nav__link">
+    <span class="md-ellipsis">
+      Endpoint override (completionUrlRelativePath)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1075,6 +1120,12 @@
 <td>No*</td>
 </tr>
 <tr>
+<td><code>completionUrlRelativePath</code></td>
+<td>string</td>
+<td>Optional override for the completion endpoint path (see defaults below and examples like Azure)</td>
+<td>No</td>
+</tr>
+<tr>
 <td><code>models</code></td>
 <td>map</td>
 <td>Key: model name, value: its config</td>
@@ -1121,6 +1172,13 @@
 </li>
 </ul>
 <p>Most third-party providers use the <code>openai-chat</code> API for compatibility with existing tools and libraries.</p>
+<h4 id="endpoint-override-completionurlrelativepath">Endpoint override (completionUrlRelativePath)<a class="headerlink" href="#endpoint-override-completionurlrelativepath" title="Permanent link">#</a></h4>
+<p>Some providers require a non-standard or versioned completion endpoint path. Use <code>completionUrlRelativePath</code> to override the default path appended to your provider <code>url</code>.</p>
+<p>Defaults by API type:
+- <code>openai-responses</code>: <code>/v1/responses</code>
+- <code>openai-chat</code>: <code>/v1/chat/completions</code>
+- <code>anthropic</code>: <code>/v1/messages</code></p>
+<p>Only set this when your provider uses a different path or expects query parameters at the endpoint (e.g., Azure API versioning).</p>
 <h2 id="providers-examples">Providers examples<a class="headerlink" href="#providers-examples" title="Permanent link">#</a></h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="github-copilot" name="__tabbed_1" type="radio" /><input id="litellm" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><input id="azure-openai" name="__tabbed_1" type="radio" /><input id="zai" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="github-copilot">Github Copilot</label><label for="litellm">LiteLLM</label><label for="openrouter">OpenRouter</label><label for="deepseek">DeepSeek</label><label for="azure-openai">Azure OpenAI</label><label for="zai">Z.ai</label></div>
 <div class="tabbed-content">
@@ -1246,7 +1304,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 28, 2025 19:52:43 UTC">August 28, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 28, 2025 19:54:16 UTC">August 28, 2025</span>
   </span>
 
     
