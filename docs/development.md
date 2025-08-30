@@ -30,20 +30,21 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `rules.clj`           | Guards that enforce user-defined project rules.
    ├─ `tools.clj`           | Registry of built-in tool descriptors (run, approve…).
    └─ `tools/`              | Implementation of side-effectful tools:
-   ──├─ `filesystem.clj`    | read/write/edit helpers 
-   ──├─ `shell.clj`         | runs user-approved shell commands 
-   ──├─ `mcp.clj`           | Multi-Command Plan supervisor 
+   ──├─ `filesystem.clj`    | read/write/edit helpers
+   ──├─ `shell.clj`         | runs user-approved shell commands
+   ──├─ `mcp.clj`           | Multi-Command Plan supervisor
    ──└─ `util.clj`          | misc helpers shared by tools.
+   ──└─ `user.clj`      | User-defined tool registration, argument handling, and execution.
    `src/eca/messenger.clj`  | To send back to client requests/notifications over stdio.
    `src/eca/handlers.clj`   | Entrypoint for all features.
    `src/eca/server.clj`     | stdio **entry point**; wires everything together via `lsp4clj`.
    `src/eca/main.clj`       | The CLI interface.
    `src/eca/nrepl.clj`      | Starts an nREPL when `:debug` flag is passed.
 
-Together these files implement the request flow: 
+Together these files implement the request flow:
 
 `client/editor` → `stdin JSON-RPC` → `handlers` → `features` → `llm_api` → `llm_provider` → results streamed back.
-   
+
 With this map you can usually answer:
 
 - _"Where does request X enter the system?"_ – look in `handlers.clj`.
@@ -58,7 +59,7 @@ Run with `bb test` or run test via Clojure REPL. CI will run the same task.
 
 Run with `bb integration-test`, it will use your `eca` binary project root to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor.
 
-## Coding 
+## Coding
 
 There are several ways of finding and fixing a bug or implementing a new feature:
 

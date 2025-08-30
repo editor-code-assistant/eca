@@ -28,6 +28,15 @@ One way to workaround that is to start the editor from your terminal.
    launchctl setenv ANTHROPIC_API_KEY "your-key-here"
    ```
 
+## User tool issues
+
+### My user tool isn’t working
+- Check that the tool is defined in your config under `userTools`.
+- Make sure the `bash` command is correct and executable in your environment.
+- Ensure all required arguments are provided.
+- If `requireApproval` is true, approve the tool call when prompted.
+- Check server logs for errors.
+
 ## Ask for help
 
 You can ask for help via chat [here](https://clojurians.slack.com/archives/C093426FPUG)

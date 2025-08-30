@@ -158,60 +158,121 @@ There are 3 possible ways to configure rules following this order of priority:
     }
     ```
 
+## User-Defined Tools
+
+ECA supports user-defined tools, allowing you to add your own custom bash scripts as tools that can be invoked by the agent or plan behaviors. This is configured via the `userTools` key in your config file.
+
+### Example
+
+Add a `userTools` section to your `.eca/config.json` or global config:
+
+```json
+{
+  "userTools": {
+    "hello": {
+      "bash": "echo Hello, {{ name }} !",
+      "schema": {
+        "args": {
+          "name": {
+            "type": "string",
+            "description": "Name to greet"
+          }
+        },
+        "required": ["name"]
+      },
+      "description": "Say hello to someone",
+      "requireApproval": false,
+      "enabledInPlanMode": true
+    }
+  }
+}
+```
+
+- `bash`: The bash command to run. You can use `{{ argname }}` for parameter substitution.
+- `schema`: Defines the arguments, types, descriptions, and which are required.
+- `description`: (optional) Shown in tool lists and completions.
+- `requireApproval`: (optional) If true, requires user approval before running.
+- `enabledInPlanMode`: (optional) If true, tool can be used in plan mode.
+
+### Security
+
+User tools run as local shell scripts. Only add tools you trust. Use `requireApproval` for sensitive commands.
+
+### Usage
+
+Once configured, user tools are available like built-in tools. You can invoke them by name (e.g., `/tool hello name=World`).
+
+---
+
 ## All configs
 
 === "Schema"
 
-    ```typescript
-    interface Config {
-        providers: {[key: string]: {
-            api?: 'openai-responses' | 'openai-chat' | 'anthropic';
-            url?: string;
-            urlEnv?: string;
-            key?: string; // when provider supports api key.
-            keyEnv?: string;
-            completionUrlRelativePath?: string;
-            models: {[key: string]: {
-              extraPayload?: {[key: string]: any}
-            }};
+```typescript
+interface Config {
+    providers: {[key: string]: {
+        api?: 'openai-responses' | 'openai-chat' | 'anthropic';
+        url?: string;
+        urlEnv?: string;
+        key?: string; // when provider supports api key.
+        keyEnv?: string;
+        completionUrlRelativePath?: string;
+        models: {[key: string]: {
+          extraPayload?: {[key: string]: any}
         }};
-        defaultModel?: string;
-        rules: [{path: string;}];
-        commands: [{path: string;}];
-        systemPromptTemplateFile?: string;
-        nativeTools?: {
-            filesystem: {enabled: boolean};
-            shell: {enabled: boolean,
-                    excludeCommands: string[]};
-            editor: {enabled: boolean,};
-        };
-        disabledTools: string[],
-        toolCall?: {
-          manualApproval?: boolean | string[], // manual approve all tools or the specified tools
-        };
-        mcpTimeoutSeconds: number;
-        lspTimeoutSeconds: number;
-        mcpServers: {[key: string]: {
-            command: string;
-            args?: string[];
-            disabled?: boolean;
-        }};
-        chat?: {
-            defaultBehavior?: string;
-            welcomeMessage?: string;
-        };
-        agentFileRelativePath: string;
-        index?: {
-            ignoreFiles: [{
+    }};
+    defaultModel?: string;
+    rules: [{path: string;}];
+    commands: [{path: string;}];
+    systemPromptTemplateFile?: string;
+    nativeTools?: {
+        filesystem: {enabled: boolean};
+        shell: {enabled: boolean,
+                excludeCommands: string[]};
+        editor: {enabled: boolean,};
+    };
+    userTools?: {[key: string]: {
+        bash: string;
+        schema: {
+            required?: string[];
+            args: {[key: string]: {
                 type: string;
-            }];
-            repoMap?: {
-                maxTotalEntries?: number;
-                maxEntriesPerDir?: number;
-            };
+                description: string;
+                default?: any;
+            }};
         };
-    }
-    ```
+        description?: string;
+        requireApproval?: boolean;
+        enabledInPlanMode?: boolean;
+    }};
+    disabledTools: string[],
+    toolCall?: {
+      manualApproval?: boolean | string[], // manual approve all tools or the specified tools
+    };
+    mcpTimeoutSeconds: number;
+    lspTimeoutSeconds: number;
+    mcpServers: {[key: string]: {
+        command: string;
+        args?: string[];
+        disabled?: boolean;
+    }};
+    chat?: {
+        defaultBehavior?: string;
+        welcomeMessage?: string;
+    };
+    agentFileRelativePath: string;
+    index?: {
+        ignoreFiles: [{
+            type: string;
+        }];
+        repoMap?: {
+            maxTotalEntries?: number;
+            maxEntriesPerDir?: number;
+        };
+    };
+}
+```
+
 
 === "Default values"
 

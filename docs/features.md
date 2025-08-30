@@ -15,6 +15,61 @@ Behavior affect the prompt passed to LLM and the tools to include, the current s
 
 ### Tools
 
+#### User-Defined Tools
+
+ECA supports user-defined tools, letting you add your own bash scripts as tools that can be invoked by the agent or plan behaviors. These are configured via the `userTools` key in your config (see [configuration](./configuration.md#user-defined-tools)).
+
+**How it works:**
+- Define a tool in your config with a bash command and argument schema.
+- The tool appears in the tool list and can be invoked by name.
+- Arguments are substituted into the bash command using `{{variable}}` syntax.
+
+**Example usage:**
+
+If you have this in your config:
+
+```json
+{
+  "userTools": {
+    "hello": {
+      "bash": "echo Hello, {{name}}!",
+      "schema": {
+        "args": {
+          "name": {
+            "type": "string",
+            "description": "Name to greet"
+          }
+        },
+        "required": ["name"]
+      },
+      "description": "Say hello to someone"
+    }
+  }
+}
+```
+
+You can invoke it in chat or plan mode:
+```
+/tool hello name=World
+```
+
+This will execute: `echo Hello, 'World'!`
+
+**Variable Substitution:**
+- Use `{{variableName}}` syntax in your bash commands
+- Variables are automatically shell-escaped for security
+- All required arguments must be provided according to the schema
+
+**Security:**
+- User tools run as local shell scripts. Only add trusted scripts.
+- Arguments are automatically shell-escaped to prevent injection attacks.
+- Use `requireApproval` to require manual approval before running a tool.
+
+
+See [configuration](./configuration.md#user-defined-tools) for setup details.
+
+---
+
 ![](./images/features/tools.png)
 
 ECA leverage tools to give more power to the LLM, this is the best way to make LLMs have more context about your codebase and behave like an agent.
@@ -42,7 +97,7 @@ Provides access to filesystem under workspace root, listing, reading and writing
 
 #### Shell
 
-Provides access to run shell commands, useful to run build tools, tests, and other common commands, supports exclude/include commands. 
+Provides access to run shell commands, useful to run build tools, tests, and other common commands, supports exclude/include commands.
 
 - `eca_shell_command`: run shell command. Supports configs to exclude commands via `:nativeTools :shell :excludeCommands`.
 
@@ -103,7 +158,6 @@ Current supported providers with login:
 
 Soon
 
-## Edit 
+## Edit
 
 Soon
-
