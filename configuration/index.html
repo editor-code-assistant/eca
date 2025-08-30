@@ -505,9 +505,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#manual-approval" class="md-nav__link">
+  <a href="#tool-approval-permissions" class="md-nav__link">
     <span class="md-ellipsis">
-      Manual approval
+      Tool approval / permissions
     </span>
   </a>
   
@@ -818,9 +818,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#manual-approval" class="md-nav__link">
+  <a href="#tool-approval-permissions" class="md-nav__link">
     <span class="md-ellipsis">
-      Manual approval
+      Tool approval / permissions
     </span>
   </a>
   
@@ -928,12 +928,80 @@
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div></p>
-<h3 id="manual-approval">Manual approval<a class="headerlink" href="#manual-approval" title="Permanent link">#</a></h3>
-<p>By default, ECA auto approve any tool call from LLM, to configure that or for which tools, check <code>toolCall manualApproval</code> config or try the <code>plan</code> behavior before.</p>
+<h3 id="tool-approval-permissions">Tool approval / permissions<a class="headerlink" href="#tool-approval-permissions" title="Permanent link">#</a></h3>
+<p>By default, ECA ask to call any tool, but that's can easily be configureed in many ways via the <code>toolCall approval</code> config</p>
+<p>Check some examples:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:1"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block"></div>
+</div>
+</div>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:1"><input checked="checked" id="allow-all-but-some-tools" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="allow-all-but-some-tools">Allow all but some tools</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block"></div>
+</div>
+</div>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;ask&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;eca_editfile&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;my-mcp__my_tool&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:1"><input checked="checked" id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block"></div>
+</div>
+</div>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="c1">// &quot;byDefault&quot;: &quot;ask&quot;, not needed as it&#39;s eca default</span>
+<span class="w">      </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;eca&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;my-mcp&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:1"><input checked="checked" id="matching-by-a-tool-argument" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="matching-by-a-tool-argument">Matching by a tool argument</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block"></div>
+</div>
+</div>
+<p><strong><code>argsMatchers</code></strong> is a map of argument name by list of <a href="https://www.regexplanet.com/advanced/java/index.html">java regex</a>.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;eca_shell_command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*rm.*&quot;</span><span class="p">,</span>
+<span class="w">                                                         </span><span class="s2">&quot;.*mv.*&quot;</span><span class="p">]}}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Also check the <code>plan</code> behavior which is safer.</p>
+<p><strong>The <code>manualApproval</code> setting was deprecated and replaced by the <code>approval</code> one without breaking changes</strong></p>
 <h2 id="custom-command-prompts">Custom command prompts<a class="headerlink" href="#custom-command-prompts" title="Permanent link">#</a></h2>
 <p>You can configure custom command prompts for project, global or via <code>commands</code> config pointing to the path of the commands.
 Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG2</code>, to replace in the prompt during command call.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="local-custom-commands" name="__tabbed_2" type="radio" /><input id="global-custom-commands" name="__tabbed_2" type="radio" /><input id="config" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="local-custom-commands" name="__tabbed_6" type="radio" /><input id="global-custom-commands" name="__tabbed_6" type="radio" /><input id="config" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/commands</code> folder from the workspace root containing <code>.md</code> files with the custom prompt.</p>
@@ -965,7 +1033,7 @@ optional metadata:</p>
 <li><code>globs</code>: list of globs separated by <code>,</code>. When present the rule will be applied only when files mentioned matches those globs.</li>
 </ul>
 <p>There are 3 possible ways to configure rules following this order of priority:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="project-file" name="__tabbed_3" type="radio" /><input id="global-file" name="__tabbed_3" type="radio" /><input id="config_1" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="7:3"><input checked="checked" id="project-file" name="__tabbed_7" type="radio" /><input id="global-file" name="__tabbed_7" type="radio" /><input id="config_1" name="__tabbed_7" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
@@ -997,7 +1065,7 @@ optional metadata:</p>
 </div>
 </div>
 <h2 id="all-configs">All configs<a class="headerlink" href="#all-configs" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="4:2"><input checked="checked" id="schema" name="__tabbed_4" type="radio" /><input id="default-values" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="8:2"><input checked="checked" id="schema" name="__tabbed_8" type="radio" /><input id="default-values" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">Config</span><span class="w"> </span><span class="p">{</span>
@@ -1024,7 +1092,11 @@ optional metadata:</p>
 <span class="w">    </span><span class="p">};</span>
 <span class="w">    </span><span class="nx">disabledTools?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[],</span>
 <span class="w">    </span><span class="nx">toolCall</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nx">manualApproval?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kt">string</span><span class="p">[],</span><span class="w"> </span><span class="c1">// manual approve all tools or the specified tools</span>
+<span class="w">      </span><span class="nx">approval</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">byDefault</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;ask&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;allow&#39;</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">allow</span><span class="o">?:</span><span class="w"> </span><span class="p">{{</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">argsMatchers</span><span class="o">?:</span><span class="w"> </span><span class="p">{{[</span><span class="nx">key</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}}},</span>
+<span class="w">        </span><span class="nx">ask</span><span class="o">?:</span><span class="w"> </span><span class="p">{{</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">argsMatchers</span><span class="o">?:</span><span class="w"> </span><span class="p">{{[</span><span class="nx">key</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}}},</span>
+<span class="w">      </span><span class="p">};</span>
 <span class="w">    </span><span class="p">};</span>
 <span class="w">    </span><span class="nx">mcpTimeoutSeconds?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 <span class="w">    </span><span class="nx">lspTimeoutSeconds?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
@@ -1066,7 +1138,11 @@ optional metadata:</p>
 <span class="w">                   </span><span class="s2">&quot;editor&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}},</span>
 <span class="w">  </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
 <span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;manualApproval&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ask&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">      </span><span class="s2">&quot;ask&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="s2">&quot;mcpTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">60</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;lspTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">,</span>
@@ -1107,7 +1183,7 @@ optional metadata:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 30, 2025 14:38:07 UTC">August 30, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 30, 2025 16:17:41 UTC">August 30, 2025</span>
   </span>
 
     
