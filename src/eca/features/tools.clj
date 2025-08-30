@@ -19,38 +19,75 @@
 
 (def ^:private logger-tag "[TOOLS]")
 
+;; ============================================================================
+;; Tool Registry & Configuration
+;; ============================================================================
+
+(def ^:private native-tool-registry
+  [{:key :filesystem :definitions f.tools.filesystem/definitions}
+   {:key :shell      :definitions f.tools.shell/definitions}
+   {:key :editor     :definitions f.tools.editor/definitions}])
+
+;; ============================================================================
+;; Native Tool Loading & Processing
+;; ============================================================================
+
+(defn ^:private load-user-tools [config]
+  (some-> (find-ns 'eca.features.tools.user)
+          (ns-resolve 'user-tool-definitions)
+          (apply [config])))
+
+(defn ^:private load-enabled-native-tools [config]
+  (->> native-tool-registry
+       (filter #(get-in config [:nativeTools (:key %) :enabled]))
+       (map :definitions)
+       (apply merge {})))
+
+(defn ^:private substitute-workspace-roots [db description]
+  (string/replace description #"\\$workspaceRoots"
+                  (constantly (tools.util/workspace-roots-strs db))))
+
+(defn ^:private transform-tool-definition [db [name tool]]
+  [name (-> tool
+            (assoc :name name)
+            (update :description (partial substitute-workspace-roots db)))])
+
 (defn ^:private native-definitions [db config]
-  (into
-   {}
-   (map (fn [[name tool]]
-          [name (-> tool
-                    (assoc :name name)
-                    (update :description #(-> %
-                                              (string/replace #"\$workspaceRoots" (constantly (tools.util/workspace-roots-strs db))))))]))
-   (merge {}
-          (when (get-in config [:nativeTools :filesystem :enabled])
-            f.tools.filesystem/definitions)
-          (when (get-in config [:nativeTools :shell :enabled])
-            f.tools.shell/definitions)
-          (when (get-in config [:nativeTools :editor :enabled])
-            f.tools.editor/definitions))))
+  (->> (merge (load-enabled-native-tools config)
+              (load-user-tools config))
+       (map (partial transform-tool-definition db))
+       (into {})))
 
 (defn ^:private native-tools [db config]
   (vals (native-definitions db config)))
+
+;; ============================================================================
+;; Tool Status & Filtering Utilities
+;; ============================================================================
+
+(defn ^:private with-tool-status [disabled-tools tool]
+  (assoc-some tool :disabled (contains? disabled-tools (:name tool))))
+
+(defn ^:private tool-enabled? [tool {:keys [behavior db config disabled-tools]}]
+  (and (not (contains? disabled-tools (:name tool)))
+       ((or (:enabled-fn tool) (constantly true))
+        {:behavior behavior :db db :config config})))
+
+(defn ^:private find-tool-by-name [tools name]
+  (first (filter #(= name (:name %)) tools)))
+
+;; ============================================================================
+;; Public API
+;; ============================================================================
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers."
   [behavior db config]
-  (let [disabled-tools (set (get-in config [:disabledTools] []))]
+  (let [disabled-tools (set (get-in config [:disabledTools] []))
+        context {:behavior behavior :db db :config config :disabled-tools disabled-tools}]
     (filterv
-     (fn [tool]
-       (and (not (contains? disabled-tools (:name tool)))
-            ;; check for enabled-fn if present
-            ((or (:enabled-fn tool) (constantly true))
-             {:behavior behavior
-              :db db
-              :config config})))
+     #(tool-enabled? % context)
      (concat
       (mapv #(assoc % :origin :native) (native-tools db config))
       (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db))))))
@@ -59,82 +96,80 @@
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" name arguments))
   (let [arguments (update-keys arguments clojure.core/name)]
     (try
-      (let [result (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
-                     (native-tool-handler arguments {:db db
-                                                     :config config
-                                                     :messenger messenger
-                                                     :behavior behavior})
+      (let [result (if-let [native-handler (get-in (native-definitions db config) [name :handler])]
+                     (native-handler arguments {:db db :config config
+                                                :messenger messenger :behavior behavior})
                      (f.mcp/call-tool! name arguments db))]
         (logger/debug logger-tag "Tool call result: " result)
         result)
       (catch Exception e
-        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" name (.getMessage e) (with-out-str (.printStackTrace e))))
+        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s"
+                                        name (.getMessage e)
+                                        (with-out-str (.printStackTrace e))))
         {:error true
          :contents [{:type :text
                      :text (str "Error calling tool: " (.getMessage e))}]}))))
 
+;; ============================================================================
+;; Server Management
+;; ============================================================================
+
+(defn ^:private create-server-update-callback [messenger disabled-tools]
+  (fn [server]
+    (messenger/tool-server-updated
+     messenger
+     (-> server
+         (assoc :type :mcp)
+         (update :tools #(mapv (partial with-tool-status disabled-tools) %))))))
+
+(defn ^:private notify-native-tools-status [messenger db config disabled-tools]
+  (messenger/tool-server-updated
+   messenger
+   {:type :native
+    :name "ECA"
+    :status "running"
+    :tools (->> (native-tools db config)
+                (mapv #(select-keys % [:name :description :parameters]))
+                (mapv (partial with-tool-status disabled-tools)))}))
+
 (defn init-servers! [db* messenger config]
   (let [disabled-tools (set (get-in config [:disabledTools] []))
-        with-tool-status (fn [tool]
-                           (assoc-some tool :disabled (contains? disabled-tools (:name tool))))]
-    (messenger/tool-server-updated messenger {:type :native
-                                              :name "ECA"
-                                              :status "running"
-                                              :tools (->> (native-tools @db* config)
-                                                          (mapv #(select-keys % [:name :description :parameters]))
-                                                          (mapv with-tool-status))})
-    (f.mcp/initialize-servers-async!
-     {:on-server-updated (fn [server]
-                           (messenger/tool-server-updated messenger (-> server
-                                                                        (assoc :type :mcp)
-                                                                        (update :tools #(mapv with-tool-status %)))))}
-     db*
-     config)))
+        update-callback (create-server-update-callback messenger disabled-tools)]
+    (notify-native-tools-status messenger @db* config disabled-tools)
+    (f.mcp/initialize-servers-async! {:on-server-updated update-callback} db* config)))
 
 (defn stop-server! [name db* messenger config]
   (let [disabled-tools (set (get-in config [:disabledTools] []))
-        with-tool-status (fn [tool]
-                           (assoc-some tool :disabled (contains? disabled-tools (:name tool))))]
-    (f.mcp/stop-server!
-     name
-     db*
-     config
-     {:on-server-updated (fn [server]
-                           (messenger/tool-server-updated messenger (-> server
-                                                                        (assoc :type :mcp)
-                                                                        (update :tools #(mapv with-tool-status %)))))})))
+        update-callback (create-server-update-callback messenger disabled-tools)]
+    (f.mcp/stop-server! name db* config {:on-server-updated update-callback})))
 
 (defn start-server! [name db* messenger config]
   (let [disabled-tools (set (get-in config [:disabledTools] []))
-        with-tool-status (fn [tool]
-                           (assoc-some tool :disabled (contains? disabled-tools (:name tool))))]
-    (f.mcp/start-server!
-     name
-     db*
-     config
-     {:on-server-updated (fn [server]
-                           (messenger/tool-server-updated messenger (-> server
-                                                                        (assoc :type :mcp)
-                                                                        (update :tools #(mapv with-tool-status %)))))})))
+        update-callback (create-server-update-callback messenger disabled-tools)]
+    (f.mcp/start-server! name db* config {:on-server-updated update-callback})))
+
+;; ============================================================================
+;; Tool Metadata & Utilities
+;; ============================================================================
 
 (defn manual-approval? [all-tools name args db config]
   (boolean
-   (let [require-approval-fn (:require-approval-fn (first (filter #(= name (:name %))
-                                                                  all-tools)))
-         manual-approval? (get-in config [:toolCall :manualApproval] nil)]
+   (let [tool (find-tool-by-name all-tools name)
+         require-approval-fn (:require-approval-fn tool)
+         manual-approval-config (get-in config [:toolCall :manualApproval])]
      (or (when require-approval-fn (require-approval-fn args {:db db}))
-         (if (coll? manual-approval?)
-           (some #(= name (str %)) manual-approval?)
-           manual-approval?)))))
+         (if (coll? manual-approval-config)
+           (some #(= name (str %)) manual-approval-config)
+           manual-approval-config)))))
 
 (defn tool-call-summary [all-tools name args]
-  (when-let [summary-fn (:summary-fn (first (filter #(= name (:name %))
-                                                    all-tools)))]
-    (try
-      (summary-fn args)
-      (catch Exception e
-        (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
-        nil))))
+  (when-let [tool (find-tool-by-name all-tools name)]
+    (when-let [summary-fn (:summary-fn tool)]
+      (try
+        (summary-fn args)
+        (catch Exception e
+          (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
+          nil)))))
 
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
