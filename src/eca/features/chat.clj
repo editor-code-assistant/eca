@@ -362,7 +362,9 @@
         instructions (f.prompt/build-instructions refined-contexts
                                                   rules
                                                   repo-map*
-                                                  (or behavior (-> config :chat :defaultBehavior))
+                                                  (or behavior
+                                                      (-> config :chat :defaultBehavior) ;; legacy
+                                                      (-> config :defaultBehavior))
                                                   config)
         chat-ctx {:chat-id chat-id
                   :request-id request-id

@@ -13,9 +13,7 @@ There are multiples ways to configure ECA:
     `~/.config/eca/config.json`
     ```javascript
     {
-      "chat" : {
-        "defaultBehavior": "plan"
-      }
+      "defaultBehavior": "plan"
     }
     ```
 
@@ -26,9 +24,7 @@ There are multiples ways to configure ECA:
     `.eca/config.json`
     ```javascript
     {
-      "chat" : {
-        "defaultBehavior": "plan"
-      }
+      "defaultBehavior": "plan"
     }
     ```
 
@@ -40,9 +36,7 @@ There are multiples ways to configure ECA:
 
     ```javascript
     "initializationOptions": {
-      "chat" : {
-        "defaultBehavior": "plan"
-      }
+      "defaultBehavior": "plan"
     }
     ```
 
@@ -208,34 +202,58 @@ Once configured, user tools are available like built-in tools. You can invoke th
 
 === "Schema"
 
-```typescript
-interface Config {
-    providers: {[key: string]: {
-        api?: 'openai-responses' | 'openai-chat' | 'anthropic';
-        url?: string;
-        urlEnv?: string;
-        key?: string; // when provider supports api key.
-        keyEnv?: string;
-        completionUrlRelativePath?: string;
-        models: {[key: string]: {
-          extraPayload?: {[key: string]: any}
+    ```typescript
+    interface Config {
+        providers?: {[key: string]: {
+            api?: 'openai-responses' | 'openai-chat' | 'anthropic';
+            url?: string;
+            urlEnv?: string;
+            key?: string; // when provider supports api key.
+            keyEnv?: string;
+            completionUrlRelativePath?: string;
+            models: {[key: string]: {
+              extraPayload?: {[key: string]: any}
+            }};
         }};
-    }};
-    defaultModel?: string;
-    rules: [{path: string;}];
-    commands: [{path: string;}];
-    systemPromptTemplateFile?: string;
-    nativeTools?: {
-        filesystem: {enabled: boolean};
-        shell: {enabled: boolean,
-                excludeCommands: string[]};
-        editor: {enabled: boolean,};
-    };
-    userTools?: {[key: string]: {
+        defaultModel?: string;
+        rules?: [{path: string;}];
+        commands?: [{path: string;}];
+        systemPromptTemplateFile?: string;
+        nativeTools?: {
+            filesystem: {enabled: boolean};
+            shell: {enabled: boolean,
+                    excludeCommands: string[]};
+            editor: {enabled: boolean,};
+        };
+        userTools?: {[key: string]: {
         bash: string;
         schema: {
             required?: string[];
             args: {[key: string]: {
+                type: string;
+                description: string;
+                default?: any;
+            }};
+        };
+        description?: string;
+        requireApproval?: boolean;
+        enabledInPlanMode?: boolean;
+        }};
+        disabledTools?: string[],
+        toolCall?: {
+          manualApproval?: boolean | string[], // manual approve all tools or the specified tools
+        };
+        mcpTimeoutSeconds?: number;
+        lspTimeoutSeconds?: number;
+        mcpServers?: {[key: string]: {
+            command: string;
+            args?: string[];
+            disabled?: boolean;
+        }};
+        defaultBehavior?: string;
+        welcomeMessage?: string;
+        index?: {
+            ignoreFiles: [{
                 type: string;
                 description: string;
                 default?: any;
@@ -300,11 +318,8 @@ interface Config {
       "mcpTimeoutSeconds" : 60,
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
-      "chat" : {
-        "defaultBehavior": "agent"
-        "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n"
-      },
-      "agentFileRelativePath": "AGENTS.md"
+      "defaultBehavior": "agent"
+      "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n"
       "index" : {
         "ignoreFiles" : [ {
           "type" : "gitignore"

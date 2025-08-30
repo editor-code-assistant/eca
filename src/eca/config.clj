@@ -60,9 +60,8 @@
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}
-   :chat {:defaultBehavior "agent"
-          :welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
-   :agentFileRelativePath "AGENTS.md"
+   :defaultBehavior "agent"
+   :welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}})

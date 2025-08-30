@@ -237,7 +237,7 @@
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
        :access-token (:access_token body)
-       :expires-at (+ (System/currentTimeMillis) (* 1000 (:expires_in body)))}
+       :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
       (throw (ex-info (format "Anthropic token exchange failed: %s" (pr-str body))
                       {:status status
                        :body body})))))
@@ -256,7 +256,7 @@
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
        :access-token (:access_token body)
-       :expires-at (+ (System/currentTimeMillis) (* 1000 (:expires_in body)))}
+       :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
       (throw (ex-info (format "Anthropic refresh token failed: %s" (pr-str body))
                       {:status status
                        :body body})))))

@@ -121,7 +121,7 @@ Here are the current supported contexts types:
 
 #### AGENTS.md automatic context
 
-ECA will always include if found the `AGENTS.md` file (configurable via `agentFileRelativePath` config) as context, searching for both `/project-root/AGENT.md` and `~/.config/eca/AGENT.md`.
+ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`.
 
 You can ask ECA to create/update this file via `/init` command.
 
