@@ -929,9 +929,10 @@
 <span class="p">}</span>
 </code></pre></div></p>
 <h3 id="tool-approval-permissions">Tool approval / permissions<a class="headerlink" href="#tool-approval-permissions" title="Permanent link">#</a></h3>
-<p>By default, ECA ask to call any tool, but that's can easily be configureed in many ways via the <code>toolCall approval</code> config</p>
+<p>By default, ECA ask to call any tool, but that's can easily be configureed in many ways via the <code>toolCall approval</code> config.</p>
+<p>You can configure the default behavior via <code>byDefault</code> and/or configure a tool in <code>ask</code>, <code>allow</code> or <code>deny</code> configs.</p>
 <p>Check some examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:4"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_2" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_2" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_2" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_2" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_2" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_2" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_2" type="radio" /><input id="denying-a-tool" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -978,6 +979,20 @@
 <span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;eca_shell_command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*rm.*&quot;</span><span class="p">,</span>
+<span class="w">                                                         </span><span class="s2">&quot;.*mv.*&quot;</span><span class="p">]}}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;deny&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="s2">&quot;eca_shell_command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*rm.*&quot;</span><span class="p">,</span>
 <span class="w">                                                         </span><span class="s2">&quot;.*mv.*&quot;</span><span class="p">]}}</span>
 <span class="w">      </span><span class="p">}</span>
@@ -1088,6 +1103,7 @@ optional metadata:</p>
 <span class="w">        </span><span class="nx">byDefault</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;ask&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;allow&#39;</span><span class="p">;</span>
 <span class="w">        </span><span class="nx">allow</span><span class="o">?:</span><span class="w"> </span><span class="p">{{</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">argsMatchers</span><span class="o">?:</span><span class="w"> </span><span class="p">{{[</span><span class="nx">key</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}}},</span>
 <span class="w">        </span><span class="nx">ask</span><span class="o">?:</span><span class="w"> </span><span class="p">{{</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">argsMatchers</span><span class="o">?:</span><span class="w"> </span><span class="p">{{[</span><span class="nx">key</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}}},</span>
+<span class="w">        </span><span class="nx">deny</span><span class="o">?:</span><span class="w"> </span><span class="p">{{</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">argsMatchers</span><span class="o">?:</span><span class="w"> </span><span class="p">{{[</span><span class="nx">key</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]}}},</span>
 <span class="w">      </span><span class="p">};</span>
 <span class="w">    </span><span class="p">};</span>
 <span class="w">    </span><span class="nx">mcpTimeoutSeconds?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
@@ -1133,7 +1149,8 @@ optional metadata:</p>
 <span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ask&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">      </span><span class="s2">&quot;ask&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">      </span><span class="s2">&quot;ask&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">      </span><span class="s2">&quot;deny&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="s2">&quot;mcpTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">60</span><span class="p">,</span>
@@ -1175,7 +1192,7 @@ optional metadata:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 1, 2025 19:18:52 UTC">September 1, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 1, 2025 23:41:35 UTC">September 1, 2025</span>
   </span>
 
     
