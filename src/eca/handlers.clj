@@ -64,7 +64,7 @@
        (db/load-db-from-cache! db*))
      {:models (sort (keys (:models @db*)))
       :chat-default-model (f.chat/default-model @db* config)
-      :chat-behaviors (:chat-behaviors @db*)
+      :chat-behaviors (into (:chat-behaviors @db*) (keys (:behavior config)))
       :chat-default-behavior (or (:defaultBehavior (:chat config)) ;;legacy
                                  (:defaultBehavior config))
       :chat-welcome-message (or (:welcomeMessage (:chat config)) ;;legacy

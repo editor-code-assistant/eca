@@ -181,7 +181,7 @@
                                                :origin (tool-name->origin name all-tools)
                                                :arguments-text arguments-text
                                                :id id
-                                               :manual-approval (f.tools/manual-approval? all-tools name nil db config)}
+                                               :manual-approval (f.tools/manual-approval? all-tools name nil db config behavior)}
                                               :summary (f.tools/tool-call-summary all-tools name nil))))
       :on-tools-called (fn [tool-calls]
                          (assert-chat-not-stopped! chat-ctx)
@@ -195,7 +195,7 @@
                                               details (f.tools/tool-call-details-before-invocation name arguments)
                                               summary (f.tools/tool-call-summary all-tools name arguments)
                                               origin (tool-name->origin name all-tools)
-                                              manual-approval? (f.tools/manual-approval? all-tools name arguments db config)]
+                                              manual-approval? (f.tools/manual-approval? all-tools name arguments db config behavior)]
                                             ;; Inform UI the tool is about to run and store approval promise
                                           (send-content! chat-ctx :assistant
                                                          (assoc-some
@@ -355,21 +355,32 @@
                       (swap! db* assoc-in [:chats new-id] {:id new-id})
                       new-id))
         db @db*
-        full-model (or model (default-model db config))
+        selected-behavior (or behavior
+                             (-> config :chat :defaultBehavior) ;; legacy
+                             (-> config :defaultBehavior))
+        behavior-config (get-in config [:behavior selected-behavior])
+        ;; Check if behavior switched from previous request
+        previous-behavior (get-in db [:chats chat-id :last-behavior])
+        behavior-switched? (and previous-behavior (not= previous-behavior selected-behavior))
+        ;; When behavior switches, prioritize behavior's defaultModel over explicit model
+        full-model (or (when (and behavior-switched? (:defaultModel behavior-config))
+                        (:defaultModel behavior-config))
+                      model
+                      (:defaultModel behavior-config)
+                      (default-model db config))
         rules (f.rules/all config (:workspace-folders db))
         refined-contexts (f.context/raw-contexts->refined contexts db config)
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
         instructions (f.prompt/build-instructions refined-contexts
                                                   rules
                                                   repo-map*
-                                                  (or behavior
-                                                      (-> config :chat :defaultBehavior) ;; legacy
-                                                      (-> config :defaultBehavior))
+                                                  selected-behavior
                                                   config)
         chat-ctx {:chat-id chat-id
                   :request-id request-id
                   :contexts contexts
-                  :behavior behavior
+                  :behavior selected-behavior
+                  :behavior-config behavior-config
                   :instructions instructions
                   :full-model full-model
                   :db* db*
@@ -378,6 +389,7 @@
         decision (message->decision message)]
     (swap! db* assoc-in [:chats chat-id :current-request-id] request-id)
     (swap! db* assoc-in [:chats chat-id :status] :running)
+    (swap! db* assoc-in [:chats chat-id :last-behavior] selected-behavior)
     (send-content! chat-ctx :user {:type :text
                                    :text (str message "\n")})
     (case (:type decision)

@@ -42,7 +42,10 @@
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers."
   [behavior db config]
-  (let [disabled-tools (set (get-in config [:disabledTools] []))]
+  (let [behavior-config (get-in config [:behavior behavior])
+        ;; Merge global disabled tools with behavior-specific disabled tools
+        disabled-tools (set (concat (get-in config [:disabledTools] [])
+                                   (get-in behavior-config [:disabledTools] [])))]
     (filterv
      (fn [tool]
        (and (not (contains? disabled-tools (:name tool)))
@@ -153,37 +156,45 @@
       :else
       true)))
 
-(defn manual-approval? [all-tools tool-call-name args db config]
-  (boolean
-   (let [{:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
-                                                             all-tools))
-         {:keys [allow ask byDefault]} (get-in config [:toolCall :approval])]
-     (cond
-       (and require-approval-fn (require-approval-fn args {:db db}))
-       true
+(defn manual-approval? 
+  ([all-tools tool-call-name args db config]
+   (manual-approval? all-tools tool-call-name args db config nil))
+  ([all-tools tool-call-name args db config behavior]
+   (boolean
+    (let [{:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
+                                                              all-tools))
+          ;; Check behavior-specific approval first, then fall back to global
+          behavior-approval (when behavior
+                             (get-in config [:behavior behavior :toolCall :approval]))
+          global-approval (get-in config [:toolCall :approval])
+          ;; Merge behavior-specific with global, behavior takes precedence
+          {:keys [allow ask byDefault]} (merge global-approval behavior-approval)]
+      (cond
+        (and require-approval-fn (require-approval-fn args {:db db}))
+        true
 
-       (some #(approval-matches? % server tool-call-name args) ask)
-       true
+        (some #(approval-matches? % server tool-call-name args) ask)
+        true
 
-       (some #(approval-matches? % server tool-call-name args) allow)
-       false
+        (some #(approval-matches? % server tool-call-name args) allow)
+        false
 
-       (legacy-manual-approval? config tool-call-name)
-       true
+        (legacy-manual-approval? config tool-call-name)
+        true
 
-       (= "ask" byDefault)
-       true
+        (= "ask" byDefault)
+        true
 
-       (= "allow" byDefault)
-       false
+        (= "allow" byDefault)
+        false
 
-        ;; TODO suport :deny
-        ;; (= "deny" byDefault)
-        ;; false
+         ;; TODO suport :deny
+         ;; (= "deny" byDefault)
+         ;; false
 
-        ;; A config error, default to manual approve
-       :else
-       true))))
+         ;; A config error, default to manual approve
+        :else
+        true)))))
 
 (defn tool-call-summary [all-tools name args]
   (when-let [summary-fn (:summary-fn (first (filter #(= name (:name %))

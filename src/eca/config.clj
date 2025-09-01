@@ -49,6 +49,8 @@
                                           "claude-sonnet-4" {}}}
                "ollama" {:url "http://localhost:11434"
                          :urlEnv "OLLAMA_API_URL"}}
+   :behavior {"agent" {:systemPromptFile "prompts/agent_behavior.md"}
+              "plan" {:systemPromptFile "prompts/plan_behavior.md"}}
    :defaultModel nil
    :rules []
    :commands []
@@ -180,10 +182,17 @@
     (deep-merge initial-config
                 (normalize-fields
                  {:kebab-case
-                  [[:providers]]
+                  [[:providers]
+                   [:behavior]]
                   :stringfy
                   [[:providers]
                    [:providers :ANY :models]
+                   [:behavior]
+                   [:behavior :ANY :disabledTools]
+                   [:behavior :ANY :toolCall :approval :allow]
+                   [:behavior :ANY :toolCall :approval :allow :ANY :argsMatchers]
+                   [:behavior :ANY :toolCall :approval :ask]
+                   [:behavior :ANY :toolCall :approval :ask :ANY :argsMatchers]
                    [:toolCall :approval :allow]
                    [:toolCall :approval :allow :ANY :argsMatchers]
                    [:toolCall :approval :ask]

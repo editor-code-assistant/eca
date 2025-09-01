@@ -12,14 +12,11 @@
 
 (def ^:private logger-tag "[PROMPT]")
 
-(defn ^:private base-prompt-template* [] (slurp (io/resource "prompts/eca_base.md")))
-(def ^:private base-prompt-template (memoize base-prompt-template*))
+;; Built-in behavior prompts are now complete files, not templates
+(defn ^:private load-builtin-prompt* [filename]
+  (slurp (io/resource (str "prompts/" filename))))
 
-(defn ^:private plan-behavior* [] (slurp (io/resource "prompts/plan_behavior.md")))
-(def ^:private plan-behavior (memoize plan-behavior*))
-
-(defn ^:private agent-behavior* [] (slurp (io/resource "prompts/agent_behavior.md")))
-(def ^:private agent-behavior (memoize agent-behavior*))
+(def ^:private load-builtin-prompt (memoize load-builtin-prompt*))
 
 (defn ^:private init-prompt-template* [] (slurp (io/resource "prompts/init.md")))
 (def ^:private init-prompt-template (memoize init-prompt-template*))
@@ -31,14 +28,30 @@
    s
    vars))
 
+(defn ^:private get-behavior-config [behavior config]
+  (get-in config [:behavior behavior]))
+
 (defn ^:private eca-prompt [behavior config]
-  (let [prompt (or (some-> (:systemPromptTemplateFile config) slurp)
-                   (base-prompt-template))]
-    (replace-vars
-     prompt
-     {:behavior (case behavior
-                  "plan" (plan-behavior)
-                  "agent" (agent-behavior))})))
+  (let [behavior-config (get-behavior-config behavior config)
+        ;; Use systemPromptFile from behavior config, or fall back to built-in
+        prompt-file (or (:systemPromptFile behavior-config)
+                       ;; For built-in behaviors without explicit config
+                       (when (#{"agent" "plan"} behavior)
+                         (str "prompts/" behavior "_behavior.md")))]
+    (cond
+      ;; Custom behavior with absolute path
+      (and prompt-file (string/starts-with? prompt-file "/"))
+      (slurp prompt-file)
+      
+      ;; Built-in or resource path
+      prompt-file
+      (load-builtin-prompt (if (string/starts-with? prompt-file "prompts/")
+                            (subs prompt-file 8) ; Remove "prompts/" prefix
+                            prompt-file))
+      
+      ;; Fallback for unknown behavior
+      :else
+      (load-builtin-prompt "agent_behavior.md"))))
 
 (defn build-instructions [refined-contexts rules repo-map* behavior config]
   (multi-str

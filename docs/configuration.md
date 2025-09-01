@@ -117,7 +117,7 @@ Check some examples:
      }
    }
    ```
-   
+
 === "Matching by a tool argument"
 
   __`argsMatchers`__ is a map of argument name by list of [java regex](https://www.regexplanet.com/advanced/java/index.html).
@@ -247,6 +247,15 @@ There are 3 possible ways to configure rules following this order of priority:
                     excludeCommands: string[]};
             editor: {enabled: boolean,};
         };
+		behavior?: {[key: string]: {
+			defaultModel?: string;
+			systemPromptFile: string;
+			disabledTools?: string[];
+			toolCall?: {
+				approval?: {
+					byDefault: 'ask' | 'allow';
+					allow?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}},
+					ask?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}}}}}};
         disabledTools?: string[],
         toolCall?: {
           approval?: {
