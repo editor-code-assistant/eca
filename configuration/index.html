@@ -954,8 +954,11 @@
 <p>For providers and models configuration check the <a href="../models/#custom-providers">dedicated models section</a>.</p>
 <h2 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">#</a></h2>
 <h3 id="mcp">MCP<a class="headerlink" href="#mcp" title="Permanent link">#</a></h3>
-<p>For MCP servers configuration, use the <code>mcpServers</code> config, example:</p>
-<p><code>.eca/config.json</code>
+<p>For MCP servers configuration, use the <code>mcpServers</code> config, examples:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="example-1" name="__tabbed_2" type="radio" /><input id="example-2" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="example-1">Example 1</label><label for="example-2">Example 2</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p><code>~/.config/eca/config.json</code>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;memory&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -965,11 +968,27 @@
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div></p>
+</div>
+<div class="tabbed-block">
+<p><code>~/.config/eca/config.json</code>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;cool-mcp&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;command&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;bash&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;args&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-c&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;my-cool-mcp&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="s2">&quot;env&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;FOO&quot;</span><span class="w"> </span><span class="s2">&quot;bar&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></p>
+</div>
+</div>
+</div>
 <h3 id="approval-permissions">Approval / permissions<a class="headerlink" href="#approval-permissions" title="Permanent link">#</a></h3>
 <p>By default, ECA ask to call any tool, but that's can easily be configureed in many ways via the <code>toolCall approval</code> config.</p>
 <p>You can configure the default behavior via <code>byDefault</code> and/or configure a tool in <code>ask</code>, <code>allow</code> or <code>deny</code> configs.</p>
 <p>Check some examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_2" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_2" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_2" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_2" type="radio" /><input id="denying-a-tool" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_3" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_3" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_3" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_3" type="radio" /><input id="denying-a-tool" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -1055,7 +1074,7 @@
 </li>
 </ul>
 <p>Placeholders in the format <code>{{argument_name}}</code> within the <code>command</code> string will be replaced by the values provided by the LLM.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="example-1" name="__tabbed_3" type="radio" /><input id="example-2" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="example-1">Example 1</label><label for="example-2">Example 2</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:2"><input checked="checked" id="example-1_1" name="__tabbed_4" type="radio" /><input id="example-2_1" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="example-1_1">Example 1</label><label for="example-2_1">Example 2</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p><code>~/.config/eca/config.json</code>
@@ -1108,7 +1127,7 @@
 <h2 id="custom-command-prompts">Custom command prompts<a class="headerlink" href="#custom-command-prompts" title="Permanent link">#</a></h2>
 <p>You can configure custom command prompts for project, global or via <code>commands</code> config pointing to the path of the commands.
 Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG2</code>, to replace in the prompt during command call.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="4:3"><input checked="checked" id="local-custom-commands" name="__tabbed_4" type="radio" /><input id="global-custom-commands" name="__tabbed_4" type="radio" /><input id="config" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="local-custom-commands" name="__tabbed_5" type="radio" /><input id="global-custom-commands" name="__tabbed_5" type="radio" /><input id="config" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/commands</code> folder from the workspace root containing <code>.md</code> files with the custom prompt.</p>
@@ -1140,7 +1159,7 @@ optional metadata:</p>
 <li><code>globs</code>: list of globs separated by <code>,</code>. When present the rule will be applied only when files mentioned matches those globs.</li>
 </ul>
 <p>There are 3 possible ways to configure rules following this order of priority:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="project-file" name="__tabbed_5" type="radio" /><input id="global-file" name="__tabbed_5" type="radio" /><input id="config_1" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="project-file" name="__tabbed_6" type="radio" /><input id="global-file" name="__tabbed_6" type="radio" /><input id="config_1" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
@@ -1172,7 +1191,7 @@ optional metadata:</p>
 </div>
 </div>
 <h2 id="all-configs">All configs<a class="headerlink" href="#all-configs" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="6:2"><input checked="checked" id="schema" name="__tabbed_6" type="radio" /><input id="default-values" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="7:2"><input checked="checked" id="schema" name="__tabbed_7" type="radio" /><input id="default-values" name="__tabbed_7" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">Config</span><span class="w"> </span><span class="p">{</span>
@@ -1303,7 +1322,7 @@ optional metadata:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2025 03:41:11 UTC">September 3, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2025 03:44:40 UTC">September 3, 2025</span>
   </span>
 
     
