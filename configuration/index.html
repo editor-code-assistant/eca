@@ -519,6 +519,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#custom-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Tools
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-command-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom command prompts
@@ -832,6 +841,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#custom-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Tools
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-command-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom command prompts
@@ -1005,10 +1023,64 @@
 </div>
 <p>Also check the <code>plan</code> behavior which is safer.</p>
 <p><strong>The <code>manualApproval</code> setting was deprecated and replaced by the <code>approval</code> one without breaking changes</strong></p>
+<h2 id="custom-tools">Custom Tools<a class="headerlink" href="#custom-tools" title="Permanent link">#</a></h2>
+<p>You can define your own command-line tools that the LLM can use. These are configured via the <code>custom-tools</code> key in your <code>config.json</code>.</p>
+<p>The <code>custom-tools</code> value is an object where each key is the name of your tool. Each tool definition has the following properties:</p>
+<ul>
+<li><code>description</code>: A clear description of what the tool does. This is crucial for the LLM to decide when to use it.</li>
+<li><code>command</code>: An array of strings representing the command and its static arguments.</li>
+<li><code>schema</code>: An object that defines the parameters the LLM can provide.<ul>
+<li><code>properties</code>: An object where each key is an argument name.</li>
+<li><code>required</code>: An array of required argument names.</li>
+</ul>
+</li>
+</ul>
+<p>Placeholders in the format <code>{{argument_name}}</code> within the <code>command</code> array will be replaced by the values provided by the LLM.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:1"><input checked="checked" id="example-configjson" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="example-configjson">Example config.json</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;custom-tools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;web-search&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Fetches the content of a URL and returns it in Markdown format.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;trafilatura&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--output-format=markdown&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;-u&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;{{url}}&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="s2">&quot;schema&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;properties&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;The URL to fetch content from.&quot;</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">        </span><span class="s2">&quot;required&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;url&quot;</span><span class="p">]</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;file-search&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Finds files within a directory that match a specific name pattern.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;find&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;{{directory}}&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;-name&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;{{pattern}}&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="s2">&quot;schema&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;properties&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="s2">&quot;directory&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;The directory to start the search from.&quot;</span>
+<span class="w">          </span><span class="p">},</span>
+<span class="w">          </span><span class="s2">&quot;pattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;The search pattern for the filename (e.g., &#39;*.clj&#39;).&quot;</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">        </span><span class="s2">&quot;required&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;directory&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;pattern&quot;</span><span class="p">]</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
 <h2 id="custom-command-prompts">Custom command prompts<a class="headerlink" href="#custom-command-prompts" title="Permanent link">#</a></h2>
 <p>You can configure custom command prompts for project, global or via <code>commands</code> config pointing to the path of the commands.
 Prompts can use variables like <code>$ARGS</code>, <code>$ARG1</code>, <code>ARG2</code>, to replace in the prompt during command call.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="local-custom-commands" name="__tabbed_3" type="radio" /><input id="global-custom-commands" name="__tabbed_3" type="radio" /><input id="config" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:3"><input checked="checked" id="local-custom-commands" name="__tabbed_4" type="radio" /><input id="global-custom-commands" name="__tabbed_4" type="radio" /><input id="config" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/commands</code> folder from the workspace root containing <code>.md</code> files with the custom prompt.</p>
@@ -1040,7 +1112,7 @@ optional metadata:</p>
 <li><code>globs</code>: list of globs separated by <code>,</code>. When present the rule will be applied only when files mentioned matches those globs.</li>
 </ul>
 <p>There are 3 possible ways to configure rules following this order of priority:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="4:3"><input checked="checked" id="project-file" name="__tabbed_4" type="radio" /><input id="global-file" name="__tabbed_4" type="radio" /><input id="config_1" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="project-file" name="__tabbed_5" type="radio" /><input id="global-file" name="__tabbed_5" type="radio" /><input id="config_1" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
@@ -1072,7 +1144,7 @@ optional metadata:</p>
 </div>
 </div>
 <h2 id="all-configs">All configs<a class="headerlink" href="#all-configs" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="5:2"><input checked="checked" id="schema" name="__tabbed_5" type="radio" /><input id="default-values" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="6:2"><input checked="checked" id="schema" name="__tabbed_6" type="radio" /><input id="default-values" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">Config</span><span class="w"> </span><span class="p">{</span>
@@ -1097,6 +1169,17 @@ optional metadata:</p>
 <span class="w">                </span><span class="nx">excludeCommands</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[]};</span>
 <span class="w">        </span><span class="nx">editor</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">enabled</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">,};</span>
 <span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="nx">customTools</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">command</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<span class="w">        </span><span class="nx">schema</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">properties</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">            </span><span class="p">}};</span>
+<span class="w">            </span><span class="nx">required</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<span class="w">        </span><span class="p">};</span>
+<span class="w">    </span><span class="p">}};</span>
 <span class="w">    </span><span class="nx">disabledTools?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[],</span>
 <span class="w">    </span><span class="nx">toolCall</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="nx">approval</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
@@ -1192,7 +1275,7 @@ optional metadata:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2025 02:45:56 UTC">September 3, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2025 03:07:02 UTC">September 3, 2025</span>
   </span>
 
     
