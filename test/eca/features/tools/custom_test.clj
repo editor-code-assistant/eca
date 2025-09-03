@@ -17,7 +17,7 @@
         (with-redefs [process/sh (fn [command-vec & _]
                                    (is (= ["find" "/tmp" "-name" "*.clj"] command-vec))
                                    {:out "mocked-output" :exit 0})]
-          (let [config {:custom-tools mock-custom-tools}
+          (let [config {:customTools mock-custom-tools}
                 custom-defs (f.tools.custom/definitions config)
                 custom-tool-def (get custom-defs "file-search")]
             (is (some? custom-tool-def) "The custom tool should be loaded.")
@@ -37,7 +37,7 @@
                                    ["git" "status"] {:out "On branch main" :exit 0}
                                    ["echo" "Hello World"] {:out "Hello World" :exit 0}
                                    (is false "Unexpected command received by mock p/sh")))]
-        (let [config {:custom-tools mock-custom-tools}
+        (let [config {:customTools mock-custom-tools}
               custom-defs (f.tools.custom/definitions config)
               git-status-handler (get-in custom-defs ["git-status" :handler])
               echo-handler (get-in custom-defs ["echo-message" :handler])]
@@ -48,7 +48,7 @@
 
   (testing "when the custom tools config is empty or missing"
     (testing "with an empty map"
-      (let [config {:custom-tools {}}
+      (let [config {:customTools {}}
             custom-defs (f.tools.custom/definitions config)]
         (is (empty? custom-defs) "No custom tools should be loaded.")))
     (testing "with the key missing from the config"

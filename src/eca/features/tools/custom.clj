@@ -27,17 +27,17 @@
   "Transforms a single custom tool from the config map into a full tool definition."
   [[tool-name tool-config]]
   (let [schema (:schema tool-config)]
-    {(name tool-name)
-     {:name (name tool-name)
+    {tool-name
+     {:name tool-name
       :description (:description tool-config)
       :parameters {:type "object"
-                   :properties (update-keys (:properties schema) keyword)
-                   :required (mapv keyword (:required schema))}
+                   :properties (:properties schema)
+                   :required (:required schema)}
       :handler (build-tool-fn tool-config)}}))
 
 (defn definitions
   "Loads all custom tools from the config."
   [config]
-  (->> (get config :custom-tools {})
+  (->> (get config :customTools {})
        (map custom-tool->tool-def)
        (apply merge)))

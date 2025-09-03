@@ -160,9 +160,9 @@ __The `manualApproval` setting was deprecated and replaced by the `approval` one
 
 ## Custom Tools
 
-You can define your own command-line tools that the LLM can use. These are configured via the `custom-tools` key in your `config.json`.
+You can define your own command-line tools that the LLM can use. These are configured via the `customTools` key in your `config.json`.
 
-The `custom-tools` value is an object where each key is the name of your tool. Each tool definition has the following properties:
+The `customTools` value is an object where each key is the name of your tool. Each tool definition has the following properties:
 
 -   `description`: A clear description of what the tool does. This is crucial for the LLM to decide when to use it.
 -   `command`: An array of strings representing the command and its static arguments.
@@ -176,7 +176,7 @@ Placeholders in the format `{{argument_name}}` within the `command` array will b
 
     ```javascript
     {
-      "custom-tools": {
+      "customTools": {
         "web-search": {
           "description": "Fetches the content of a URL and returns it in Markdown format.",
           "command": ["trafilatura", "--output-format=markdown", "-u", "{{url}}"],

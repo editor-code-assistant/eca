@@ -202,6 +202,8 @@
                    [:toolCall :approval :ask :ANY :argsMatchers]
                    [:toolCall :approval :deny]
                    [:toolCall :approval :deny :ANY :argsMatchers]
+                   [:customTools]
+                   [:customTools :ANY :schema :properties]
                    [:mcpServers]]}
                  (deep-merge initialization-config
                              (when-not pure-config? (config-from-envvar))
