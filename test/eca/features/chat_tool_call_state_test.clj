@@ -121,7 +121,7 @@
       (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data)]
 
         (is (match? {:status :preparing
-                     :actions [:send-toolCallPrepare :init-decision-reason]}
+                     :actions [:init-tool-call-state :send-toolCallPrepare]}
                     result)
             "Expected return value to show :preparing status and send toolCallPrepare action")
 
@@ -218,7 +218,7 @@
       (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
 
         (is (match? {:status :check-approval
-                     :actions [:init-approval-promise :send-toolCallRun]}
+                     :actions [:init-arguments :init-approval-promise :send-toolCallRun]}
                     result)
             "Expected next state to be :check-approval with actions of :init-approval-promise and :send-toolCallRun")
 
@@ -273,7 +273,7 @@
       ;; Step 2: :preparing -> :check-approval
       (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
         (is (match? {:status :check-approval
-                     :actions [:init-approval-promise :send-toolCallRun]}
+                     :actions [:init-arguments :init-approval-promise :send-toolCallRun]}
                     result)
             "Expected transition to :check-approval with init promise and send run actions")
 
@@ -517,6 +517,7 @@
                (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :stop-requested))
               "Expected exception as already rejected tool calls cannot be stopped"))))))
 
+;; TODO: This test and the previous test seem to be testing similar things.  Clean up.
 (deftest transition-tool-call-stop-transitions-test
   (testing "Stop transitions from various states"
     (h/reset-components!)
@@ -600,7 +601,14 @@
             "Expected system message to contain 'stopped' text")
 
         (is (< 0 (count tool-reject-messages))
-            "Expected at least one toolCallRejected notification to be sent for active tool calls")))))
+            "Expected at least one toolCallRejected notification to be sent for active tool calls")
+
+        (is (every? (comp :id :content) tool-reject-messages)
+            "Expected every toolCallRejected message to have an :id")
+        (is (every? (comp :name :content) tool-reject-messages)
+            "Expected every toolCallRejected message to have a :name")
+        (is (every? (comp :origin :content) tool-reject-messages)
+            "Expected every toolCallRejected message to have an :origin")))))
 
 (deftest test-stop-prompt-message-count
   ;; Test that stop-prompt sends appropriate number of messages
@@ -629,21 +637,38 @@
     (h/reset-components!)
     (let [db* (h/db*)
           chat-id "test-chat"
-          chat-ctx {:chat-id chat-id :request-id "req-123" :messenger (h/messenger)}]
+          tool-call-id "tool-call-1"
+          chat-ctx {:chat-id chat-id :request-id "req-123" :messenger (h/messenger)}
+          approved?* (promise)]
 
       (swap! db* assoc-in [:chats chat-id]
              {:status :running
               :current-request-id "req-123"})
 
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
+      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
-
+      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+                                      {:approved?* approved?*
+                                       :name "list_files"
+                                       :origin "filesystem"
+                                       :arguments {"id" 123 "value" 42}})
       (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger))
+      (when-not @approved?*
+        (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :send-reject
+                                        {:approved?* approved?*
+                                         :name "list_files"
+                                         :origin "filesystem"
+                                         :arguments {"id" 123 "value" 42}}))
 
       (let [chat-messages (:chat-content-received (h/messages))
-            message-types (map #(get-in % [:content :type]) chat-messages)]
-        (is (some #{:toolCallRejected} message-types)
-            "Expected toolCallRejected notifications when stopping with active tool calls")))))
+            tool-call-rejected-messages (filter #(= :toolCallRejected (get-in % [:content :type]))
+                                                chat-messages)]
+
+        (is (< 0 (count tool-call-rejected-messages))
+            "Expected toolCallRejected notifications when stopping with active tool calls")
+
+        (is (some #(get-in % [:content :arguments] %) tool-call-rejected-messages)
+            "Expected at least one toolCallRejected message to include non-nil :arguments")))))
 
 (deftest test-stop-prompt-with-non-running-chat
   ;; Test stop-prompt behavior when chat is not running.

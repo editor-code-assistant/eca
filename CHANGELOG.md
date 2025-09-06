@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added missing parameters to `toolCallRejected` where possible.  PR #109
+
 ## 0.49.0
 
 - Add `totalTimeMs` to reason and toolCall content blocks.

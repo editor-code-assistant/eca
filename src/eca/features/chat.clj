@@ -86,7 +86,8 @@
    - promise init & delivery
    - logging/metrics
 
-   Note: all actions are run in the order specified.
+   Note: all actions are run in the order specified.  So, generally, the :send-* actions should be last.
+   Note: The :status is updated before any actions are run, so the actions have the latest :status.
 
    Note: all choices (i.e. conditionals) have to be made in code and result
    in different events sent to the state machine.
@@ -95,7 +96,7 @@
   {;; Note: transition-tool-call! treats no existing state as :initial state
    [:initial :tool-prepare]
    {:status :preparing
-    :actions [:send-toolCallPrepare :init-decision-reason]}
+    :actions [:init-tool-call-state :send-toolCallPrepare]}
 
    [:preparing :tool-prepare]
    {:status :preparing
@@ -103,7 +104,7 @@
 
    [:preparing :tool-run]
    {:status :check-approval
-    :actions [:init-approval-promise :send-toolCallRun]}
+    :actions [:init-arguments :init-approval-promise :send-toolCallRun]}
    ;; TODO: What happens if the promise is created, but no deref happens since the call is stopped?
 
    [:check-approval :approval-ask]
@@ -222,16 +223,20 @@
                     :summary (:summary event-data)))
 
     :send-toolCallRejected
-    (send-content! chat-ctx :assistant
-                   (assoc-some
-                    {:type :toolCallRejected
-                     :id tool-call-id
-                     :origin (:origin event-data)
-                     :name (:name event-data)
-                     :arguments (:arguments event-data)
-                     :reason (:code (:reason event-data) :user)}
-                    :details (:details event-data)
-                    :summary (:summary event-data)))
+    (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)
+          name (:name tool-call-state)
+          origin (:origin tool-call-state)
+          arguments (:arguments tool-call-state)]
+      (send-content! chat-ctx :assistant
+                     (assoc-some
+                      {:type :toolCallRejected
+                       :id tool-call-id
+                       :origin (or (:origin event-data) origin)
+                       :name (or (:name event-data) name)
+                       :arguments (or (:arguments event-data) arguments)
+                       :reason (:code (:reason event-data) :user)}
+                      :details (:details event-data)
+                      :summary (:summary event-data))))
 
     ;; State management actions
     :init-approval-promise
@@ -246,10 +251,21 @@
     (deliver (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :approved?*])
              true)
 
-    :init-decision-reason
-    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :decision-reason]
-           {:reason {:code :none
-                     :text "No reason"}})
+    :init-tool-call-state
+    (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id] assoc
+           ;; :status is initialized by the state transition machinery
+           ;; :approval* is initialized by the :init-approval-promise action
+           ;; :arguments is initialized by the :init-arguments action
+           ;; :start-time is initialized by the :set-start-time action
+           :name (:name event-data)
+           :arguments (:arguments event-data)
+           :origin (:origin event-data)
+           :decision-reason {:code :none
+                             :text "No reason"})
+
+    :init-arguments
+    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :arguments]
+           (:arguments event-data))
 
     :set-decision-reason
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :decision-reason]
@@ -475,8 +491,8 @@
                                                                     :manual-approval ask?
                                                                     :details details
                                                                     :summary summary}))
-                                          ;; assert: In: :check-approval or :stopped
-                                          (when-not (#{:stopped} (:status (get-tool-call-state @db* chat-id id)))
+                                          ;; assert: In: :check-approval or :stopped or :rejected
+                                          (when-not (#{:stopped :rejected} (:status (get-tool-call-state @db* chat-id id)))
                                             (case approval
                                               :ask (transition-tool-call! db* chat-ctx id :approval-ask
                                                                           {:state :running
