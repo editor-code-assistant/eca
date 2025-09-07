@@ -1069,11 +1069,12 @@
 <p>Chat is the main feature of ECA, allowing user to talk with LLM to behave like an agent, making changes using tools or just planning changes and next steps.</p>
 <h3 id="behaviors">Behaviors<a class="headerlink" href="#behaviors" title="Permanent link">#</a></h3>
 <p><img alt="" src="../images/features/chat-behaviors.png" /></p>
-<p>Behavior affect the prompt passed to LLM and the tools to include, the current supported behaviors are:</p>
+<p>Behavior affect the prompt passed to LLM and the tools to include, ECA allow to override or customize your owns behaviors, the built-in provider behaviors are:</p>
 <ul>
-<li><code>plan</code>: Useful to plan changes and define better LLM plan before changing code via agent mode.</li>
-<li><code>agent</code>: Make changes to code via file changing tools.</li>
+<li><code>plan</code>: Useful to plan changes and define better LLM plan before changing code via agent mode. <a href="https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_behavior.md">Prompt here</a></li>
+<li><code>agent</code>: Make changes to code via file changing tools. (Default) <a href="https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/agent_behavior.md">Prompt here</a></li>
 </ul>
+<p>To create and customize your own behaviors, check <a href="../configuration/">config</a>.</p>
 <h3 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">#</a></h3>
 <p><img alt="" src="../images/features/tools.png" /></p>
 <p>ECA leverage tools to give more power to the LLM, this is the best way to make LLMs have more context about your codebase and behave like an agent.
@@ -1164,7 +1165,7 @@ Here are the current supported contexts types:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2025 20:16:07 UTC">September 7, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 7, 2025 20:27:00 UTC">September 7, 2025</span>
   </span>
 
     
