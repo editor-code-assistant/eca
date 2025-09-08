@@ -156,3 +156,17 @@
         tool-status-fn (f.tools/make-tool-status-fn config validated-behavior)]
     (update-behavior-model! behavior-config config messenger db*)
     (f.tools/refresh-tool-servers! tool-status-fn db* messenger config)))
+
+(defn completion-inline [{:keys []} {:keys [uri doc-version position]}]
+  (let [{:keys [line character]} position]
+    (Thread/sleep 300)
+    {:items [{:id "123"
+              :text "foo"
+              :doc-version doc-version
+              :range {:start {:line line :character character}
+                      :end {:line line :character character}}}
+             {:id "234"
+              :text "foobar"
+              :doc-version doc-version
+              :range {:start {:line line :character character}
+                      :end {:line line :character character}}}]}))
