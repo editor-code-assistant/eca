@@ -866,14 +866,14 @@
       "hash": "sha256-Y/C4zR1No0m2Dfk4kdHgDF0/0sm9M9jlvu0HWijNiFQ="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.12.0/mcp-0.12.0.jar",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.12.1/mcp-0.12.1.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-GzgBzYvyfDat9U9c4pWS9M0AYdSUi9NCfA1kE4U7IUo="
+      "hash": "sha256-E6X3h5rXkrtOd6JofGHrNQNz90bOcyShm493eNJzmqs="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.12.0/mcp-0.12.0.pom",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.12.1/mcp-0.12.1.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-wWADf99DdXOz/Oq7dVsCuJuA9KOa25EU1sOwIAHd9V0="
+      "hash": "sha256-mN+zsUyEhvPZms+fqwilxDBMC3zuv8xaJPCye6R2XRg="
     },
     {
       "mvn-path": "io/netty/netty-buffer/4.1.30.Final/netty-buffer-4.1.30.Final.jar",
