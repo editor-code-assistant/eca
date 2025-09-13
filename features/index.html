@@ -1093,7 +1093,7 @@ It supports both MCP server tools + ECA native tools.</p>
 <li><code>eca_read_file</code>: read a file content.</li>
 <li><code>eca_write_file</code>: write content to a new file.</li>
 <li><code>eca_edit_file</code>: replace lines of a file with a new content.</li>
-<li><code>eca_plan_edit_file</code>: Only used in plan mode, replace lines of a file with a new content.</li>
+<li><code>eca_preview_edit_file</code>: Only used in plan mode, showing what changes will happen after user decides to execute the plan.</li>
 <li><code>eca_move_file</code>: move/rename a file.</li>
 <li><code>eca_grep</code>: ripgrep/grep for paths with specified content.</li>
 </ul>
@@ -1130,8 +1130,9 @@ Here are the current supported contexts types:</p>
 <p>The built-in commands are:</p>
 <p><code>/init</code>: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
 <code>/login</code>: Log into a provider. Ex: <code>github-copilot</code>, <code>anthropic</code>.
-<code>/costs</code>: Show costs about current session.
+<code>/compact</code>: Compact/summarize conversation helping reduce context window.
 <code>/resume</code>: Resume a chat from previous session of this workspace folder.
+<code>/costs</code>: Show costs about current session.
 <code>/config</code>: Show ECA config for troubleshooting.
 <code>/doctor</code>: Show information about ECA, useful for troubleshooting.
 <code>/repo-map-show</code>: Show the current repoMap context of the session.
@@ -1167,7 +1168,7 @@ Here are the current supported contexts types:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 12, 2025 17:34:02 UTC">September 12, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 13, 2025 17:21:19 UTC">September 13, 2025</span>
   </span>
 
     
