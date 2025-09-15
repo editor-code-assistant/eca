@@ -569,11 +569,35 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#server-logs-stderr" class="md-nav__link">
+  <a href="#logs-stderr" class="md-nav__link">
     <span class="md-ellipsis">
-      Server logs (stderr)
+      Logs (stderr)
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Logs (stderr)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Server logs
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-server-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client&lt;-&gt;Server logs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -772,11 +796,35 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#server-logs-stderr" class="md-nav__link">
+  <a href="#logs-stderr" class="md-nav__link">
     <span class="md-ellipsis">
-      Server logs (stderr)
+      Logs (stderr)
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Logs (stderr)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Server logs
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-server-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Client&lt;-&gt;Server logs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -842,8 +890,8 @@
 
 
 <h1 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">#</a></h1>
-<h2 id="server-logs-stderr">Server logs (stderr)<a class="headerlink" href="#server-logs-stderr" title="Permanent link">#</a></h2>
-<p>ECA works with clients (editors) sending and receiving messages to server, a process, you can start server with <code>--log-level debug</code> or <code>--verbose</code> which should log helpful information to <code>stderr</code> buffer like what is being sent to LLMs or what ECA is responding to editors, all supported editors have options to set the <strong>server args</strong> to help with that and options to check the server logs.</p>
+<h2 id="logs-stderr">Logs (stderr)<a class="headerlink" href="#logs-stderr" title="Permanent link">#</a></h2>
+<p>All supported editors have options to set the <strong>server args</strong> to help with that and options to check the server logs.</p>
 <p>To access the server logs:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="emacs" name="__tabbed_1" type="radio" /><input id="vscode" name="__tabbed_1" type="radio" /><input id="intellij" name="__tabbed_1" type="radio" /><input id="nvim" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="emacs">Emacs</label><label for="vscode">VsCode</label><label for="intellij">IntelliJ</label><label for="nvim">Nvim</label></div>
 <div class="tabbed-content">
@@ -861,6 +909,11 @@
 </div>
 </div>
 </div>
+<h3 id="server-logs">Server logs<a class="headerlink" href="#server-logs" title="Permanent link">#</a></h3>
+<p>This controls what's logged by server on its actions, you can control to log more things via <code>--log-level debug</code> server arg.
+This should help log LLM outputs, and other useful stuff.</p>
+<h3 id="client-server-logs">Client&lt;-&gt;Server logs<a class="headerlink" href="#client-server-logs" title="Permanent link">#</a></h3>
+<p>ECA works with clients (editors) sending and receiving messages to server, a process, you can start server <code>--verbose</code> which should log all jsonrpc communication between client and server to <code>stderr</code> buffer like what is being sent to LLMs or what ECA is responding to editors. </p>
 <h2 id="doctor-command">Doctor command<a class="headerlink" href="#doctor-command" title="Permanent link">#</a></h2>
 <p><code>/doctor</code> command should log useful information to debug model used, server version, env vars and more.</p>
 <h2 id="missing-env-vars">Missing env vars<a class="headerlink" href="#missing-env-vars" title="Permanent link">#</a></h2>
@@ -903,7 +956,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 15, 2025 16:17:34 UTC">September 15, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 15, 2025 17:03:10 UTC">September 15, 2025</span>
   </span>
 
     
