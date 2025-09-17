@@ -601,6 +601,46 @@
       "hash": "sha256-tUF8hGpfvt/STs/GQSpDbglC6uJYbqEq1l95RT2MhmM="
     },
     {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-api/0.2.9/clj-otel-api-0.2.9.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-2hA9LtWldRk+4esP6LMn5MNkWHlQ7U5c38FOM3xEXeA="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-api/0.2.9/clj-otel-api-0.2.9.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-2bpGXFG9XucAg06J0DBLs6D1+Ukxuff+V4RSouog6As="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-exporter-otlp/0.2.9/clj-otel-exporter-otlp-0.2.9.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-cYrYvr/G9tpNGVDzo8wjklhR0oyR3LwmQ/E0m0UIX40="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-exporter-otlp/0.2.9/clj-otel-exporter-otlp-0.2.9.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-inHpJCH3kzOtcI86v7kh+xwreDQdvfsndgHB3aIH6H0="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-sdk-common/0.2.9/clj-otel-sdk-common-0.2.9.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-ReAKWwizvuEEPzCDdQQMu5V0ai40D9enIAcAbvD+3GM="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-sdk-common/0.2.9/clj-otel-sdk-common-0.2.9.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-tVHGowQT3tDcPs4Veh4bqdez5+x1TAneJ/FI7Po7GpQ="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-sdk-extension-autoconfigure/0.2.9/clj-otel-sdk-extension-autoconfigure-0.2.9.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-frWc9rzvdF1mTj75DbTM2juYpl7615h06SALWpVjOug="
+    },
+    {
+      "mvn-path": "com/github/steffan-westcott/clj-otel-sdk-extension-autoconfigure/0.2.9/clj-otel-sdk-extension-autoconfigure-0.2.9.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-z+gp8tfPtHQ7JO0qNh0qpphJaoSx536KaNwGRHuQKtA="
+    },
+    {
       "mvn-path": "com/google/google/5/google-5.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-4J00XnPKP7yn8+BfMN63Tp053Wt5qT/ujFEfI0F7aCg="
@@ -744,6 +784,26 @@
       "mvn-path": "com/nextjournal/beholder/1.0.2/beholder-1.0.2.pom",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-LRJkSGdQPfLoeGjLwU3deFKoaum2dW/QJ46lCK0d4u4="
+    },
+    {
+      "mvn-path": "com/squareup/okhttp3/okhttp-jvm/5.1.0/okhttp-jvm-5.1.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-pqrH8V08LDy9Kvfs9W+XQHFkpgSy24eVKZUOMc6mmbI="
+    },
+    {
+      "mvn-path": "com/squareup/okhttp3/okhttp-jvm/5.1.0/okhttp-jvm-5.1.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-aNCp1oSYz/jQM+gJUKihDamZiE6Y07RMiNDpsAUd4nA="
+    },
+    {
+      "mvn-path": "com/squareup/okio/okio-jvm/3.15.0/okio-jvm-3.15.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-SD3Dg7EEnSIIkjIqDWpDCEJfCbsFtIxD1Oqp/4KxzRY="
+    },
+    {
+      "mvn-path": "com/squareup/okio/okio-jvm/3.15.0/okio-jvm-3.15.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-B45C9oykYT/yWX+8VUHFzleM3MSIOdqJ2nynYFGL+3k="
     },
     {
       "mvn-path": "com/sun/activation/all/1.2.0/all-1.2.0.pom",
@@ -934,6 +994,186 @@
       "mvn-path": "io/netty/netty-parent/4.1.30.Final/netty-parent-4.1.30.Final.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-d8OjGOf8GD/hB5aVwRFuIYunuKnCGzTRJYh3SbvU71E="
+    },
+    {
+      "mvn-path": "io/opentelemetry/instrumentation/opentelemetry-instrumentation-api/2.20.0/opentelemetry-instrumentation-api-2.20.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-9HLyeUdmWmLoGhwvB6CvbS8WlKGqooKsGYb45XUsUnM="
+    },
+    {
+      "mvn-path": "io/opentelemetry/instrumentation/opentelemetry-instrumentation-api/2.20.0/opentelemetry-instrumentation-api-2.20.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-F66lv7fU2NwsqGpylPdDab28E7fjPNHEDITAgcK36zc="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-api-incubator/1.54.0-alpha/opentelemetry-api-incubator-1.54.0-alpha.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-Ngm+K7AYa4N4zYqJjAg0i1Bdoh02rCqNKlL0YM+SUqU="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-api-incubator/1.54.0-alpha/opentelemetry-api-incubator-1.54.0-alpha.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-W5JpIlvnGX8JyB5+SpDLOtTMrA769127aEsDFHqUAAk="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-api/1.54.0/opentelemetry-api-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-U9nXBLZYoz9bpVG+kwxrxvesFR/FHIz4l0dh/LOeJUI="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-api/1.54.0/opentelemetry-api-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-lrRzA6ZU8uVERt22j7G7lEUYROW5PWXcuF9+J6xcLgE="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-common/1.54.0/opentelemetry-common-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-dqEQ1wc2Ju+/D0tTm2e4+IDgfm8lY2eEhErZUUW1Aj0="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-common/1.54.0/opentelemetry-common-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-a3bpr9iulN5g1p79ejOo3B1lhtP51IFj7FVfJn2MzmY="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-context/1.54.0/opentelemetry-context-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-SLlH9FZ5rXgz2acibNMgnwurxIs8GQdLdmGNhrDgvt8="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-context/1.54.0/opentelemetry-context-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-YgfavDFzDOWfEc+pkiejPty7w/wiAa+ZJLM3cydmwe0="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-common/1.54.0/opentelemetry-exporter-common-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-eDjCsW83fZklwTiXcXSAlgqIbub5ybYTtZskBNQ8SFE="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-common/1.54.0/opentelemetry-exporter-common-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-+Ra0v23V2Rn+Esm4hwjwId8wOfYNoIq6nzUAcjA+rEE="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-otlp-common/1.54.0/opentelemetry-exporter-otlp-common-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-uqoAOz+DxO7yd2GU6MlJGSNNnw9+UzbRcADqdsY7HZg="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-otlp-common/1.54.0/opentelemetry-exporter-otlp-common-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-Kueyx9+nMAMTSAHu3J+Mmsj0e3xOrYahs1IDGEZtNz4="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-otlp/1.54.0/opentelemetry-exporter-otlp-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-Q+zUPB84oQzCYLjNqRBS7veP44z4/e5Yr/wUwLgZRHY="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-otlp/1.54.0/opentelemetry-exporter-otlp-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-rq5o9c8A4AHmP+iw3FDGed5NRr/8km283G7opzxDiXw="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-sender-okhttp/1.54.0/opentelemetry-exporter-sender-okhttp-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-dsTOcP3vuSRPZwlxVg1GYpq/JmEieIcLU4wyBfdO5ck="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-exporter-sender-okhttp/1.54.0/opentelemetry-exporter-sender-okhttp-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-1qYv51J0mIyW6FsxNErSDZa8ZeXbia3cBXwcW82mf2U="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-common/1.54.0/opentelemetry-sdk-common-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-wQ0D6E4joBTUNWePk3tbQ8WRW1hCLUdEwLYulR94vf8="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-common/1.54.0/opentelemetry-sdk-common-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-zFVF5Cxxr5RvX0Us1JMAYFSRp7cVYDkr8XnyAgBdi8g="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-extension-autoconfigure-spi/1.54.0/opentelemetry-sdk-extension-autoconfigure-spi-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-qZMGtk+/7FTUWgqhuNMN13c/6CrdRB+NK6bp5Y6+Aik="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-extension-autoconfigure-spi/1.54.0/opentelemetry-sdk-extension-autoconfigure-spi-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-I76TCJ+QkKuiETgCzTyaqYfP+xr36Fh5WkC41mCKGiI="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-extension-autoconfigure/1.54.0/opentelemetry-sdk-extension-autoconfigure-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-V1E+NupbWfwy4sGG926bT/AAzPXU1nWg79H7laiM6Mo="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-extension-autoconfigure/1.54.0/opentelemetry-sdk-extension-autoconfigure-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-BoTNwVLmpR1gX7xN15LVMtn4xQeDVf/SrMxb5BZm/Qg="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-logs/1.54.0/opentelemetry-sdk-logs-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-WHRUEsTPHBlodeoiVDjMODtj/8Mdvi2JwL533VvBhW8="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-logs/1.54.0/opentelemetry-sdk-logs-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-YKUMVIIwtDIbjKo8zANvktckQM39a2ZiPogA0AiTYYk="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-metrics/1.54.0/opentelemetry-sdk-metrics-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-wVildmAi7gQLowTQ7dBQdgEHDWTrFwCZsDj1UFlK7Ig="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-metrics/1.54.0/opentelemetry-sdk-metrics-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-8CGba0RASNuKfyoOuydds1itsUcgB/gR4ExlNOiYrsU="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-trace/1.54.0/opentelemetry-sdk-trace-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-GvqCgwc2dy07YaOPFp0/sZZ6gXd5y98VGsN9RoHD7rA="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk-trace/1.54.0/opentelemetry-sdk-trace-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-eAD3H/CD+GrNECpL9kbuA94yVdYTpg1BBiikOsJQe40="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk/1.54.0/opentelemetry-sdk-1.54.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-4vWvfHlQqIxvTTUTVnSKVKqmJ9B4J+GCTmRFgU6w+Y4="
+    },
+    {
+      "mvn-path": "io/opentelemetry/opentelemetry-sdk/1.54.0/opentelemetry-sdk-1.54.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-py9ZaVr1TrEPygtbXLfGqIreNBe6CG7CCIHnkNULaGA="
+    },
+    {
+      "mvn-path": "io/opentelemetry/semconv/opentelemetry-semconv-incubating/1.37.0-alpha/opentelemetry-semconv-incubating-1.37.0-alpha.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-DOeFyrmyP9PWS6s8htfGBXIyXfhRhLdZ1gacqfMW/Ak="
+    },
+    {
+      "mvn-path": "io/opentelemetry/semconv/opentelemetry-semconv-incubating/1.37.0-alpha/opentelemetry-semconv-incubating-1.37.0-alpha.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-uEJ2Qj1DN6G0HfT1V+ZyDn+n3IOjWAl1XOwo7lKa4lE="
+    },
+    {
+      "mvn-path": "io/opentelemetry/semconv/opentelemetry-semconv/1.37.0/opentelemetry-semconv-1.37.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-aTrW8E8ptLWToEre9fV10os6keo0SatbHh4uXG78bNw="
+    },
+    {
+      "mvn-path": "io/opentelemetry/semconv/opentelemetry-semconv/1.37.0/opentelemetry-semconv-1.37.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-YJHUrhR7iYZgeJqzvjcFXDrvQCP3n2r61tAdWbPuNEc="
     },
     {
       "mvn-path": "io/projectreactor/reactor-core/3.7.0/reactor-core-3.7.0.jar",
@@ -2709,6 +2949,26 @@
       "mvn-path": "org/jboss/jboss-parent/36/jboss-parent-36.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-AA3WFimK69IanVcxh03wg9cphCS5HgN7c8vdB+vIPg4="
+    },
+    {
+      "mvn-path": "org/jetbrains/annotations/13.0/annotations-13.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-rOKhDcji1f00kl7KwD5JiLLA+FFlDJS4zvSbob0RFHg="
+    },
+    {
+      "mvn-path": "org/jetbrains/annotations/13.0/annotations-13.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-llrrK+3/NpgZvd4b96CzuJuCR91pyIuGN112Fju4w5c="
+    },
+    {
+      "mvn-path": "org/jetbrains/kotlin/kotlin-stdlib/2.2.0/kotlin-stdlib-2.2.0.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-ZdEthaO4ZcFg25FHhRcSpksQ2t1osi7qIqlb+KhnDco="
+    },
+    {
+      "mvn-path": "org/jetbrains/kotlin/kotlin-stdlib/2.2.0/kotlin-stdlib-2.2.0.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-jDyCEAfBNBFVhzm589U4LrgVUds4lc/7iVYeVsD03BY="
     },
     {
       "mvn-path": "org/junit/junit-bom/5.10.2/junit-bom-5.10.2.pom",
