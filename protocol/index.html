@@ -1829,23 +1829,24 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * Different types of content that can be received from the LLM</span>
 <span class="cm"> */</span>
 <span class="kr">type</span><span class="w"> </span><span class="nx">ChatContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">TextContent</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">URLContent</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ProgressContent</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">UsageContent</span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ReasonStartedContent</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ReasonTextContent</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ReasonFinishedContent</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ToolCallPrepareContent</span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ToolCallRunContent</span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ToolCallRunningContent</span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ToolCalledContent</span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ToolCallRejectedContent</span><span class="p">;</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatTextContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatURLContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatProgressContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatUsageContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonStartedContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonTextContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonFinishedContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCallPrepareContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCallRunContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCallRunningContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCalledContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCallRejectedContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatMetadataContent</span><span class="p">;</span>
 
 <span class="cm">/**</span>
 <span class="cm"> * Simple text message from the LLM</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">TextContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatTextContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;text&#39;</span><span class="p">;</span>
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The text content</span>
@@ -1857,7 +1858,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * Progress messages about the chat. </span>
 <span class="cm"> * Usually to mark what eca is doing/waiting or tell it finished processing messages.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ProgressContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatProgressContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;progress&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1875,7 +1876,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * A reason started from the LLM</span>
 <span class="cm"> *</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ReasonStartedContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatReasonStartedContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;reasonStarted&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1888,7 +1889,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * A reason text from the LLM</span>
 <span class="cm"> *</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ReasonTextContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatReasonTextContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;reasonText&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1906,7 +1907,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * A reason finished from the LLM</span>
 <span class="cm"> *</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ReasonFinishedContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatReasonFinishedContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;reasonFinished&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1923,7 +1924,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * URL content message from the LLM</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">URLContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatURLContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;url&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1940,7 +1941,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * Details about the chat&#39;s usage, like used tokens and costs.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">UsageContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatUsageContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;usage&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1978,7 +1979,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * This will be sent multiple times for same tool id for each time LLM outputs </span>
 <span class="cm"> * a part of the arg, so clients should append the arguments to UI.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ToolCallPrepareContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatToolCallPrepareContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;toolCallPrepare&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="nx">origin</span><span class="o">:</span><span class="w"> </span><span class="kt">ToolCallOrigin</span><span class="p">;</span>
@@ -2014,7 +2015,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * Tool call that LLM will run, sent once per id.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ToolCallRunContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatToolCallRunContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;toolCallRun&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="nx">origin</span><span class="o">:</span><span class="w"> </span><span class="kt">ToolCallOrigin</span><span class="p">;</span>
@@ -2055,7 +2056,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * Tool call that server is running to report to LLM later, sent once per id.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ToolCallRunningContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatToolCallRunningContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;toolCallRunning&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="nx">origin</span><span class="o">:</span><span class="w"> </span><span class="kt">ToolCallOrigin</span><span class="p">;</span>
@@ -2091,7 +2092,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * Tool call result that LLM trigerred and was executed already, sent once per id.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ToolCalledContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatToolCalledContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;toolCalled&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="nx">origin</span><span class="o">:</span><span class="w"> </span><span class="kt">ToolCallOrigin</span><span class="p">;</span>
@@ -2152,7 +2153,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * Tool call rejected, sent once per id.</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ToolCallRejectedContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatToolCallRejectedContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;toolCallRejected&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="nx">origin</span><span class="o">:</span><span class="w"> </span><span class="kt">ToolCallOrigin</span><span class="p">;</span>
@@ -2670,7 +2671,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 18, 2025 03:41:21 UTC">September 18, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 18, 2025 13:33:15 UTC">September 18, 2025</span>
   </span>
 
     
