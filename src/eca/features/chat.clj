@@ -146,6 +146,11 @@
    ;; TODO: In the future, when calls can be interrupted, more states and actions will be required.
    ;; Therefore, currently, there is no transition from :executing on a :stop-requested event.
 
+   ;; TODO: Trying first without a :stopping status
+   [:executing :stop-requested]
+   {:status :stopped                    ;TODO: Should this be :rejected ? No because that is also true of the next clause
+    :actions [:send-toolCallRejected]}
+
    [:execution-approved :stop-requested]
    {:status :stopped
     :actions [:send-toolCallRejected]}
@@ -756,10 +761,12 @@
                                        :text "\nPrompt stopped"})
 
       ;; Handle each active tool call
-      (doseq [[tool-call-id _] (get-active-tool-calls @db* chat-id)]
+      (doseq [[tool-call-id tool-call-state] (get-active-tool-calls @db* chat-id)]
         (transition-tool-call! db* chat-ctx tool-call-id :stop-requested
                                {:reason {:code :user-prompt-stop
-                                         :text "Tool call rejected because of user prompt stop"}}))
+                                         :text "Tool call rejected because of user prompt stop"}})
+        (when-let [f (:future tool-call-state)]
+          (future-cancel f)))
       (finish-chat-prompt! :stopping chat-ctx))))
 
 (defn delete-chat
