@@ -107,15 +107,15 @@
 
 (defn chat-tool-call-approve [{:keys [messenger db* metrics]} params]
   (metrics/task metrics :eca/chat-tool-call-approve
-    (f.chat/tool-call-approve params db* messenger)))
+    (f.chat/tool-call-approve params db* messenger metrics)))
 
 (defn chat-tool-call-reject [{:keys [messenger db* metrics]} params]
   (metrics/task metrics :eca/chat-tool-call-reject
-    (f.chat/tool-call-reject params db* messenger)))
+    (f.chat/tool-call-reject params db* messenger metrics)))
 
 (defn chat-prompt-stop [{:keys [db* messenger metrics]} params]
   (metrics/task metrics :eca/chat-prompt-stop
-    (f.chat/prompt-stop params db* messenger)))
+    (f.chat/prompt-stop params db* messenger metrics)))
 
 (defn chat-delete [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-delete
