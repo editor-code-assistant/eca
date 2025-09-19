@@ -90,6 +90,8 @@
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
         result)
+      (catch InterruptedException _
+        (logger/warn logger-tag "XXXXXXXXXXXXX Got an InterruptedException, and ignoring"))
       (catch Exception e
         (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" name (.getMessage e) (with-out-str (.printStackTrace e))))
         (metrics/count-up! "tool-called" {:name name :error true} metrics)
