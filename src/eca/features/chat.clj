@@ -769,6 +769,7 @@
                                {:reason {:code :user-prompt-stop
                                          :text "Tool call rejected because of user prompt stop"}})
         (when-let [f (:future tool-call-state)]
+          (logger/warn logger-tag "About to cancel the future" {:future f})
           (future-cancel f)))
       (finish-chat-prompt! :stopping chat-ctx))))
 
