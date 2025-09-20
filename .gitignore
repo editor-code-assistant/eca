@@ -16,6 +16,7 @@ target/
 .calva
 /*.jar
 eca.old
+.eca/
 .clojure-mcp/
 
 /.classpath
@@ -27,6 +28,7 @@ eca.old
 output.calva-repl
 
 result
+PROJECT_SUMMARY.md
 
 # emacs
 *~
