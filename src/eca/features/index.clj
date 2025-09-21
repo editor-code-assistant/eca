@@ -123,4 +123,6 @@
 (comment
   (require 'user)
   (user/with-workspace-root "file:///home/greg/dev/eca"
-    (println (repo-map user/*db* {:max-total-entries 1000 :max-entries-per-dir 200} {:as-string? true}))))
+    (println (repo-map user/*db*
+                       {:index {:repoMap {:maxTotalEntries 800 :maxEntriesPerDir 50}}}
+                       {:as-string? true}))))

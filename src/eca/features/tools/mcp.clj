@@ -9,9 +9,10 @@
   (:import
    [com.fasterxml.jackson.databind ObjectMapper]
    [io.modelcontextprotocol.client McpClient McpSyncClient]
-   [io.modelcontextprotocol.client.transport ServerParameters StdioClientTransport]
+   [io.modelcontextprotocol.client.transport HttpClientStreamableHttpTransport ServerParameters StdioClientTransport]
    [io.modelcontextprotocol.spec
     McpSchema$CallToolRequest
+    McpSchema$CallToolResult
     McpSchema$ClientCapabilities
     McpSchema$Content
     McpSchema$GetPromptRequest
@@ -28,7 +29,8 @@
     McpSchema$Tool
     McpTransport]
    [java.time Duration]
-   [java.util List Map]))
+   [java.util List Map]
+   [java.util.concurrent TimeoutException]))
 
 (set! *warn-on-reflection* true)
 
@@ -48,41 +50,51 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
-(defn ^:private ->transport ^McpTransport [{:keys [command args env]} workspaces]
-  (let [command ^String (replace-env-vars command)
-        b (ServerParameters/builder command)
-        b (if args
-            (.args b ^List (mapv replace-env-vars (or args [])))
-            b)
-        b (if env
-            (.env b (update-keys env name))
-            b)
-        pb-init-args []
-        ;; TODO we are hard coding the first workspace
-        work-dir (or (some-> workspaces
-                             first
-                             :uri
-                             shared/uri->filename)
-                     (config/get-property "user.home"))]
-    (proxy [StdioClientTransport] [(.build b)]
-      (getProcessBuilder [] (-> (ProcessBuilder. ^List pb-init-args)
-                                (.directory (io/file work-dir)))))))
+(defn ^:private ->transport ^McpTransport [server-config workspaces]
+  (if (:url server-config)
+    ;; HTTP Streamable transport
+    (let [url (replace-env-vars (:url server-config))]
+      (-> (HttpClientStreamableHttpTransport/builder url)
+          (.build)))
 
-(defn ^:private ->client ^McpSyncClient [transport config workspaces]
+    ;; STDIO transport
+    (let [{:keys [command args env]} server-config
+          command ^String (replace-env-vars command)
+          b (ServerParameters/builder command)
+          b (if args
+              (.args b ^List (mapv replace-env-vars (or args [])))
+              b)
+          b (if env
+              (.env b (update-keys env name))
+              b)
+          pb-init-args []
+          ;; TODO we are hard coding the first workspace
+          work-dir (or (some-> workspaces
+                               first
+                               :uri
+                               shared/uri->filename)
+                       (config/get-property "user.home"))]
+      (proxy [StdioClientTransport] [(.build b)]
+        (getProcessBuilder [] (-> (ProcessBuilder. ^List pb-init-args)
+                                  (.directory (io/file work-dir))))))))
+
+(defn ^:private ->client ^McpSyncClient [name transport init-timeout workspaces]
   (-> (McpClient/sync transport)
-      (.requestTimeout (Duration/ofSeconds (:mcpTimeoutSeconds config)))
+      (.requestTimeout (Duration/ofHours 10)) ;; required any value for initializationTimeout work
+      (.initializationTimeout (Duration/ofSeconds init-timeout))
       (.capabilities (-> (McpSchema$ClientCapabilities/builder)
                          (.roots true)
                          (.build)))
       (.roots ^List (mapv #(McpSchema$Root. (:uri %) (:name %)) workspaces))
       (.loggingConsumer (fn [^McpSchema$LoggingMessageNotification notification]
-                          (logger/info logger-tag (.data notification))))
+                          (logger/info logger-tag (str "[MCP-" name "]") (.data notification))))
       (.build)))
 
 (defn ^:private ->server [mcp-name server-config status db]
   {:name (name mcp-name)
    :command (:command server-config)
    :args (:args server-config)
+   :url (:url server-config)
    :tools (get-in db [:mcp-clients mcp-name :tools])
    :prompts (get-in db [:mcp-clients mcp-name :prompts])
    :resources (get-in db [:mcp-clients mcp-name :resources])
@@ -115,7 +127,7 @@
                :parameters (json/parse-string (.writeValueAsString obj-mapper (.inputSchema tool-client)) true)})
             (.tools (.listTools client))))
     (catch Exception e
-      (logger/debug logger-tag "Could not list tools:" (.getMessage e))
+      (logger/warn logger-tag "Could not list tools:" (.getMessage e))
       [])))
 
 (defn ^:private list-server-prompts [^McpSyncClient client]
@@ -131,7 +143,7 @@
                                 (.arguments prompt-client))})
             (.prompts (.listPrompts client))))
     (catch Exception e
-      (logger/debug logger-tag "Could not list prompts:" (.getMessage e))
+      (logger/warn logger-tag "Could not list prompts:" (.getMessage e))
       [])))
 
 (defn ^:private list-server-resources [^McpSyncClient client]
@@ -144,30 +156,35 @@
                :mime-type (.mimeType resource-client)})
             (.resources (.listResources client))))
     (catch Exception e
-      (logger/debug logger-tag "Could not list resources:" (.getMessage e))
+      (logger/warn logger-tag "Could not list resources:" (.getMessage e))
       [])))
 
 (defn ^:private initialize-server! [name db* config on-server-updated]
   (let [db @db*
         workspaces (:workspace-folders @db*)
         server-config (get-in config [:mcpServers name])
-        obj-mapper (ObjectMapper.)]
+        obj-mapper (ObjectMapper.)
+        init-timeout (:mcpTimeoutSeconds config)
+        transport (->transport server-config workspaces)
+        client (->client name transport init-timeout workspaces)]
+    (on-server-updated (->server name server-config :starting db))
+    (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
     (try
-      (let [transport (->transport server-config workspaces)
-            client (->client transport config workspaces)]
-        (on-server-updated (->server name server-config :starting db))
-        (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
-        (.initialize client)
-        (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
-        (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
-        (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
-        (swap! db* assoc-in [:mcp-clients name :status] :running)
-        (on-server-updated (->server name server-config :running @db*)))
+      (.initialize client)
+      (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
+      (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
+      (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
+      (swap! db* assoc-in [:mcp-clients name :status] :running)
+      (on-server-updated (->server name server-config :running @db*))
       (logger/info logger-tag (format "Started MCP server %s" name))
       (catch Exception e
-        (logger/error logger-tag (format "Could not initialize MCP server %s." name) e)
+        (let [cause-message (if (instance? TimeoutException (.getCause e))
+                              (format "Timeout of %s secs waiting for server start" init-timeout)
+                              (.getMessage (.getCause e)))]
+          (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message)))
         (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed db))))))
+        (on-server-updated (->server name server-config :failed db))
+        (.close client)))))
 
 (defn initialize-servers-async! [{:keys [on-server-updated]} db* config]
   (let [db @db*]
@@ -208,8 +225,10 @@
                                 (when (some #(= name (:name %)) tools)
                                   client)))
                         first)
-        result (.callTool ^McpSyncClient mcp-client
-                          (McpSchema$CallToolRequest. name arguments))]
+        ;; Synchronize on the client to prevent concurrent tool calls to the same MCP server
+        ^McpSchema$CallToolResult result (locking mcp-client
+                                           (.callTool ^McpSyncClient mcp-client
+                                                      (McpSchema$CallToolRequest. name arguments)))]
     {:error (.isError result)
      :contents (mapv ->content (.content result))}))
 

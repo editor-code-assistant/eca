@@ -6,6 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools.filesystem :as f.tools.filesystem]
    [eca.features.tools.util :as tools.util]
+   [eca.shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]])
   (:import
@@ -38,9 +39,10 @@
     (is (match?
          {:error false
           :contents [{:type :text
-                      :text (str "├── qux\n"
-                                 "└── some.clj\n\n"
-                                 "1 directories, 1 files")}]}
+                      :text (multi-str "/foo/bar/baz"
+                                       " qux"
+                                       ""
+                                       "1 directories, 0 files")}]}
          (with-redefs [fs/exists? (constantly true)
                        fs/starts-with? (constantly true)
                        fs/list-dir (fn [path]
@@ -110,7 +112,7 @@
     (is (match?
          {:error false
           :contents [{:type :text
-                      :text "line1\nline2"}]}
+                      :text "line1\nline2\n\n[CONTENT TRUNCATED] Showing lines 1 to 2 of 5 total lines. Use line_offset=2 parameter to read more content."}]}
          (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
                        fs/exists? (constantly true)
                        fs/readable? (constantly true)
@@ -122,7 +124,7 @@
     (is (match?
          {:error false
           :contents [{:type :text
-                      :text "line3\nline4"}]}
+                      :text "line3\nline4\n\n[CONTENT TRUNCATED] Showing lines 3 to 4 of 5 total lines. Use line_offset=4 parameter to read more content."}]}
          (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
                        fs/exists? (constantly true)
                        fs/readable? (constantly true)
@@ -296,7 +298,7 @@
       (is (match?
            {(h/file-path "/project/foo/my-file.txt") "Z bar Z baz Z"}
            @file-content*))))
-  
+
   (testing "Match with CRLF line endings (normalization)"
     (let [file-content* (atom {})
           file-content "line1\nline2\nline3"
@@ -318,7 +320,7 @@
       (is (match?
            {(h/file-path "/project/foo/my-file.txt") "REPLACED"}
            @file-content*))))
-  
+
   (testing "Match with trailing whitespace (normalization)"
     (let [file-content* (atom {})
           file-content "line1\nline2\nline3"
@@ -378,76 +380,76 @@
              "destination" (h/file-path "/foo/bar/other_file.clj")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}})))))
 
-(deftest preview-file-change-test
-  (testing "Preview does not modify files"
-    (let [spit-called* (atom false)
-          original-file-content "line1\nline2\nline3"]
-      (is (match?
-           {:error false
-            :contents [{:type :text
-                        :text (format "Change simulation completed for %s. Original file unchanged - preview only." (h/file-path "/foo/bar/my-file.txt"))}]}
-           (with-redefs [fs/exists? (constantly true)
-                         fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
-                         slurp (constantly original-file-content)
-                         spit (fn [& _] (reset! spit-called* true))]
-             ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
-              {"path" (h/file-path "/foo/bar/my-file.txt")
-               "original_content" "line2"
-               "new_content" "modified line2"}
-              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+  (deftest preview-file-change-test
+    (testing "Preview does not modify files"
+      (let [spit-called* (atom false)
+            original-file-content "line1\nline2\nline3"]
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text (format "Change simulation completed for %s. Original file unchanged - preview only." (h/file-path "/foo/bar/my-file.txt"))}]}
+             (with-redefs [fs/exists? (constantly true)
+                           fs/readable? (constantly true)
+                           f.tools.filesystem/allowed-path? (constantly true)
+                           slurp (constantly original-file-content)
+                           spit (fn [& _] (reset! spit-called* true))]
+               ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
+                {"path" (h/file-path "/foo/bar/my-file.txt")
+                 "original_content" "line2"
+                 "new_content" "modified line2"}
+                {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
       ;; Verify that spit was never called (no file modification)
-      (is (false? @spit-called*))))
-  
-  (testing "Preview handles content not found"
-    (let [spit-called* (atom false)]
-      (is (match?
-           {:error true
-            :contents [{:type :text
-                        :text (format "Original content not found in %s" (h/file-path "/foo/bar/my-file.txt"))}]}
-           (with-redefs [fs/exists? (constantly true)
-                         fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
-                         slurp (constantly "line1\nline2\nline3")
-                         spit (fn [& _] (reset! spit-called* true))]
-             ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
-              {"path" (h/file-path "/foo/bar/my-file.txt")
-               "original_content" "notfound"
-               "new_content" "new"}
-              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+        (is (false? @spit-called*))))
+
+    (testing "Preview handles content not found"
+      (let [spit-called* (atom false)]
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text (format "Original content not found in %s" (h/file-path "/foo/bar/my-file.txt"))}]}
+             (with-redefs [fs/exists? (constantly true)
+                           fs/readable? (constantly true)
+                           f.tools.filesystem/allowed-path? (constantly true)
+                           slurp (constantly "line1\nline2\nline3")
+                           spit (fn [& _] (reset! spit-called* true))]
+               ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
+                {"path" (h/file-path "/foo/bar/my-file.txt")
+                 "original_content" "notfound"
+                 "new_content" "new"}
+                {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
       ;; Verify that spit was never called even for error case
-      (is (false? @spit-called*))))
-  
-  (testing "Preview succeeds for new file creation (empty original content)"
-    (let [spit-called* (atom false)]
-      (is (match?
-           {:error false
-            :contents [{:type :text
-                        :text (format "New file creation simulation completed for %s. File will be created - preview only." (h/file-path "/foo/bar/new-file.txt"))}]}
-           (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
-                         f.tools.filesystem/allowed-path? (constantly true)
-                         spit (fn [& _] (reset! spit-called* true))]
-             ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
-              {"path" (h/file-path "/foo/bar/new-file.txt")
-               "original_content" ""  ; Empty for new file
-               "new_content" "New file content"}
-              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+        (is (false? @spit-called*))))
+
+    (testing "Preview succeeds for new file creation (empty original content)"
+      (let [spit-called* (atom false)]
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text (format "New file creation simulation completed for %s. File will be created - preview only." (h/file-path "/foo/bar/new-file.txt"))}]}
+             (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
+                           f.tools.filesystem/allowed-path? (constantly true)
+                           spit (fn [& _] (reset! spit-called* true))]
+               ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
+                {"path" (h/file-path "/foo/bar/new-file.txt")
+                 "original_content" ""  ; Empty for new file
+                 "new_content" "New file content"}
+                {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
       ;; Verify that spit was never called (no file modification)
-      (is (false? @spit-called*))))
-  
-  (testing "Preview fails when trying to find content in non-existent file"
-    (let [spit-called* (atom false)]
-      (is (match?
-           {:error true
-            :contents [{:type :text
-                        :text (format "Preview error for %s: For new files, original_content must be empty string (\"\"). Use markdown blocks during exploration, then eca_preview_file_change for final implementation only." (h/file-path "/foo/bar/missing-file.txt"))}]}
-           (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
-                         f.tools.filesystem/allowed-path? (constantly true)
-                         spit (fn [& _] (reset! spit-called* true))]
-             ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
-              {"path" (h/file-path "/foo/bar/missing-file.txt")
-               "original_content" "some content"  ; Non-empty for non-existent file
-               "new_content" "replacement content"}
-              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+        (is (false? @spit-called*))))
+
+    (testing "Preview fails when trying to find content in non-existent file"
+      (let [spit-called* (atom false)]
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text (format "Preview error for %s: For new files, original_content must be empty string (\"\"). Use markdown blocks during exploration, then eca_preview_file_change for final implementation only." (h/file-path "/foo/bar/missing-file.txt"))}]}
+             (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
+                           f.tools.filesystem/allowed-path? (constantly true)
+                           spit (fn [& _] (reset! spit-called* true))]
+               ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
+                {"path" (h/file-path "/foo/bar/missing-file.txt")
+                 "original_content" "some content"  ; Non-empty for non-existent file
+                 "new_content" "replacement content"}
+                {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
       ;; Verify that spit was never called
-      (is (false? @spit-called*))))))
+        (is (false? @spit-called*))))))

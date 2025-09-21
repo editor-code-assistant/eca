@@ -6,11 +6,13 @@
    [eca.handlers :as handlers]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.metrics :as metrics]
    [eca.nrepl :as nrepl]
+   [eca.opentelemetry :as opentelemetry]
    [eca.shared :as shared :refer [assoc-some]]
-   [lsp4clj.io-server :as io-server]
-   [lsp4clj.liveness-probe :as liveness-probe]
-   [lsp4clj.server :as lsp.server]))
+   [jsonrpc4clj.io-server :as io-server]
+   [jsonrpc4clj.liveness-probe :as liveness-probe]
+   [jsonrpc4clj.server :as jsonrpc.server]))
 
 (set! *warn-on-reflection* true)
 
@@ -19,60 +21,60 @@
   (apply logger/info args))
 
 (defn ^:private exit [server]
-  (logger/logging-task
-   :eca/exit
-   (lsp.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
-   (shutdown-agents)
-   (System/exit 0)))
+  (metrics/task
+    :eca/exit
+    (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
+    (shutdown-agents)
+    (System/exit 0)))
 
 (defn ^:private with-config [components]
   (assoc components :config (config/all @(:db* components))))
 
-(defmethod lsp.server/receive-request "initialize" [_ {:keys [server] :as components} params]
+(defmethod jsonrpc.server/receive-request "initialize" [_ {:keys [server] :as components} params]
   (when-let [parent-process-id (:process-id params)]
     (liveness-probe/start! parent-process-id log-wrapper-fn #(exit server)))
   (handlers/initialize components params))
 
-(defmethod lsp.server/receive-notification "initialized" [_ components _params]
+(defmethod jsonrpc.server/receive-notification "initialized" [_ components _params]
   (handlers/initialized (with-config components)))
 
-(defmethod lsp.server/receive-request "shutdown" [_ components _params]
+(defmethod jsonrpc.server/receive-request "shutdown" [_ components _params]
   (handlers/shutdown (with-config components)))
 
-(defmethod lsp.server/receive-notification "exit" [_ {:keys [server]} _params]
+(defmethod jsonrpc.server/receive-notification "exit" [_ {:keys [server]} _params]
   (exit server))
 
-(defmethod lsp.server/receive-request "chat/prompt" [_ components params]
+(defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
   (handlers/chat-prompt (with-config components) params))
 
-(defmethod lsp.server/receive-request "chat/queryContext" [_ components params]
+(defmethod jsonrpc.server/receive-request "chat/queryContext" [_ components params]
   (handlers/chat-query-context (with-config components) params))
 
-(defmethod lsp.server/receive-request "chat/queryCommands" [_ components params]
+(defmethod jsonrpc.server/receive-request "chat/queryCommands" [_ components params]
   (handlers/chat-query-commands (with-config components) params))
 
-(defmethod lsp.server/receive-notification "chat/toolCallApprove" [_ components params]
+(defmethod jsonrpc.server/receive-notification "chat/toolCallApprove" [_ components params]
   (handlers/chat-tool-call-approve (with-config components) params))
 
-(defmethod lsp.server/receive-notification "chat/toolCallReject" [_ components params]
+(defmethod jsonrpc.server/receive-notification "chat/toolCallReject" [_ components params]
   (handlers/chat-tool-call-reject (with-config components) params))
 
-(defmethod lsp.server/receive-notification "chat/promptStop" [_ components params]
+(defmethod jsonrpc.server/receive-notification "chat/promptStop" [_ components params]
   (handlers/chat-prompt-stop (with-config components) params))
 
-(defmethod lsp.server/receive-request "chat/delete" [_ components params]
+(defmethod jsonrpc.server/receive-request "chat/delete" [_ components params]
   (handlers/chat-delete (with-config components) params))
 
-(defmethod lsp.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
-  (handlers/chat-selected-behavior-changed (with-config components) params))
-
-(defmethod lsp.server/receive-notification "mcp/stopServer" [_ components params]
+(defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
   (handlers/mcp-stop-server (with-config components) params))
 
-(defmethod lsp.server/receive-notification "mcp/startServer" [_ components params]
+(defmethod jsonrpc.server/receive-notification "mcp/startServer" [_ components params]
   (handlers/mcp-start-server (with-config components) params))
 
-(defmethod lsp.server/receive-request "completion/inline" [_ components params]
+(defmethod jsonrpc.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
+  (handlers/chat-selected-behavior-changed (with-config components) params))
+
+(defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
   (handlers/completion-inline (with-config components) params))
 
 (defn ^:private monitor-server-logs [log-ch]
@@ -102,33 +104,41 @@
   messenger/IMessenger
 
   (chat-content-received [_this content]
-    (lsp.server/discarding-stdout
-     (lsp.server/send-notification server "chat/contentReceived" content)))
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/contentReceived" content)))
   (config-updated [_this params]
-    (lsp.server/discarding-stdout
-     (lsp.server/send-notification server "config/updated" params)))
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "config/updated" params)))
   (tool-server-updated [_this params]
-    (lsp.server/discarding-stdout
-     (lsp.server/send-notification server "tool/serverUpdated" params)))
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "tool/serverUpdated" params)))
   (showMessage [_this msg]
-    (lsp.server/discarding-stdout
-     (lsp.server/send-notification server "$/showMessage" msg)))
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "$/showMessage" msg)))
   (editor-diagnostics [_this uri]
-    (lsp.server/discarding-stdout
-     (lsp.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri)))))
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri)))))
+
+(defn ^:private ->Metrics [db*]
+  (if-let [otlp-config (:otlp (config/all @db*))]
+    (opentelemetry/->OtelMetrics otlp-config)
+    (metrics/->NoopMetrics)))
 
 (defn start-server! [server]
   (let [db* (atom db/initial-db)
+        metrics (->Metrics db*)
         components {:db* db*
                     :messenger (->ServerMessenger server db*)
+                    :metrics metrics
                     :server server}]
     (logger/info "[server]" "Starting server...")
+    (metrics/start! metrics)
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)
-    (lsp.server/start server components)))
+    (jsonrpc.server/start server components)))
 
 (defn run-io-server! [verbose?]
-  (lsp.server/discarding-stdout
+  (jsonrpc.server/discarding-stdout
    (let [log-ch (async/chan (async/sliding-buffer 20))
          server (io-server/stdio-server {:log-ch log-ch
                                          :trace-ch log-ch

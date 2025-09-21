@@ -61,7 +61,7 @@
 
 (defn renew-auth!
   [provider
-   {:keys [db* messenger config]}
+   {:keys [db* messenger config metrics]}
    {:keys [on-error]}]
   (try
     (login-step
@@ -70,14 +70,15 @@
       :config config
       :step :login/renew-token
       :db* db*})
-    (db/update-global-cache! @db*)
+    (db/update-global-cache! @db* metrics)
     (catch Exception e
       (on-error (.getMessage e)))))
 
-(defn login-done! [{:keys [chat-id db* messenger provider send-msg!]} & {:keys [silent?]
-                                                                         :or {silent? false}}]
+(defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}
+                   & {:keys [silent?]
+                      :or {silent? false}}]
   (when (get-in @db* [:auth provider])
-    (db/update-global-cache! @db*))
+    (db/update-global-cache! @db* metrics))
   (models/sync-models! db*
                        (config/all @db*) ;; force get updated config
                        (fn [new-models]

@@ -14,7 +14,7 @@
    [clojure.string :as string]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :as shared])
+   [eca.shared :as shared :refer [multi-str]])
   (:import
    [java.io File]))
 
@@ -77,17 +77,30 @@
    :commands []
    :disabledTools []
    :toolCall {:approval {:byDefault "ask"
-                         :allow {"eca_preview_file_change" {}
+                         :allow {"eca_compact_chat" {}
+                                 "eca_preview_file_change" {}
                                  "eca_read_file" {}
                                  "eca_directory_tree" {}
                                  "eca_grep" {}
                                  "eca_editor_diagnostics" {}}
                          :ask {}
-                         :deny {}}}
+                         :deny {}}
+              :readFile {:maxLines 2000}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}
-   :welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"
+   :welcomeMessage (multi-str "# Welcome to ECA!"
+                              ""
+                              "Complete `/` for all commands"
+                              ""
+                              "- `/login` to authenticate with providers"
+                              "- `/init` to create/update AGENTS.md"
+                              "- `/doctor` or `/config` to troubleshoot"
+                              ""
+                              "Add more contexts in `@`"
+                              ""
+                              "")
+   :compactPromptFile "prompts/compact.md"
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}})
@@ -236,7 +249,8 @@
     [:behavior :ANY :toolCall :approval :ask]
     [:behavior :ANY :toolCall :approval :ask :ANY :argsMatchers]
     [:behavior :ANY :toolCall :approval :deny]
-    [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]]})
+    [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
+    [:otlp]]})
 
 (defn all [db]
   (let [initialization-config @initialization-config*

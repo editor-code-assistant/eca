@@ -36,7 +36,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ──└─ `util.clj`          | misc helpers shared by tools.
    `src/eca/messenger.clj`  | To send back to client requests/notifications over stdio.
    `src/eca/handlers.clj`   | Entrypoint for all features.
-   `src/eca/server.clj`     | stdio **entry point**; wires everything together via `lsp4clj`.
+   `src/eca/server.clj`     | stdio **entry point**; wires everything together via `jsonrpc4clj`.
    `src/eca/main.clj`       | The CLI interface.
    `src/eca/nrepl.clj`      | Starts an nREPL when `:debug` flag is passed.
 

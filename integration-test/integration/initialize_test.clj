@@ -1,5 +1,6 @@
 (ns integration.initialize-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
@@ -32,7 +33,7 @@
             :chatDefaultModel "anthropic/claude-sonnet-4-20250514"
             :chatBehaviors ["agent" "plan"]
             :chatDefaultBehavior "plan"
-            :chatWelcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
+            :chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
                                                          {:chat {:defaultBehavior "plan"}})})))))
@@ -46,7 +47,7 @@
                    :selectModel "anthropic/claude-sonnet-4-20250514"
                    :behaviors ["agent" "plan"]
                    :selectBehavior "plan"
-                   :welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}}
+                   :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated)))))
 
   (testing "Native tools updated"
@@ -90,7 +91,7 @@
             :chatDefaultModel "my-custom/bar-2"
             :chatBehaviors ["agent" "plan"]
             :chatDefaultBehavior "agent"
-            :chatWelcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}
+            :chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
                                                          {:defaultModel "my-custom/bar-2"
@@ -110,5 +111,5 @@
                    :selectModel "my-custom/bar-2"
                    :behaviors ["agent" "plan"]
                    :selectBehavior "agent"
-                   :welcomeMessage "Welcome to ECA!\n\nType '/' for commands\n\n"}}
+                   :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated))))))

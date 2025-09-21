@@ -59,6 +59,7 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}

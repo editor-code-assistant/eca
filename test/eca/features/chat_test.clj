@@ -17,7 +17,7 @@
         (with-redefs [llm-api/complete! (:api-mock mocks)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/approval (constantly :allow)]
-          (f.chat/prompt params (h/db*) (h/messenger) (h/config)))]
+          (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
 
@@ -230,7 +230,7 @@
                     f.prompt/get-prompt! (fn [_ args-map _]
                                            (reset! prompt-args args-map)
                                            {:messages [{:role :user :content "test"}]})
-                    f.chat/prompt-messages! (fn [messages _ ctx] (reset! invoked? [messages ctx]))]
+                    f.chat/prompt-messages! (fn [messages ctx] (reset! invoked? [messages ctx]))]
         (#'f.chat/send-mcp-prompt! {:prompt "awesome-prompt" :args [42 "yo"]} test-chat-ctx)
         (is (match?
              @prompt-args

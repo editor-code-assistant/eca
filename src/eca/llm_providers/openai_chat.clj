@@ -16,12 +16,35 @@
 (defn ^:private extract-content
   "Extract text content from various message content formats.
    Handles: strings (legacy eca), nested arrays from chat.clj, and fallback."
-  [content]
+  [content supports-image?]
   (cond
     ;; Legacy/fallback: handles system messages, error strings, or unexpected simple text content
-    (string? content) (string/trim content)
-    (sequential? content) (->> content (map :text) (remove nil?) (string/join "\n"))
-    :else (str content)))
+    (string? content)
+    [{:type "text"
+      :text (string/trim content)}]
+
+    (sequential? content)
+    (vec
+     (keep
+      #(case (name (:type %))
+
+         "text"
+         {:type "text"
+          :text (:text %)}
+
+         "image"
+         (when supports-image?
+           {:type "image_url"
+            :image_url {:url (format "data:%s;base64,%s"
+                                     (:media-type %)
+                                     (:base64 %))}})
+
+         %)
+      content))
+
+    :else
+    [{:type "text"
+      :text (str content)}]))
 
 (defn ^:private ->tools [tools]
   (mapv (fn [tool]
@@ -59,7 +82,7 @@
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles."
-  [{:keys [role content] :as _msg}]
+  [{:keys [role content] :as _msg} supports-image?]
   (case role
     "tool_call"        {:type :tool-call  ; Special marker for accumulation
                         :data {:id (:id content)
@@ -70,11 +93,11 @@
                         :tool_call_id (:id content)
                         :content (llm-util/stringfy-tool-result content)}
     "user"             {:role "user"
-                        :content (extract-content content)}
+                        :content (extract-content content supports-image?)}
     "assistant"        {:role "assistant"
-                        :content (extract-content content)}
+                        :content (extract-content content supports-image?)}
     "system"           {:role "system"
-                        :content (extract-content content)}
+                        :content (extract-content content supports-image?)}
     nil))
 
 (defn ^:private accumulate-tool-calls
@@ -104,10 +127,11 @@
   "Check if a message should be included in the final output."
   [{:keys [role content tool_calls] :as msg}]
   (and msg
-       (or (= role "tool")           ; Never filter tool messages
+       (or (= role "tool")           ; Never remove tool messages
            (seq tool_calls)          ; Keep messages with tool calls
-           (and content              ; Keep messages with non-blank content
-                (not (string/blank? content))))))
+           (and (string? content)
+                (not (string/blank? content)))
+           (sequential? content))))
 
 (defn ^:private normalize-messages
   "Converts ECA message format to OpenAI API format (also used by compatible providers).
@@ -122,21 +146,22 @@
    'assistant' role message, not as separate messages. This function ensures compliance
    with that requirement by accumulating tool calls and flushing them into assistant
    messages when a non-tool_call message is encountered."
-  [past-messages]
-  (->> past-messages
-       (map transform-message)
+  [messages supports-image?]
+  (->> messages
+       (map #(transform-message % supports-image?))
        (remove nil?)
        accumulate-tool-calls
        (filter valid-message?)))
 
 (defn ^:private execute-accumulated-tools!
-  [{:keys [tool-calls-atom instructions extra-headers body api-url api-key on-tools-called on-error handle-response]}]
+  [{:keys [tool-calls-atom instructions extra-headers body api-url api-key
+           on-tools-called on-error handle-response supports-image?]}]
   (let [all-accumulated (vals @tool-calls-atom)
         completed-tools (->> all-accumulated
                              (filter #(every? % [:id :name :arguments-text]))
                              (map (fn [{:keys [arguments-text name] :as tool-call}]
                                     (try
-                                      (assoc tool-call :arguments (json/parse-string arguments-text true))
+                                      (assoc tool-call :arguments (json/parse-string arguments-text))
                                       (catch Exception e
                                         (let [error-msg (format "Failed to parse JSON arguments for tool '%s': %s"
                                                                 name (ex-message e))]
@@ -149,7 +174,7 @@
       (let [{:keys [new-messages]} (on-tools-called valid-tools)
             new-messages-list (vec (concat
                                     (when instructions [{:role "system" :content instructions}])
-                                    (normalize-messages new-messages)))]
+                                    (normalize-messages new-messages supports-image?)))]
         (reset! tool-calls-atom {})
         (let [new-rid (llm-util/gen-rid)]
           (base-request!
@@ -170,14 +195,13 @@
    and message normalization. Supports both single and parallel tool execution.
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url max-output-tokens
-           past-messages tools extra-payload extra-headers]
+           past-messages tools extra-payload extra-headers supports-image?]
     :or {temperature 1.0}}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason]}]
-
   (let [messages (vec (concat
                        (when instructions [{:role "system" :content instructions}])
-                       (normalize-messages past-messages)
-                       (normalize-messages user-messages)))
+                       (normalize-messages past-messages supports-image?)
+                       (normalize-messages user-messages supports-image?)))
 
         body (merge {:model               model
                      :messages            messages
@@ -204,6 +228,7 @@
                             (execute-accumulated-tools!
                              {:tool-calls-atom tool-calls-atom
                               :instructions    instructions
+                              :supports-image? supports-image?
                               :extra-headers   extra-headers
                               :body            body
                               :api-url         api-url

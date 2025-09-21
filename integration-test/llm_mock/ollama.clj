@@ -1,6 +1,7 @@
 (ns llm-mock.ollama
   (:require
    [cheshire.core :as json]
+   [clojure.string :as string]
    [integration.helper :as h]
    [llm-mock.mocks :as llm.mocks]
    [org.httpkit.server :as hk]))
@@ -62,24 +63,36 @@
         (sse-send! ch {:done_reason "stop"})
         (hk/close ch)))))
 
+(defn ^:private chat-title-text-0 [ch]
+  (sse-send! ch {:message {:thinking "Some Cool"}})
+  (sse-send! ch {:message {:thinking " Title"}})
+  (sse-send! ch {:done_reason "stop"})
+  (hk/close ch))
+
 (defn handle-ollama-chat [req]
-  (llm.mocks/set-last-req-body! (some-> (slurp (:body req))
-                                        (json/parse-string true)))
-  (hk/as-channel
-   req
-   {:on-open (fn [ch]
-               (hk/send! ch {:status 200
-                             :headers {"Content-Type" "text/event-stream; charset=utf-8"
-                                       "Cache-Control" "no-cache"
-                                       "Connection" "keep-alive"}}
-                         false)
-               (case llm.mocks/*case*
-                 :simple-text-0 (simple-text-0 ch)
-                 :simple-text-1 (simple-text-1 ch)
-                 :simple-text-2 (simple-text-2 ch)
-                 :reasoning-0 (reasoning-0 ch)
-                 :reasoning-1 (reasoning-1 ch)
-                 :tool-calling-0 (tool-calling-0 ch)))}))
+  (let [body-str (slurp (:body req))
+        body (some-> body-str
+                     (json/parse-string true))]
+    (llm.mocks/set-last-req-body! body)
+    (hk/as-channel
+     req
+     {:on-open (fn [ch]
+                 (hk/send! ch {:status 200
+                               :headers {"Content-Type" "text/event-stream; charset=utf-8"
+                                         "Cache-Control" "no-cache"
+                                         "Connection" "keep-alive"}}
+                           false)
+                 (if (string/includes? (:content (first (:messages body))) llm.mocks/chat-title-generator-str)
+                   (do
+                     (Thread/sleep 2000) ;; avoid tests failing with mismatch order of contents
+                     (chat-title-text-0 ch))
+                   (case llm.mocks/*case*
+                     :simple-text-0 (simple-text-0 ch)
+                     :simple-text-1 (simple-text-1 ch)
+                     :simple-text-2 (simple-text-2 ch)
+                     :reasoning-0 (reasoning-0 ch)
+                     :reasoning-1 (reasoning-1 ch)
+                     :tool-calling-0 (tool-calling-0 ch))))})))
 
 (defn handle-ollama-tags [_req]
   {:status 200

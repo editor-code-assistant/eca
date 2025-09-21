@@ -6,6 +6,7 @@
    [cognitect.transit :as transit]
    [eca.config :as config :refer [get-env get-property]]
    [eca.logger :as logger]
+   [eca.metrics :as metrics]
    [eca.shared :as shared])
   (:import
    [java.io OutputStream]))
@@ -14,7 +15,7 @@
 
 (def ^:private logger-tag "[DB]")
 
-(def version 3)
+(def version 4)
 
 (defonce initial-db
   {:client-info {}
@@ -74,10 +75,9 @@
 (defn ^:private transit-global-db-file []
   (io/file (global-cache-dir) "db.transit.json"))
 
-(defn ^:private read-cache [cache-file]
+(defn ^:private read-cache [cache-file metrics]
   (try
-    (logger/logging-task
-     :db/read-cache
+    (metrics/task metrics :db/read-cache
      (if (fs/exists? cache-file)
        (let [cache (with-open [is (io/input-stream cache-file)]
                      (transit/read (transit/reader is :json)))]
@@ -87,10 +87,9 @@
     (catch Throwable e
       (logger/error logger-tag "Could not load global cache from DB" e))))
 
-(defn ^:private upsert-cache! [cache cache-file]
+(defn ^:private upsert-cache! [cache cache-file metrics]
   (try
-    (logger/logging-task
-     :db/upsert-cache
+    (metrics/task metrics :db/upsert-cache
      (io/make-parents cache-file)
       ;; https://github.com/cognitect/transit-clj/issues/43
      (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream cache-file))]
@@ -99,22 +98,22 @@
     (catch Throwable e
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
-(defn ^:private read-global-cache []
-  (let [cache (read-cache (transit-global-db-file))]
+(defn ^:private read-global-cache [metrics]
+  (let [cache (read-cache (transit-global-db-file) metrics)]
     (when (= version (:version cache))
       cache)))
 
-(defn ^:private read-global-by-workspaces-cache [workspaces]
-  (let [cache (read-cache (transit-global-by-workspaces-db-file workspaces))]
+(defn ^:private read-global-by-workspaces-cache [workspaces metrics]
+  (let [cache (read-cache (transit-global-by-workspaces-db-file workspaces) metrics)]
     (when (= version (:version cache))
       cache)))
 
-(defn load-db-from-cache! [db* config]
+(defn load-db-from-cache! [db* config metrics]
   (when-not (:pureConfig config)
-    (when-let [global-cache (read-global-cache)]
+    (when-let [global-cache (read-global-cache metrics)]
       (logger/info logger-tag "Loading from global-cache caches...")
       (swap! db* shared/deep-merge global-cache))
-    (when-let [global-by-workspace-cache (read-global-by-workspaces-cache (:workspace-folders @db*))]
+    (when-let [global-by-workspace-cache (read-global-by-workspaces-cache (:workspace-folders @db*) metrics)]
       (logger/info logger-tag "Loading from workspace-cache caches...")
       (swap! db* shared/deep-merge global-by-workspace-cache))))
 
@@ -129,12 +128,12 @@
 (defn ^:private normalize-db-for-global-write [db]
   (select-keys db [:auth]))
 
-(defn update-workspaces-cache! [db]
+(defn update-workspaces-cache! [db metrics]
   (-> (normalize-db-for-workspace-write db)
       (assoc :version version)
-      (upsert-cache! (transit-global-by-workspaces-db-file (:workspace-folders db)))))
+      (upsert-cache! (transit-global-by-workspaces-db-file (:workspace-folders db)) metrics)))
 
-(defn update-global-cache! [db]
+(defn update-global-cache! [db metrics]
   (-> (normalize-db-for-global-write db)
       (assoc :version version)
-      (upsert-cache! (transit-global-db-file))))
+      (upsert-cache! (transit-global-db-file) metrics)))

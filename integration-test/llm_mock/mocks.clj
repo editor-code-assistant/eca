@@ -9,3 +9,5 @@
 
 (defn set-last-req-body! [body]
   (alter-var-root #'*last-req-body* (constantly body)))
+
+(def chat-title-generator-str "Title generator")

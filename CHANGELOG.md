@@ -2,6 +2,101 @@
 
 ## Unreleased
 
+## 0.57.0
+
+- Greatly reduce token consuming of `eca_directory_tree`
+  - Ignoring files in gitignore
+  - Improving tool output for LLM removing token consuming chars.
+
+## 0.56.4
+
+- Fix renew oauth tokens when it expires in the same session.
+
+## 0.56.3
+
+- Fix metrics exception when saving to db.
+
+## 0.56.2
+
+- Fix db exception.
+
+## 0.56.1
+
+- Fix usage reporting.
+
+## 0.56.0
+
+- Return new chat metadata content.
+  - Add chat title via prompt to LLM.
+
+## 0.55.0
+
+- Add support for Opentelemetry via `otlp` config.
+  - Export metrics of server tasks, tool calls, prompts, resources.
+
+## 0.54.4
+
+- Use jsonrpc4clj instead of lsp4clj.
+- Bump graalvm to 24 and java to 24 improving native binary perf.
+
+## 0.54.3
+
+- Avoid errors on multiple same MCP server calls in parallel.
+
+## 0.54.2
+
+- Fix openai cache tokens cost calculation.
+
+## 0.54.1
+
+- Improve welcome message.
+
+## 0.54.0
+
+- Improve large file handling in `read-file` tool:
+  - Replace basic truncation notice with detailed line range information and next-step instructions.
+  - Allow users to customize default line limit through `tools.readFile.maxLines` configuration (keep the current 2000 as default).
+- Moved the future in :on-tools-called and stored it in the db. #119
+- Support `compactPromptFile` config.
+- Fix tools not being listed for servers using mcp-remote.
+
+## 0.53.0
+
+- Add `/compact` command to summarize the current conversation helping reduce context size.
+- Add support for images as contexts.
+
+## 0.52.0
+
+- Support http-streamable http servers (non auth support for now)
+- Fix promtps that send assistant messages not working for anthropic.
+
+## 0.51.3
+
+- Fix manual anthropic login to save credentials in global config instead of cache.
+
+## 0.51.2
+
+- Minor log improvement of failed to start MCPs.
+
+## 0.51.1
+
+- Bump mcp java sdk to 1.12.1.
+- Fix mcp servers default timeout from 20s -> 60s.
+
+## 0.51.0
+
+- Support timeout on `eca_shell_command` with default to 1min.
+- Support `@cursor` context representing the current editor cursor position. #103
+
+## 0.50.2
+
+- Fix setting the `web-search` capability in the relevant models
+- Fix summary text for tool calls using `openai-chat` api.
+
+## 0.50.1
+
+- Bump mcp-java-sdk to 0.12.0.
+
 ## 0.50.0
 
 - Added missing parameters to `toolCallRejected` where possible.  PR #109

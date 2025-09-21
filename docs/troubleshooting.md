@@ -1,8 +1,8 @@
 # Troubleshooting
 
-## Server logs (stderr)
+## Logs (stderr)
 
-ECA works with clients (editors) sending and receiving messages to server, a process, you can start server with `--log-level debug` or `--verbose` which should log helpful information to `stderr` buffer like what is being sent to LLMs or what ECA is responding to editors, all supported editors have options to set the __server args__ to help with that and options to check the server logs.
+All supported editors have options to set the __server args__ to help with that and options to check the server logs.
 
 To access the server logs:
 
@@ -21,6 +21,15 @@ To access the server logs:
 === "Nvim"
 
     `EcaShowLogs` 
+
+### Server logs
+
+This controls what's logged by server on its actions, you can control to log more things via `--log-level debug` server arg.
+This should help log LLM outputs, and other useful stuff.
+
+### Client<->Server logs
+
+ECA works with clients (editors) sending and receiving messages to server, a process, you can start server `--verbose` which should log all jsonrpc communication between client and server to `stderr` buffer like what is being sent to LLMs or what ECA is responding to editors. 
 
 ## Doctor command
 

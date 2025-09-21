@@ -24,6 +24,6 @@
                                                                       {}
                                                                       (string/split input #","))
                                                              :key api-key}}}))
-  (swap! db* assoc-in [:auth provider] nil)
+  (swap! db* update :auth dissoc provider)
   (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
   (f.login/login-done! ctx))

@@ -46,9 +46,10 @@
                (assoc p (str provider "/" model)
                       (assoc-some
                        {:reason? (get model-config "reasoning")
+                        :image-input? (contains? (set (get-in model-config ["modalities" "input"])) "image")
                         ;; TODO how to check for web-search mode dynamically,
                         ;; maybe fixed after web-search toolcall is implemented
-                        :web-search (contains? models-with-web-search-support (name model))
+                        :web-search (contains? models-with-web-search-support (str provider "/" model))
                         :tools (get model-config "tool_call")
                         :max-output-tokens (get-in model-config ["limit" "output"])}
                        :limit {:context (get-in model-config ["limit" "context"])

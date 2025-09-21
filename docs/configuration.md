@@ -58,7 +58,7 @@ For providers and models configuration check the [dedicated models section](./mo
 
 For MCP servers configuration, use the `mcpServers` config, examples:
 
-=== "Example 1"
+=== "Stdio"
 
     `~/.config/eca/config.json`
     ```javascript
@@ -66,22 +66,22 @@ For MCP servers configuration, use the `mcpServers` config, examples:
       "mcpServers": {
         "memory": {
           "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-memory"]
+          "args": ["-y", "@modelcontextprotocol/server-memory"],
+          // optional
+          "env": {"FOO": "bar"} 
         }
       }
     }
     ```
     
-=== "Example 2"
+=== "HTTP-streamable"
 
     `~/.config/eca/config.json`
     ```javascript
     {
       "mcpServers": {
         "cool-mcp": {
-          "command": "bash",
-          "args": ["-c", "my-cool-mcp"],
-          "env": {"FOO" "bar"}
+          "url": "https://my-remote-mcp.com/mcp"
         }
       }
     }
@@ -176,6 +176,22 @@ Check some examples:
 Also check the `plan` behavior which is safer.
 
 __The `manualApproval` setting was deprecated and replaced by the `approval` one without breaking changes__
+
+### File Reading
+
+You can configure the maximum number of lines returned by the `eca_read_file` tool:
+
+```javascript
+{
+  "toolCall": {
+    "readFile": {
+      "maxLines": 1000
+    }
+  }
+}
+```
+
+Default: `2000` lines
 
 ### Custom Tools
 
@@ -337,6 +353,20 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
     }
     ```
 
+## Opentelemetry integration
+
+To configure, add your OTLP collector config via `:otlp` map following [otlp auto-configure settings](https://opentelemetry.io/docs/languages/java/configuration/#properties-general). Example:
+
+    ```javascript
+    {
+      "otlp": {
+        "otel.exporter.otlp.metrics.protocol": "http/protobuf",
+        "otel.exporter.otlp.metrics.endpoint": "https://my-otlp-endpoint.com/foo",
+        "otel.exporter.otlp.headers": "Authorization=Bearer 123456"
+      }
+    }
+    ```
+
 ## All configs
 
 === "Schema"
@@ -389,16 +419,21 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
             ask?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}},
             deny?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}},
           };
+          readFile?: {
+            maxLines?: number;
+          };
         };
         mcpTimeoutSeconds?: number;
         lspTimeoutSeconds?: number;
         mcpServers?: {[key: string]: {
-            command: string;
+            url?: string; // for remote http-stremable servers
+            command?: string; // for stdio servers
             args?: string[];
             disabled?: boolean;
         }};
         defaultBehavior?: string;
         welcomeMessage?: string;
+        compactPromptFile?: string;
         index?: {
             ignoreFiles: [{
                 type: string;
@@ -408,6 +443,7 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
                 maxEntriesPerDir?: number;
             };
         };
+        otlp?: {[key: string]: string};
     }
     ```
 
@@ -437,6 +473,9 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
                     "eca_editor_diagnostics": {}},
           "ask": {},
           "deny": {}
+        },
+        "readFile": {
+          "maxLines": 2000
         }
       },
       "mcpTimeoutSeconds" : 60,
@@ -457,8 +496,9 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
                                                                                   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                                   ".*bash.*-c.*>.*"]}}}}}}
       }
-      "defaultBehavior": "agent"
-      "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n"
+      "defaultBehavior": "agent",
+      "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
+      "compactPromptFile": "prompts/compact.md",
       "index" : {
         "ignoreFiles" : [ {
           "type" : "gitignore"

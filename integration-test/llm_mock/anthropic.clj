@@ -1,6 +1,7 @@
 (ns llm-mock.anthropic
   (:require
    [cheshire.core :as json]
+   [clojure.string :as string]
    [integration.helper :as h]
    [llm-mock.mocks :as llm.mocks]
    [org.httpkit.server :as hk]))
@@ -205,21 +206,42 @@
                             :output_tokens 30}})
         (hk/close ch)))))
 
+(defn ^:private chat-title-text-0 [ch]
+  (sse-send! ch "content_block_delta"
+             {:type "content_block_delta"
+              :index 0
+              :delta {:type "text_delta" :text "Some Cool"}})
+  (sse-send! ch "content_block_delta"
+             {:type "content_block_delta"
+              :index 0
+              :delta {:type "text_delta" :text " Title"}})
+  (sse-send! ch "message_delta"
+             {:type "message_delta"
+              :delta {:stop_reason "end_turn"}
+              :usage {:input_tokens 5
+                      :output_tokens 10}})
+  (hk/close ch))
+
 (defn handle-anthropic-messages [req]
-  (llm.mocks/set-last-req-body! (some-> (slurp (:body req))
-                                        (json/parse-string true)))
-  (hk/as-channel
-   req
-   {:on-open (fn [ch]
-               (hk/send! ch {:status 200
-                             :headers {"Content-Type" "text/event-stream; charset=utf-8"
-                                       "Cache-Control" "no-cache"
-                                       "Connection" "keep-alive"}}
-                         false)
-               (case llm.mocks/*case*
-                 :simple-text-0 (simple-text-0 ch)
-                 :simple-text-1 (simple-text-1 ch)
-                 :simple-text-2 (simple-text-2 ch)
-                 :reasoning-0 (reasoning-0 ch)
-                 :reasoning-1 (reasoning-1 ch)
-                 :tool-calling-0 (tool-calling-0 ch)))}))
+  (let [body (some-> (slurp (:body req))
+                     (json/parse-string true))]
+    (llm.mocks/set-last-req-body! body)
+    (hk/as-channel
+     req
+     {:on-open (fn [ch]
+                 (hk/send! ch {:status 200
+                               :headers {"Content-Type" "text/event-stream; charset=utf-8"
+                                         "Cache-Control" "no-cache"
+                                         "Connection" "keep-alive"}}
+                           false)
+                 (if (string/includes? (:text (last (:system body))) llm.mocks/chat-title-generator-str)
+                   (do
+                     (Thread/sleep 2000) ;; avoid tests failing with mismatch order of contents
+                     (chat-title-text-0 ch))
+                   (case llm.mocks/*case*
+                     :simple-text-0 (simple-text-0 ch)
+                     :simple-text-1 (simple-text-1 ch)
+                     :simple-text-2 (simple-text-2 ch)
+                     :reasoning-0 (reasoning-0 ch)
+                     :reasoning-1 (reasoning-1 ch)
+                     :tool-calling-0 (tool-calling-0 ch))))})))

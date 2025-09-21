@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -15,6 +16,44 @@
 (def ^:private logger-tag "[ANTHROPIC]")
 
 (def ^:private messages-path "/v1/messages")
+
+(defn ^:private any-assistant-message-without-thinking-previously?
+  "If there is a assistant message, which has no previous any role message with thinking content, returns true."
+  [messages]
+  (loop [msgs messages
+         seen-thinking? false]
+    (if-let [msg (first msgs)]
+      (let [is-assistant? (= "assistant" (:role msg))
+            has-thinking? (and (vector? (:content msg))
+                               (some #(= "thinking" (:type %)) (:content msg)))]
+        (cond
+          ;; If this is an assistant message and we haven't seen thinking before, return true
+          (and is-assistant? (not seen-thinking?) (not has-thinking?))
+          true
+
+          ;; If this message has thinking content, mark it as seen
+          has-thinking?
+          (recur (rest msgs) true)
+
+          ;; Otherwise continue
+          :else
+          (recur (rest msgs) seen-thinking?)))
+      ;; No assistant message found without previous thinking
+      false)))
+
+(defn ^:private fix-non-thinking-assistant-messages [messages]
+  (if (any-assistant-message-without-thinking-previously? messages)
+    ;; Anthropic doesn't like assistant messages without thinking blocks,
+    ;; we force to be a user one when this happens
+    ;; (MCP prompts that return assistant messages as initial step like clojureMCP)
+    ;; https://clojurians.slack.com/archives/C093426FPUG/p1757622242502969
+    (mapv (fn [{:keys [role content] :as msg}]
+            (if (= "assistant" role)
+              {:role "user"
+               :content content}
+              msg))
+          messages)
+    messages))
 
 (defn ^:private ->tools [tools web-search]
   (cond->
@@ -58,7 +97,7 @@
      (fn [e]
        (on-error {:exception e})))))
 
-(defn ^:private normalize-messages [past-messages]
+(defn ^:private normalize-messages [past-messages supports-image?]
   (mapv (fn [{:keys [role content] :as msg}]
           (case role
             "tool_call" {:role "assistant"
@@ -80,10 +119,21 @@
             (update msg :content (fn [c]
                                    (if (string? c)
                                      (string/trim c)
-                                     (mapv #(if (= "text" (name (:type %)))
-                                              (update % :text string/trim)
-                                              %)
-                                           c))))))
+                                     (vec
+                                      (keep #(case (name (:type %))
+
+                                               "text"
+                                               (update % :text string/trim)
+
+                                               "image"
+                                               (when supports-image?
+                                                 {:type "image"
+                                                  :source {:data (:base64 %)
+                                                           :media_type (:media-type %)
+                                                           :type "base64"}})
+
+                                               %)
+                                            c)))))))
         past-messages))
 
 (defn ^:private add-cache-to-last-message [messages]
@@ -96,15 +146,15 @@
          (assoc-in message [:content] [{:type :text
                                         :text content
                                         :cache_control {:type "ephemeral"}}])
-         (assoc-in message [:content 0 :cache_control] {:type "ephemeral"}))))))
+         (assoc-in message [:content (dec (count content)) :cache_control] {:type "ephemeral"}))))))
 
 (defn completion!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload]}
+           tools web-search extra-payload supports-image?]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated]}]
-  (let [messages (concat (normalize-messages past-messages)
-                         (normalize-messages user-messages))
+  (let [messages (concat (normalize-messages past-messages supports-image?)
+                         (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
         body (merge (assoc-some
                      {:model model
                       :messages (add-cache-to-last-message messages)
@@ -170,7 +220,7 @@
                                                                   :arguments (json/parse-string (:input-json content-block))}))
                                                              (vals @content-block*))
                                                  {:keys [new-messages]} (on-tools-called tool-calls)
-                                                 messages (-> (normalize-messages new-messages)
+                                                 messages (-> (normalize-messages new-messages supports-image?)
                                                               add-cache-to-last-message)]
                                              (reset! content-block* {})
                                              (base-request!
@@ -328,11 +378,11 @@
 
 (defmethod f.login/login-step ["anthropic" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
-    (do (swap! db* assoc-in [:auth provider] {:step :login/done
-                                              :type :auth/token
-                                              :mode :manual
-                                              :api-key input})
-        (f.login/login-done! ctx))
+    (do
+      (config/update-global-config! {:providers {"anthropic" {:key input}}})
+      (swap! db* update :auth dissoc provider)
+      (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
+      (f.login/login-done! ctx))
     (send-msg! (format "Invalid API key '%s'" input))))
 
 (defmethod f.login/login-step ["anthropic" :login/renew-token] [{:keys [db* provider] :as ctx}]

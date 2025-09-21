@@ -8,14 +8,15 @@
   (testing "no previous history"
     (is (match?
          []
-         (#'llm-providers.anthropic/normalize-messages []))))
+         (#'llm-providers.anthropic/normalize-messages [] true))))
   (testing "With basic text history"
     (is (match?
          [{:role "user" :content "Count with me: 1"}
           {:role "assistant" :content "2"}]
          (#'llm-providers.anthropic/normalize-messages
           [{:role "user" :content "Count with me: 1"}
-           {:role "assistant" :content "2"}]))))
+           {:role "assistant" :content "2"}]
+          true))))
   (testing "With tool_call history"
     (is (match?
          [{:role "user" :content "List the files you are allowed"}
@@ -38,7 +39,8 @@
                                                :output {:contents [{:type :text
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
-           {:role "assistant" :content "I see /foo/bar"}])))))
+           {:role "assistant" :content "I see /foo/bar"}]
+          true)))))
 
 (deftest add-cache-to-last-message-test
   (is (match?

@@ -13,6 +13,12 @@
 (def windows-os?
   (.contains (System/getProperty "os.name") "Windows"))
 
+(defn hostname* []
+  (try (.getHostName (java.net.InetAddress/getLocalHost))
+       (catch java.net.UnknownHostException _ nil)))
+
+(def hostname (memoize hostname*))
+
 (def line-separator
   "The system's line separator."
   (System/lineSeparator))
@@ -73,7 +79,7 @@
      (assoc m k (apply f v args))
      m)))
 
-(defn multi-str [& strings] (string/join "\n" (remove nil? strings)))
+(defn multi-str [& strings] (string/join "\n" (remove nil? (flatten strings))))
 
 (defn tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities]
   (when-let [{:keys [input-token-cost output-token-cost
@@ -88,6 +94,36 @@
                          input-cost)]
         (format "%.2f" (+ input-cost
                           (* output-tokens output-token-cost)))))))
+
+(defn usage-msg->usage
+  "How this works:
+    - tokens: the last message from API already contain the total
+              tokens considered, but we save them for cost calculation
+    - cost: we count the tokens in past requests done + current one"
+  [{:keys [input-tokens output-tokens
+           input-cache-creation-tokens input-cache-read-tokens]}
+   full-model
+   {:keys [chat-id db*]}]
+  (when (and output-tokens input-tokens)
+    (swap! db* update-in [:chats chat-id :total-input-tokens] (fnil + 0) input-tokens)
+    (swap! db* update-in [:chats chat-id :total-output-tokens] (fnil + 0) output-tokens)
+    (when input-cache-creation-tokens
+      (swap! db* update-in [:chats chat-id :total-input-cache-creation-tokens] (fnil + 0) input-cache-creation-tokens))
+    (when input-cache-read-tokens
+      (swap! db* update-in [:chats chat-id :total-input-cache-read-tokens] (fnil + 0) input-cache-read-tokens))
+    (let [db @db*
+          total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
+          total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] nil)
+          total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] nil)
+          total-output-tokens (get-in db [:chats chat-id :total-output-tokens] 0)
+          model-capabilities (get-in db [:models full-model])]
+      (assoc-some {:session-tokens (+ input-tokens
+                                      (or input-cache-read-tokens 0)
+                                      (or input-cache-creation-tokens 0)
+                                      output-tokens)}
+                  :limit (:limit model-capabilities)
+                  :last-message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities)
+                  :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))))
 
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]

@@ -340,7 +340,7 @@ interface ChatPromptParams {
  */
 type ChatModel = string;
 
-type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | McpResourceContext;
+type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext |McpResourceContext;
 
 /**
  * Context related to a file in the workspace
@@ -392,6 +392,33 @@ interface WebContext {
  */
 interface RepoMapContext {
     type: 'repoMap'; 
+}
+
+/**
+ * Context about the cursor position in editor, sent by client.
+ * Clients should track path and cursor position.
+ */
+interface CursorContext {
+    type: 'cursor'; 
+    
+    /**
+     * File path of where the cursor is.
+     */
+    path: string;
+    
+    /**
+     * Cursor position, if not using a selection start should be equal to end.
+     */
+    position: {
+       start: {
+           line: number;
+           character: number;
+       },
+       end: {
+           line: number;
+           character: number;
+       }
+    }
 }
 
 /***
@@ -479,23 +506,24 @@ interface ChatContentReceivedParams {
  * Different types of content that can be received from the LLM
  */
 type ChatContent = 
-    | TextContent 
-    | URLContent 
-    | ProgressContent 
-    | UsageContent
-    | ReasonStartedContent 
-    | ReasonTextContent 
-    | ReasonFinishedContent 
-    | ToolCallPrepareContent
-    | ToolCallRunContent
-    | ToolCallRunningContent
-    | ToolCalledContent
-    | ToolCallRejectedContent;
+    | ChatTextContent 
+    | ChatURLContent 
+    | ChatProgressContent 
+    | ChatUsageContent
+    | ChatReasonStartedContent 
+    | ChatReasonTextContent 
+    | ChatReasonFinishedContent 
+    | ChatToolCallPrepareContent
+    | ChatToolCallRunContent
+    | ChatToolCallRunningContent
+    | ChatToolCalledContent
+    | ChatToolCallRejectedContent
+    | ChatMetadataContent;
 
 /**
  * Simple text message from the LLM
  */
-interface TextContent {
+interface ChatTextContent {
     type: 'text';
     /**
      * The text content
@@ -507,7 +535,7 @@ interface TextContent {
  * Progress messages about the chat. 
  * Usually to mark what eca is doing/waiting or tell it finished processing messages.
  */
-interface ProgressContent {
+interface ChatProgressContent {
     type: 'progress';
 
     /**
@@ -525,7 +553,7 @@ interface ProgressContent {
  * A reason started from the LLM
  *
  */
-interface ReasonStartedContent {
+interface ChatReasonStartedContent {
     type: 'reasonStarted';
     
     /**
@@ -538,7 +566,7 @@ interface ReasonStartedContent {
  * A reason text from the LLM
  *
  */
-interface ReasonTextContent {
+interface ChatReasonTextContent {
     type: 'reasonText';
     
     /**
@@ -556,7 +584,7 @@ interface ReasonTextContent {
  * A reason finished from the LLM
  *
  */
-interface ReasonFinishedContent {
+interface ChatReasonFinishedContent {
     type: 'reasonFinished';
     
     /**
@@ -573,7 +601,7 @@ interface ReasonFinishedContent {
 /**
  * URL content message from the LLM
  */
-interface URLContent {
+interface ChatURLContent {
     type: 'url';
 
     /**
@@ -590,7 +618,7 @@ interface URLContent {
 /**
  * Details about the chat's usage, like used tokens and costs.
  */
-interface UsageContent {
+interface ChatUsageContent {
     type: 'usage';
     
     /**
@@ -628,7 +656,7 @@ interface UsageContent {
  * This will be sent multiple times for same tool id for each time LLM outputs 
  * a part of the arg, so clients should append the arguments to UI.
  */
-interface ToolCallPrepareContent {
+interface ChatToolCallPrepareContent {
     type: 'toolCallPrepare';
 
     origin: ToolCallOrigin;
@@ -664,7 +692,7 @@ interface ToolCallPrepareContent {
 /**
  * Tool call that LLM will run, sent once per id.
  */
-interface ToolCallRunContent {
+interface ChatToolCallRunContent {
     type: 'toolCallRun';
     
     origin: ToolCallOrigin;
@@ -705,7 +733,7 @@ interface ToolCallRunContent {
 /**
  * Tool call that server is running to report to LLM later, sent once per id.
  */
-interface ToolCallRunningContent {
+interface ChatToolCallRunningContent {
     type: 'toolCallRunning';
     
     origin: ToolCallOrigin;
@@ -741,7 +769,7 @@ interface ToolCallRunningContent {
 /**
  * Tool call result that LLM trigerred and was executed already, sent once per id.
  */
-interface ToolCalledContent {
+interface ChatToolCalledContent {
     type: 'toolCalled';
     
     origin: ToolCallOrigin;
@@ -802,7 +830,7 @@ interface ToolCalledContent {
 /**
  * Tool call rejected, sent once per id.
  */
-interface ToolCallRejectedContent {
+interface ChatToolCallRejectedContent {
     type: 'toolCallRejected';
     
     origin: ToolCallOrigin;
@@ -867,6 +895,19 @@ interface FileChangeDetails {
       */
      linesRemoved: number;
 }
+
+/**
+ * Extra information about a chat
+ */
+interface ChatMetadataContent {
+    type: 'metadata';
+
+    /**
+     * The chat title.
+     */
+    title: string;
+}
+
 ```
 
 ### Chat approve tool call (➡️)

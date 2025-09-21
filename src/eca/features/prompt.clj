@@ -1,5 +1,6 @@
 (ns eca.features.prompt
   (:require
+   [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.features.tools.mcp :as f.mcp]
@@ -20,6 +21,16 @@
 
 (defn ^:private init-prompt-template* [] (slurp (io/resource "prompts/init.md")))
 (def ^:private init-prompt-template (memoize init-prompt-template*))
+
+(defn ^:private title-prompt-template* [] (slurp (io/resource "prompts/title.md")))
+(def ^:private title-prompt-template (memoize title-prompt-template*))
+
+(defn ^:private compact-prompt-template* [file-path]
+  (if (fs/relative? file-path)
+    (slurp (io/resource file-path))
+    (slurp (io/file file-path))))
+
+(def ^:private compact-prompt-template (memoize compact-prompt-template*))
 
 (defn ^:private replace-vars [s vars]
   (reduce
@@ -51,32 +62,48 @@
 (defn build-instructions [refined-contexts rules repo-map* behavior config]
   (multi-str
    (eca-prompt behavior config)
-   "<rules>"
-   (reduce
-    (fn [rule-str {:keys [name content]}]
-      (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
-    ""
-    rules)
-   "</rules>"
+   (when (seq rules)
+     ["<rules description=\"Rules defined by user\">\n"
+      (reduce
+       (fn [rule-str {:keys [name content]}]
+         (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
+       ""
+       rules)
+      "</rules>"])
    ""
-   "<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it but use tools to read/find any extra files/contexts if really needed.\">"
-   (reduce
-    (fn [context-str {:keys [type path content partial uri]}]
-      (str context-str (case type
-                         :file (if partial
-                                 (format "<file partial=true path=\"%s\">...\n%s\n...</file>\n" path content)
-                                 (format "<file path=\"%s\">%s</file>\n" path content))
-                         :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n" @repo-map*)
-                         :mcpResource (format "<resource uri=\"%s\">%s</resource>\n" uri content)
-                         "")))
-    ""
-    refined-contexts)
-   "</contexts>"))
+   (when (seq refined-contexts)
+     ["<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it, if not enough, use tools to read/gather any extra files/contexts.\">"
+      (reduce
+       (fn [context-str {:keys [type path position content partial uri]}]
+         (str context-str (case type
+                            :file (if partial
+                                    (format "<file partial=true path=\"%s\">...\n%s\n...</file>\n" path content)
+                                    (format "<file path=\"%s\">%s</file>\n" path content))
+                            :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n" @repo-map*)
+                            :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n"
+                                            path
+                                            (str (:line (:start position)) ":" (:character (:start position)))
+                                            (str (:line (:end position)) ":" (:character (:end position))))
+                            :mcpResource (format "<resource uri=\"%s\">%s</resource>\n" uri content)
+                            "")))
+       ""
+       refined-contexts)
+      "</contexts>"])))
 
-(defn build-init-prompt [db]
+(defn init-prompt [db]
   (replace-vars
    (init-prompt-template)
    {:workspaceFolders (string/join ", " (map (comp shared/uri->filename :uri) (:workspace-folders db)))}))
+
+(defn title-prompt []
+  (title-prompt-template))
+
+(defn compact-prompt [additional-input config]
+  (replace-vars
+   (compact-prompt-template (:compactPromptFile config))
+   {:addionalUserInput (if additional-input
+                         (format "You MUST respect this user input in the summarization: %s." additional-input)
+                         "")}))
 
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))

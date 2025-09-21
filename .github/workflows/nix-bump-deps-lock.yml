@@ -1,0 +1,27 @@
+name: "Update nix deps-lock.json"
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "deps.edn"
+      - "bb.edn"
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v17
+
+      - name: Update deps-lock
+        run: "nix develop --command deps-lock-update"
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v4.0.3
+        with:
+          commit-message: Update nix deps-lock.json
+          title: Update nix deps-lock.json
+          branch: update-nix-deps-lock

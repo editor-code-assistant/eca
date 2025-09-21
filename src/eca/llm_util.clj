@@ -63,7 +63,7 @@
   (logger/debug tag (format "[%s] Sending body: '%s', url: '%s'" rid body url)))
 
 (defn log-response [tag rid event data]
-  (logger/debug tag (format "[%s] %s %s" rid event data)))
+  (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))
 
 (defn ^:private rand-bytes
   "Returns a random byte array of the specified size."
@@ -71,6 +71,9 @@
   (let [seed (byte-array size)]
     (.nextBytes (SecureRandom.) seed)
     seed))
+
+(defn <-base64 ^String [^String s]
+  (String. (.decode (Base64/getDecoder) s)))
 
 (defn ^:private ->base64 [^bytes bs]
   (.encodeToString (Base64/getEncoder) bs))

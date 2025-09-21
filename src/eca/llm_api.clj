@@ -68,7 +68,14 @@
 (defn complete!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           past-messages tools provider-auth]}]
+           past-messages tools provider-auth]
+    :or {on-first-response-received identity
+         on-message-received identity
+         on-error identity
+         on-prepare-tool-call identity
+         on-tools-called identity
+         on-reason identity
+         on-usage-updated identity}}]
   (let [first-response-received* (atom false)
         emit-first-message-fn (fn [& args]
                                 (when-not @first-response-received*
@@ -90,6 +97,7 @@
         tools (when (:tools model-capabilities)
                 (mapv tool->llm-tool tools))
         reason? (:reason? model-capabilities)
+        supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
@@ -114,12 +122,14 @@
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
+          :supports-image? supports-image?
           :past-messages past-messages
           :tools tools
           :web-search web-search
           :extra-payload extra-payload
           :api-url api-url
-          :api-key api-key}
+          :api-key api-key
+          :auth-type provider-auth-type}
          callbacks)
 
         (= "anthropic" provider)
@@ -129,6 +139,7 @@
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
+          :supports-image? supports-image?
           :past-messages past-messages
           :tools tools
           :web-search web-search
@@ -145,6 +156,7 @@
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
+          :supports-image? supports-image?
           :past-messages past-messages
           :tools tools
           :extra-payload extra-payload
@@ -154,6 +166,7 @@
                           "x-request-id" (str (random-uuid))
                           "vscode-sessionid" ""
                           "vscode-machineid" ""
+                          "Copilot-Vision-Request" "true"
                           "copilot-integration-id" "vscode-chat"}}
          callbacks)
 
@@ -161,6 +174,7 @@
         (llm-providers.ollama/completion!
          {:api-url api-url
           :reason? (:reason? model-capabilities)
+          :supports-image? supports-image?
           :model model
           :instructions instructions
           :user-messages user-messages
@@ -183,6 +197,7 @@
             :user-messages user-messages
             :max-output-tokens max-output-tokens
             :reason? reason?
+            :supports-image? supports-image?
             :past-messages past-messages
             :tools tools
             :extra-payload extra-payload
@@ -195,3 +210,28 @@
         (on-error-wrapper {:message (format "ECA Unsupported model %s for provider %s" model provider)}))
       (catch Exception e
         (on-error-wrapper {:exception e})))))
+
+(defn simple-prompt
+  [{:keys [provider model model-capabilitiies instructions
+           prompt user-messages config tools provider-auth]}]
+  (let [result-p (promise)
+        output* (atom "")]
+    (complete!
+     {:provider provider
+      :model model
+      :model-capabilitiies model-capabilitiies
+      :instructions instructions
+      :tools tools
+      :provider-aith provider-auth
+      :past-messages []
+      :user-messages (or user-messages
+                         [{:role "user" :content [{:type :text :text prompt}]}])
+      :config config
+      :on-message-received (fn [{:keys [type] :as msg}]
+                             (case type
+                               :text (swap! output* str (:text msg))
+                               :finish (deliver result-p @output*)
+                               nil))
+      :on-error (fn [_]
+                  (deliver result-p nil))})
+    result-p))

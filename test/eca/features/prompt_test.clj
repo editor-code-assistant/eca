@@ -16,10 +16,10 @@
           behavior "agent"
           result (prompt/build-instructions refined-contexts rules fake-repo-map behavior {})]
       (is (string/includes? result "You are ECA"))
-      (is (string/includes? result "<rules>"))
+      (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))
       (is (string/includes? result "<rule name=\"rule2\">Second rule</rule>"))
-      (is (string/includes? result "<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it but use tools to read/find any extra files/contexts if really needed.\">"))
+      (is (string/includes? result "<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it, if not enough, use tools to read/gather any extra files/contexts.\">"))
       (is (string/includes? result "<file path=\"foo.clj\">(ns foo)</file>"))
       (is (string/includes? result "<file partial=true path=\"bar.clj\">...\n(def a 1)\n...</file>"))
       (is (string/includes? result "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >TREE</repoMap>"))
@@ -37,10 +37,10 @@
           behavior "plan"
           result (prompt/build-instructions refined-contexts rules fake-repo-map behavior {})]
       (is (string/includes? result "You are ECA"))
-      (is (string/includes? result "<rules>"))
+      (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))
       (is (string/includes? result "<rule name=\"rule2\">Second rule</rule>"))
-      (is (string/includes? result "<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it but use tools to read/find any extra files/contexts if really needed.\">"))
+      (is (string/includes? result "<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it, if not enough, use tools to read/gather any extra files/contexts.\">"))
       (is (string/includes? result "<file path=\"foo.clj\">(ns foo)</file>"))
       (is (string/includes? result "<file partial=true path=\"bar.clj\">...\n(def a 1)\n...</file>"))
       (is (string/includes? result "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >TREE</repoMap>"))

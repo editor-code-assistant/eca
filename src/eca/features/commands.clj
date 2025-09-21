@@ -10,6 +10,7 @@
    [eca.features.prompt :as f.prompt]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.messenger :as messenger]
    [eca.shared :as shared :refer [multi-str update-some]])
   (:import
    [java.lang ProcessHandle]))
@@ -87,6 +88,10 @@
                        :type :native
                        :description "Total costs of the current chat session."
                        :arguments []}
+                      {:name "compact"
+                       :type :native
+                       :description "Summarize the chat so far cleaning previous chat history to reduce context."
+                       :arguments [{:name "additional-input"}]}
                       {:name "resume"
                        :type :native
                        :description "Resume the chats from this session workspaces."
@@ -159,8 +164,33 @@
         custom-cmds (custom-commands config (:workspace-folders db))]
     (case command
       "init" {:type :send-prompt
-              :clear-history-after-finished? true
-              :prompt (f.prompt/build-init-prompt db)}
+              :on-finished-side-effect (fn []
+                                         (swap! db* assoc-in [:chats chat-id :messages] []))
+              :prompt (f.prompt/init-prompt db)}
+      "compact" (do
+                  (swap! db* assoc-in [:chats chat-id :compacting?] true)
+                  {:type :send-prompt
+                   :on-finished-side-effect (fn []
+                                              ;; Replace chat history with summary
+                                              (swap! db* assoc-in [:chats chat-id :messages]
+                                                     [{:role "user"
+                                                       :content [{:type :text
+                                                                  :text (str "The conversation was compacted/summarized, consider this summary:\n"
+                                                                             (get-in @db* [:chats chat-id :last-summary]))}]}])
+
+                                              ;; Zero chat usage
+                                              (swap! db* assoc-in [:chats chat-id :total-input-tokens] nil)
+                                              (swap! db* assoc-in [:chats chat-id :total-output-tokens] nil)
+                                              (swap! db* assoc-in [:chats chat-id :total-input-cache-creation-tokens] nil)
+                                              (swap! db* assoc-in [:chats chat-id :total-input-cache-read-tokens] nil)
+                                              (when-let [usage (shared/usage-msg->usage {:input-tokens 0 :output-tokens 0} full-model {:chat-id chat-id :db* db*})]
+                                                (messenger/chat-content-received
+                                                 messenger
+                                                 {:chat-id chat-id
+                                                  :role :system
+                                                  :content (merge {:type :usage}
+                                                                  usage)})))
+                   :prompt (f.prompt/compact-prompt (string/join " " args) config)})
       "login" (do (f.login/handle-step {:message (or (first args) "")
                                         :chat-id chat-id}
                                        db*
@@ -201,7 +231,6 @@
       ;; else check if a custom command
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
         {:type :send-prompt
-         :clear-history-after-finished? false
          :prompt custom-command-prompt}
         {:type :text
          :text (str "Unknown command: " command)}))))

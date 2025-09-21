@@ -91,7 +91,10 @@
             {:role (:role msg)
              :content (if (string? (:content msg))
                         (:content msg)
-                        (-> msg :content first :text))}))
+                        (-> msg :content first :text))
+             ;; TODO add image supprt
+             ;; :images []
+             }))
         past-messages))
 
 (defn completion! [{:keys [model user-messages reason? instructions api-url past-messages tools]}

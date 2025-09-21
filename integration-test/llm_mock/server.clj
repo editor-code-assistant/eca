@@ -1,7 +1,6 @@
 (ns llm-mock.server
   (:require
    [llm-mock.anthropic :as llm-mock.anthropic]
-   [llm-mock.copilot]
    [llm-mock.ollama :as llm-mock.ollama]
    [llm-mock.openai :as llm-mock.openai]
    [llm-mock.openai-chat :as llm-mock.openai-chat]
@@ -24,7 +23,7 @@
 
       (and (= :post request-method)
            (= uri "/github-copilot/chat/completions"))
-      (llm-mock.copilot/handle-copilot req)
+      (llm-mock.openai-chat/handle-openai-chat req)
 
       (and (= :post request-method)
            (= uri "/anthropic/v1/messages"))

@@ -148,6 +148,12 @@
         "allDeclaredMethods":true
     },
     {
+        "name":"io.modelcontextprotocol.spec.McpSchema$ToolAnnotations",
+        "allDeclaredFields":true,
+        "allDeclaredConstructors":true,
+        "allDeclaredMethods":true
+    },
+    {
         "name":"io.modelcontextprotocol.spec.McpSchema$ServerCapabilities",
         "allDeclaredFields":true,
         "allDeclaredConstructors":true,

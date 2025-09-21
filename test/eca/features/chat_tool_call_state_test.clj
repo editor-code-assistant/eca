@@ -408,7 +408,7 @@
         (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                                      {:name "list_files" :origin "filesystem" :arguments {:path "/tmp"}})]
           (is (match? {:status :executing
-                       :actions [:set-start-time :send-toolCallRunning]}
+                       :actions [:set-start-time :set-call-future :send-toolCallRunning]}
                       result)
               "Expected transition to :executing status with no additional actions")
 
@@ -589,7 +589,7 @@
       (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                       {:name "read_file" :origin "filesystem" :arguments-text "{}"})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
 
       (let [messages (h/messages)
             chat-messages (:chat-content-received messages)
@@ -625,7 +625,7 @@
       (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
 
       (let [message-count (count (:chat-content-received (h/messages)))]
         (is (< 1 message-count)
@@ -652,7 +652,7 @@
                                        :name "list_files"
                                        :origin "filesystem"
                                        :arguments {"id" 123 "value" 42}})
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
       (when-not @approved?*
         (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :send-reject
                                         {:approved?* approved?*
@@ -679,7 +679,7 @@
 
       (swap! db* assoc-in [:chats chat-id] {:status :idle}) ; Not running
 
-      (is (nil? (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger)))
+      (is (nil? (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics)))
           "Expected nil return value for non-running chat")
 
       (is (= 0 (count (:chat-content-received (h/messages))))
@@ -704,7 +704,7 @@
       (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                       {:name "read_file" :origin "filesystem" :arguments-text "{}"})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
 
       (let [chat-messages (:chat-content-received (h/messages))]
 
@@ -727,7 +727,7 @@
 
       (swap! db* assoc-in [:chats chat-id] {:status :running})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
 
       (let [final-status (get-in @db* [:chats chat-id :status])]
         (is (= :stopping final-status) "Expected status to change to :stopping after stop processing")))))

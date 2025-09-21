@@ -11,6 +11,7 @@ on:
       - 'docs/**'
       - 'images/**'
       - 'mkdocs.yml'
+      - 'deps-lock.json'
       - '.github/workflows/nightly.yml'
       - '.github/workflows/docs.yml'
       - '.github/workflows/release.yml'
@@ -24,12 +25,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        jdk: [17]
+        jdk: [24]
         include:
           - os: windows-latest
-            jdk: 17
+            jdk: 24
           - os: macos-latest
-            jdk: 17
+            jdk: 24
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,14 +55,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04]
-        jdk: [17]
+        jdk: [24]
         include:
           # FIXME
           # Windows keep failing randomly because of CI issues.
           # - os: windows-latest
-          #   jdk: 17
+          #   jdk: 24
           - os: macos-latest
-            jdk: 17
+            jdk: 24
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,9 +100,9 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '21'
+          java-version: '24'
           distribution: 'graalvm'
-          native-image-musl: 'true'
+          native-image-musl: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build static Linux native image

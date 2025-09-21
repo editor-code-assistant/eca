@@ -39,6 +39,7 @@
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
               :instructions (m/pred string?)}

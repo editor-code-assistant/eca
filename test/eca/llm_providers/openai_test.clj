@@ -8,7 +8,7 @@
   (testing "no previous history"
     (is (match?
          []
-         (#'llm-providers.openai/normalize-messages []))))
+         (#'llm-providers.openai/normalize-messages [] true))))
 
   (testing "With basic text history"
     (is (match?
@@ -16,7 +16,8 @@
           {:role "assistant" :content "2"}]
          (#'llm-providers.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "Count with me: 1"}]}
-           {:role "assistant" :content "2"}]))))
+           {:role "assistant" :content "2"}]
+          true))))
   (testing "With tool_call history"
     (is (match?
          [{:role "user" :content [{:type "input_text" :text "List the files you are allowed"}]}
@@ -39,4 +40,5 @@
                                                :output {:contents [{:type :text
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
-           {:role "assistant" :content [{:type :text :text "I see /foo/bar"}]}])))))
+           {:role "assistant" :content [{:type :text :text "I see /foo/bar"}]}]
+          true)))))

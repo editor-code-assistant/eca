@@ -33,6 +33,7 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 - :coffee: **Agentic**: let LLM work as an agent with its native tools and MCPs you can configure.
 - :syringe: **Context**: support: giving more details about your code to the LLM, including MCP resources and prompts.
 - :rocket: **Multi models**: Login to OpenAI, Anthropic, Copilot, Ollama local models and many more.
+- :chart_with_upwards_trend: **OpenTelemetry**: Export metrics of tools, prompts, server usage.
 
 ## Rationale 
 
@@ -69,6 +70,8 @@ To use ECA, you need to configure at least one model / provider (_tip: Github Co
 1. Type in the chat `/login`.
 2. Chose your provider
 3. Follow the steps to configure the key or auth for your provider.
+
+or [configure manually](https://eca.dev/models/).
 
 **Note**: For other providers or custom models, see the [custom providers documentation](https://eca.dev/models#custom-providers).
 

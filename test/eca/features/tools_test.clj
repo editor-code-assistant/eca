@@ -17,7 +17,7 @@
                      :parameters {"type" "object"
                                   :properties {"code" {:type "string"}}}
                      :origin :mcp}])
-         (f.tools/all-tools "agent"
+         (f.tools/all-tools "123" "agent"
                             {:mcp-clients {"clojureMCP"
                                            {:tools [{:name "eval"
                                                      :description "eval code"
@@ -31,14 +31,14 @@
                      :description string?
                      :parameters some?
                      :origin :native}])
-         (f.tools/all-tools "agent" {} {}))))
+         (f.tools/all-tools "123" "agent" {} {}))))
   (testing "Do not include disabled native tools"
     (is (match?
          (m/embeds [(m/mismatch {:name "eca_directory_tree"})])
-         (f.tools/all-tools "agent" {} {:disabledTools ["eca_directory_tree"]}))))
+         (f.tools/all-tools "123" "agent" {} {:disabledTools ["eca_directory_tree"]}))))
   (testing "Plan mode includes preview tool but excludes mutating tools"
     (let [plan-config {:behavior {"plan" {:disabledTools ["eca_edit_file" "eca_write_file" "eca_move_file"]}}}
-          plan-tools (f.tools/all-tools "plan" {} plan-config)
+          plan-tools (f.tools/all-tools "123" "plan" {} plan-config)
           tool-names (set (map :name plan-tools))]
       ;; Verify that preview tool is included
       (is (contains? tool-names "eca_preview_file_change"))
@@ -52,7 +52,7 @@
     (is (match?
          (m/embeds [(m/mismatch {:name "eca_preview_file_change"})
                     {:name "eca_edit_file"}])
-         (f.tools/all-tools "agent" {} {}))))
+         (f.tools/all-tools "123" "agent" {} {}))))
   (testing "Replace special vars description"
     (is (match?
          (m/embeds [{:name "eca_directory_tree"
@@ -61,7 +61,7 @@
                      :origin :native}])
          (with-redefs [f.tools.filesystem/definitions {"eca_directory_tree" {:description "Only in $workspaceRoots"
                                                                              :parameters {}}}]
-           (f.tools/all-tools "agent" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
+           (f.tools/all-tools "123" "agent" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
                               {}))))))
 
 (deftest get-disabled-tools-test
@@ -146,7 +146,7 @@
     (testing "behavior-specific approval overrides global rules"
       (let [config {:toolCall {:approval {:byDefault "allow"}}
                     :behavior {"plan" {:toolCall {:approval {:deny {"eca_shell_command" {:argsMatchers {"command" [".*rm.*"]}}}
-                                                              :byDefault "ask"}}}}}]
+                                                             :byDefault "ask"}}}}}]
         ;; Global config would allow shell commands (no behavior specified)
         (is (= :allow (f.tools/approval all-tools "eca_shell_command" {"command" "ls -la"} {} config nil)))
         ;; But plan behavior denies rm commands
@@ -170,7 +170,7 @@
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "cat file.txt > output.txt"} {} config "agent")))
         ;; No behavior specified (nil) should also not have plan restrictions
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "rm file.txt"} {} config nil)))))
-    (testing "regex patterns match dangerous commands correctly" 
+    (testing "regex patterns match dangerous commands correctly"
       (let [config config/initial-config]
         ;; Test output redirection patterns
         (is (= :deny (f.tools/approval all-tools "eca_shell_command" {"command" "echo test > file.txt"} {} config "plan")))
