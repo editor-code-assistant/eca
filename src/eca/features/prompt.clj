@@ -79,7 +79,7 @@
                             :file (if partial
                                     (format "<file partial=true path=\"%s\">...\n%s\n...</file>\n" path content)
                                     (format "<file path=\"%s\">%s</file>\n" path content))
-                            :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n" @repo-map*)
+                            :repoMap (format "<repoMap description=\"Workspace structure manifest (brace-compressed). Format: dir/{a,b}.ext => dir/a.ext, dir/b.ext. Nested braces allowed; '/' encodes hierarchy. If no braces, treat each line as a path.\" >%s</repoMap>\n" @repo-map*)
                             :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n"
                                             path
                                             (str (:line (:start position)) ":" (:character (:start position)))
