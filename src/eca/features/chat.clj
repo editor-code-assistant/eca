@@ -416,7 +416,7 @@
     (send-content! chat-ctx :system {:type :progress
                                      :state :running
                                      :text "Waiting model"})
-    (llm-api/complete!
+    (llm-api/chat!
      {:model model
       :provider provider
       :model-capabilities model-capabilities

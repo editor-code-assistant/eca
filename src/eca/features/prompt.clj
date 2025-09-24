@@ -25,6 +25,11 @@
 (defn ^:private title-prompt-template* [] (slurp (io/resource "prompts/title.md")))
 (def ^:private title-prompt-template (memoize title-prompt-template*))
 
+;; TODO
+;; (defn ^:private inline-completion-prompt-template* [] (slurp (io/resource "prompts/inline_completion.md")))
+(defn ^:private inline-completion-prompt-template* [] (slurp "/home/greg/dev/eca/resources/prompts/inline_completion.md"))
+(def ^:private inline-completion-prompt-template (memoize inline-completion-prompt-template*))
+
 (defn ^:private compact-prompt-template* [file-path]
   (if (fs/relative? file-path)
     (slurp (io/resource file-path))
@@ -35,7 +40,7 @@
 (defn ^:private replace-vars [s vars]
   (reduce
    (fn [p [k v]]
-     (string/replace p (str "{" (name k) "}") v))
+     (string/replace p (str "{" (name k) "}") (str v)))
    s
    vars))
 
@@ -104,6 +109,12 @@
    {:addionalUserInput (if additional-input
                          (format "You MUST respect this user input in the summarization: %s." additional-input)
                          "")}))
+
+(defn inline-completion-prompt [line character]
+  (replace-vars
+   (inline-completion-prompt-template)
+   {:linePosition line
+    :characterPosition character}))
 
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))

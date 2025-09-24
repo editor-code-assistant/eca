@@ -3,6 +3,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.completion :as f.completion]
    [eca.features.login :as f.login]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -151,16 +152,7 @@
       (update-behavior-model! behavior-config config messenger db*)
       (f.tools/refresh-tool-servers! tool-status-fn db* messenger config))))
 
-(defn completion-inline [{:keys []} {:keys [uri doc-version position]}]
-  (let [{:keys [line character]} position]
-    (Thread/sleep 300)
-    {:items [{:id "123"
-              :text "foo"
-              :doc-version doc-version
-              :range {:start {:line line :character character}
-                      :end {:line line :character character}}}
-             {:id "234"
-              :text "foobar"
-              :doc-version doc-version
-              :range {:start {:line line :character character}
-                      :end {:line line :character character}}}]}))
+(defn completion-inline
+  [{:keys [db* config metrics]} params]
+  (metrics/task metrics :eca/completion-inline
+    (f.completion/complete params db* config)))

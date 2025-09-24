@@ -65,7 +65,7 @@
   (assoc (select-keys tool [:name :description :parameters])
          :type "function"))
 
-(defn complete!
+(defn chat!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            past-messages tools provider-auth]
@@ -116,7 +116,7 @@
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
         (= "openai" provider)
-        (llm-providers.openai/completion!
+        (llm-providers.openai/chat!
          {:model model
           :instructions instructions
           :user-messages user-messages
@@ -133,7 +133,7 @@
          callbacks)
 
         (= "anthropic" provider)
-        (llm-providers.anthropic/completion!
+        (llm-providers.anthropic/chat!
          {:model model
           :instructions instructions
           :user-messages user-messages
@@ -150,7 +150,7 @@
          callbacks)
 
         (= "github-copilot" provider)
-        (llm-providers.openai-chat/completion!
+        (llm-providers.openai-chat/chat!
          {:model model
           :instructions instructions
           :user-messages user-messages
@@ -171,7 +171,7 @@
          callbacks)
 
         (= "ollama" provider)
-        (llm-providers.ollama/completion!
+        (llm-providers.ollama/chat!
          {:api-url api-url
           :reason? (:reason? model-capabilities)
           :supports-image? supports-image?
@@ -186,9 +186,9 @@
         model-config
         (let [provider-fn (case (:api provider-config)
                             ("openai-responses"
-                             "openai") llm-providers.openai/completion!
-                            "anthropic" llm-providers.anthropic/completion!
-                            "openai-chat" llm-providers.openai-chat/completion!
+                             "openai") llm-providers.openai/chat!
+                            "anthropic" llm-providers.anthropic/chat!
+                            "openai-chat" llm-providers.openai-chat/chat!
                             (on-error-wrapper {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
               url-relative-path (:completionUrlRelativePath provider-config)]
           (provider-fn
@@ -211,12 +211,41 @@
       (catch Exception e
         (on-error-wrapper {:exception e})))))
 
+(defn complete!
+  [{:keys [provider model model-capabilities instructions input-code config provider-auth]}]
+  (let [reason? (:reason? model-capabilities)
+        provider-config (get-in config [:providers provider])
+        model-config (get-in provider-config [:models model])
+        extra-payload (:extraPayload model-config)
+        api-key (llm-util/provider-api-key provider provider-auth config)
+        api-url (llm-util/provider-api-url provider config)
+        provider-auth-type (:type provider-auth)]
+    (try
+      (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
+      (cond
+        (= "openai" provider)
+        (llm-providers.openai/completion!
+         {:model model
+          :instructions instructions
+          :input-code input-code
+          :reason? reason?
+          :extra-payload extra-payload
+          :api-url api-url
+          :api-key api-key
+          :auth-type provider-auth-type})
+
+        :else
+        {:error-message (format "ECA Unsupported model %s for provider %s" model provider)})
+      (catch Exception e
+        (logger/warn logger-tag "Error completing: %s" (.getMessage e))
+        {:error-message (.getMessage e)}))))
+
 (defn simple-prompt
   [{:keys [provider model model-capabilitiies instructions
            prompt user-messages config tools provider-auth]}]
   (let [result-p (promise)
         output* (atom "")]
-    (complete!
+    (chat!
      {:provider provider
       :model model
       :model-capabilitiies model-capabilitiies

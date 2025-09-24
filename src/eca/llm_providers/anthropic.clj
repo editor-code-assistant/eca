@@ -148,7 +148,7 @@
                                         :cache_control {:type "ephemeral"}}])
          (assoc-in message [:content (dec (count content)) :cache_control] {:type "ephemeral"}))))))
 
-(defn completion!
+(defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload supports-image?]}

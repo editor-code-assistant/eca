@@ -99,9 +99,9 @@
                                            c))))))
         messages))
 
-(defn completion! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                           max-output-tokens past-messages tools web-search extra-payload auth-type]}
-                   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated]}]
+(defn chat! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
+                     max-output-tokens past-messages tools web-search extra-payload auth-type]}
+             {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated]}]
   (let [input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (cond-> tools
@@ -234,6 +234,47 @@
       :auth-type auth-type
       :on-error on-error
       :on-response on-response-fn})))
+
+(defn completion! [{:keys [auth-type api-url api-key url-relative-path input-code model instructions reason?]}]
+  (let [oauth? (= :auth/oauth auth-type)
+        rid (llm-util/gen-rid)
+        url (if oauth?
+              codex-url
+              (str api-url (or url-relative-path responses-path)))
+        {:keys [status body]} (http/post
+                               url
+                               {:headers (assoc-some
+                                          {"Authorization" (str "Bearer " api-key)
+                                           "Content-Type" "application/json"}
+                                          "chatgpt-account-id" (jtw-token->account-id api-key)
+                                          "OpenAI-Beta" (when oauth? "responses=experimental"),
+                                          "Originator" (when oauth? "codex_cli_rs")
+                                          "Session-ID" (when oauth? (str (random-uuid))))
+                                :body (json/generate-string
+                                       {:model model
+                                        :input input-code
+                                        :reasoning (when reason?
+                                                     {:effort "minimal"})
+                                        :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+                                        :instructions (if (= :auth/oauth auth-type)
+                                                        (str "You are Codex." instructions)
+                                                        instructions)
+                                        :store false})
+                                :as :json
+                                :throw-exceptions? false})]
+    (try
+      (if (not= 200 status)
+        (logger/warn logger-tag "Unexpected response status: %s body: %s" status body)
+        (let [{:keys [output]} body]
+          (llm-util/log-response logger-tag rid "completion" body)
+          {:result
+           (reduce
+            #(str %1 (:text %2))
+            ""
+            (:content (last output)))}))
+      (catch Exception e
+        (logger/warn logger-tag "Unexpected error: %s error: %s" status (.getMessage e))
+        {:error-message (format "Unexpected error: %s" (.getMessage e))}))))
 
 (def ^:private client-id "app_EMoamEEZ73f0CkXaXp7hrann")
 

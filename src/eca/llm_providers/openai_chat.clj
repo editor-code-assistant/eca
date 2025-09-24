@@ -188,7 +188,7 @@
       ;; No completed tools at all - let the streaming response provide the actual finish_reason
       nil)))
 
-(defn completion!
+(defn chat!
   "Primary entry point for OpenAI chat completions with streaming support.
 
    Handles the full conversation flow including tool calls, streaming responses,

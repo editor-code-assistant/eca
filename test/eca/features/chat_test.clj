@@ -12,9 +12,9 @@
 
 (h/reset-components-before-test)
 
-(defn ^:private complete! [params mocks]
+(defn ^:private chat! [params mocks]
   (let [{:keys [chat-id] :as resp}
-        (with-redefs [llm-api/complete! (:api-mock mocks)
+        (with-redefs [llm-api/chat! (:api-mock mocks)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/approval (constantly :allow)]
           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
@@ -25,7 +25,7 @@
   (testing "Simple hello"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (chat!
            {:message "Hey!"}
            {:api-mock
             (fn [{:keys [on-first-response-received
@@ -63,7 +63,7 @@
   (testing "LLM error"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (chat!
            {:message "Hey!"}
            {:api-mock
             (fn [{:keys [on-error]}]
@@ -91,7 +91,7 @@
   (testing "Chat history"
     (h/reset-components!)
     (let [res-1
-          (complete!
+          (chat!
            {:message "Count with me: 1 mississippi"}
            {:api-mock
             (fn [{:keys [on-first-response-received
@@ -129,7 +129,7 @@
            (h/messages)))
       (h/reset-messenger!)
       (let [res-2
-            (complete!
+            (chat!
              {:message "3 mississippi"
               :chat-id chat-id-1}
              {:api-mock
@@ -173,7 +173,7 @@
   (testing "Asking to list directories, LLM will check for allowed directories and then list files"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (chat!
            {:message "List the files you are allowed to see"}
            {:api-mock
             (fn [{:keys [on-first-response-received

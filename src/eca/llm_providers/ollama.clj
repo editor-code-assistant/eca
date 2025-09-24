@@ -97,7 +97,7 @@
              }))
         past-messages))
 
-(defn completion! [{:keys [model user-messages reason? instructions api-url past-messages tools]}
+(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools]}
                    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
                            on-reason extra-payload]}]
   (let [messages (concat
