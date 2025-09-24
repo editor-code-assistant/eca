@@ -116,6 +116,16 @@
       "hash": "sha256-XWNz3pRsP60vdWoZ8xoNHyx58ggyCZfBQAWqC53eveA="
     },
     {
+      "mvn-path": "ch/qos/logback/logback-classic/1.5.18/logback-classic-1.5.18.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-PhUz0DIfiBXu9GdQruARG0FVT5pGRMPE0tQEdEsJ9g8="
+    },
+    {
+      "mvn-path": "ch/qos/logback/logback-classic/1.5.18/logback-classic-1.5.18.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-1VfNKrI95KR+zocGQhYqn5Rzn80LHDE+J4MlFO4gODM="
+    },
+    {
       "mvn-path": "ch/qos/logback/logback-core/1.0.12/logback-core-1.0.12.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-JmVSfKa0kHbheZ0unDZ5r2F9wGwXz213iWheldV9cEs="
@@ -126,9 +136,24 @@
       "hash": "sha256-jmdSp+CpUVeyQieOGLSyZDmFvUCSMct4GYzKLXZ5Kgw="
     },
     {
+      "mvn-path": "ch/qos/logback/logback-core/1.5.18/logback-core-1.5.18.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-hROee1e0ZPjl42Mm3YExdki+0ZnMxPmM1CWF+NdXECc="
+    },
+    {
+      "mvn-path": "ch/qos/logback/logback-core/1.5.18/logback-core-1.5.18.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-x3JHKX1dm7ngTpLUyC51xujqviRUNokvkRQzW4t5DIM="
+    },
+    {
       "mvn-path": "ch/qos/logback/logback-parent/1.0.12/logback-parent-1.0.12.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-IEaT8OldxoN5F5pnO0410vpysuqx1gi30pa/XXSJYE8="
+    },
+    {
+      "mvn-path": "ch/qos/logback/logback-parent/1.5.18/logback-parent-1.5.18.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-U8PiGxI7vTijAbQNDYFAlOrUehAj0h1hPMdI1w57nGk="
     },
     {
       "mvn-path": "cheshire/cheshire/5.11.0/cheshire-5.11.0.jar",
@@ -3199,16 +3224,6 @@
       "mvn-path": "org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-xWuAoKa+oqBGPnDQiSrjOKnlB+SGdnpSBFNAmBIFjRs="
-    },
-    {
-      "mvn-path": "org/slf4j/slf4j-simple/2.0.17/slf4j-simple-2.0.17.jar",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-3f6lmsB0xtPiSsLDhiLS2WOJXhf3CzjtS9rk14C+aWQ="
-    },
-    {
-      "mvn-path": "org/slf4j/slf4j-simple/2.0.17/slf4j-simple-2.0.17.pom",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-+zDo4vauotKYQnmGd+1FQbmyJVcVwVg1DKLF9ce4ZLA="
     },
     {
       "mvn-path": "org/sonatype/forge/forge-parent/4/forge-parent-4.pom",
