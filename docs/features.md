@@ -26,7 +26,7 @@ It supports both MCP server tools + ECA native tools.
 
 !!! info "Approval / permissions"
 
-    By default, ECA ask to approve any tool, you can easily configure that, check `toolCall approval` [config](./config.md) or try the `plan` behavior.
+    By default, ECA ask to approve any tool, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` behavior.
 
 #### Native tools
 

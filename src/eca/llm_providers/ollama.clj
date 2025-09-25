@@ -126,7 +126,7 @@
                              done_reason
                              (if-let [tool-call (get @tool-calls* rid)]
                                ;; TODO support multiple tool calls
-                               (let [{:keys [new-messages]} (on-tools-called [tool-call])]
+                               (when-let [{:keys [new-messages]} (on-tools-called [tool-call])]
                                  (swap! tool-calls* dissoc rid)
                                  (base-completion-request!
                                   {:rid (llm-util/gen-rid)

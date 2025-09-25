@@ -255,8 +255,9 @@
                                             :summary "Listing file tree"
                                             :totalTimeMs (m/pred number?)
                                             :error false
-                                            :outputs [{:type "text" :text (str "├── file1.md\n"
-                                                                               "└── file2.md\n\n"
+                                            :outputs [{:type "text" :text (str (h/project-path->canon-path "resources") "\n"
+                                                                               " file1.md\n"
+                                                                               " file2.md\n\n"
                                                                                "0 directories, 2 files")}]})
         (match-content chat-id "assistant" {:type "text" :text "The files I see:\n"})
         (match-content chat-id "assistant" {:type "text" :text "file1\nfile2\n"})
@@ -274,8 +275,9 @@
                        :arguments (str "{\"path\":\"" (h/project-path->canon-path "resources") "\"}")}
                       {:type "function_call_output"
                        :call_id "tool-1"
-                       :output (str "├── file1.md\n"
-                                    "└── file2.md\n\n"
+                       :output (str (h/project-path->canon-path "resources") "\n"
+                                    " file1.md\n"
+                                    " file2.md\n\n"
                                     "0 directories, 2 files\n")}]
               :tools (m/embeds
                       [{:name "eca_directory_tree"}])

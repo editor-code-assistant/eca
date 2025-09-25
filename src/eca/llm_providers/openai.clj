@@ -203,11 +203,10 @@
                                    :output-tokens (-> response :usage :output_tokens)
                                    :input-cache-read-tokens input-cache-read-tokens}))
               (if (seq tool-calls)
-                (let [{:keys [new-messages]} (on-tools-called tool-calls)
-                      input (normalize-messages new-messages supports-image?)]
+                (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
                   (base-completion-request!
                    {:rid (llm-util/gen-rid)
-                    :body (assoc body :input input)
+                    :body (assoc body :input (normalize-messages new-messages supports-image?))
                     :api-url api-url
                     :url-relative-path url-relative-path
                     :api-key api-key

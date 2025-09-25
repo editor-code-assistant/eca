@@ -171,20 +171,20 @@
         valid-tools (remove :parse-error completed-tools)]
     (if (seq completed-tools)
       ;; We have some completed tools (valid or with errors), so continue the conversation
-      (let [{:keys [new-messages]} (on-tools-called valid-tools)
-            new-messages-list (vec (concat
-                                    (when instructions [{:role "system" :content instructions}])
-                                    (normalize-messages new-messages supports-image?)))]
-        (reset! tool-calls-atom {})
-        (let [new-rid (llm-util/gen-rid)]
-          (base-request!
-           {:rid new-rid
-            :body (assoc body :messages new-messages-list)
-            :extra-headers extra-headers
-            :api-url api-url
-            :api-key api-key
-            :on-error on-error
-            :on-response (fn [event data] (handle-response event data tool-calls-atom new-rid))})))
+      (when-let [{:keys [new-messages]} (on-tools-called valid-tools)]
+        (let [new-messages-list (vec (concat
+                                      (when instructions [{:role "system" :content instructions}])
+                                      (normalize-messages new-messages supports-image?)))]
+          (reset! tool-calls-atom {})
+          (let [new-rid (llm-util/gen-rid)]
+            (base-request!
+             {:rid new-rid
+              :body (assoc body :messages new-messages-list)
+              :extra-headers extra-headers
+              :api-url api-url
+              :api-key api-key
+              :on-error on-error
+              :on-response (fn [event data] (handle-response event data tool-calls-atom new-rid))}))))
       ;; No completed tools at all - let the streaming response provide the actual finish_reason
       nil)))
 

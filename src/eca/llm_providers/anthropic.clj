@@ -218,21 +218,21 @@
                                                                  {:id (:id content-block)
                                                                   :name (:name content-block)
                                                                   :arguments (json/parse-string (:input-json content-block))}))
-                                                             (vals @content-block*))
-                                                 {:keys [new-messages]} (on-tools-called tool-calls)
-                                                 messages (-> (normalize-messages new-messages supports-image?)
-                                                              add-cache-to-last-message)]
-                                             (reset! content-block* {})
-                                             (base-request!
-                                              {:rid (llm-util/gen-rid)
-                                               :body (assoc body :messages messages)
-                                               :api-url api-url
-                                               :api-key api-key
-                                               :auth-type auth-type
-                                               :url-relative-path url-relative-path
-                                               :content-block* (atom nil)
-                                               :on-error on-error
-                                               :on-response handle-response}))
+                                                             (vals @content-block*))]
+                                             (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
+                                               (let [messages (-> (normalize-messages new-messages supports-image?)
+                                                                  add-cache-to-last-message)]
+                                                 (reset! content-block* {})
+                                                 (base-request!
+                                                  {:rid (llm-util/gen-rid)
+                                                   :body (assoc body :messages messages)
+                                                   :api-url api-url
+                                                   :api-key api-key
+                                                   :auth-type auth-type
+                                                   :url-relative-path url-relative-path
+                                                   :content-block* (atom nil)
+                                                   :on-error on-error
+                                                   :on-response handle-response}))))
                                 "end_turn" (do
                                              (reset! content-block* {})
                                              (on-message-received {:type :finish

@@ -13,7 +13,7 @@ Eca is written in Clojure and compiled into a native binary via graalvm.
     - [Emacs](https://github.com/editor-code-assistant/eca-emacs)
     - [VsCode](https://github.com/editor-code-assistant/eca-vscode)
     - [Vim](https://github.com/editor-code-assistant/eca-nvim)
-    - Intellij: Planned, help welcome
+    - [Intellij](https://github.com/editor-code-assistant/eca-intellij)
   
 === "Script (recommended if manual installing)"
 

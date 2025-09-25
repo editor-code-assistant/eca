@@ -39,7 +39,7 @@
     (is (match?
          {:error false
           :contents [{:type :text
-                      :text (multi-str "/foo/bar/baz"
+                      :text (multi-str (h/file-path "/foo/bar/baz")
                                        " qux"
                                        ""
                                        "1 directories, 0 files")}]}

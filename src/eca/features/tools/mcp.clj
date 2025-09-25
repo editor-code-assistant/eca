@@ -10,6 +10,7 @@
    [com.fasterxml.jackson.databind ObjectMapper]
    [io.modelcontextprotocol.client McpClient McpSyncClient]
    [io.modelcontextprotocol.client.transport HttpClientStreamableHttpTransport ServerParameters StdioClientTransport]
+   [io.modelcontextprotocol.json McpJsonMapper]
    [io.modelcontextprotocol.spec
     McpSchema$CallToolRequest
     McpSchema$CallToolResult
@@ -50,7 +51,7 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
-(defn ^:private ->transport ^McpTransport [server-config workspaces]
+(defn ^:private ->transport ^McpTransport [server-name server-config workspaces]
   (if (:url server-config)
     ;; HTTP Streamable transport
     (let [url (replace-env-vars (:url server-config))]
@@ -73,10 +74,13 @@
                                first
                                :uri
                                shared/uri->filename)
-                       (config/get-property "user.home"))]
-      (proxy [StdioClientTransport] [(.build b)]
-        (getProcessBuilder [] (-> (ProcessBuilder. ^List pb-init-args)
-                                  (.directory (io/file work-dir))))))))
+                       (config/get-property "user.home"))
+          stdio-transport (proxy [StdioClientTransport] [(.build b) (McpJsonMapper/getDefault)]
+                            (getProcessBuilder [] (-> (ProcessBuilder. ^List pb-init-args)
+                                                      (.directory (io/file work-dir)))))]
+      (.setStdErrorHandler stdio-transport (fn [msg]
+                                             (logger/info logger-tag (format "[%s] %s" server-name msg))))
+      stdio-transport)))
 
 (defn ^:private ->client ^McpSyncClient [name transport init-timeout workspaces]
   (-> (McpClient/sync transport)
@@ -165,7 +169,7 @@
         server-config (get-in config [:mcpServers name])
         obj-mapper (ObjectMapper.)
         init-timeout (:mcpTimeoutSeconds config)
-        transport (->transport server-config workspaces)
+        transport (->transport name server-config workspaces)
         client (->client name transport init-timeout workspaces)]
     (on-server-updated (->server name server-config :starting db))
     (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
