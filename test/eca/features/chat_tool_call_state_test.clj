@@ -408,7 +408,7 @@
         (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                                      {:name "list_files" :origin "filesystem" :arguments {:path "/tmp"}})]
           (is (match? {:status :executing
-                       :actions [:set-start-time :set-call-future :send-toolCallRunning]}
+                       :actions [:set-start-time :set-call-future :send-toolCallRunning :send-progress]}
                       result)
               "Expected transition to :executing status with no additional actions")
 
@@ -426,7 +426,7 @@
               result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end result-data)]
 
           (is (match? {:status :completed
-                       :actions [:send-toolCalled :log-metrics]}
+                       :actions [:send-toolCalled :log-metrics :send-progress]}
                       result)
               "Expected transition to :completed with send toolCalled and record metrics actions")
 
@@ -835,7 +835,7 @@
               result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end error-result)]
 
           (is (match? {:status :completed
-                       :actions [:send-toolCalled :log-metrics]}
+                       :actions [:send-toolCalled :log-metrics :send-progress]}
                       result)
               "Expected transition to :completed with send toolCalled and record metrics actions")
 

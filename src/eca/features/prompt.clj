@@ -26,9 +26,9 @@
 (def ^:private title-prompt-template (memoize title-prompt-template*))
 
 ;; TODO
-;; (defn ^:private inline-completion-prompt-template* [] (slurp (io/resource "prompts/inline_completion.md")))
-(defn ^:private inline-completion-prompt-template* [] (slurp "/home/greg/dev/eca/resources/prompts/inline_completion.md"))
-(def ^:private inline-completion-prompt-template (memoize inline-completion-prompt-template*))
+(defn ^:private inline-completion-prompt-template* [] (slurp (io/resource "prompts/inline_completion.md")))
+(defn ^:private inline-completion-prompt-template [] (slurp "/home/greg/dev/eca/resources/prompts/inline_completion.md"))
+;; (def ^:private inline-completion-prompt-template (memoize inline-completion-prompt-template*))
 
 (defn ^:private compact-prompt-template* [file-path]
   (if (fs/relative? file-path)

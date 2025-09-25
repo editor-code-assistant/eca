@@ -247,6 +247,7 @@
                                             :name "eca_directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
                                             :summary "Listing file tree"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
         (match-content chat-id "assistant" {:type "toolCalled"
                                             :origin "native"
                                             :id "tool-1"

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.58.1
+
+- Improve progress notification when tool is running.
+
 ## 0.58.0
 
 - Bump MCP java sdk to 0.13.1

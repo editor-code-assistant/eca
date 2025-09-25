@@ -135,11 +135,11 @@
 
    [:execution-approved :execution-start]
    {:status :executing
-    :actions [:set-start-time :set-call-future :send-toolCallRunning]}
+    :actions [:set-start-time :set-call-future :send-toolCallRunning :send-progress]}
 
    [:executing :execution-end]
    {:status :completed
-    :actions [:send-toolCalled :log-metrics]}
+    :actions [:send-toolCalled :log-metrics :send-progress]}
 
    ;; And now all the :stop-requested transitions
 
@@ -174,8 +174,8 @@
     :send-progress
     (send-content! chat-ctx :system
                    {:type :progress
-                    :state (:state event-data)
-                    :text (:text event-data)})
+                    :state :running
+                    :text (:progress-text event-data)})
 
     :send-toolCallPrepare
     (send-content! chat-ctx :assistant
@@ -489,8 +489,7 @@
                                      (when-not (#{:stopped :rejected} (:status (get-tool-call-state @db* chat-id id)))
                                        (case approval
                                          :ask (transition-tool-call! db* chat-ctx id :approval-ask
-                                                                     {:state :running
-                                                                      :text "Waiting for tool call approval"})
+                                                                     {:progress-text "Waiting for tool call approval"})
                                          :allow (transition-tool-call! db* chat-ctx id :approval-allow
                                                                        {:reason {:code :user-config-allow
                                                                                  :text "Tool call allowed by user config"}})
@@ -534,6 +533,7 @@
                                                                              :error (:error result)
                                                                              :outputs (:contents result)
                                                                              :total-time-ms (- (System/currentTimeMillis) start-time)
+                                                                             :progress-text "Generating"
                                                                              :details details
                                                                              :summary summary}))))]
                                            (transition-tool-call! db* chat-ctx id :execution-start
@@ -543,7 +543,8 @@
                                                                    :arguments arguments
                                                                    :start-time (System/currentTimeMillis)
                                                                    :details details
-                                                                   :summary summary})))
+                                                                   :summary summary
+                                                                   :progress-text "Calling tool"})))
                                        ;; assert: In :rejected state
                                        (let [tool-call-state (get-tool-call-state @db* chat-id id)
                                              {:keys [code text]} (:decision-reason tool-call-state)]
@@ -574,9 +575,7 @@
                                                :text "Tell ECA what to do differently for the rejected tool"})
                                (finish-chat-prompt! :idle chat-ctx)
                                nil)
-                             (do
-                               (send-content! chat-ctx :system {:type :progress :state :running :text "Generating"})
-                               {:new-messages (get-in @db* [:chats chat-id :messages])}))))
+                             {:new-messages (get-in @db* [:chats chat-id :messages])})))
       :on-reason (fn [{:keys [status id text external-id]}]
                    (assert-chat-not-stopped! chat-ctx)
                    (case status

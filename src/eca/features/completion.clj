@@ -2,10 +2,11 @@
   (:require
    [clojure.string :as string]
    [eca.features.prompt :as f.prompt]
-   [eca.llm-api :as llm-api]))
+   [eca.llm-api :as llm-api]
+   [eca.logger :as logger]))
 
 (defn complete [{:keys [doc-text doc-version position]} db* config]
-  (let [full-model "openai/gpt-5-mini"
+  (let [full-model "openai/gpt-4.1"
         [provider model] (string/split full-model #"/" 2)
         db @db*
         model-capabilities (get-in db [:models full-model])
@@ -13,6 +14,7 @@
         {:keys [line character]} position
         input-code doc-text
         instructions (f.prompt/inline-completion-prompt line character)
+        _ (logger/info "--->" instructions)
         {:keys [error-message result]} (llm-api/complete!
                                         {:provider provider
                                          :model model

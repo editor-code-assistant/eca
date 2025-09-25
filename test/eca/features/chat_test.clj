@@ -212,6 +212,7 @@
              {:role :assistant :content {:type :toolCallPrepare :id "call-1" :name "list_allowed_directories" :arguments-text ""}}
              {:role :assistant :content {:type :toolCallRun :id "call-1" :name "list_allowed_directories" :arguments {} :manual-approval false}}
              {:role :assistant :content {:type :toolCallRunning :id "call-1" :name "list_allowed_directories" :arguments {}}}
+             {:role :system :content {:type :progress :state :running :text "Calling tool"}}
              {:role :assistant :content {:type :toolCalled :id "call-1" :name "list_allowed_directories" :arguments {} :total-time-ms number? :outputs [{:content "Allowed directories: /foo/bar" :type :text}]}}
              {:role :system :content {:type :progress :state :running :text "Generating"}}
              {:role :assistant :content {:type :text :text "I can see: \n"}}

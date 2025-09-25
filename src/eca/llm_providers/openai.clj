@@ -253,7 +253,7 @@
                                        {:model model
                                         :input input-code
                                         :reasoning (when reason?
-                                                     {:effort "minimal"})
+                                                     {:effort "medium"})
                                         :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
                                         :instructions (if (= :auth/oauth auth-type)
                                                         (str "You are Codex." instructions)
