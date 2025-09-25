@@ -26,5 +26,5 @@ Output contract
 - Stop once a coherent, compilable micro-completion is formed.
 
 User cursor position (1-based):
-- line: $linePosition
-- character: $characterPosition
+- line: {linePosition}
+- character: {characterPosition}
