@@ -700,7 +700,7 @@
 <p class="admonition-title">Warning</p>
 <p>ECA is already automatically downloaded and updated in all editor plugins, so you don't need to handle it manually, even so, if you want that, check the other methods.</p>
 </div>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="editor-recommended" name="__tabbed_1" type="radio" /><input id="script-recommended-if-manual-installing" name="__tabbed_1" type="radio" /><input id="homebrew" name="__tabbed_1" type="radio" /><input id="gtihub-releases" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="editor-recommended">Editor (recommended)</label><label for="script-recommended-if-manual-installing">Script (recommended if manual installing)</label><label for="homebrew">Homebrew</label><label for="gtihub-releases">Gtihub releases</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:5"><input checked="checked" id="editor-recommended" name="__tabbed_1" type="radio" /><input id="script-recommended-if-manual-installing" name="__tabbed_1" type="radio" /><input id="homebrew" name="__tabbed_1" type="radio" /><input id="mise" name="__tabbed_1" type="radio" /><input id="gtihub-releases" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="editor-recommended">Editor (recommended)</label><label for="script-recommended-if-manual-installing">Script (recommended if manual installing)</label><label for="homebrew">Homebrew</label><label for="mise">mise</label><label for="gtihub-releases">Gtihub releases</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>ECA is already downloaded automatically by your ECA editor plugin, so you just need to install the plugin for your editor:</p>
@@ -728,6 +728,24 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
+<p>Install using <a href="https://mise.jdx.dev">mise</a> </p>
+<div class="highlight"><pre><span></span><code># Install the plugin
+mise plugin install eca https://github.com/editor-code-assistant/eca-mise-plugin
+
+# Install latest version ECA
+mise install eca
+mise use -g eca
+
+# or install and use
+# desired version
+mise install eca@0.58.0
+mise use -g eca@0.58.0
+
+# Verify installation
+eca --version
+</code></pre></div>
+</div>
+<div class="tabbed-block">
 <p>You can download the <a href="https://github.com/editor-code-assistant/eca/releases">native binaries from Github Releases</a>, although it's easy to have outdated ECA using this way.</p>
 </div>
 </div>
@@ -752,7 +770,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2025 15:17:57 UTC">September 26, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2025 15:20:59 UTC">September 26, 2025</span>
   </span>
 
     
