@@ -44,14 +44,16 @@
    (map (fn [[name tool]]
           [name (-> tool
                     (assoc :name name)
-                    (update :description #(-> %
-                                              (string/replace #"\$workspaceRoots" (constantly (tools.util/workspace-roots-strs db))))))]))
-   (merge {}
-          f.tools.filesystem/definitions
-          f.tools.shell/definitions
-          f.tools.editor/definitions
-          f.tools.chat/definitions
-          (f.tools.custom/definitions config))))
+                    (update :description #(if (string? %)
+                                           (string/replace % #"\$workspaceRoots" 
+                                                          (constantly (tools.util/workspace-roots-strs db)))
+                                           %)))])
+        (merge {}
+               f.tools.filesystem/definitions
+               f.tools.shell/definitions
+               f.tools.editor/definitions
+               f.tools.chat/definitions
+               (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
   (mapv #(assoc % :server "eca") (vals (native-definitions db config))))
