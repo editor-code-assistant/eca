@@ -44,10 +44,13 @@
    (map (fn [[name tool]]
           [name (-> tool
                     (assoc :name name)
-                    (update :description #(if (string? %)
-                                           (string/replace % #"\$workspaceRoots" 
-                                                          (constantly (tools.util/workspace-roots-strs db)))
-                                           %)))])
+                    (update :description
+                            (fn [desc]
+                              (if (string? desc)
+                                (string/replace desc
+                                                #"\$workspaceRoots"
+                                                (constantly (tools.util/workspace-roots-strs db)))
+                                desc))))])
         (merge {}
                f.tools.filesystem/definitions
                f.tools.shell/definitions
