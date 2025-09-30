@@ -8,7 +8,7 @@ Chat is the main feature of ECA, allowing user to talk with LLM to behave like a
 
 ![](./images/features/chat-behaviors.png)
 
-Behavior affect the prompt passed to LLM and the tools to include, ECA allow to override or customize your owns behaviors, the built-in provider behaviors are:
+Behavior affect the prompt passed to LLM and the tools to include, ECA allow to override or __create your owns behaviors__, the built-in provider behaviors are:
 
 - `plan`: Useful to plan changes and define better LLM plan before changing code via agent mode, has ability to preview changes (Check picture). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_behavior.md)
 - `agent`: Make changes to code via file changing tools. (Default) [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/agent_behavior.md)
