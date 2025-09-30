@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.62.1
+
 - Add `claude-sonnet-4.5` for github-copilot provider.
 - Add `prompt-received` metric.
 
