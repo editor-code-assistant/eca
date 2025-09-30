@@ -56,7 +56,8 @@
                                           "gpt-5-mini" {}
                                           "gpt-4.1" {}
                                           "gemini-2.5-pro" {}
-                                          "claude-sonnet-4" {}}}
+                                          "claude-sonnet-4" {}
+                                          "claude-sonnet-4.5" {}}}
                "google" {:api "openai-chat"
                          :url "https://generativelanguage.googleapis.com/v1beta/openai"
                          :key nil

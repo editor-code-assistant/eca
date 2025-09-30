@@ -18,6 +18,7 @@
                 "anthropic/claude-sonnet-4-20250514"
                 "anthropic/claude-sonnet-4-5-20250929"
                 "github-copilot/claude-sonnet-4"
+                "github-copilot/claude-sonnet-4.5"
                 "github-copilot/gemini-2.5-pro"
                 "github-copilot/gpt-4.1"
                 "github-copilot/gpt-5"
