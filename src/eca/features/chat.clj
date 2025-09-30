@@ -16,7 +16,8 @@
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :as shared :refer [assoc-some]]))
+   [eca.shared :as shared :refer [assoc-some]]
+   [eca.metrics :as metrics]))
 
 (set! *warn-on-reflection* true)
 
@@ -790,6 +791,10 @@
       :mcp-prompt (send-mcp-prompt! decision chat-ctx)
       :eca-command (handle-command! decision chat-ctx)
       :prompt-message (prompt-messages! user-messages chat-ctx))
+    (metrics/count-up! "prompt-received"
+                       {:full-model full-model
+                        :behavior behavior}
+                       metrics)
     {:chat-id chat-id
      :model full-model
      :status :prompting}))
