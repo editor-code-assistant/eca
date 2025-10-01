@@ -16,8 +16,8 @@
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :as shared :refer [assoc-some]]
-   [eca.metrics :as metrics]))
+   [eca.metrics :as metrics]
+   [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
 
@@ -468,12 +468,12 @@
                             :tools []
                             :provider-auth provider-auth})]
           (let [title (-> title
-                          (subs 0 32)
+                          (subs 0 (min (count title) 30))
                           string/capitalize)]
             (swap! db* assoc-in [:chats chat-id :title] title)
             (send-content! chat-ctx :system (assoc-some
-                                              {:type :metadata}
-                                              :title title))))))
+                                             {:type :metadata}
+                                             :title title))))))
     (send-content! chat-ctx :system {:type :progress
                                      :state :running
                                      :text "Waiting model"})
