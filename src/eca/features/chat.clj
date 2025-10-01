@@ -467,9 +467,7 @@
                             :config config
                             :tools []
                             :provider-auth provider-auth})]
-          (let [title (-> title
-                          (subs 0 (min (count title) 30))
-                          string/capitalize)]
+          (let [title (subs title 0 (min (count title) 30))]
             (swap! db* assoc-in [:chats chat-id :title] title)
             (send-content! chat-ctx :system (assoc-some
                                              {:type :metadata}
