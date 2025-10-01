@@ -467,10 +467,13 @@
                             :config config
                             :tools []
                             :provider-auth provider-auth})]
-          (swap! db* assoc-in [:chats chat-id :title] title)
-          (send-content! chat-ctx :system (assoc-some
-                                           {:type :metadata}
-                                           :title title)))))
+          (let [title (-> title
+                          (subs 0 32)
+                          string/capitalize)]
+            (swap! db* assoc-in [:chats chat-id :title] title)
+            (send-content! chat-ctx :system (assoc-some
+                                              {:type :metadata}
+                                              :title title))))))
     (send-content! chat-ctx :system {:type :progress
                                      :state :running
                                      :text "Waiting model"})

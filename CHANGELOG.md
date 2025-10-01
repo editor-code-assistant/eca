@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support "accept and remember" tool call per session and name.
+- Avoid generating huge chat titles.
 
 ## 0.62.1
 
