@@ -530,7 +530,7 @@
                                          details (f.tools/tool-call-details-before-invocation name arguments)
                                          summary (f.tools/tool-call-summary all-tools name arguments config)
                                          origin (tool-name->origin name all-tools)
-                                         approval (f.tools/approval all-tools name arguments db config behavior)
+                                         approval (f.tools/approval all-tools name arguments @db* config behavior)
                                          ask? (= :ask approval)]
                                      ;; assert: In :preparing or :stopping or :stopped
                                      ;; Inform client the tool is about to run and store approval promise
@@ -799,22 +799,21 @@
      :model full-model
      :status :prompting}))
 
-(defn tool-call-approve [{:keys [chat-id tool-call-id request-id]} db* messenger metrics]
-  (let [chat-ctx {;; What else is needed?
-                  :chat-id chat-id
+(defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
+  (let [chat-ctx {:chat-id chat-id
                   :db* db*
                   :metrics metrics
-                  :request-id request-id
                   :messenger messenger}]
     (transition-tool-call! db* chat-ctx tool-call-id :user-approve
                            {:reason {:code :user-choice-allow
-                                     :text "Tool call allowed by user choice"}})))
+                                     :text "Tool call allowed by user choice"}})
+    (when (= "session" save)
+      (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
+        (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true)))))
 
-(defn tool-call-reject [{:keys [chat-id tool-call-id request-id]} db* messenger metrics]
-  (let [chat-ctx {;; What else is needed?
-                  :chat-id chat-id
+(defn tool-call-reject [{:keys [chat-id tool-call-id]} db* messenger metrics]
+  (let [chat-ctx {:chat-id chat-id
                   :db* db*
-                  :request-id request-id
                   :metrics metrics
                   :messenger messenger}]
     (transition-tool-call! db* chat-ctx tool-call-id :user-reject

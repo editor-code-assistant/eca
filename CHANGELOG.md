@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support "accept and remember" tool call per session and name.
+
 ## 0.62.1
 
 - Add `claude-sonnet-4.5` for github-copilot provider.

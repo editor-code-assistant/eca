@@ -189,13 +189,17 @@
   "Return the approval keyword for the specific tool call: ask, allow or deny.
    Behavior parameter is required - pass nil for global-only approval rules."
   [all-tools tool-call-name args db config behavior]
-  (let [{:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
+  (let [remember-to-approve? (get-in db [:tool-calls tool-call-name :remember-to-approve?])
+        {:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
                                                             all-tools))
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                     (get-in config [:behavior behavior :toolCall :approval]))]
     (cond
       (and require-approval-fn (require-approval-fn args {:db db}))
       :ask
+
+      remember-to-approve?
+      :allow
 
       (some #(approval-matches? % server tool-call-name args) deny)
       :deny

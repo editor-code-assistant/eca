@@ -930,6 +930,11 @@ interface ChatToolCallApproveParams {
     chatId: string;
     
     /**
+     * The approach to save this tool call.
+     */
+    save?: 'session';
+
+    /**
      * The tool call identifier to approve.
      */
     toolCallId: string; 

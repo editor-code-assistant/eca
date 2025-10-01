@@ -88,7 +88,7 @@
       (is (= #{"plan_tool"}
              (#'f.tools/get-disabled-tools config "plan"))))))
 
-(deftest manual-approval?-test
+(deftest approval-test
   (let [all-tools [{:name "eca_read" :server "eca"}
                    {:name "eca_write" :server "eca"}
                    {:name "eca_shell" :server "eca" :require-approval-fn (constantly true)}
@@ -99,6 +99,8 @@
       (is (= :ask (f.tools/approval all-tools "eca_shell" {} {} {} nil))))
     (testing "tool has require-approval-fn which returns false we ignore it"
       (is (= :ask (f.tools/approval all-tools "eca_plan" {} {} {} nil))))
+    (testing "tool was remembered to approve by user"
+      (is (= :allow (f.tools/approval all-tools "eca_plan" {} {:tool-calls {"eca_plan" {:remember-to-approve? true}}} {} nil))))
     (testing "if legacy-manual-approval present, considers it"
       (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:manualApproval true}} nil))))
     (testing "if approval config is provided"
