@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.63.1
+
 - Add `gpt-5-codex` model as default for `openai` provider.
 
 ## 0.63.0
