@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.63.2
+
 - Fix retrocompatibility with some models not working with openai-chat like deepseek.
 
 ## 0.63.1
