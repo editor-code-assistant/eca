@@ -60,7 +60,6 @@
 (defn ^:private base-request! [{:keys [rid extra-headers body api-url api-key on-error on-response]}]
   (let [url (str api-url chat-completions-path)]
     (llm-util/log-request logger-tag rid url body)
-    (logger/info "--------> " (json/generate-string body))
     (http/post
      url
      {:headers (merge {"Authorization" (str "Bearer " api-key)
@@ -368,6 +367,13 @@
 
                                   ;; Process tool calls if present
                                   (when (:tool_calls delta)
+                                    ;; Flush any leftover buffered content before finishing
+                                    (let [buf @content-buffer*]
+                                      (when (pos? (count buf))
+                                        (if (= @reasoning-type* :tag)
+                                          (on-reason {:status :thinking :id @current-reason-id* :text buf})
+                                          (on-message-received {:type :text :text buf}))
+                                        (reset! content-buffer* "")))
                                     (doseq [tool-call (:tool_calls delta)]
                                       (let [{:keys [index id function]} tool-call
                                             {name :name args :arguments} function
