@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix retrocompatibility with some models not working with openai-chat like deepseek.
+
 ## 0.63.1
 
 - Add `gpt-5-codex` model as default for `openai` provider.

@@ -24,6 +24,10 @@
     [{:type "text"
       :text (string/trim content)}]
 
+    (and (sequential? content)
+         (every? #(= "text" (name (:type %))) content))
+    (->> content (map :text) (remove nil?) (string/join "\n"))
+
     (sequential? content)
     (vec
      (keep
@@ -56,6 +60,7 @@
 (defn ^:private base-request! [{:keys [rid extra-headers body api-url api-key on-error on-response]}]
   (let [url (str api-url chat-completions-path)]
     (llm-util/log-request logger-tag rid url body)
+    (logger/info "--------> " (json/generate-string body))
     (http/post
      url
      {:headers (merge {"Authorization" (str "Bearer " api-key)
@@ -69,7 +74,7 @@
        (try
          (if (not= 200 status)
            (let [body-str (slurp body)]
-             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
+             (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
              (on-error {:message (format "LLM response status: %s body: %s" status body-str)}))
            (with-open [rdr (io/reader body)]
              (doseq [[event data] (llm-util/event-data-seq rdr)]

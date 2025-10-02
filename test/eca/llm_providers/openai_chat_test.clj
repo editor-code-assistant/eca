@@ -56,8 +56,7 @@
            (#'llm-providers.openai-chat/extract-content "  Hello world  " true))))
 
   (testing "Sequential messages with actual format"
-    (is (= [{:type "text" :text "First message"}
-            {:type "text" :text "Second message"}]
+    (is (= "First message\nSecond message"
            (#'llm-providers.openai-chat/extract-content
             [{:type :text :text "First message"}
              {:type :text :text "Second message"}]
