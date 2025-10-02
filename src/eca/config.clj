@@ -33,7 +33,8 @@
                          :url "https://api.openai.com"
                          :key nil
                          :keyEnv "OPENAI_API_KEY"
-                         :models {"gpt-5" {}
+                         :models {"gpt-5-codex" {}
+                                  "gpt-5" {}
                                   "gpt-5-mini" {}
                                   "gpt-5-nano" {}
                                   "gpt-4.1" {}

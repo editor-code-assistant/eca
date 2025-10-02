@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `gpt-5-codex` model as default for `openai` provider.
+
 ## 0.63.0
 
 - Support "accept and remember" tool call per session and name.
