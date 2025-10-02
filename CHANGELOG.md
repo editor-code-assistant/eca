@@ -4,7 +4,7 @@
 
 ## 0.63.3
 
-- Fix laat word going after tool call for openai-chat API.
+- Fix last word going after tool call for openai-chat API.
 
 ## 0.63.2
 
