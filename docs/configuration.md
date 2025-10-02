@@ -148,7 +148,7 @@ Check some examples:
       "toolCall": {
         "approval": {
           "byDefault": "allow",
-          "allow": {
+          "ask": {
             "eca_shell_command": {"argsMatchers": {"command": [".*rm.*",
                                                                ".*mv.*"]}}
           }
