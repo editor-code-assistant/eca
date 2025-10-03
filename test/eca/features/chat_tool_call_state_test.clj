@@ -98,10 +98,12 @@
           "Expected state machine to contain [:execution-approved :stop-requested] transition")
       (is (contains? state-machine [:executing :stop-requested])
           "Expected state machine to contain [:executing :stop-requested] transition")
+      (is (contains? state-machine [:stopping :stop-requested])
+          "Expected state machine to contain [:stopping :stop-requested] transition")
+      (is (contains? state-machine [:cleanup :stop-requested])
+          "Expected state machine to contain [:cleanup :stop-requested] transition")
 
-      ;; Note: :rejected, :completed and :stopped are terminal states, so no stop transitions.
-      (is (not (contains? state-machine [:stopped :stop-requested]))
-          "Expected :rejected state to not have stop transition defined, since it is a terminal state")
+      ;; Note: :rejected and :completed are terminal states, so no stop transitions.
       (is (not (contains? state-machine [:rejected :stop-requested]))
           "Expected :rejected state to not have stop transition defined, since it is a terminal state")
       (is (not (contains? state-machine [:completed :stop-requested]))
@@ -259,7 +261,7 @@
       (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
 
         (is (match? {:status :check-approval
-                     :actions [:init-arguments :init-approval-promise :send-toolCallRun]}
+                     :actions [:init-arguments :init-approval-promise :init-future-cleanup-promise :send-toolCallRun]}
                     result)
             "Expected next state to be :check-approval with actions of :init-approval-promise and :send-toolCallRun")
 
@@ -314,7 +316,7 @@
       ;; Step 2: :preparing -> :check-approval
       (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
         (is (match? {:status :check-approval
-                     :actions [:init-arguments :init-approval-promise :send-toolCallRun]}
+                     :actions [:init-arguments :init-approval-promise :init-future-cleanup-promise :send-toolCallRun]}
                     result)
             "Expected transition to :check-approval with init promise and send run actions")
 
@@ -449,7 +451,7 @@
         (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                                      {:name "list_files" :origin "filesystem" :arguments {:path "/tmp"}})]
           (is (match? {:status :executing
-                       :actions [:set-start-time :set-call-future :send-toolCallRunning :send-progress]}
+                       :actions [:set-start-time :add-future :send-toolCallRunning :send-progress]}
                       result)
               "Expected transition to :executing status with no additional actions")
 
@@ -457,8 +459,8 @@
             (is (= :executing (:status tool-state))
                 "Expected tool call state to be in :executing status"))))
 
-      ;; Step 2: :executing -> :completed
-      (testing ":executing -> :completed transition"
+      ;; Step 2: :executing -> :cleanup
+      (testing ":executing -> :cleanup transition"
         (let [result-data {:outputs "file1.txt\nfile2.txt\nfile3.txt"
                            :error nil
                            :name "list_files"
@@ -466,14 +468,14 @@
                            :arguments {:path "/tmp"}}
               result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end result-data)]
 
-          (is (match? {:status :completed
-                       :actions [:send-toolCalled :log-metrics :send-progress]}
+          (is (match? {:status :cleanup
+                       :actions [:deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress]}
                       result)
-              "Expected transition to :completed with send toolCalled and record metrics actions")
+              "Expected transition to :cleanup with send toolCalled and record metrics actions")
 
           (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
-            (is (= :completed (:status tool-state))
-                "Expected tool call state to be in :completed status"))
+            (is (= :cleanup (:status tool-state))
+                "Expected tool call state to be in :cleanup status"))
 
           (let [messages (h/messages)
                 chat-messages (:chat-content-received messages)
@@ -499,15 +501,15 @@
           chat-id "test-chat"
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}]
 
-      ;; Test :initial -> :stopped
-      (testing ":initial -> :stopped"
+      ;; Test :initial -> :cleanup
+      (testing ":initial -> :cleanup"
         (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-initial" :stop-requested)]
-          (is (match? {:status :stopped :actions []} result)
-              "Expected transition from :initial to :stopped with no actions")))
+          (is (match? {:status :cleanup :actions []} result)
+              "Expected transition from :initial to :cleanup with no actions")))
 
-      ;; Test :preparing -> :stopped (already covered in transition-tool-call-stop-transitions-test)
-      ;; Test :check-approval -> :stopped
-      (testing ":check-approval -> :stopped"
+      ;; Test :preparing -> :cleanup (already covered in transition-tool-call-stop-transitions-test)
+      ;; Test :check-approval -> :cleanup
+      (testing ":check-approval -> :cleanup"
         (let [approved?* (promise)]
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-check" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
@@ -520,8 +522,8 @@
                         result)
                 "Expected transition from :check-approval to :rejected with relevant actions"))))
 
-      ;; Test :executing -> :stopping -> :stopped
-      (testing ":executing -> :stopping -> :stopped"
+      ;; Test :executing -> :stopping -> :cleanup
+      (testing ":executing -> :stopping -> :cleanup"
         (let [approved?* (promise)]
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
@@ -533,18 +535,18 @@
 
           (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :stop-requested)]
             (is (match? {:status :stopping
-                         :actions []}
+                         :actions [:cancel-future]}
                         result)
                 "Expected transition from :executing to :stopping with relevant actions"))
           (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :stop-attempted)]
-            (is (match? {:status :stopped
-                         :actions [:send-toolCallRejected]}
+            (is (match? {:status :cleanup
+                         :actions [:deliver-future-cleanup-completed :send-toolCallRejected]}
                         result)
-                "Expected transition from :stopping to :stopped with relevant actions"))))
+                "Expected transition from :stopping to :cleanup with relevant actions"))))
 
 
-      ;; Test :completed -> :stopped (should be no-op or error)
-      (testing ":completed -> :stopped (should handle gracefully)"
+      ;; Test :cleanup -> :cleanup (should be no-op or error)
+      (testing ":cleanup -> :cleanup (should handle gracefully)"
         (let [approved?* (promise)]
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
@@ -556,15 +558,15 @@
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :execution-end
                                           {:outputs "success" :error nil :name "test" :origin "test" :arguments {}})
 
-          ;; Now try to stop a completed tool call
-          (is (thrown-with-msg?
-               clojure.lang.ExceptionInfo
-               #"Invalid state transition"
-               (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :stop-requested))
-              "Expected exception as completed tool calls cannot be stopped")))
+          ;; Now try to stop a tool call in :cleanup
+          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :stop-requested)]
+            (is (match? {:status :cleanup
+                         :actions []}
+                        result)
+                "Expected a transition from :cleanup on :stop-requested to be a nop"))))
 
-      ;; Test :rejected -> :stopped
-      (testing ":rejected -> :stopped (should handle gracefully)"
+      ;; Test :rejected -> :cleanup
+      (testing ":rejected -> :cleanup (should handle gracefully)"
         (let [approved?* (promise)]
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
@@ -589,17 +591,17 @@
           chat-id "test-chat"
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}]
 
-      (testing ":preparing -> :stopped"
+      (testing ":preparing -> :cleanup"
         (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                         {:name "test" :origin "test" :arguments-text "{}"})
 
         (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :stop-requested)]
-          (is (match? {:status :stopped
+          (is (match? {:status :cleanup
                        :actions [:set-decision-reason :send-toolCallRejected]}
                       result)
-              "Expected transition to :stopped with send toolCallRejected action")
-          (is (= :stopped (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-1")))
-              "Expected tool call state to be in :stopped status")))
+              "Expected transition to :cleanup with send toolCallRejected action")
+          (is (= :cleanup (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-1")))
+              "Expected tool call state to be in :cleanup status")))
 
       (testing ":waiting-approval -> :rejected"
         (let [approved?* (promise)]
@@ -620,7 +622,7 @@
             (is (= false (deref approved?* 100 :timeout))
                 "Expected promise to be delivered with false value"))))
 
-      (testing ":execution-approved -> :stopped"
+      (testing ":execution-approved -> :cleanup"
         (let [approved?* (promise)]
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
@@ -629,12 +631,12 @@
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :approval-allow)
 
           (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :stop-requested)]
-            (is (match? {:status :stopped
+            (is (match? {:status :cleanup
                          :actions [:send-toolCallRejected]}
                         result)
-                "Expected transition to :stopped with send toolCallRejected action")
-            (is (= :stopped (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-3")))
-                "Expected tool call state to be in :stopped status")))))))
+                "Expected transition to :cleanup with send toolCallRejected action")
+            (is (= :cleanup (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-3")))
+                "Expected tool call state to be in :cleanup status")))))))
 
 (deftest test-stop-prompt-messages
   ;; Test what messages are sent when stop-prompt is called
@@ -827,7 +829,7 @@
 
 (deftest transition-tool-call-stop-during-execution-test
   ;; Test stopping a tool call during execution 
-  (testing ":executing -> :stopping -> :stopped transition"
+  (testing ":executing -> :stopping -> :cleanup transition"
     (h/reset-components!)
     (let [db* (h/db*)
           chat-id "test-chat"
@@ -856,8 +858,8 @@
             result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :stop-attempted)]
         (is (= :stopping (:status tool-state))
             "Expected tool call state to be in :stopping status")
-        (is (= :stopped (:status result))
-            "Expected tool call state to be :stopped after :stop-requested"))
+        (is (= :cleanup (:status result))
+            "Expected tool call state to be :cleanup after :stop-requested"))
       )))
 
 (deftest transition-tool-call-nonexistent-tool-call-operations-test
@@ -894,7 +896,7 @@
       (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                       {:name "test" :origin "test" :arguments {}})
 
-      (testing ":executing -> :completed with error"
+      (testing ":executing -> :cleanup with error"
         (let [error-result {:outputs nil
                             :error "File not found: /nonexistent/path"
                             :name "test"
@@ -902,10 +904,10 @@
                             :arguments {}}
               result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end error-result)]
 
-          (is (match? {:status :completed
-                       :actions [:send-toolCalled :log-metrics :send-progress]}
+          (is (match? {:status :cleanup
+                       :actions [:deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress]}
                       result)
-              "Expected transition to :completed with send toolCalled and record metrics actions")
+              "Expected transition to :cleanup with send toolCalled and record metrics actions")
 
           (let [messages (h/messages)
                 chat-messages (:chat-content-received messages)

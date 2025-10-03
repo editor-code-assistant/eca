@@ -246,6 +246,11 @@
   [name arguments details result]
   (tools.util/tool-call-details-after-invocation name arguments details result))
 
+(defn tool-call-destroy-resource!
+  "Destroy the resource in the tool call named `name`."
+  [name resource-kwd resource]
+  (tools.util/tool-call-destroy-resource! name resource-kwd resource))
+
 (defn refresh-tool-servers!
   "Updates all tool servers (native and MCP) with new behavior status."
   [tool-status-fn db* messenger config]
