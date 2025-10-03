@@ -29,13 +29,13 @@
                            (config/get-property "user.home"))
               _ (logger/debug logger-tag "Running command:" command-args)
               result (try
-                       (let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                    (p/process {:dir work-dir
-                                                :out :string
-                                                :err :string
-                                                :timeout timeout
-                                                :continue true} "bash -c" command-args))]
-                         (when proc
+                       (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
+                                       (p/process {:dir work-dir
+                                                   :out :string
+                                                   :err :string
+                                                   :timeout timeout
+                                                   :continue true} "bash -c" command-args))]
+                         (do
                            (state-transition-fn :resources-created {:resources {:process proc}})
                            (try (deref proc
                                        timeout
@@ -45,7 +45,8 @@
                                     (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
                                     (tools.util/tool-call-destroy-resource! "eca_shell_command" :process proc)
                                     (state-transition-fn :resources-destroyed {:resources [:process]})
-                                    {:exit 1 :err msg})))))
+                                    {:exit 1 :err msg}))))
+                         {:exit 1 :err "Tool call is :stopping, so shell rpocess not spawned"})
                        (catch Exception e
                          ;; Process did not start, or had an Exception (other than InterruptedException) during execution.
                          (let [msg (or (.getMessage e) "Caught an Exception during execution of the shell tool")]
