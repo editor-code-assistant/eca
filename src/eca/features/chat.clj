@@ -230,6 +230,7 @@
                     {:type :toolCallPrepare
                      :id tool-call-id
                      :name (:name event-data)
+                     :server (:server event-data)
                      :origin (:origin event-data)
                      :arguments-text (:arguments-text event-data)}
                     :summary (:summary event-data)))
@@ -240,6 +241,7 @@
                     {:type :toolCallRun
                      :id tool-call-id
                      :name (:name event-data)
+                     :server (:server event-data)
                      :origin (:origin event-data)
                      :arguments (:arguments event-data)
                      :manual-approval (:manual-approval event-data)}
@@ -252,6 +254,7 @@
                     {:type :toolCallRunning
                      :id tool-call-id
                      :name (:name event-data)
+                     :server (:server event-data)
                      :origin (:origin event-data)
                      :arguments (:arguments event-data)}
                     :details (:details event-data)
@@ -264,6 +267,7 @@
                      :id tool-call-id
                      :origin (:origin event-data)
                      :name (:name event-data)
+                     :server (:server event-data)
                      :arguments (:arguments event-data)
                      :error (:error event-data)
                      :total-time-ms (:total-time-ms event-data)
@@ -274,6 +278,7 @@
     :send-toolCallRejected
     (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)
           name (:name tool-call-state)
+          server (:server tool-call-state)
           origin (:origin tool-call-state)
           arguments (:arguments tool-call-state)]
       (send-content! chat-ctx :assistant
@@ -282,6 +287,7 @@
                        :id tool-call-id
                        :origin (or (:origin event-data) origin)
                        :name (or (:name event-data) name)
+                       :server (or (:server event-data) server)
                        :arguments (or (:arguments event-data) arguments)
                        :reason (:code (:reason event-data) :user)}
                       :details (:details event-data)
@@ -309,6 +315,7 @@
            ;; :future (future) is initialized by the :set-call-future action TODO: rename to :set-future
            ;; :resources (map) is updated by the :add-resources action
            :name (:name event-data)
+           :server (:server event-data)
            :arguments (:arguments event-data)
            :origin (:origin event-data)
            :decision-reason {:code :none
@@ -396,6 +403,9 @@
 
 (defn ^:private tool-name->origin [name all-tools]
   (:origin (first (filter #(= name (:name %)) all-tools))))
+
+(defn ^:private tool-name->server [name all-tools]
+  (:server (first (filter #(= name (:name %)) all-tools))))
 
 (defn ^:private tokenize-args [^String s]
   (if (string/blank? s)
@@ -516,6 +526,7 @@
                               (assert-chat-not-stopped! chat-ctx)
                               (transition-tool-call! db* chat-ctx id :tool-prepare
                                                      {:name name
+                                                      :server (tool-name->server name all-tools)
                                                       :origin (tool-name->origin name all-tools)
                                                       :arguments-text arguments-text
                                                       :summary (f.tools/tool-call-summary all-tools name nil config)}))
@@ -531,6 +542,7 @@
                                          details (f.tools/tool-call-details-before-invocation name arguments)
                                          summary (f.tools/tool-call-summary all-tools name arguments config)
                                          origin (tool-name->origin name all-tools)
+                                         server (tool-name->server name all-tools)
                                          approval (f.tools/approval all-tools name arguments @db* config behavior)
                                          ask? (= :ask approval)]
                                      ;; assert: In :preparing or :stopping or :stopped
@@ -539,7 +551,8 @@
                                        (transition-tool-call! db* chat-ctx id :tool-run
                                                               {:approved?* approved?*
                                                                :name name
-                                                               :origin (tool-name->origin name all-tools)
+                                                               :server server
+                                                               :origin origin
                                                                :arguments arguments
                                                                :manual-approval ask?
                                                                :details details
@@ -579,20 +592,23 @@
                                                                        :content (assoc tool-call
                                                                                        :details details
                                                                                        :summary summary
-                                                                                       :origin origin)})
+                                                                                       :origin origin
+                                                                                       :server server)})
                                                      (add-to-history! {:role "tool_call_output"
                                                                        :content (assoc tool-call
                                                                                        :error (:error result)
                                                                                        :output result
                                                                                        :details details
                                                                                        :summary summary
-                                                                                       :origin origin)})
+                                                                                       :origin origin
+                                                                                       :server server)})
                                                      ;; assert: In :executing or :stopping
                                                      (let [status (:status (get-tool-call-state  @db* chat-id id))]
                                                        (case status
                                                          :executing (transition-tool-call! db* chat-ctx id :execution-end
                                                                                            {:origin origin
                                                                                             :name name
+                                                                                            :server server
                                                                                             :arguments arguments
                                                                                             :error (:error result)
                                                                                             :outputs (:contents result)
@@ -603,6 +619,7 @@
                                                          :stopping (transition-tool-call! db* chat-ctx id :stop-attempted
                                                                                           {:origin origin
                                                                                            :name name
+                                                                                           :server server
                                                                                            :arguments arguments
                                                                                            :error (:error result)
                                                                                            :outputs (:contents result)
@@ -615,6 +632,7 @@
                                                                   {:delayed-future delayed-future
                                                                    :origin origin
                                                                    :name name
+                                                                   :server server
                                                                    :arguments arguments
                                                                    :start-time (System/currentTimeMillis)
                                                                    :details details
@@ -632,6 +650,7 @@
                                          (transition-tool-call! db* chat-ctx id :send-reject
                                                                 {:origin origin
                                                                  :name name
+                                                                 :server server
                                                                  :arguments arguments
                                                                  :reason code
                                                                  :details details
@@ -710,11 +729,13 @@
     "tool_call" {:type :toolCallPrepare
                  :origin (:origin message-content)
                  :name (:name message-content)
+                 :server (:server message-content)
                  :arguments-text ""
                  :id (:id message-content)}
     "tool_call_output" {:type :toolCalled
                         :origin (:origin message-content)
                         :name (:name message-content)
+                        :server (:server message-content)
                         :arguments (:arguments message-content)
                         :error (:error message-content)
                         :id (:id message-content)

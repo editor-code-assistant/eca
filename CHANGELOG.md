@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `server` to tool call messages.
+
 ## 0.63.3
 
 - Fix last word going after tool call for openai-chat API.
