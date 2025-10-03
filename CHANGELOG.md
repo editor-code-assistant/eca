@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.64.0
+
 - Add `server` to tool call messages.
 
 ## 0.63.3
