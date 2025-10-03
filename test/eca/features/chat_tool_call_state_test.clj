@@ -26,10 +26,12 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           resources {:a 1 :b 2}]
       (#'f.chat/execute-action! :init-tool-call-state db* chat-ctx tool-call-id {:name tool-name
+                                                                                 :server "eca"
                                                                                  :arguments tool-arguments
                                                                                  :origin tool-origin})
       (is (= (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)
              {:name tool-name
+              :server "eca" 
               :arguments tool-arguments
               :origin tool-origin
               :decision-reason {:code :none
@@ -887,17 +889,18 @@
           approved?* (promise)]
 
       (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
-                                      {:name "test" :origin "test" :arguments-text "{}"})
+                                      {:name "test" :server "eca" :origin "test" :arguments-text "{}"})
       (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
-                                      {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval false})
+                                      {:approved?* approved?* :name "test" :server "eca" :origin "test" :arguments {} :manual-approval false})
       (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
       (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
-                                      {:name "test" :origin "test" :arguments {}})
+                                      {:name "test" :server "eca" :origin "test" :arguments {}})
 
       (testing ":executing -> :completed with error"
         (let [error-result {:outputs nil
                             :error "File not found: /nonexistent/path"
                             :name "test"
+                            :server "eca"
                             :origin "test"
                             :arguments {}}
               result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end error-result)]
