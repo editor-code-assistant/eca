@@ -673,6 +673,11 @@ interface ChatToolCallPrepareContent {
      */
     name: string;
     
+    /**
+     * Server name of this tool
+     */
+    server: string;
+    
     /*
      * Argument text of this tool call
      */
@@ -708,6 +713,11 @@ interface ChatToolCallRunContent {
      * Name of the tool
      */
     name: string;
+    
+    /**
+     * Server name of this tool
+     */
+    server: string;
     
     /*
      * Arguments of this tool call
@@ -750,6 +760,11 @@ interface ChatToolCallRunningContent {
      */
     name: string;
     
+    /**
+     * Server name of this tool
+     */
+    server: string;
+    
     /*
      * Arguments of this tool call
      */
@@ -785,6 +800,11 @@ interface ChatToolCalledContent {
      * Name of the tool
      */
     name: string;
+    
+    /**
+     * Server name of this tool
+     */
+    server: string;
     
     /*
      * Arguments of this tool call
@@ -846,6 +866,11 @@ interface ChatToolCallRejectedContent {
      * Name of the tool
      */
     name: string;
+    
+    /**
+     * Server name of this tool
+     */
+    server: string;
     
     /*
      * Arguments of this tool call
