@@ -68,12 +68,12 @@ For MCP servers configuration, use the `mcpServers` config, examples:
           "command": "npx",
           "args": ["-y", "@modelcontextprotocol/server-memory"],
           // optional
-          "env": {"FOO": "bar"} 
+          "env": {"FOO": "bar"}
         }
       }
     }
     ```
-    
+
 === "HTTP-streamable"
 
     `~/.config/eca/config.json`
@@ -138,7 +138,7 @@ Check some examples:
       }
     }
     ```
-   
+
 === "Matching by a tool argument"
 
     __`argsMatchers`__ is a map of argument name by list of [java regex](https://www.regexplanet.com/advanced/java/index.html).
@@ -156,7 +156,7 @@ Check some examples:
       }
     }
     ```
-    
+
 === "Denying a tool"
 
     ```javascript
@@ -336,7 +336,7 @@ There are 3 possible ways to configure rules following this order of priority:
       "rules": [{"path": "my-rule.md"}]
     }
     ```
-    
+
 ## Behaviors / prompts
 
 ECA allows to totally customize the prompt sent to LLM via the `behavior` config, allowing to have multiple behaviors for different tasks or workflows.
@@ -379,6 +379,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             urlEnv?: string;
             key?: string; // when provider supports api key.
             keyEnv?: string;
+            keyRc?: string; // credential file lookup in format [login@]machine[:port]
             completionUrlRelativePath?: string;
             models: {[key: string]: {
               extraPayload?: {[key: string]: any}

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add support for secrets stored in authinfo and netrc files
 - Added tests for stopping concurrent tool calls. #147
 - Improve logging.
 

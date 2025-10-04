@@ -3,7 +3,8 @@
    [cheshire.core :as json]
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.logger :as logger])
+   [eca.logger :as logger]
+   [eca.secrets :as secrets])
   (:import
    [java.io BufferedReader]
    [java.nio.charset StandardCharsets]
@@ -96,7 +97,10 @@
 (defn provider-api-key [provider provider-auth config]
   (or (get-in config [:providers (name provider) :key])
       (:api-key provider-auth)
-      (some-> (get-in config [:providers (name provider) :keyEnv]) config/get-env)))
+      (when-let [key-rc (get-in config [:providers (name provider) :keyRc])]
+        (secrets/get-credential key-rc))
+      (some-> (get-in config [:providers (name provider) :keyEnv])
+              config/get-env)))
 
 (defn provider-api-url [provider config]
   (or (get-in config [:providers (name provider) :url])

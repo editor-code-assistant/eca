@@ -9,6 +9,13 @@
       "hash": "sha256-HllBWtwTtYYM0KjHB9UVDBjB57CtpvF+gncQseGXgf8="
     },
     {
+      "lib": "br.dev.zz/parc",
+      "url": "https://github.com/souenzzo/parc",
+      "rev": "76f0714e6b93a053d67d473c33dfc279dfb94d23",
+      "git-dir": "https/github.com/souenzzo/parc",
+      "hash": "sha256-6ISYa9g5kOGkay3ums4Tys2/krPTIFqQKAtT8rfaZ4k="
+    },
+    {
       "lib": "io.github.clojure/tools.build",
       "url": "https://github.com/clojure/tools.build.git",
       "rev": "573711ea65f7d324a6a6cdd3ac20cb30bba47e48",
