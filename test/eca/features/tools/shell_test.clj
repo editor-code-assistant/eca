@@ -9,8 +9,11 @@
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
+(def ^:private call-state-fn (constantly {:status :executing}))
+(def ^:private state-transition-fn (constantly nil))
+
 (deftest shell-command-test
-  (testing "inexistent working_directory"
+  (testing "non-existent working_directory"
     (is (match?
          {:error true
           :contents [{:type :text
@@ -19,7 +22,9 @@
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/baz")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
   (testing "command exited with non-zero exit code"
     (is (match?
          {:error true
@@ -31,7 +36,9 @@
                        p/process (constantly (future {:exit 1 :err "Some error"}))]
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
   (testing "command succeeds"
     (is (match?
          {:error false
@@ -41,7 +48,9 @@
                        p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
   (testing "command succeeds with different working directory"
     (is (match?
          {:error false
@@ -52,7 +61,9 @@
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/project/foo/src")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
   (testing "command exceeds timeout"
     (is (match?
          {:error true
@@ -63,7 +74,32 @@
            ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
             {"command" "ls -lh"
              "timeout" 50}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn}))))))
+
+(deftest shell-stores-process-test
+  (testing "Shell command stores the process as a resource in the tool call state"
+    (let [call-state (atom nil)
+          proc (atom nil)
+          state-transition-fn (fn [event event-data]
+                                (when-not (= :resources-destroyed event)
+                                  (reset! call-state event-data)))]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text "also ok"}]}
+           (with-redefs [fs/exists? (constantly true)
+                         p/process (constantly (reset! proc (future {:exit 0 :err "ok" :out "also ok"})))]
+             ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+              {"command" "ls -lh"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+               :call-state-fn call-state-fn
+               :state-transition-fn state-transition-fn})))
+          "Expected the shell command to return the expected values")
+      (is (= {:resources {:process @proc}}
+             @call-state)
+          "Expected the resource in the call state to match the process"))))
 
 (deftest shell-require-approval-fn-test
   (let [approval-fn (get-in f.tools.shell/definitions ["eca_shell_command" :require-approval-fn])
@@ -98,7 +134,9 @@
                       ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
                        {"command" command}
                        {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
-                        :behavior "plan"})))
+                        :behavior "plan"
+                        :call-state-fn call-state-fn
+                        :state-transition-fn state-transition-fn})))
       "git status"
       "ls -la"
       "find . -name '*.clj'"

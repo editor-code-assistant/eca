@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added ability to cancel tool calls. Only the shell tool
+  currently. #145
+
 ## 0.64.0
 
 - Add `server` to tool call messages.

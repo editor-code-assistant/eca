@@ -19,6 +19,14 @@
 (defmethod tool-call-details-after-invocation :default [_name _arguments details _result]
   details)
 
+(defmulti tool-call-destroy-resource!
+  "Destroy the tool call resource."
+  (fn [name _resource-kwd _resource] (keyword name)))
+
+(defmethod tool-call-destroy-resource! :default [_name _resource-kwd _resource]
+  ;; By default, do nothing
+  )
+
 (defn single-text-content [text & [error]]
   {:error (boolean error)
    :contents [{:type :text
