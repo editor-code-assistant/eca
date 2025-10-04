@@ -5,6 +5,10 @@
 - Added ability to cancel tool calls. Only the shell tool
   currently. #145
 
+## 0.64.0
+
+- Add `server` to tool call messages.
+
 ## 0.63.3
 
 - Fix last word going after tool call for openai-chat API.
