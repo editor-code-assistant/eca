@@ -390,9 +390,10 @@
                                                    name (assoc :name name)
                                                    args (update :arguments-text (fnil str "") args))))
                                         (when-let [updated-tool-call (get @tool-calls-atom tool-key)]
-                                          (when (and (:id updated-tool-call) (:name updated-tool-call)
-                                                     (not (string/blank? (:arguments-text updated-tool-call))))
-                                            (on-prepare-tool-call updated-tool-call))))))
+                                          (when (and (:id updated-tool-call)
+                                                     (:name updated-tool-call)
+                                                     args)
+                                            (on-prepare-tool-call (assoc updated-tool-call :arguments-text args)))))))
                                   ;; Process finish reason if present (but not tool_calls which is handled above)
                                   (when finish-reason
                                     ;; Flush any leftover buffered content before finishing

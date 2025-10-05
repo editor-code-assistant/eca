@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix duplicated arguments on `toolCallPrepare` for openai-chat API models.
+
 ## 0.64.0
 
 - Add `server` to tool call messages.
