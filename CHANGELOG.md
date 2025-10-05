@@ -5,6 +5,10 @@
 - Added ability to cancel tool calls. Only the shell tool
   currently. #145
 
+## 0.64.1
+
+- Fix duplicated arguments on `toolCallPrepare` for openai-chat API models. https://github.com/editor-code-assistant/eca-emacs/issues/56
+
 ## 0.64.0
 
 - Add `server` to tool call messages.
