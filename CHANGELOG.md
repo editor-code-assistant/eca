@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fix duplicated arguments on `toolCallPrepare` for openai-chat API models.
+- Fix duplicated arguments on `toolCallPrepare` for openai-chat API models. https://github.com/editor-code-assistant/eca-emacs/issues/56
 
 ## 0.64.0
 
