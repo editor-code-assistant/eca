@@ -7,6 +7,7 @@
    [eca.db :as db]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
+   [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
@@ -33,8 +34,28 @@
     :role role
     :content content}))
 
-(defn finish-chat-prompt! [status {:keys [chat-id db* metrics on-finished-side-effect] :as chat-ctx}]
+(defn ^:private notify-before-hook! [chat-ctx {:keys [id name status]}]
+  (send-content! chat-ctx :system
+                 {:type :hookStarted
+                  :name name
+                  :id id
+                  :status status}))
+
+(defn ^:private notify-after-hook! [chat-ctx {:keys [id name status output]}]
+  (send-content! chat-ctx :system
+                 {:type :hookFinished
+                  :id id
+                  :name name
+                  :status status
+                  :output output}))
+
+(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics on-finished-side-effect] :as chat-ctx}]
   (swap! db* assoc-in [:chats chat-id :status] status)
+  @(f.hooks/trigger-if-matches! :postPrompt
+                                {:chat-id chat-id
+                                 :prompt message}
+                                {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                 :on-after-execute (partial notify-after-hook! chat-ctx)})
   (send-content! chat-ctx :system
                  {:type :progress
                   :state :finished})
@@ -792,6 +813,7 @@
                                                   selected-behavior
                                                   config)
         chat-ctx {:chat-id chat-id
+                  :message message
                   :contexts contexts
                   :behavior selected-behavior
                   :behavior-config behavior-config
@@ -802,17 +824,23 @@
                   :config config
                   :messenger messenger}
         decision (message->decision message)
-        image-contents (->> refined-contexts
-                            (filter #(= :image (:type %))))
-        user-messages [{:role "user" :content (concat [{:type :text :text message}]
-                                                      image-contents)}]]
+        {:keys [output]} @(f.hooks/trigger-if-matches! :prePrompt
+                                                       {:chat-id chat-id
+                                                        :prompt message}
+                                                       {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                                        :on-after-execute (partial notify-after-hook! chat-ctx)})]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text
                                    :text (str message "\n")})
     (case (:type decision)
       :mcp-prompt (send-mcp-prompt! decision chat-ctx)
       :eca-command (handle-command! decision chat-ctx)
-      :prompt-message (prompt-messages! user-messages chat-ctx))
+      :prompt-message (let [image-contents (->> refined-contexts
+                                                (filter #(= :image (:type %))))
+                            user-messages [{:role "user" :content (concat [{:type :text :text (str message
+                                                                                                   output)}]
+                                                                          image-contents)}]]
+                        (prompt-messages! user-messages chat-ctx)))
     (metrics/count-up! "prompt-received"
                        {:full-model full-model
                         :behavior behavior}

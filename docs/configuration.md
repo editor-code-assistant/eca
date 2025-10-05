@@ -385,6 +385,15 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             }};
         }};
         defaultModel?: string;
+        hooks?: {[key: string]: {
+                type: 'preToolCall' | 'postToolCall' | 'preToolCallApproval' | 'prePrompt' | 'postPrompt';
+                matcher: string;
+                actions: {
+                    type: 'shell';
+                    shell: string;
+                }[];
+            };
+        };
         rules?: [{path: string;}];
         commands?: [{path: string;}];
         behavior?: {[key: string]: {
@@ -462,6 +471,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
           "ollama": {"url": "http://localhost:11434"}
       },
       "defaultModel": null, // let ECA decides the default model.
+      "hooks": {},
       "rules" : [],
       "commands" : [],
       "disabledTools": [],

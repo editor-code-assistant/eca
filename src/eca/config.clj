@@ -81,6 +81,7 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
+   :hooks {} 
    :rules []
    :commands []
    :disabledTools []
