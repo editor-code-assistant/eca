@@ -80,11 +80,11 @@
 (defn ^:private get-active-tool-calls
   "Returns a map of tool-call-id -> tool calls that are still active.
 
-  Active tool calls are those not in the following states: :completed, :rejected, :stopping, :stopped."
+  Active tool calls are those not in the following states: :completed, :rejected."
   [db chat-id]
   (->> (get-in db [:chats chat-id :tool-calls] {})
        (remove (fn [[_ state]]
-                 (#{:completed :rejected :stopping :stopped} (:status state))))
+                 (#{:completed :rejected} (:status state))))
        (into {})))
 
 ;;; Event-driven state machine for tool calls
@@ -102,9 +102,9 @@
    - :execution-approved  - The tool call has been approved for execution, via config or asking the user.
    - :executing           - The tool call is executing.
    - :rejected            - Rejected before starting execution.  Terminal status.
-   - :completed           - Normal completion.  Perhaps with tool errors.  Terminal status.
-   - :stopping            - In the process of stopping, after execution has started, but before it completed.
-   - :stopped             - Stopped by user action after executing, but before normal completion.  Terminal status.
+   - :cleanup             - Cleaning up the state after finishing execution.  Either after normal execution or after being user stopped.
+   - :completed           - Tool call completion.  Perhaps with tool errors.  With or without being interrupted. Terminal status.
+   - :stopping            - In the process of stopping, after execution has started, but before it completed. After getting a :stop-request.
 
    Events:
    - :tool-prepare        - LLM preparing tool call (can happen multiple times).
@@ -114,6 +114,7 @@
    - :send-reject         - A made-up event to cause a toolCallReject.  Used in a context where the message data is available.
    - :execution-start     - Tool call execution begins.
    - :execution-end       - Tool call completes normally.  Perhaps with its own errors.
+   - :cleanup-finished    - Cleaned up the state after tool call completes, either normally or interrupted.
    - :stop-requested      - An event to request that active tool calls be stopped.
    - :resources-created   - Some new resources were created during the call.
    - :resources-destroyed - Some existing resources were destroyed.
@@ -123,7 +124,8 @@
    - send-* notifications
    - set-* set various state values
    - add- and remove-resources
-   - promise init & delivery
+   - init, delivery and removal of approval and future-cleanup promises
+   - future cancellation
    - logging/metrics
 
    Note: All actions are run in the order specified.
@@ -145,8 +147,7 @@
 
    [:preparing :tool-run]
    {:status :check-approval
-    :actions [:init-arguments :init-approval-promise :send-toolCallRun]}
-   ;; TODO: What happens if the promise is created, but no deref happens since the call is stopped?
+    :actions [:init-arguments :init-approval-promise :init-future-cleanup-promise :send-toolCallRun]}
    ;; All promises must be deref'ed.
 
    [:check-approval :approval-ask]
@@ -175,11 +176,15 @@
 
    [:execution-approved :execution-start]
    {:status :executing
-    :actions [:set-start-time :set-call-future :send-toolCallRunning :send-progress]}
+    :actions [:set-start-time :add-future :send-toolCallRunning :send-progress]}
 
    [:executing :execution-end]
+   {:status :cleanup
+    :actions [:deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress]}
+
+   [:cleanup :cleanup-finished]
    {:status :completed
-    :actions [:send-toolCalled :log-metrics :send-progress]}
+    :actions [:destroy-all-resources :remove-all-resources :remove-all-promises :remove-future]}
 
    [:executing :resources-created]
    {:status :executing
@@ -189,32 +194,38 @@
    {:status :executing
     :actions [:remove-resources]}
 
-   ;; I don't think this transition is needed
-   ;; [:stopping :resources-created]
-   ;; {:status :stopping
-   ;;  :actions [:add-resources]}
-
    [:stopping :resources-destroyed]
    {:status :stopping
     :actions [:remove-resources]}
 
    [:stopping :stop-attempted]
-   {:status :stopped
-    :actions [:send-toolCallRejected]}
+   {:status :cleanup
+    :actions [:deliver-future-cleanup-completed :send-toolCallRejected]}
 
    ;; And now all the :stop-requested transitions
 
    ;; Note: There are, currently, no transitions from the terminal statuses
-   ;; (and :stopping) on :stop-requested.
+   ;; on :stop-requested.
    ;; This is because :stop-requested is only sent to active statuses.
-   ;; But arguably, there should be.  For completeness and robustness.
+   ;; Also, we don't want to have transitions out from terminal states,
+   ;; even if they are self-transitions.
 
    [:executing :stop-requested]
+   {:status :stopping
+    :actions [:cancel-future]}
+
+   ;; ignore :stop-requested
+   [:cleanup :stop-requested]
+   {:status :cleanup
+    :actions []}
+
+   ;; ignore :stop-requested
+   [:stopping :stop-requested]
    {:status :stopping
     :actions []}
 
    [:execution-approved :stop-requested]
-   {:status :stopped
+   {:status :cleanup
     :actions [:send-toolCallRejected]}
 
    [:waiting-approval :stop-requested]
@@ -226,11 +237,11 @@
     :actions [:set-decision-reason :deliver-approval-false]}
 
    [:preparing :stop-requested]
-   {:status :stopped
+   {:status :cleanup
     :actions [:set-decision-reason :send-toolCallRejected]}
 
    [:initial :stop-requested] ; Nothing sent yet, just mark as stopped
-   {:status :stopped
+   {:status :cleanup
     :actions []}})
 
 (defn ^:private execute-action!
@@ -314,11 +325,7 @@
                       :details (:details event-data)
                       :summary (:summary event-data))))
 
-    ;; State management actions
-    :init-approval-promise
-    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :approved?*]
-           (:approved?* event-data))
-
+    ;; Actions on parts of the state
     :deliver-approval-false
     (deliver (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :approved?*])
              false)
@@ -327,20 +334,45 @@
     (deliver (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :approved?*])
              true)
 
+    :deliver-future-cleanup-completed
+    (when-let [p (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :future-cleanup-complete?*])]
+      (deliver p true))
+
+    :cancel-future
+    (when-let [f (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :future])]
+      (future-cancel f))
+
+    :destroy-all-resources
+    (when-let [resources (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :resources])]
+      (when-not (empty? resources)
+        (doseq [[resource-kwd resource] resources]
+          (f.tools/tool-call-destroy-resource! (:name event-data) resource-kwd resource))))
+
+    ;; State management actions
     :init-tool-call-state
     (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id] assoc
            ;; :status (keyword) is initialized by the state transition machinery
-           ;; :approval* (promise) is initialized by the :init-approval-promise action
+           ;; :approved?* (promise) is initialized by the :init-approval-promise action
+           ;; :future-cleanup-complete?* (promise) is initialized by the :init-future-cleanup-promise action
            ;; :arguments (map) is initialized by the :init-arguments action
            ;; :start-time (long) is initialized by the :set-start-time action
-           ;; :future (future) is initialized by the :set-call-future action TODO: rename to :set-future
-           ;; :resources (map) is updated by the :add-resources action
+           ;; :future (future) is initialized by the :add-future action
+           ;; :resources (map) is updated by the :add-resources and remove-resources actions
+           ;; NOTE: :future and :resources are forcibly removed from the state directly, NOT VIA ACTIONS.
            :name (:name event-data)
            :server (:server event-data)
            :arguments (:arguments event-data)
            :origin (:origin event-data)
            :decision-reason {:code :none
                              :text "No reason"})
+
+    :init-approval-promise
+    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :approved?*]
+           (:approved?* event-data))
+
+    :init-future-cleanup-promise
+    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :future-cleanup-complete?*]
+           (:future-cleanup-complete?* event-data))
 
     :init-arguments
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :arguments]
@@ -354,10 +386,14 @@
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :start-time]
            (:start-time event-data))
 
-    :set-call-future
+    :add-future
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :future]
            ;; start the future by forcing the delay and save it in the call state
            (force (:delayed-future event-data)))
+
+    :remove-future
+    (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
+           dissoc :future)
 
     :add-resources
     (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :resources]
@@ -366,6 +402,14 @@
     :remove-resources
     (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :resources]
            #(apply dissoc %1 %2) (:resources event-data))
+
+    :remove-all-resources
+    (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :resources]
+           dissoc :resources)
+
+    :remove-all-promises
+    (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
+           dissoc :approved?* :future-cleanup-complete?*)
 
     ;; Logging actions
     :log-rejection
@@ -552,6 +596,7 @@
                                                       :arguments-text arguments-text
                                                       :summary (f.tools/tool-call-summary all-tools name nil config)}))
       :on-tools-called (fn [tool-calls]
+                         ;; If there are multiple tool calls, they are allowed to execute concurrently.
                          (assert-chat-not-stopped! chat-ctx)
                          ;; Flush any pending assistant text once before processing multiple tool calls
                          (when-not (string/blank? @received-msgs*)
@@ -559,18 +604,19 @@
                            (reset! received-msgs* ""))
                          (let [any-rejected-tool-call?* (atom false)]
                            (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
-                                   (let [approved?* (promise)
+                                   (let [approved?* (promise) ; created here, stored in the state.
                                          details (f.tools/tool-call-details-before-invocation name arguments)
                                          summary (f.tools/tool-call-summary all-tools name arguments config)
                                          origin (tool-name->origin name all-tools)
                                          server (tool-name->server name all-tools)
                                          approval (f.tools/approval all-tools name arguments @db* config behavior)
                                          ask? (= :ask approval)]
-                                     ;; assert: In :preparing or :stopping or :stopped
+                                     ;; assert: In :preparing or :stopping or :cleanup
                                      ;; Inform client the tool is about to run and store approval promise
-                                     (when-not (#{:stopping :stopped} (:status (get-tool-call-state @db* chat-id id)))
+                                     (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                                        (transition-tool-call! db* chat-ctx id :tool-run
                                                               {:approved?* approved?*
+                                                               :future-cleanup-complete?* (promise)
                                                                :name name
                                                                :server server
                                                                :origin origin
@@ -578,8 +624,8 @@
                                                                :manual-approval ask?
                                                                :details details
                                                                :summary summary}))
-                                     ;; assert: In: :check-approval or :stopping or :stopped or :rejected
-                                     (when-not (#{:stopping :stopped :rejected} (:status (get-tool-call-state @db* chat-id id)))
+                                     ;; assert: In: :check-approval or :stopping or :cleanup or :rejected
+                                     (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state @db* chat-id id)))
                                        (case approval
                                          :ask (transition-tool-call! db* chat-ctx id :approval-ask
                                                                      {:progress-text "Waiting for tool call approval"})
@@ -593,17 +639,19 @@
                                                       {:approval approval :tool-call-id id})))
                                      ;; Execute each tool call concurrently
                                      (if @approved?* ;TODO: Should there be a timeout here?  If so, what would be the state transitions?
-                                       ;; assert: In :execution-approved or :stopping or :stopped
-                                       (when-not (#{:stopping :stopped} (:status (get-tool-call-state @db* chat-id id)))
+                                       ;; assert: In :execution-approved or :stopping or :cleanup
+                                       (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                                          (assert-chat-not-stopped! chat-ctx)
                                          (let [;; Since a future starts executing immediately,
-                                               ;; we need to delay the future so that the set-call-future action,
+                                               ;; we need to delay the future so that the add-future action,
                                                ;; used implicitly in the transition-tool-call! on the :execution-start event,
                                                ;; can activate the future only *after* the state transition to :executing.
                                                delayed-future
                                                (delay
                                                  (future
                                                    ;; assert: In :executing
+                                                   (logger/debug logger-tag "Just set up the call promise"
+                                                                 {:tool-call-id id})
                                                    (let [result (f.tools/call-tool! name arguments behavior chat-id id db* config messenger metrics
                                                                                     (partial get-tool-call-state @db* chat-id id)
                                                                                     (partial transition-tool-call! db* chat-ctx id))
@@ -624,7 +672,8 @@
                                                                                        :origin origin
                                                                                        :server server)})
                                                      ;; assert: In :executing or :stopping
-                                                     (let [status (:status (get-tool-call-state  @db* chat-id id))]
+                                                     (let [state (get-tool-call-state  @db* chat-id id)
+                                                           status (:status state)]
                                                        (case status
                                                          :executing (transition-tool-call! db* chat-ctx id :execution-end
                                                                                            {:origin origin
@@ -678,11 +727,41 @@
                                                                  :summary summary})))))
                                  tool-calls)
                            (assert-chat-not-stopped! chat-ctx)
-                           ;; Wait for ALL tool calls with futures to complete before returning
-                           (->> (vals (get-active-tool-calls @db* chat-id))
-                                (map :future)
-                                (filter some?)
-                                (run! deref))
+                           ;; assert: In :cleanup
+                           ;; assert: Only those tool calls that have reached :executing have futures.
+                           ;; Before we handle interrupts, we will wait for all tool calls with futures to complete naturally.
+                           ;; Since a deref of a cancelled future *immediately* results in a CancellationException without waiting for the future to cleanup,
+                           ;; we have to use another promise and deref that to know when the tool call is finished cleaning up.
+                           (doseq [[tool-call-id state] (get-active-tool-calls @db* chat-id)]
+                             (when-let [f (:future state)]
+                               (try
+                                 (deref f) ; TODO: A timeout would be useful for tools that get into an infinite loop.
+                                 (catch java.util.concurrent.CancellationException _
+                                   ;; The future was cancelled
+                                   ;; TODO: Why not just wait for the promise and not bother about the future?
+                                   ;; If future was cancelled, wait for the future's cleanup to finish.
+                                   (when-let [p (:future-cleanup-complete?* state)]
+                                     (logger/debug logger-tag "Caught CancellationException.  Waiting for future to finish cleanup."
+                                                   {:tool-call-id tool-call-id
+                                                    :promise p})
+                                     (deref p) ; TODO: May need a timeout here too, in case the tool does not clean up.
+                                     (logger/debug logger-tag "Future has finished cleanup."
+                                                   {:tool-call-id tool-call-id})))
+                                 (catch Throwable t
+                                   (logger/debug logger-tag "Ignoring a Throwable while deref'ing a tool call future"
+                                                 {:tool-call-id tool-call-id
+                                                  :ex-data (ex-data t)
+                                                  :message (.getMessage t)
+                                                  :cause (.getCause t)}))
+                                 (finally (try
+                                            (transition-tool-call! db* chat-ctx tool-call-id :cleanup-finished
+                                                                   {:name name})
+                                            (catch Throwable t
+                                              (logger/debug logger-tag "Ignoring an exception while finishing tool call"
+                                                            {:tool-call-id tool-call-id
+                                                             :ex-data (ex-data t)
+                                                             :message (.getMessage t)
+                                                             :cause (.getCause t)})))))))
                            (if @any-rejected-tool-call?*
                              (do
                                (send-content! chat-ctx :system
