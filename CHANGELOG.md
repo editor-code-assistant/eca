@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.65.0
+
 - Added ability to cancel tool calls. Only the shell tool currently. #145
 - Bump mcp java sdk to 0.14.1.
 - Improve json output for tools that output json.
