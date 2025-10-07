@@ -195,10 +195,15 @@
   (testing "We adapt output if json"
     (is (match?
          {:contents [{:type :text
-                      :text (multi-str "{"
-                                       "  \"foo\" : \"123\","
-                                       "  \"bar\" : 234"
-                                       "}")}]
+                      :text (if h/windows?
+                              (multi-str "{\r"
+                                         "  \"foo\" : \"123\",\r"
+                                         "  \"bar\" : 234\r"
+                                         "}")
+                              (multi-str "{"
+                                         "  \"foo\" : \"123\","
+                                         "  \"bar\" : 234"
+                                         "}"))}]
           :error false}
          (with-redefs [f.mcp/call-tool! (constantly {:contents [{:type :text
                                                                  :text "{\"foo\": \"123\", \"bar\": 234}"}]
