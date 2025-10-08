@@ -1,6 +1,7 @@
 (ns eca.shared
   (:require
    [camel-snake-kebab.core :as csk]
+   [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk])
@@ -155,3 +156,20 @@
                   (string/replace-first (str model) ":" "")
                   model)]
     (string/lower-case model-s)))
+
+(defn memoize-by-file-last-modified
+  "Return a memoized variant of f where the first argument is a filename.
+   The cache key includes the file's last-modified timestamp, so the cache
+   automatically invalidates when the file changes."
+  [f]
+  (let [mf (memoize/memo (fn [file mtime & args]
+                           (apply f file args)))
+        safe-mtime (fn [file]
+                     (try
+                       (.lastModified (io/file file))
+                       (catch Exception _ 0)))]
+    (fn
+      ([file]
+       (mf file (safe-mtime file)))
+      ([file & args]
+       (apply mf file (safe-mtime file) args)))))
