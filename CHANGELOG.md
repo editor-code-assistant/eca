@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added tests for stopping concurrent tool calls. #147
+
 ## 0.65.0
 
 - Added ability to cancel tool calls. Only the shell tool currently. #145
