@@ -79,8 +79,11 @@
                       nil))
                   contexts)))
 
+(defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
+(def ^:private all-files-from (memoize all-files-from*))
+
 (defn ^:private contexts-for [root-filename query config]
-  (let [all-paths (fs/glob root-filename "**")
+  (let [all-paths (all-files-from root-filename)
         filtered (if (or (nil? query) (string/blank? query))
                    all-paths
                    (filter (fn [p]

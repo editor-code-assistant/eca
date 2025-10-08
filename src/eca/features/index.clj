@@ -8,7 +8,7 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:private ttl-git-ls-files-ms 5000)
+(def ^:private ttl-git-ls-files-ms 60000)
 
 (defn ^:private git-ls-files* [root-path]
   (try
@@ -25,9 +25,11 @@
    (fn [files {:keys [type]}]
      (case type
        :gitignore (if-let [git-files (git-ls-files root-filename)]
-                    (let [git-paths (some->> git-files
-                                             (mapv (comp str fs/canonicalize #(fs/file root-filename %)))
-                                             set)]
+                    (let [git-paths (into #{}
+                                          (comp
+                                           (map #(fs/file root-filename %))
+                                           (map str))
+                                          git-files)]
                       (if (seq git-paths)
                         (filter (fn [file]
                                   (contains? git-paths (str file)))
