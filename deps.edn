@@ -1,5 +1,5 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+ :deps {org.clojure/clojure {:mvn/version "1.12.2"}
         org.clojure/core.async {:mvn/version "1.8.741"}
         org.babashka/cli {:mvn/version "0.8.65"}
         com.github.clojure-lsp/jsonrpc4clj {:mvn/version "1.0.2"}
