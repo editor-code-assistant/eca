@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added tests for stopping concurrent tool calls. #147
+- Improve logging.
 
 ## 0.65.0
 
