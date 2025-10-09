@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Improve plan mode
 
 ## 0.66.0
 
