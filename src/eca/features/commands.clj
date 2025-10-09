@@ -11,6 +11,7 @@
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
    [eca.messenger :as messenger]
+   [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str update-some]])
   (:import
    [java.lang ProcessHandle]))
@@ -133,7 +134,9 @@
               (map-indexed vector args)))))
 
 (defn ^:private doctor-msg [db config]
-  (let [model (llm-api/default-model db config)]
+  (let [model (llm-api/default-model db config)
+        cred-check (secrets/check-credential-files)
+        existing-files (filter :exists (:files cred-check))]
     (multi-str (str "ECA version: " (config/eca-version))
                ""
                (str "Server cmd: " (.orElse (.commandLine (.info (ProcessHandle/current))) nil))
@@ -158,7 +161,26 @@
                                                       (str s key "=" val "\n")
                                                       s))
                                                   "\n"
-                                                  (System/getenv))))))
+                                                  (System/getenv)))
+               ""
+               (if (seq existing-files)
+                 (str "Credential files (GPG available: " (:gpg-available cred-check) "):"
+                      (reduce
+                       (fn [s file-info]
+                         (str s "\n  " (:path file-info) ":"
+                              (when (contains? file-info :readable)
+                                (str "\n    Readable: " (:readable file-info)))
+                              (when (contains? file-info :permissions-secure)
+                                (str "\n    Permissions: " (if (:permissions-secure file-info) "secure" "INSECURE (should be 0600)")))
+                              (when (:credentials-count file-info)
+                                (str "\n    Credentials: " (:credentials-count file-info)))
+                              (when (:parse-error file-info)
+                                (str "\n    Parse error: " (:parse-error file-info)))
+                              (when (:suggestion file-info)
+                                (str "\n    " (:suggestion file-info)))))
+                       ""
+                       existing-files))
+                 (str "Credential files: None found (GPG available: " (:gpg-available cred-check) ")")))))
 
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions metrics]}]
   (let [db @db*

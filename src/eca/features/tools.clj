@@ -90,7 +90,7 @@
                           (try
                             (update content :text #(json/generate-string (json/parse-string %) {:pretty true}))
                             (catch Exception e
-                              (println e)
+                              (logger/warn logger-tag "Could not pretty format json text output for %s: %s" content (.getMessage e))
                               content))
                           content))
                       content))

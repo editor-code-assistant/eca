@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+## 0.66.1
+
+- Improve plan behavior prompt. #139
+
+## 0.66.0
+
+- Add support for secrets stored in authinfo and netrc files
 - Added tests for stopping concurrent tool calls. #147
+- Improve logging.
+- Improve performance of `chat/queryContext`.
 
 ## 0.65.0
 

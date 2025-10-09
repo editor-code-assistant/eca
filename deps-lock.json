@@ -9,6 +9,13 @@
       "hash": "sha256-HllBWtwTtYYM0KjHB9UVDBjB57CtpvF+gncQseGXgf8="
     },
     {
+      "lib": "br.dev.zz/parc",
+      "url": "https://github.com/souenzzo/parc",
+      "rev": "76f0714e6b93a053d67d473c33dfc279dfb94d23",
+      "git-dir": "https/github.com/souenzzo/parc",
+      "hash": "sha256-6ISYa9g5kOGkay3ums4Tys2/krPTIFqQKAtT8rfaZ4k="
+    },
+    {
       "lib": "io.github.clojure/tools.build",
       "url": "https://github.com/clojure/tools.build.git",
       "rev": "573711ea65f7d324a6a6cdd3ac20cb30bba47e48",
@@ -2214,6 +2221,16 @@
       "mvn-path": "org/clojure/clojure/1.12.1/clojure-1.12.1.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-JUvpyKuMzDArR9fFaj/KEUl+WcMFvxX6YFTD3/TrkZ0="
+    },
+    {
+      "mvn-path": "org/clojure/clojure/1.12.2/clojure-1.12.2.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-pYv4B+zv7K6iIri4tH4UNo7o4yy0VAs//v/4yglTSA0="
+    },
+    {
+      "mvn-path": "org/clojure/clojure/1.12.2/clojure-1.12.2.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-55suCRfnPnPCX7N5PzFV+PD4jYAvUMJf1Sl3l3rDQiA="
     },
     {
       "mvn-path": "org/clojure/core.async/1.5.648/core.async-1.5.648.jar",

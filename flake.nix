@@ -16,9 +16,9 @@
         pkgs = nixpkgs.legacyPackages.${system};
         cljpkgs = clj-nix.packages."${system}";
 
-        jdk = pkgs.jdk24_headless;
+        jdk = pkgs.jdk21_headless;
         graalvm = pkgs.graalvmPackages.graalvm-ce;
-        clojure = pkgs.clojure.override { jdk = pkgs.jdk24_headless; };
+        clojure = pkgs.clojure.override { jdk = pkgs.jdk21_headless; };
 
       in
       {
