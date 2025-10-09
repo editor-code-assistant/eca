@@ -96,4 +96,4 @@ Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help
 
 These are all the incredible people who helped make ECA better!
 
-<img src="https://opencollective.com/editor-code-assistant/contributors.svg?width=890&button=false" alt="Code Contributors" style="max-width:100%;">
+[<img src="https://opencollective.com/editor-code-assistant/contributors.svg?width=890&button=false" alt="Code Contributors" style="max-width:100%;">](https://github.com/editor-code-assistant/eca/graphs/contributors)
