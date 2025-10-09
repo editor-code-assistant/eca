@@ -126,7 +126,7 @@
                                  (map :uri)
                                  (map shared/uri->filename)
                                  (mapcat #(contexts-for % query config))
-                                 (take 200) ;; for performance, user can always make query specific for better results.
+                                 (take 100) ;; for performance, user can always make query specific for better results.
                                  (map file->context))
                                 (:workspace-folders @db*)))
         root-dirs (mapv (fn [{:keys [uri]}] {:type "directory"
