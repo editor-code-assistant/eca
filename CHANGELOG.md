@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.66.1
+
 - Improve plan behavior prompt. #139
 
 ## 0.66.0
