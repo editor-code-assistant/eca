@@ -93,3 +93,7 @@ For developer details, check [development docs](https://eca.dev/development).
 ## Support the project 💖
 
 Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help grow faster, the support helps to keep the project going, being updated and maintained!
+
+These are all the incredible people who helped make ECA better!
+
+<img src="https://opencollective.com/editor-code-assistant/contributors.svg?width=890&button=false" alt="Code Contributors" style="max-width:100%;">
