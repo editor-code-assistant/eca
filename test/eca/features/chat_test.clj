@@ -29,7 +29,7 @@
     (loop [remaining (- deadline (System/currentTimeMillis))]
       (when (pos? remaining)
         (try
-          (Thread/sleep remaining)
+          (Thread/sleep (long remaining))
           (catch InterruptedException _))
         (recur (- deadline (System/currentTimeMillis)))))))
 
@@ -258,15 +258,16 @@
             :call-tool-mock
             ;; Ensure that the tools complete in the 3-2-1 order by adjusting sleep times
             (fn [name & _others]
+              ;; When this is called, we are already in a future.
               (case name
 
                 "ro_tool_1"
-                (do (deep-sleep 300)
+                (do (deep-sleep 900)
                     {:error false
                      :contents [{:type :text :content "RO tool call 1 result"}]})
 
                 "ro_tool_2"
-                (do (deep-sleep 200)
+                (do (deep-sleep 600)
                     {:error false
                      :contents [{:type :text :content "RO tool call 2 result"}]})
 
@@ -329,10 +330,13 @@
              {:role :system :content {:type :progress :state :finished}}]}
            (h/messages))))))
 
-(deftest tool-calls-with-prompt-stop
+(deftest tool-calls-with-prompt-stop-test
   (testing "Three concurrent tool calls. Stopped before they all finished. Tool call 3 finishes. Calls 1,2 reject."
     (h/reset-components!)
-    (let [{:keys [chat-id]}
+    (let [wait-for-tool3 (promise)
+          wait-for-tool2 (promise)
+          wait-for-stop (promise)
+          {:keys [chat-id]}
           (complete!
            {:message "Run 3 read-only tool calls simultaneously."}
            {:api-mock
@@ -344,27 +348,38 @@
                 (on-prepare-tool-call {:id "call-1" :name "ro_tool_1" :arguments-text ""})
                 (on-prepare-tool-call {:id "call-2" :name "ro_tool_2" :arguments-text ""})
                 (on-prepare-tool-call {:id "call-3" :name "ro_tool_3" :arguments-text ""})
-                (future (Thread/sleep 200)
-                        (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/metrics)))
+                (future (Thread/sleep 400)
+                        (when (= :timeout (deref wait-for-tool3 10000 :timeout))
+                          (println "tool-calls-with-prompt-stop-test: deref in prompt stop future timed out"))
+                        (Thread/sleep 50)
+                        (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/metrics))
+                        (deliver wait-for-stop true))
                 (on-tools-called [{:id "call-1" :name "ro_tool_1" :arguments {}}
                                   {:id "call-2" :name "ro_tool_2" :arguments {}}
                                   {:id "call-3" :name "ro_tool_3" :arguments {}}])))
             :call-tool-mock
             (fn [name & _others]
+              ;; When this is called, we are already in a future
               (case name
 
                 "ro_tool_1"
-                (do (deep-sleep 350)
+                (do (deep-sleep 1000)
+                    (when (= :timeout (deref wait-for-tool2 10000 :timeout))
+                      (println "tool-calls-with-prompt-stop-test: deref in tool 1 timed out"))
                     {:error false
                      :contents [{:type :text :content "RO tool call 1 result"}]})
 
                 "ro_tool_2"
-                (do (deep-sleep 300)
+                (do (deep-sleep 800)
+                    (when (= :timeout (deref wait-for-stop 10000 :timeout))
+                      (println "tool-calls-with-prompt-stop-test: deref in tool 2 timed out"))
+                    (deliver wait-for-tool2 true)
                     {:error false
                      :contents [{:type :text :content "RO tool call 2 result"}]})
 
                 "ro_tool_3"
-                (do (deep-sleep 100)
+                (do (deep-sleep 200)
+                    (deliver wait-for-tool3 true)
                     {:error false
                      :contents [{:type :text :content "RO tool call 3 result"}]})))})]
       (is (match? {chat-id

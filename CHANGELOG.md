@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improved flaky test #150
+
 ## 0.66.1
 
 - Improve plan behavior prompt. #139
