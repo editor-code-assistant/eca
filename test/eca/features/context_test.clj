@@ -16,10 +16,10 @@
     (h/reset-components!)
     (let [root (h/file-path "/fake/repo")
           ;; Fake filesystem entries under the root
-          fake-paths [(str root "/dir")
-                      (str root "/foo.txt")
-                      (str root "/dir/nested.txt")
-                      (str root "/bar.txt")]]
+          fake-paths [(h/file-path (str root "/dir"))
+                      (h/file-path (str root "/foo.txt"))
+                      (h/file-path (str root "/dir/nested.txt"))
+                      (h/file-path (str root "/bar.txt"))]]
       (swap! (h/db*) assoc :workspace-folders [{:uri (h/file-uri "file:///fake/repo")}])
       (with-redefs [f.context/all-files-from #'f.context/all-files-from*
                     fs/glob (fn [_root-filename pattern]
@@ -33,10 +33,10 @@
              [{:type "repoMap"}
               {:type "cursor"}
               {:type "directory" :path root}
-              {:type "directory" :path (str root "/dir")}
-              {:type "file" :path (str root "/foo.txt")}
-              {:type "file" :path (str root "/dir/nested.txt")}
-              {:type "file" :path (str root "/bar.txt")}
+              {:type "directory" :path (h/file-path (str root "/dir"))}
+              {:type "file" :path (h/file-path (str root "/foo.txt"))}
+              {:type "file" :path (h/file-path (str root "/dir/nested.txt"))}
+              {:type "file" :path (h/file-path (str root "/bar.txt"))}
               {:type "mcpResource" :uri "mcp://r1"}]
              (f.context/all-contexts nil (h/db*) (h/config)))))))
 
