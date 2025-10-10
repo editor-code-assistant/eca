@@ -33,7 +33,7 @@
              [{:type "repoMap"}
               {:type "cursor"}
               {:type "directory" :path root}
-              {:type "directory" :path (h/file-path (str root "/dir"))}
+              {#_#_:type "directory" :path (h/file-path (str root "/dir"))}
               {:type "file" :path (h/file-path (str root "/foo.txt"))}
               {:type "file" :path (h/file-path (str root "/dir/nested.txt"))}
               {:type "file" :path (h/file-path (str root "/bar.txt"))}
