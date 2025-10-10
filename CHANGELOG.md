@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improved flaky test #150
+- Obfuscate env vars in /doctor.
 
 ## 0.66.1
 

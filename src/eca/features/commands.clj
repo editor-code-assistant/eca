@@ -154,12 +154,17 @@
                                          "\n"
                                          (:auth db)))
                (str "Relevant env vars: " (reduce (fn [s [key val]]
-                                                    (if (or (string/includes? key "KEY")
-                                                            (string/includes? key "API")
-                                                            (string/includes? key "URL")
-                                                            (string/includes? key "BASE"))
+                                                    (cond
+                                                      (or (string/includes? key "KEY")
+                                                          (string/includes? key "TOKEN"))
+                                                      (str s key "=" (shared/obfuscate val) "\n")
+
+                                                      (or (string/includes? key "API")
+                                                          (string/includes? key "URL")
+                                                          (string/includes? key "BASE"))
                                                       (str s key "=" val "\n")
-                                                      s))
+
+                                                      :else s))
                                                   "\n"
                                                   (System/getenv)))
                ""
