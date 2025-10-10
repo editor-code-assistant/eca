@@ -865,26 +865,23 @@
                                                                             :text "Parsing given context"}))
         refined-contexts (f.context/raw-contexts->refined contexts db config)
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
-        instructions (f.prompt/build-instructions refined-contexts
-                                                  rules
-                                                  repo-map*
-                                                  selected-behavior
-                                                  config)
+        instructions (f.prompt/build-instructions-str rules
+                                                      selected-behavior
+                                                      config)
+        user-messages (f.prompt/build-user-messages message refined-contexts repo-map*)
         chat-ctx {:chat-id chat-id
                   :contexts contexts
                   :behavior selected-behavior
                   :behavior-config behavior-config
                   :instructions instructions
+                  :user-messages user-messages
                   :full-model full-model
                   :db* db*
                   :metrics metrics
                   :config config
                   :messenger messenger}
         decision (message->decision message)
-        image-contents (->> refined-contexts
-                            (filter #(= :image (:type %))))
-        user-messages [{:role "user" :content (concat [{:type :text :text message}]
-                                                      image-contents)}]]
+        ]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text
                                    :text (str message "\n")})

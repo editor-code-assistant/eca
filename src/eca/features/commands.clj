@@ -187,7 +187,7 @@
                        existing-files))
                  (str "Credential files: None found (GPG available: " (:gpg-available cred-check) ")")))))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions metrics]}]
+(defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions user-messages metrics]}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))]
     (case command
@@ -255,7 +255,18 @@
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}
       "prompt-show" {:type :chat-messages
-                     :chats {chat-id [{:role "system" :content [{:type :text :text instructions}]}]}}
+                     :chats {chat-id [{:role "system" :content [{:type :text :text (str "Instructions:\n" instructions "\n"
+                                                                                        "Prompt:\n" (reduce
+                                                                                                      (fn [s {:keys [content]}]
+                                                                                                        (str
+                                                                                                          s
+                                                                                                          (reduce
+                                                                                                            #(str %1 (:text %2) "\n")
+                                                                                                            ""
+                                                                                                            content)))
+                                                                                                      ""
+                                                                                                      (drop-last user-messages))
+                                                                                        "{ECA-USER-PROMPT-GOES-HERE}")}]}]}}
 
       ;; else check if a custom command
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

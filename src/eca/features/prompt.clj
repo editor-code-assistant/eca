@@ -59,7 +59,7 @@
       :else
       (load-builtin-prompt "agent_behavior.md"))))
 
-(defn build-instructions [refined-contexts rules repo-map* behavior config]
+(defn build-instructions-str [rules behavior config]
   (multi-str
    (eca-prompt behavior config)
    (when (seq rules)
@@ -70,9 +70,12 @@
        ""
        rules)
       "</rules>"])
-   ""
+   ""))
+
+(defn ^:private build-contexts-str [refined-contexts repo-map*]
+  (multi-str
    (when (seq refined-contexts)
-     ["<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it, if not enough, use tools to read/gather any extra files/contexts.\">"
+     ["<contexts description=\"The following contexts are provided by the user. Their content is current and accurate. You MUST use this information first before using tools to read files.\">"
       (reduce
        (fn [context-str {:keys [type path position content partial uri]}]
          (str context-str (case type
@@ -89,6 +92,13 @@
        ""
        refined-contexts)
       "</contexts>"])))
+
+(defn build-user-messages [user-message refined-contexts repo-map*]
+  (let [image-contents (->> refined-contexts
+                            (filter #(= :image (:type %))))]
+    [{:role "user" :content [{:type :text :text (build-contexts-str refined-contexts repo-map*)}]}
+     {:role "user" :content (concat [{:type :text :text user-message}]
+                                    image-contents)}]))
 
 (defn init-prompt [db]
   (replace-vars
