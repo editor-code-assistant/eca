@@ -101,7 +101,7 @@
       {:type "file"
        :path path})))
 
-(defn all-contexts [query db* config]
+(defn all-contexts [query files-only? db* config]
   (let [query (or (some-> query string/trim) "")
         first-project-path (shared/uri->filename (:uri (first (:workspace-folders @db*))))
         relative-path (and query
@@ -133,9 +133,12 @@
                                              :path (shared/uri->filename uri)})
                         (:workspace-folders @db*))
         mcp-resources (mapv #(assoc % :type "mcpResource") (f.mcp/all-resources @db*))]
-    (concat [{:type "repoMap"}
-             {:type "cursor"}]
-            root-dirs
-            relative-files
-            workspace-files
-            mcp-resources)))
+    (if files-only?
+      (concat relative-files
+              workspace-files)
+      (concat [{:type "repoMap"}
+               {:type "cursor"}]
+              root-dirs
+              relative-files
+              workspace-files
+              mcp-resources))))
