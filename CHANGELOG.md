@@ -4,6 +4,7 @@
 
 - Improved flaky test #150
 - Obfuscate env vars in /doctor.
+- Bump clj-otel to 0.2.10
 
 ## 0.66.1
 
