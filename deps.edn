@@ -13,9 +13,9 @@
         hato/hato {:mvn/version "1.0.0"}
         ring/ring-codec {:mvn/version "1.3.0"}
         ring/ring-jetty-adapter {:mvn/version "1.15.2"}
-        com.github.steffan-westcott/clj-otel-api {:mvn/version "0.2.9"}
-        com.github.steffan-westcott/clj-otel-sdk-extension-autoconfigure {:mvn/version "0.2.9"}
-        com.github.steffan-westcott/clj-otel-exporter-otlp {:mvn/version "0.2.9"}
+        com.github.steffan-westcott/clj-otel-api {:mvn/version "0.2.10"}
+        com.github.steffan-westcott/clj-otel-sdk-extension-autoconfigure {:mvn/version "0.2.10"}
+        com.github.steffan-westcott/clj-otel-exporter-otlp {:mvn/version "0.2.10"}
         camel-snake-kebab/camel-snake-kebab {:mvn/version "0.4.3"}
         ch.qos.logback/logback-classic {:mvn/version "1.5.18"}
         com.googlecode.java-diff-utils/diffutils {:mvn/version "1.3.0"}
