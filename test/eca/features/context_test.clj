@@ -6,8 +6,11 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.tools.mcp :as f.mcp]
+   [eca.llm-api :as llm-api]
+   [eca.shared :refer [multi-str]]
    [eca.test-helper :as h]
-   [matcher-combinators.test :refer [match?]]))
+   [matcher-combinators.test :refer [match?]]
+   [matcher-combinators.matchers :as m]))
 
 (h/reset-components-before-test)
 
@@ -182,3 +185,139 @@
           ;; Entries from home listing
           (is (some #(= {:type "file" :path (str home "/.bashrc")} %) result))
           (is (some #(= {:type "directory" :path (str home "/projects")} %) result)))))))
+
+(deftest parse-agents-file-test
+  (testing "simple agents file with no path inclusion"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}])
+             (#'f.context/parse-agents-file a-file))))))
+  (testing "Single relative path inclusion"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo"
+                     "- follow @b.md")
+          b-file (h/file-path "/fake/b.md")
+          b-content (multi-str
+                     "- do bar")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content
+                                                    b-file b-content))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}
+               {:type :agents-file
+                :path b-file
+                :content b-content}])
+             (#'f.context/parse-agents-file a-file))))))
+  (testing "Single absolute path inclusion"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo"
+                     "@/fake/src/b.md is where the nice things live")
+          b-file (h/file-path "/fake/src/b.md")
+          b-content (multi-str
+                     "- do bar")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content
+                                                    b-file b-content))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}
+               {:type :agents-file
+                :path b-file
+                :content b-content}])
+             (#'f.context/parse-agents-file a-file))))))
+  (testing "Multiple path inclusions with different extensions"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo"
+                     "- check @./src/b.md for b things"
+                     "- also follow @../c.txt")
+          b-file (h/file-path "/fake/src/b.md")
+          b-content (multi-str
+                     "- do bar")
+          c-file (h/file-path "/c.txt")
+          c-content (multi-str
+                     "- do bazzz")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content
+                                                    b-file b-content
+                                                    c-file c-content))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}
+               {:type :agents-file
+                :path b-file
+                :content b-content}
+               {:type :agents-file
+                :path c-file
+                :content c-content}])
+             (#'f.context/parse-agents-file a-file))))))
+  (testing "Recursive path inclusions"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo"
+                     "- check @b.md for b things")
+          b-file (h/file-path "/fake/b.md")
+          b-content (multi-str
+                     "- check @../c.md")
+          c-file (h/file-path "/c.md")
+          c-content (multi-str
+                     "- do bazzz")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content
+                                                    b-file b-content
+                                                    c-file c-content))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}
+               {:type :agents-file
+                :path b-file
+                :content b-content}
+               {:type :agents-file
+                :path c-file
+                :content c-content}])
+             (#'f.context/parse-agents-file a-file))))))
+  (testing "Multiple mentions to same file include it once"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo"
+                     "- check @b.md for b things"
+                     "- make sure you check @b.md for sure")
+          b-file (h/file-path "/fake/b.md")
+          b-content (multi-str
+                     "- yeah")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content
+                                                    b-file b-content))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}
+               {:type :agents-file
+                :path b-file
+                :content b-content}])
+             (#'f.context/parse-agents-file a-file)))))))

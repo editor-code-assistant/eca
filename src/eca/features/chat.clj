@@ -863,7 +863,7 @@
             (send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
                                                                             :state :running
                                                                             :text "Parsing given context"}))
-        refined-contexts (f.context/raw-contexts->refined contexts db config)
+        refined-contexts (f.context/raw-contexts->refined contexts db)
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
         instructions (f.prompt/build-instructions refined-contexts
                                                   rules

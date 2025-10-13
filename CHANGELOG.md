@@ -6,6 +6,7 @@
 - Obfuscate env vars in /doctor.
 - Bump clj-otel to 0.2.10
 - Rename $ARGS to $ARGUMENTS placeholder alias for custom commands.
+- Support recursive AGENTS.md file inclusions with @file mention. #140
 
 ## 0.66.1
 
