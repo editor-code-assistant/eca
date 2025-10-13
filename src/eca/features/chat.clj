@@ -863,7 +863,9 @@
             (send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
                                                                             :state :running
                                                                             :text "Parsing given context"}))
-        refined-contexts (f.context/raw-contexts->refined contexts db config)
+        refined-contexts (concat
+                          (f.context/agents-file-contexts db)
+                          (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
         instructions (f.prompt/build-instructions refined-contexts
                                                   rules
@@ -883,7 +885,11 @@
         decision (message->decision message)
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
+        expanded-prompt-contexts (when-let [contexts-str (-> (f.context/contexts-str-from-prompt message db)
+                                                             (f.prompt/contexts-str repo-map*))]
+                                   [{:type :text :text contexts-str}])
         user-messages [{:role "user" :content (concat [{:type :text :text message}]
+                                                      expanded-prompt-contexts
                                                       image-contents)}]]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text

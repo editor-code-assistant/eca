@@ -15,9 +15,9 @@
 
 (def ^:private logger-tag "[CONTEXT]")
 
-(defn ^:private agents-file-contexts
+(defn agents-file-contexts
   "Search for AGENTS.md file both in workspaceRoot and global config dir."
-  [db _config]
+  [db]
   ;; TODO make it customizable by behavior
   (let [agent-file "AGENTS.md"
         local-agent-files (keep (fn [{:keys [uri]}]
@@ -52,32 +52,46 @@
         :content (llm-api/refine-file-context path lines-range)}
        :partial lines-range))))
 
-(defn raw-contexts->refined [contexts db config]
-  (concat (agents-file-contexts db config)
-          (mapcat (fn [{:keys [type path lines-range position uri]}]
-                    (case (name type)
-                      "file" [(file->refined-context path lines-range)]
-                      "directory" (->> (fs/glob path "**")
-                                       (remove fs/directory?)
-                                       (map (fn [path]
-                                              (let [filename (str (fs/canonicalize path))]
-                                                (file->refined-context filename nil)))))
-                      "repoMap" [{:type :repoMap}]
-                      "cursor" [{:type :cursor
-                                 :path path
-                                 :position position}]
-                      "mcpResource" (try
-                                      (mapv
-                                       (fn [{:keys [text]}]
-                                         {:type :mcpResource
-                                          :uri uri
-                                          :content text})
-                                       (:contents (f.mcp/get-resource! uri db)))
-                                      (catch Exception e
-                                        (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
-                                        []))
-                      nil))
-                  contexts)))
+(defn raw-contexts->refined [contexts db]
+  (mapcat (fn [{:keys [type path lines-range position uri]}]
+            (case (name type)
+              "file" [(file->refined-context path lines-range)]
+              "directory" (->> (fs/glob path "**")
+                               (remove fs/directory?)
+                               (map (fn [path]
+                                      (let [filename (str (fs/canonicalize path))]
+                                        (file->refined-context filename nil)))))
+              "repoMap" [{:type :repoMap}]
+              "cursor" [{:type :cursor
+                         :path path
+                         :position position}]
+              "mcpResource" (try
+                              (mapv
+                               (fn [{:keys [text]}]
+                                 {:type :mcpResource
+                                  :uri uri
+                                  :content text})
+                               (:contents (f.mcp/get-resource! uri db)))
+                              (catch Exception e
+                                (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
+                                []))
+              nil))
+          contexts))
+
+(defn contexts-str-from-prompt
+  "Extract all contexts (@something) and refine them."
+  [prompt db]
+  (let [context-pattern #"[@]([^\s]+)"
+        matches (re-seq context-pattern prompt)]
+    (when (seq matches)
+      (let [raw-contexts (mapv (fn [[full-match path]]
+                                 (let [type (if (string/starts-with? full-match "@")
+                                              "file"
+                                              "file")]
+                                   {:type type
+                                    :path path}))
+                               matches)]
+        (raw-contexts->refined raw-contexts db)))))
 
 (defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
 (def ^:private all-files-from (memoize all-files-from*))
