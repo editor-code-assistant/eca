@@ -15,8 +15,50 @@
 
 (def ^:private logger-tag "[CONTEXT]")
 
+(defn ^:private extract-at-mentions
+  "Extract all @path mentions from content. Supports relative and absolute paths with any extension."
+  [content]
+  (let [pattern #"@([^\s\)]+\.\w+)"
+        matches (re-seq pattern content)]
+    (map second matches)))
+
+(defn ^:private parse-agents-file
+  ([path] (parse-agents-file path #{}))
+  ([path visited]
+   (if (contains? visited path)
+     []
+     (let [root-content (llm-api/refine-file-context path nil)
+           visited' (conj visited path)
+           at-mentions (extract-at-mentions root-content)
+           parent-dir (str (fs/parent path))
+           resolved-paths (map (fn [mention]
+                                 (cond
+                                   ;; Absolute path
+                                   (string/starts-with? mention "/")
+                                   (str (fs/canonicalize (fs/file mention)))
+
+                                   ;; Relative path (./... or ../...)
+                                   (or (string/starts-with? mention "./")
+                                       (string/starts-with? mention "../"))
+                                   (str (fs/canonicalize (fs/file parent-dir mention)))
+
+                                   ;; Simple filename, relative to current file's directory
+                                   :else
+                                   (str (fs/canonicalize (fs/file parent-dir mention)))))
+                               at-mentions)
+           ;; Deduplicate resolved paths
+           unique-paths (distinct resolved-paths)
+           ;; Recursively parse all mentioned files
+           nested-results (mapcat #(parse-agents-file % visited') unique-paths)]
+       (concat [{:type :agents-file
+                 :path path
+                 :content root-content}]
+               nested-results)))))
+
 (defn agents-file-contexts
-  "Search for AGENTS.md file both in workspaceRoot and global config dir."
+  "Search for AGENTS.md file both in workspaceRoot and global config dir.
+   Process any found @paths mentions recursively, supporting both relative and absolute paths.
+   Deduplicates files to avoid reading the same file multiple times."
   [db]
   ;; TODO make it customizable by behavior
   (let [agent-file "AGENTS.md"
@@ -28,13 +70,9 @@
         global-agent-file (let [agent-file (fs/path (config/global-config-dir) agent-file)]
                             (when (fs/readable? agent-file)
                               (fs/canonicalize agent-file)))]
-    (mapv (fn [path]
-            {:type :file
-             :path (str path)
-             :partial false
-             :content (llm-api/refine-file-context (str path) nil)})
-          (concat local-agent-files
-                  (when global-agent-file [global-agent-file])))))
+    (->> (concat local-agent-files
+                 (when global-agent-file [global-agent-file]))
+         (mapcat #(parse-agents-file (str %))))))
 
 (defn ^:private file->refined-context [path lines-range]
   (let [ext (string/lower-case (fs/extension path))]

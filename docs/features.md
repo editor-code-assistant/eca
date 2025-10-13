@@ -77,9 +77,10 @@ Here are the current supported contexts types:
 
 #### AGENTS.md automatic context
 
-ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`.
+ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`, it will recursively check for any `@some-file.md` mention as well.
 
 You can ask ECA to create/update this file via `/init` command.
+you can check/debug what goes to final prompt with `/prompt-show` as well.
 
 ### Commands
 
