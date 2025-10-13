@@ -113,7 +113,7 @@
                       {:name "prompt-show"
                        :type :native
                        :description "Prompt sent to LLM as system instructions."
-                       :arguments []}]
+                       :arguments [{:name "optional-prompt"}]}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -187,7 +187,7 @@
                        existing-files))
                  (str "Credential files: None found (GPG available: " (:gpg-available cred-check) ")")))))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions metrics]}]
+(defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions user-messages metrics]}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))]
     (case command
@@ -254,8 +254,21 @@
                 :chats {chat-id [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}
-      "prompt-show" {:type :chat-messages
-                     :chats {chat-id [{:role "system" :content [{:type :text :text instructions}]}]}}
+      "prompt-show" (let [full-prompt (str "Instructions:\n" instructions "\n"
+                                           "Prompt:\n" (reduce
+                                                        (fn [s {:keys [content]}]
+                                                          (str
+                                                           s
+                                                           (reduce
+                                                            #(str %1 (string/replace-first (:text %2) "/prompt-show " "") "\n")
+                                                            ""
+                                                            content)))
+                                                        ""
+                                                        user-messages))]
+                      {:type :chat-messages
+                       :chats {chat-id [{:role "system"
+                                         :content [{:type :text
+                                                    :text full-prompt}]}]}})
 
       ;; else check if a custom command
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

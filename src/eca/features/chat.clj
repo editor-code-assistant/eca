@@ -872,17 +872,6 @@
                                                   repo-map*
                                                   selected-behavior
                                                   config)
-        chat-ctx {:chat-id chat-id
-                  :contexts contexts
-                  :behavior selected-behavior
-                  :behavior-config behavior-config
-                  :instructions instructions
-                  :full-model full-model
-                  :db* db*
-                  :metrics metrics
-                  :config config
-                  :messenger messenger}
-        decision (message->decision message)
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
         expanded-prompt-contexts (when-let [contexts-str (-> (f.context/contexts-str-from-prompt message db)
@@ -890,7 +879,19 @@
                                    [{:type :text :text contexts-str}])
         user-messages [{:role "user" :content (concat [{:type :text :text message}]
                                                       expanded-prompt-contexts
-                                                      image-contents)}]]
+                                                      image-contents)}]
+        chat-ctx {:chat-id chat-id
+                  :contexts contexts
+                  :behavior selected-behavior
+                  :behavior-config behavior-config
+                  :instructions instructions
+                  :user-messages user-messages
+                  :full-model full-model
+                  :db* db*
+                  :metrics metrics
+                  :config config
+                  :messenger messenger}
+        decision (message->decision message)]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text
                                    :text (str message "\n")})
