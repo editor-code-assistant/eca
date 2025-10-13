@@ -127,10 +127,13 @@
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))
                                                   custom-cmds)))]
-    (let [raw-content (string/replace raw-content "$ARGS" (string/join " " args))]
+    (let [args-joined (string/join " " args)
+          content-with-args (-> raw-content
+                                (string/replace "$ARGS" args-joined)
+                                (string/replace "$ARGUMENTS" args-joined))]
       (reduce (fn [content [i arg]]
                 (string/replace content (str "$ARG" (inc i)) arg))
-              raw-content
+              content-with-args
               (map-indexed vector args)))))
 
 (defn ^:private doctor-msg [db config]
