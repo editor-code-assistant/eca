@@ -35,7 +35,7 @@
                                  (cond
                                    ;; Absolute path
                                    (string/starts-with? mention "/")
-                                   mention
+                                   (str (fs/canonicalize (fs/file mention)))
 
                                    ;; Relative path (./... or ../...)
                                    (or (string/starts-with? mention "./")
