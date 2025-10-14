@@ -66,7 +66,7 @@ Custom tools are configured in your `config.json` file. For a detailed guide on 
 
 ![](./images/features/contexts.png)
 
-ECA supports contexts (`@`), including images and MCP resources, which can help LLM generate output with better quality.
+ECA supports contexts (`@`) and files (`#`), including images and MCP resources, which can help LLM generate output with better quality.
 Here are the current supported contexts types:
 
 - `file`: a file in the workspace, server will pass its content to LLM (Supports optional line range) and images.
