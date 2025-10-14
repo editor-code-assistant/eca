@@ -1152,22 +1152,26 @@ you can check/debug what goes to final prompt with <code>/prompt-show</code> as 
 <p><img alt="" src="../images/features/commands.png" /></p>
 <p>Eca supports commands that usually are triggered via shash (<code>/</code>) in the chat, completing in the chat will show the known commands which include ECA commands, MCP prompts and resources.</p>
 <p>The built-in commands are:</p>
-<p><code>/init</code>: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
-<code>/login</code>: Log into a provider. Ex: <code>github-copilot</code>, <code>anthropic</code>.
-<code>/compact</code>: Compact/summarize conversation helping reduce context window.
-<code>/resume</code>: Resume a chat from previous session of this workspace folder.
-<code>/costs</code>: Show costs about current session.
-<code>/config</code>: Show ECA config for troubleshooting.
-<code>/doctor</code>: Show information about ECA, useful for troubleshooting.
-<code>/repo-map-show</code>: Show the current repoMap context of the session.
-<code>/prompt-show</code>: Show the final prompt sent to LLM with all contexts and ECA details.</p>
+<ul>
+<li><code>/init</code>: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.</li>
+<li><code>/login</code>: Log into a provider. Ex: <code>github-copilot</code>, <code>anthropic</code>.</li>
+<li><code>/compact</code>: Compact/summarize conversation helping reduce context window.</li>
+<li><code>/resume</code>: Resume a chat from previous session of this workspace folder.</li>
+<li><code>/costs</code>: Show costs about current session.</li>
+<li><code>/config</code>: Show ECA config for troubleshooting.</li>
+<li><code>/doctor</code>: Show information about ECA, useful for troubleshooting.</li>
+<li><code>/repo-map-show</code>: Show the current repoMap context of the session.</li>
+<li><code>/prompt-show</code>: Show the final prompt sent to LLM with all contexts and ECA details.</li>
+</ul>
 <h4 id="custom-commands">Custom commands<a class="headerlink" href="#custom-commands" title="Permanent link">#</a></h4>
 <p>It's possible to configure custom command prompts, for more details check <a href="../configuration/#custom-command-prompts">its configuration</a></p>
 <h3 id="login">Login<a class="headerlink" href="#login" title="Permanent link">#</a></h3>
 <p>It's possible to login to some providers using <code>/login</code> command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its cache <code>~/.cache/eca/db.transit.json</code>.</p>
-<p>Current supported providers with login:
-- <code>anthropic</code>: with options to login to Claude Max/Pro or create API keys.
-- <code>github-copilot</code>: via Github oauth.</p>
+<p>Current supported providers with login:</p>
+<ul>
+<li><code>anthropic</code>: with options to login to Claude Max/Pro or create API keys.</li>
+<li><code>github-copilot</code>: via Github oauth.</li>
+</ul>
 <h2 id="opentelemetry-integration">OpenTelemetry integration<a class="headerlink" href="#opentelemetry-integration" title="Permanent link">#</a></h2>
 <p>ECA has support for <a href="https://opentelemetry.io/">OpenTelemetry</a>(otlp), if configured, server tasks, tool calls, and more will be metrified via otlp API.</p>
 <p>For more details check <a href="../configuration/#opentelemetry-integration">its configuration</a></p>
@@ -1195,7 +1199,7 @@ you can check/debug what goes to final prompt with <code>/prompt-show</code> as 
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2025 14:58:29 UTC">October 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2025 14:59:34 UTC">October 14, 2025</span>
   </span>
 
     
