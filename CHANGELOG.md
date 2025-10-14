@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.68.0
+
 - Unwrap mentioned @contexts in prompt appending as user message its content. #154
 
 ## 0.67.0
