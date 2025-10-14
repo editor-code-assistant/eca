@@ -66,7 +66,7 @@ Custom tools are configured in your `config.json` file. For a detailed guide on 
 
 ![](./images/features/contexts.png)
 
-User can include contexts to the chat (`@`), including images and MCP resources, which can help LLM generate output with better quality.
+ECA supports contexts (`@`), including images and MCP resources, which can help LLM generate output with better quality.
 Here are the current supported contexts types:
 
 - `file`: a file in the workspace, server will pass its content to LLM (Supports optional line range) and images.
@@ -74,6 +74,13 @@ Here are the current supported contexts types:
 - ~`repoMap`: a summary view of workspaces files and folders, server will calculate this and pass to LLM. Currently, the repo-map includes only the file paths in git.~
 - `cursor`: Current file path + cursor position or selection.
 - `mcpResource`: resources provided by running MCPs servers.
+
+User can include those in 3 different ways that can be used for different purposes:
+
+- `#` in prompt: When completing with `#` in the prompt, when sending ECA will just mention the full file path in the mesage, LLM may use tools to read the file. __Useful for file path only mention in chat history__.
+- `@` in prompt: When completing with `@` in the prompt, when sending ECA will append a user-message with the context content. __Useful for chat history context__.
+- `@` in context area (above prompt): When completing `@` in the context area, when sending ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
+
 
 #### AGENTS.md automatic context
 
