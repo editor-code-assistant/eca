@@ -230,7 +230,7 @@
           b-content (multi-str
                      "- do bar")]
       (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
+                                                  (condp = (h/file-path p)
                                                     a-file a-content
                                                     b-file b-content))]
         (is (match?
