@@ -41,7 +41,7 @@
               {:type "file" :path (h/file-path (str root "/dir/nested.txt"))}
               {:type "file" :path (h/file-path (str root "/bar.txt"))}
               {:type "mcpResource" :uri "mcp://r1"}]
-             (f.context/all-contexts nil (h/db*) (h/config)))))))
+             (f.context/all-contexts nil false (h/db*) (h/config)))))))
 
   (testing "respects the query by limiting glob results"
     (h/reset-components!)
@@ -57,7 +57,7 @@
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_db] [])]
-        (let [result (f.context/all-contexts "foo" (h/db*) {})]
+        (let [result (f.context/all-contexts "foo" false (h/db*) {})]
           ;; Should include foo.txt but not bar.txt
           (is (some #(= {:type "file" :path (str root "/foo.txt")} %) result))
           (is (not (some #(= {:type "file" :path (str root "/bar.txt")} %) result)))))))
@@ -85,7 +85,7 @@
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_db] [])]
-        (let [result (f.context/all-contexts nil (h/db*) {})]
+        (let [result (f.context/all-contexts nil false (h/db*) {})]
           ;; Root directories present
           (is (some #(= {:type "directory" :path root1} %) result))
           (is (some #(= {:type "directory" :path root2} %) result))
@@ -107,7 +107,7 @@
                     f.index/filter-allowed (fn [files _root _config] files)]
         (let [db* (atom {:workspace-folders [{:uri (h/file-uri "file:///fake/repo")}]})
               config {}
-              results (f.context/all-contexts "readme" db* config)
+              results (f.context/all-contexts "readme" false db* config)
               file-paths (->> results (filter #(= "file" (:type %))) (map :path) set)]
           (is (contains? file-paths readme)))))))
 
@@ -128,7 +128,7 @@
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_] [])]
-        (let [result (f.context/all-contexts "./src" db* {})]
+        (let [result (f.context/all-contexts "./src" false db* {})]
           ;; Root directory present
           (is (some #(= {:type "directory" :path root} %) result))
           ;; Entries mapped from the relative listing
@@ -154,7 +154,7 @@
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_] [])]
-        (let [result (f.context/all-contexts "./missing/file" db* {})]
+        (let [result (f.context/all-contexts "./missing/file" false db* {})]
           ;; Root directory present
           (is (some #(= {:type "directory" :path root} %) result))
           ;; Entries mapped from the parent listing
@@ -179,7 +179,7 @@
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_] [])]
-        (let [result (f.context/all-contexts "~" db* {})]
+        (let [result (f.context/all-contexts "~" false db* {})]
           ;; Root directory present
           (is (some #(= {:type "directory" :path root} %) result))
           ;; Entries from home listing

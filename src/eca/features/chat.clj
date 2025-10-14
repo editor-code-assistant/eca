@@ -874,8 +874,9 @@
                                                   config)
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
-        expanded-prompt-contexts (when-let [contexts-str (-> (f.context/contexts-str-from-prompt message db)
-                                                             (f.prompt/contexts-str repo-map*))]
+        expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)
+                                                                 seq
+                                                                 (f.prompt/contexts-str repo-map*))]
                                    [{:type :text :text contexts-str}])
         user-messages [{:role "user" :content (concat [{:type :text :text message}]
                                                       expanded-prompt-contexts

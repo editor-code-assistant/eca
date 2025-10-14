@@ -272,7 +272,7 @@
 
         ;; Mock decrypt-gpg to simulate timeout behavior
         (with-redefs [secrets/gpg-available? (constantly true)
-                      secrets/decrypt-gpg (fn [file-path]
+                      secrets/decrypt-gpg (fn [_file-path]
                                             (reset! decrypt-called? true)
                                             ;; Simulate timeout by returning nil
                                             nil)]
@@ -619,9 +619,9 @@
         (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-super-secret-password-123\n")
 
         ;; Mock logger to capture messages
-        (with-redefs [logger/debug (fn [tag & args]
+        (with-redefs [logger/debug (fn [_tag & args]
                                      (swap! logged-messages conj (vec args)))
-                      logger/info (fn [tag & args]
+                      logger/info (fn [_tag & args]
                                     (swap! logged-messages conj (vec args)))
                       secrets/credential-file-paths (constantly [temp-path])]
           (let [result (secrets/get-credential "api.openai.com")]
@@ -643,7 +643,7 @@
         (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-secret-key-789\ngarbage!!!!\n")
 
         ;; Mock logger to capture messages
-        (with-redefs [logger/warn (fn [tag & args]
+        (with-redefs [logger/warn (fn [_tag & args]
                                     (swap! logged-messages conj (vec args)))
                       secrets/credential-file-paths (constantly [temp-path])]
           (secrets/get-credential "api.openai.com")
@@ -738,7 +738,7 @@
               (Files/setPosixFilePermissions path perms)
 
               ;; Mock logger to capture warnings
-              (with-redefs [logger/warn (fn [tag & args]
+              (with-redefs [logger/warn (fn [_tag & args]
                                           (swap! warnings conj (vec args)))
                             secrets/credential-file-paths (constantly [temp-path])]
                 (secrets/get-credential "api.openai.com")
@@ -773,7 +773,7 @@
               (Files/setPosixFilePermissions path perms)
 
               ;; Mock logger to capture warnings
-              (with-redefs [logger/warn (fn [tag & args]
+              (with-redefs [logger/warn (fn [_tag & args]
                                           (swap! warnings conj (vec args)))
                             secrets/credential-file-paths (constantly [temp-path])]
                 (secrets/get-credential "api.openai.com")

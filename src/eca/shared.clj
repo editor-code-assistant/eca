@@ -162,7 +162,7 @@
    The cache key includes the file's last-modified timestamp, so the cache
    automatically invalidates when the file changes."
   [f]
-  (let [mf (memoize/memo (fn [file mtime & args]
+  (let [mf (memoize/memo (fn [file _mtime & args]
                            (apply f file args)))
         safe-mtime (fn [file]
                      (try
