@@ -75,7 +75,7 @@
          (mapcat #(parse-agents-file (str %))))))
 
 (defn ^:private file->refined-context [path lines-range]
-  (let [ext (string/lower-case (fs/extension path))]
+  (let [ext (string/lower-case (or (fs/extension path) ""))]
     (if (contains? #{"png" "jpg" "jpeg" "gif" "webp"} ext)
       {:type :image
        :media-type (case ext
