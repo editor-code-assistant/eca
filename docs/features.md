@@ -80,6 +80,8 @@ User can include those in 3 different ways that can be used for different purpos
 - `@` in prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
 - `@` in context area (above prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
 
+![](./images/features/contexts-files.gif)
+
 #### AGENTS.md automatic context
 
 ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`, it will recursively check for any `@some-file.md` mention as well.
