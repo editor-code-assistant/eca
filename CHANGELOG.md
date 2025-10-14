@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unwrap mentioned @contexts in prompt appending as user message its content. #154
+
 ## 0.67.0
 
 - Improved flaky test #150
