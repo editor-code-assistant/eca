@@ -95,15 +95,15 @@ Eca supports commands that usually are triggered via shash (`/`) in the chat, co
 
 The built-in commands are:
 
-`/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
-`/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
-`/compact`: Compact/summarize conversation helping reduce context window.
-`/resume`: Resume a chat from previous session of this workspace folder.
-`/costs`: Show costs about current session.
-`/config`: Show ECA config for troubleshooting.
-`/doctor`: Show information about ECA, useful for troubleshooting.
-`/repo-map-show`: Show the current repoMap context of the session.
-`/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
+- `/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
+- `/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
+- `/compact`: Compact/summarize conversation helping reduce context window.
+- `/resume`: Resume a chat from previous session of this workspace folder.
+- `/costs`: Show costs about current session.
+- `/config`: Show ECA config for troubleshooting.
+- `/doctor`: Show information about ECA, useful for troubleshooting.
+- `/repo-map-show`: Show the current repoMap context of the session.
+- `/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
 
 #### Custom commands
 
@@ -114,6 +114,7 @@ It's possible to configure custom command prompts, for more details check [its c
 It's possible to login to some providers using `/login` command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its cache `~/.cache/eca/db.transit.json`.
 
 Current supported providers with login:
+
 - `anthropic`: with options to login to Claude Max/Pro or create API keys.
 - `github-copilot`: via Github oauth.
 
