@@ -1130,7 +1130,7 @@ It supports both MCP server tools + ECA native tools.</p>
 <p>Custom tools are configured in your <code>config.json</code> file. For a detailed guide on how to set them up, check the <a href="../configuration/#custom-tools">Custom Tools configuration documentation</a>.</p>
 <h3 id="contexts">Contexts<a class="headerlink" href="#contexts" title="Permanent link">#</a></h3>
 <p><img alt="" src="../images/features/contexts.png" /></p>
-<p>User can include contexts to the chat (<code>@</code>), including images and MCP resources, which can help LLM generate output with better quality.
+<p>ECA supports contexts (<code>@</code>), including images and MCP resources, which can help LLM generate output with better quality.
 Here are the current supported contexts types:</p>
 <ul>
 <li><code>file</code>: a file in the workspace, server will pass its content to LLM (Supports optional line range) and images.</li>
@@ -1138,6 +1138,12 @@ Here are the current supported contexts types:</p>
 <li>~<code>repoMap</code>: a summary view of workspaces files and folders, server will calculate this and pass to LLM. Currently, the repo-map includes only the file paths in git.~</li>
 <li><code>cursor</code>: Current file path + cursor position or selection.</li>
 <li><code>mcpResource</code>: resources provided by running MCPs servers.</li>
+</ul>
+<p>User can include those in 3 different ways that can be used for different purposes:</p>
+<ul>
+<li><code>#</code> in prompt: When completing with <code>#</code> in the prompt, when sending ECA will just mention the full file path in the mesage, LLM may use tools to read the file. <strong>Useful for file path only mention in chat history</strong>.</li>
+<li><code>@</code> in prompt: When completing with <code>@</code> in the prompt, when sending ECA will append a user-message with the context content. <strong>Useful for chat history context</strong>.</li>
+<li><code>@</code> in context area (above prompt): When completing <code>@</code> in the context area, when sending ECA will use it in the instructions/system prompt of LLM request. <strong>Useful for one-time only context</strong>.</li>
 </ul>
 <h4 id="agentsmd-automatic-context">AGENTS.md automatic context<a class="headerlink" href="#agentsmd-automatic-context" title="Permanent link">#</a></h4>
 <p>ECA will always include if found the <code>AGENTS.md</code> file as context, searching for both <code>/project-root/AGENTS.md</code> and <code>~/.config/eca/AGENTS.md</code>, it will recursively check for any <code>@some-file.md</code> mention as well.</p>
@@ -1190,7 +1196,7 @@ you can check/debug what goes to final prompt with <code>/prompt-show</code> as 
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2025 14:37:41 UTC">October 14, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2025 14:47:01 UTC">October 14, 2025</span>
   </span>
 
     
