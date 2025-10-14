@@ -1,5 +1,6 @@
 (ns eca.features.chat-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
    [eca.features.prompt :as f.prompt]
@@ -8,9 +9,7 @@
    [eca.llm-api :as llm-api]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
-   [matcher-combinators.test :refer [match?]]
-   [babashka.fs :as fs]
-   [clojure.string :as string]))
+   [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
 
