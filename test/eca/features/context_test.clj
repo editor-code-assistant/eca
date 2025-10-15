@@ -9,8 +9,8 @@
    [eca.llm-api :as llm-api]
    [eca.shared :refer [multi-str]]
    [eca.test-helper :as h]
-   [matcher-combinators.test :refer [match?]]
-   [matcher-combinators.matchers :as m]))
+   [matcher-combinators.matchers :as m]
+   [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
 
