@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.68.1
+
 - Add `anthropic/haiku-4.5` model by default.
 
 ## 0.68.0
