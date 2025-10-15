@@ -80,7 +80,7 @@ User can include those in 3 different ways that can be used for different purpos
 - `@` in prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
 - `@` in context area (above prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
 
-![](./images/features/contexts-files.gif)
+<img src="./images/features/contexts-files.gif" width="400">
 
 #### AGENTS.md automatic context
 
