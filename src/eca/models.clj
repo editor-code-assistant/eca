@@ -34,7 +34,7 @@
     "anthropic/claude-sonnet-4-20250514"
     "anthropic/claude-opus-4-20250514"
     "anthropic/claude-opus-4-1-20250805"
-    "anthropic/claude-3-5-haiku-20241022"})
+    "anthropic/claude-haiku-4-5-20251001"})
 
 (defn ^:private all
   "Return all known existing models with their capabilities and configs."

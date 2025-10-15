@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `anthropic/haiku-4.5` model by default.
+
 ## 0.68.0
 
 - Unwrap mentioned @contexts in prompt appending as user message its content. #154
