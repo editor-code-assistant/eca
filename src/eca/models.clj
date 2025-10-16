@@ -76,7 +76,7 @@
                               (fn [p [provider provider-config]]
                                 (merge p
                                        (reduce
-                                        (fn [m [model _model-config]]
+                                        (fn [m [model model-config]]
                                           (let [full-model (str provider "/" model)
                                                 model-capabilities (merge
                                                                     (or (get all-models full-model)
@@ -86,7 +86,8 @@
                                                                                                                        (shared/normalize-model-name (second (string/split % #"/" 2))))
                                                                                                                    (keys all-models)))]
                                                                           (get all-models found-full-model))
-                                                                        {:tools true
+                                                                        {:model-name (or (:modelName model-config) model)
+                                                                         :tools true
                                                                          :reason? true
                                                                          :web-search true}))]
                                             (assoc m full-model model-capabilities)))

@@ -62,17 +62,18 @@ You just need to add your provider to `providers` and make sure add the required
 
 Schema:
 
-| Option                         | Type   | Description                                                                                         | Required |
-|--------------------------------|--------|-----------------------------------------------------------------------------------------------------|----------|
-| `api`                          | string | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                   | Yes      |
-| `urlEnv`                       | string | Environment variable name containing the API URL                                                    | No*      |
-| `url`                          | string | Direct API URL (use instead of `urlEnv`)                                                            | No*      |
-| `keyEnv`                       | string | Environment variable name containing the API key                                                    | No*      |
-| `keyRc`                        | string | Lookup specification to read the API key from Unix RC [credential files](#credential-file-authentication)                         | No*      |
-| `key`                          | string | Direct API key (use instead of `keyEnv`)                                                            | No*      |
-| `completionUrlRelativePath`    | string | Optional override for the completion endpoint path (see defaults below and examples like Azure)     | No       |
-| `models`                       | map    | Key: model name, value: its config                                                                  | Yes      |
-| `models <model> extraPayload`  | map    | Extra payload sent in body to LLM                                                                   | No       |
+| Option                        | Type   | Description                                                                                                  | Required |
+|-------------------------------|--------|--------------------------------------------------------------------------------------------------------------|----------|
+| `api`                         | string | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
+| `urlEnv`                      | string | Environment variable name containing the API URL                                                             | No*      |
+| `url`                         | string | Direct API URL (use instead of `urlEnv`)                                                                     | No*      |
+| `keyEnv`                      | string | Environment variable name containing the API key                                                             | No*      |
+| `keyRc`                       | string | Lookup specification to read the API key from Unix RC [credential files](#credential-file-authentication)    | No*      |
+| `key`                         | string | Direct API key (use instead of `keyEnv`)                                                                     | No*      |
+| `completionUrlRelativePath`   | string | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
+| `models`                      | map    | Key: model name, value: its config                                                                           | Yes      |
+| `models <model> extraPayload` | map    | Extra payload sent in body to LLM                                                                            | No       |
+| `models <model> modelName`    | string | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
 
 _* url and key will be search as env `<provider>_API_URL` / `<provider>_API_KEY`, but require config or to be found to work._
 
@@ -305,25 +306,21 @@ Notes:
 
 === "Same model with different settings"
 
-    For now, you can create different providers with same model names to achieve that:
+    Using `modelName`, you can configure multiple model names using same model with different settings:
 
     ```javascript
     {
-     "providers": {
-       "openai": {
-         "api": "openai-responses",
-         "models": { "gpt-5": {} }
-       },
-       "openai-high": {
-         "api": "openai-responses",
-         "url": "https://api.openai.com",
-         "keyEnv": "OPENAI_API_KEY",
-         "models": {
-           "gpt-5": {
-             "extraPayload": { "reasoning": { "effort": "high" } }
-           }
-         }
-       }
-     }
+      "providers": {
+        "openai": {
+          "api": "openai-responses",
+          "models": { 
+            "gpt-5": {},
+            "gpt-5-high": {
+              "modelName": "gpt-5",
+              "extraPayload": { "reasoning": {"effort": "high"}}
+            }
+          }
+        }
+      }
     }
     ```

@@ -5,7 +5,7 @@
    [clojure.string :as string]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [assoc-some]]
+   [eca.shared :refer [assoc-some deep-merge]]
    [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
@@ -280,15 +280,16 @@
                        (normalize-messages past-messages supports-image? thinking-start-tag thinking-end-tag)
                        (normalize-messages user-messages supports-image? thinking-start-tag thinking-end-tag)))
 
-        body (merge (assoc-some
-                     {:model model
-                      :messages messages
-                      :temperature temperature
-                      :stream true
-                      :parallel_tool_calls parallel-tool-calls?
-                      :max_completion_tokens 32000}
-                     :tools (when (seq tools) (->tools tools)))
-                    extra-payload)
+        body (deep-merge
+              (assoc-some
+               {:model model
+                :messages messages
+                :temperature temperature
+                :stream true
+                :parallel_tool_calls parallel-tool-calls?
+                :max_completion_tokens 32000}
+               :tools (when (seq tools) (->tools tools)))
+              extra-payload)
 
         ;; Atom to accumulate tool call data from streaming chunks.
         ;; OpenAI streams tool call arguments across multiple chunks, so we need to
