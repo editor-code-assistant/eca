@@ -331,14 +331,14 @@
 
     :trigger-post-tool-call-hook
     (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)]
-      (f.hooks/trigger-if-matches!
-       :postToolCall
-       {:chat-id (:chat-id chat-ctx)
-        :name (:name tool-call-state)
-        :server (:server tool-call-state)
-        :arguments (:arguments tool-call-state)}
-       {:on-before-execute (partial notify-before-hook! chat-ctx)
-        :on-after-execute (partial notify-after-hook! chat-ctx)}))
+      @(f.hooks/trigger-if-matches!
+        :postToolCall
+        {:chat-id (:chat-id chat-ctx)
+         :name (:name tool-call-state)
+         :server (:server tool-call-state)
+         :arguments (:arguments tool-call-state)}
+        {:on-before-execute (partial notify-before-hook! chat-ctx)
+         :on-after-execute (partial notify-after-hook! chat-ctx)}))
 
     ;; Actions on parts of the state
     :deliver-approval-false
@@ -655,19 +655,19 @@
                                                       {:approval approval :tool-call-id id})))
                                      ;; TODO: Should there be a timeout here?  If so, what would be the state transitions?
                                      @approved?* ;; wait for user respond before checking hook
-                                     (f.hooks/trigger-if-matches! :preToolCall
-                                                                  {:chat-id chat-id
-                                                                   :name name
-                                                                   :server server
-                                                                   :arguments arguments}
-                                                                  {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                                                   :on-after-execute (fn [result]
-                                                                                       (when (= "reject" (:output result))
-                                                                                         (transition-tool-call! db* chat-ctx id :hook-rejected
-                                                                                                                {:reason {:code :hook-rejected
-                                                                                                                          :text "Tool call rejected by hook"}})
-                                                                                         (reset! hook-approved?* false))
-                                                                                       (notify-after-hook! chat-ctx result))})
+                                     @(f.hooks/trigger-if-matches! :preToolCall
+                                                                   {:chat-id chat-id
+                                                                    :name name
+                                                                    :server server
+                                                                    :arguments arguments}
+                                                                   {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                                                    :on-after-execute (fn [result]
+                                                                                        (when (= "reject" (:output result))
+                                                                                          (transition-tool-call! db* chat-ctx id :hook-rejected
+                                                                                                                 {:reason {:code :hook-rejected
+                                                                                                                           :text "Tool call rejected by hook"}})
+                                                                                          (reset! hook-approved?* false))
+                                                                                        (notify-after-hook! chat-ctx result))})
                                      (if (and @approved?* @hook-approved?*)
                                        ;; assert: In :execution-approved or :stopping or :cleanup
                                        (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
@@ -949,19 +949,17 @@
                                                        {:chat-id chat-id
                                                         :prompt message}
                                                        {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                                        :on-after-execute (partial notify-after-hook! chat-ctx)})]
+                                                        :on-after-execute (partial notify-after-hook! chat-ctx)})
+        user-messages (if output
+                        (update-in user-messages [0 :content 0 :text] str " " output)
+                        user-messages)]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text
                                    :text (str message "\n")})
     (case (:type decision)
       :mcp-prompt (send-mcp-prompt! decision chat-ctx)
       :eca-command (handle-command! decision chat-ctx)
-      :prompt-message (let [image-contents (->> refined-contexts
-                                                (filter #(= :image (:type %))))
-                            user-messages [{:role "user" :content (concat [{:type :text :text (str message
-                                                                                                   output)}]
-                                                                          image-contents)}]]
-                        (prompt-messages! user-messages chat-ctx)))
+      :prompt-message (prompt-messages! user-messages chat-ctx))
     (metrics/count-up! "prompt-received"
                        {:full-model full-model
                         :behavior behavior}
