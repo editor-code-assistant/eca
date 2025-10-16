@@ -4,6 +4,8 @@
    [eca.config :as config]
    [eca.features.tools :as f.tools]
    [eca.features.tools.filesystem :as f.tools.filesystem]
+   [eca.features.tools.mcp :as f.mcp]
+   [eca.shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -188,3 +190,32 @@
         ;; Test safe commands that should NOT be denied
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "ls -la"} {} config "plan")))
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "git status"} {} config "plan")))))))
+
+(deftest call-tool!-test
+  (testing "We adapt output if json"
+    (is (match?
+         {:contents [{:type :text
+                      :text (if h/windows?
+                              (multi-str "{\r"
+                                         "  \"foo\" : \"123\",\r"
+                                         "  \"bar\" : 234\r"
+                                         "}")
+                              (multi-str "{"
+                                         "  \"foo\" : \"123\","
+                                         "  \"bar\" : 234"
+                                         "}"))}]
+          :error false}
+         (with-redefs [f.mcp/call-tool! (constantly {:contents [{:type :text
+                                                                 :text "{\"foo\": \"123\", \"bar\": 234}"}]
+                                                     :error false})]
+           (f.tools/call-tool! "my-json-tool"
+                               {}
+                               "chat-123"
+                               "tool-234"
+                               "agent"
+                               (h/db*)
+                               (h/config)
+                               (h/messenger)
+                               (h/metrics)
+                               identity
+                               identity))))))

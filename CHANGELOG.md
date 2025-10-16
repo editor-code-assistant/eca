@@ -2,8 +2,42 @@
 
 ## Unreleased
 
+## 0.69.0
+
+- Support multiple model configs with different payloads using same model name via `modelName` config. (Ex: gpt-5 and gpt-5-high but both use gpt-5)
+
+## 0.68.1
+
+- Add `anthropic/haiku-4.5` model by default.
+
+## 0.68.0
+
+- Unwrap mentioned @contexts in prompt appending as user message its content. #154
+
+## 0.67.0
+
+- Improved flaky test #150
+- Obfuscate env vars in /doctor.
+- Bump clj-otel to 0.2.10
+- Rename $ARGS to $ARGUMENTS placeholder alias for custom commands.
+- Support recursive AGENTS.md file inclusions with @file mention. #140
+
+## 0.66.1
+
+- Improve plan behavior prompt. #139
+
+## 0.66.0
+
+- Add support for secrets stored in authinfo and netrc files
+- Added tests for stopping concurrent tool calls. #147
+- Improve logging.
+- Improve performance of `chat/queryContext`.
+
+## 0.65.0
+
 - Added ability to cancel tool calls. Only the shell tool currently. #145
 - Bump mcp java sdk to 0.14.1.
+- Improve json output for tools that output json.
 
 ## 0.64.1
 

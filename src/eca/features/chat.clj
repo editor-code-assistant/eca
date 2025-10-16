@@ -884,19 +884,31 @@
             (send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
                                                                             :state :running
                                                                             :text "Parsing given context"}))
-        refined-contexts (f.context/raw-contexts->refined contexts db config)
+        refined-contexts (concat
+                          (f.context/agents-file-contexts db)
+                          (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
         instructions (f.prompt/build-instructions refined-contexts
                                                   rules
                                                   repo-map*
                                                   selected-behavior
                                                   config)
+        image-contents (->> refined-contexts
+                            (filter #(= :image (:type %))))
+        expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)
+                                                                 seq
+                                                                 (f.prompt/contexts-str repo-map*))]
+                                   [{:type :text :text contexts-str}])
+        user-messages [{:role "user" :content (concat [{:type :text :text message}]
+                                                      expanded-prompt-contexts
+                                                      image-contents)}]
         chat-ctx {:chat-id chat-id
                   :message message
                   :contexts contexts
                   :behavior selected-behavior
                   :behavior-config behavior-config
                   :instructions instructions
+                  :user-messages user-messages
                   :full-model full-model
                   :db* db*
                   :metrics metrics
@@ -954,8 +966,15 @@
    db*
    config]
   {:chat-id chat-id
-   :contexts (set/difference (set (f.context/all-contexts query db* config))
+   :contexts (set/difference (set (f.context/all-contexts query false db* config))
                              (set contexts))})
+
+(defn query-files
+  [{:keys [query chat-id]}
+   db*
+   config]
+  {:chat-id chat-id
+   :files (set (f.context/all-contexts query true db* config))})
 
 (defn query-commands
   [{:keys [query chat-id]}

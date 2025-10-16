@@ -29,7 +29,7 @@
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}
                        {:name "repo-map-show" :arguments []}
-                       {:name "prompt-show" :arguments []}]}
+                       {:name "prompt-show" :arguments [{:name "optional-prompt"}]}]}
            resp))))
 
   (testing "We query specific commands"

@@ -8,7 +8,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
-   [eca.shared :refer [assoc-some multi-str]]
+   [eca.shared :refer [assoc-some deep-merge multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -106,24 +106,25 @@
                       (normalize-messages user-messages supports-image?))
         tools (cond-> tools
                 web-search (conj {:type "web_search_preview"}))
-        body (merge {:model model
-                     :input input
-                     :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-                     :parallel_tool_calls true
-                     :instructions (if (= :auth/oauth auth-type)
-                                     (str "You are Codex." instructions)
-                                     instructions)
-                     :tools tools
-                     :include (when reason?
-                                ["reasoning.encrypted_content"])
-                     :store false
-                     :reasoning (when reason?
-                                  {:effort "medium"
-                                   :summary "detailed"})
-                     :stream true
+        body (deep-merge
+              {:model model
+               :input input
+               :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+               :parallel_tool_calls true
+               :instructions (if (= :auth/oauth auth-type)
+                               (str "You are Codex." instructions)
+                               instructions)
+               :tools tools
+               :include (when reason?
+                          ["reasoning.encrypted_content"])
+               :store false
+               :reasoning (when reason?
+                            {:effort "medium"
+                             :summary "detailed"})
+               :stream true
                      ;; :verbosity "medium"
-                     :max_output_tokens max-output-tokens}
-                    extra-payload)
+               :max_output_tokens max-output-tokens}
+              extra-payload)
         tool-call-by-item-id* (atom {})
         on-response-fn
         (fn handle-response [event data]

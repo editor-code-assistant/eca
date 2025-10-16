@@ -34,7 +34,7 @@
     "anthropic/claude-sonnet-4-20250514"
     "anthropic/claude-opus-4-20250514"
     "anthropic/claude-opus-4-1-20250805"
-    "anthropic/claude-3-5-haiku-20241022"})
+    "anthropic/claude-haiku-4-5-20251001"})
 
 (defn ^:private all
   "Return all known existing models with their capabilities and configs."
@@ -76,7 +76,7 @@
                               (fn [p [provider provider-config]]
                                 (merge p
                                        (reduce
-                                        (fn [m [model _model-config]]
+                                        (fn [m [model model-config]]
                                           (let [full-model (str provider "/" model)
                                                 model-capabilities (merge
                                                                     (or (get all-models full-model)
@@ -86,7 +86,8 @@
                                                                                                                        (shared/normalize-model-name (second (string/split % #"/" 2))))
                                                                                                                    (keys all-models)))]
                                                                           (get all-models found-full-model))
-                                                                        {:tools true
+                                                                        {:model-name (or (:modelName model-config) model)
+                                                                         :tools true
                                                                          :reason? true
                                                                          :web-search true}))]
                                             (assoc m full-model model-capabilities)))

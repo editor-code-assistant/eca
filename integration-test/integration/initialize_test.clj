@@ -12,7 +12,7 @@
 (deftest default-initialize-and-shutdown
   (eca/start-process!)
 
-  (let [models ["anthropic/claude-3-5-haiku-20241022"
+  (let [models ["anthropic/claude-haiku-4-5-20251001"
                 "anthropic/claude-opus-4-1-20250805"
                 "anthropic/claude-opus-4-20250514"
                 "anthropic/claude-sonnet-4-20250514"
@@ -72,7 +72,7 @@
 
 (deftest initialize-with-custom-providers
   (eca/start-process!)
-  (let [models ["anthropic/claude-3-5-haiku-20241022"
+  (let [models ["anthropic/claude-haiku-4-5-20251001"
                 "anthropic/claude-opus-4-1-20250805"
                 "anthropic/claude-opus-4-20250514"
                 "anthropic/claude-sonnet-4-20250514"

@@ -66,6 +66,9 @@
   (assoc (select-keys tool [:name :description :parameters])
          :type "function"))
 
+(defn ^:private real-model-name [model model-capabilities]
+  (or (:model-name model-capabilities) model))
+
 (defn complete!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
@@ -95,6 +98,7 @@
                            (when-not (:silent? (ex-data exception))
                              (logger/error args)
                              (on-error args)))
+        real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities)
                 (mapv tool->llm-tool tools))
         reason? (:reason? model-capabilities)
@@ -118,7 +122,7 @@
       (cond
         (= "openai" provider)
         (llm-providers.openai/completion!
-         {:model model
+         {:model real-model
           :instructions instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
@@ -135,7 +139,7 @@
 
         (= "anthropic" provider)
         (llm-providers.anthropic/completion!
-         {:model model
+         {:model real-model
           :instructions instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
@@ -152,7 +156,7 @@
 
         (= "github-copilot" provider)
         (llm-providers.openai-chat/completion!
-         {:model model
+         {:model real-model
           :instructions instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
@@ -173,7 +177,7 @@
 
         (= "google" provider)
         (llm-providers.openai-chat/completion!
-         {:model model
+         {:model real-model
           :instructions instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
@@ -196,7 +200,7 @@
          {:api-url api-url
           :reason? (:reason? model-capabilities)
           :supports-image? supports-image?
-          :model model
+          :model real-model
           :instructions instructions
           :user-messages user-messages
           :past-messages past-messages
@@ -213,7 +217,7 @@
                             (on-error-wrapper {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
               url-relative-path (:completionUrlRelativePath provider-config)]
           (provider-fn
-           {:model model
+           {:model real-model
             :instructions instructions
             :user-messages user-messages
             :max-output-tokens max-output-tokens
@@ -228,7 +232,7 @@
            callbacks))
 
         :else
-        (on-error-wrapper {:message (format "ECA Unsupported model %s for provider %s" model provider)}))
+        (on-error-wrapper {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
       (catch Exception e
         (on-error-wrapper {:exception e})))))
 

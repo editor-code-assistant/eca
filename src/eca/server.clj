@@ -50,6 +50,9 @@
 (defmethod jsonrpc.server/receive-request "chat/queryContext" [_ components params]
   (handlers/chat-query-context (with-config components) params))
 
+(defmethod jsonrpc.server/receive-request "chat/queryFiles" [_ components params]
+  (handlers/chat-query-files (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "chat/queryCommands" [_ components params]
   (handlers/chat-query-commands (with-config components) params))
 

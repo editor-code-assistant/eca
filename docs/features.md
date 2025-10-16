@@ -66,20 +66,28 @@ Custom tools are configured in your `config.json` file. For a detailed guide on 
 
 ![](./images/features/contexts.png)
 
-User can include contexts to the chat (`@`), including images and MCP resources, which can help LLM generate output with better quality.
+ECA supports contexts (`@`) and files (`#`), including images and MCP resources, which can help LLM generate output with better quality.
 Here are the current supported contexts types:
 
 - `file`: a file in the workspace, server will pass its content to LLM (Supports optional line range) and images.
 - `directory`: a directory in the workspace, server will read all file contexts and pass to LLM.
-- ~`repoMap`: a summary view of workspaces files and folders, server will calculate this and pass to LLM. Currently, the repo-map includes only the file paths in git.~
 - `cursor`: Current file path + cursor position or selection.
 - `mcpResource`: resources provided by running MCPs servers.
 
+User can include those in 3 different ways that can be used for different purposes:
+
+- `#` in prompt: ECA will just mention the full file path in the mesage, LLM may use tools to read the file. __Useful for file path only mention in chat history__.
+- `@` in prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
+- `@` in context area (above prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
+
+<img src="../images/features/contexts-files.gif" width="600">
+
 #### AGENTS.md automatic context
 
-ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`.
+ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`, it will recursively check for any `@some-file.md` mention as well.
 
 You can ask ECA to create/update this file via `/init` command.
+you can check/debug what goes to final prompt with `/prompt-show` as well.
 
 ### Commands
 
@@ -89,15 +97,15 @@ Eca supports commands that usually are triggered via shash (`/`) in the chat, co
 
 The built-in commands are:
 
-`/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
-`/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
-`/compact`: Compact/summarize conversation helping reduce context window.
-`/resume`: Resume a chat from previous session of this workspace folder.
-`/costs`: Show costs about current session.
-`/config`: Show ECA config for troubleshooting.
-`/doctor`: Show information about ECA, useful for troubleshooting.
-`/repo-map-show`: Show the current repoMap context of the session.
-`/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
+- `/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
+- `/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
+- `/compact`: Compact/summarize conversation helping reduce context window.
+- `/resume`: Resume a chat from previous session of this workspace folder.
+- `/costs`: Show costs about current session.
+- `/config`: Show ECA config for troubleshooting.
+- `/doctor`: Show information about ECA, useful for troubleshooting.
+- `/repo-map-show`: Show the current repoMap context of the session.
+- `/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
 
 #### Custom commands
 
@@ -108,6 +116,7 @@ It's possible to configure custom command prompts, for more details check [its c
 It's possible to login to some providers using `/login` command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its cache `~/.cache/eca/db.transit.json`.
 
 Current supported providers with login:
+
 - `anthropic`: with options to login to Claude Max/Pro or create API keys.
 - `github-copilot`: via Github oauth.
 

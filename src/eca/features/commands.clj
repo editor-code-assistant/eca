@@ -11,6 +11,7 @@
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
    [eca.messenger :as messenger]
+   [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str update-some]])
   (:import
    [java.lang ProcessHandle]))
@@ -112,7 +113,7 @@
                       {:name "prompt-show"
                        :type :native
                        :description "Prompt sent to LLM as system instructions."
-                       :arguments []}]
+                       :arguments [{:name "optional-prompt"}]}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -126,14 +127,19 @@
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))
                                                   custom-cmds)))]
-    (let [raw-content (string/replace raw-content "$ARGS" (string/join " " args))]
+    (let [args-joined (string/join " " args)
+          content-with-args (-> raw-content
+                                (string/replace "$ARGS" args-joined)
+                                (string/replace "$ARGUMENTS" args-joined))]
       (reduce (fn [content [i arg]]
                 (string/replace content (str "$ARG" (inc i)) arg))
-              raw-content
+              content-with-args
               (map-indexed vector args)))))
 
 (defn ^:private doctor-msg [db config]
-  (let [model (llm-api/default-model db config)]
+  (let [model (llm-api/default-model db config)
+        cred-check (secrets/check-credential-files)
+        existing-files (filter :exists (:files cred-check))]
     (multi-str (str "ECA version: " (config/eca-version))
                ""
                (str "Server cmd: " (.orElse (.commandLine (.info (ProcessHandle/current))) nil))
@@ -151,16 +157,40 @@
                                          "\n"
                                          (:auth db)))
                (str "Relevant env vars: " (reduce (fn [s [key val]]
-                                                    (if (or (string/includes? key "KEY")
-                                                            (string/includes? key "API")
-                                                            (string/includes? key "URL")
-                                                            (string/includes? key "BASE"))
-                                                      (str s key "=" val "\n")
-                                                      s))
-                                                  "\n"
-                                                  (System/getenv))))))
+                                                    (cond
+                                                      (or (string/includes? key "KEY")
+                                                          (string/includes? key "TOKEN"))
+                                                      (str s key "=" (shared/obfuscate val) "\n")
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions metrics]}]
+                                                      (or (string/includes? key "API")
+                                                          (string/includes? key "URL")
+                                                          (string/includes? key "BASE"))
+                                                      (str s key "=" val "\n")
+
+                                                      :else s))
+                                                  "\n"
+                                                  (System/getenv)))
+               ""
+               (if (seq existing-files)
+                 (str "Credential files (GPG available: " (:gpg-available cred-check) "):"
+                      (reduce
+                       (fn [s file-info]
+                         (str s "\n  " (:path file-info) ":"
+                              (when (contains? file-info :readable)
+                                (str "\n    Readable: " (:readable file-info)))
+                              (when (contains? file-info :permissions-secure)
+                                (str "\n    Permissions: " (if (:permissions-secure file-info) "secure" "INSECURE (should be 0600)")))
+                              (when (:credentials-count file-info)
+                                (str "\n    Credentials: " (:credentials-count file-info)))
+                              (when (:parse-error file-info)
+                                (str "\n    Parse error: " (:parse-error file-info)))
+                              (when (:suggestion file-info)
+                                (str "\n    " (:suggestion file-info)))))
+                       ""
+                       existing-files))
+                 (str "Credential files: None found (GPG available: " (:gpg-available cred-check) ")")))))
+
+(defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions user-messages metrics]}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))]
     (case command
@@ -227,8 +257,21 @@
                 :chats {chat-id [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}
-      "prompt-show" {:type :chat-messages
-                     :chats {chat-id [{:role "system" :content [{:type :text :text instructions}]}]}}
+      "prompt-show" (let [full-prompt (str "Instructions:\n" instructions "\n"
+                                           "Prompt:\n" (reduce
+                                                        (fn [s {:keys [content]}]
+                                                          (str
+                                                           s
+                                                           (reduce
+                                                            #(str %1 (string/replace-first (:text %2) "/prompt-show " "") "\n")
+                                                            ""
+                                                            content)))
+                                                        ""
+                                                        user-messages))]
+                      {:type :chat-messages
+                       :chats {chat-id [{:role "system"
+                                         :content [{:type :text
+                                                    :text full-prompt}]}]}})
 
       ;; else check if a custom command
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

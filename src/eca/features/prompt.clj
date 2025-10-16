@@ -59,6 +59,30 @@
       :else
       (load-builtin-prompt "agent_behavior.md"))))
 
+(defn contexts-str [refined-contexts repo-map*]
+  (multi-str
+   "<contexts description=\"Manually Provided by user. Their content is current and accurate. You MUST use this information first before using tools to read them.\">"
+   (reduce
+    (fn [context-str {:keys [type path position content partial uri]}]
+      (str context-str (case type
+                         :file (if partial
+                                 (format "<file partial=true path=\"%s\">...\n%s\n...</file>\n" path content)
+                                 (format "<file path=\"%s\">%s</file>\n" path content))
+                         :agents-file (multi-str
+                                       (format "<agents-file description=\"Instructions following AGENTS.md spec.\" path=\"%s\">" path)
+                                       content
+                                       "</agents-file>\n")
+                         :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n" @repo-map*)
+                         :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n"
+                                         path
+                                         (str (:line (:start position)) ":" (:character (:start position)))
+                                         (str (:line (:end position)) ":" (:character (:end position))))
+                         :mcpResource (format "<resource uri=\"%s\">%s</resource>\n" uri content)
+                         "")))
+    ""
+    refined-contexts)
+   "</contexts>"))
+
 (defn build-instructions [refined-contexts rules repo-map* behavior config]
   (multi-str
    (eca-prompt behavior config)
@@ -72,23 +96,7 @@
       "</rules>"])
    ""
    (when (seq refined-contexts)
-     ["<contexts description=\"Manually provided by user, usually when provided user knows that your task is related to those files, so consider reliying on it, if not enough, use tools to read/gather any extra files/contexts.\">"
-      (reduce
-       (fn [context-str {:keys [type path position content partial uri]}]
-         (str context-str (case type
-                            :file (if partial
-                                    (format "<file partial=true path=\"%s\">...\n%s\n...</file>\n" path content)
-                                    (format "<file path=\"%s\">%s</file>\n" path content))
-                            :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n" @repo-map*)
-                            :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n"
-                                            path
-                                            (str (:line (:start position)) ":" (:character (:start position)))
-                                            (str (:line (:end position)) ":" (:character (:end position))))
-                            :mcpResource (format "<resource uri=\"%s\">%s</resource>\n" uri content)
-                            "")))
-       ""
-       refined-contexts)
-      "</contexts>"])))
+     [(contexts-str refined-contexts repo-map*)])))
 
 (defn init-prompt [db]
   (replace-vars

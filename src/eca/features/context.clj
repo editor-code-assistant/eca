@@ -15,9 +15,51 @@
 
 (def ^:private logger-tag "[CONTEXT]")
 
-(defn ^:private agents-file-contexts
-  "Search for AGENTS.md file both in workspaceRoot and global config dir."
-  [db _config]
+(defn ^:private extract-at-mentions
+  "Extract all @path mentions from content. Supports relative and absolute paths with any extension."
+  [content]
+  (let [pattern #"@([^\s\)]+\.\w+)"
+        matches (re-seq pattern content)]
+    (map second matches)))
+
+(defn ^:private parse-agents-file
+  ([path] (parse-agents-file path #{}))
+  ([path visited]
+   (if (contains? visited path)
+     []
+     (let [root-content (llm-api/refine-file-context path nil)
+           visited' (conj visited path)
+           at-mentions (extract-at-mentions root-content)
+           parent-dir (str (fs/parent path))
+           resolved-paths (map (fn [mention]
+                                 (cond
+                                   ;; Absolute path
+                                   (string/starts-with? mention "/")
+                                   (str (fs/canonicalize (fs/file mention)))
+
+                                   ;; Relative path (./... or ../...)
+                                   (or (string/starts-with? mention "./")
+                                       (string/starts-with? mention "../"))
+                                   (str (fs/canonicalize (fs/file parent-dir mention)))
+
+                                   ;; Simple filename, relative to current file's directory
+                                   :else
+                                   (str (fs/canonicalize (fs/file parent-dir mention)))))
+                               at-mentions)
+           ;; Deduplicate resolved paths
+           unique-paths (distinct resolved-paths)
+           ;; Recursively parse all mentioned files
+           nested-results (mapcat #(parse-agents-file % visited') unique-paths)]
+       (concat [{:type :agents-file
+                 :path path
+                 :content root-content}]
+               nested-results)))))
+
+(defn agents-file-contexts
+  "Search for AGENTS.md file both in workspaceRoot and global config dir.
+   Process any found @paths mentions recursively, supporting both relative and absolute paths.
+   Deduplicates files to avoid reading the same file multiple times."
+  [db]
   ;; TODO make it customizable by behavior
   (let [agent-file "AGENTS.md"
         local-agent-files (keep (fn [{:keys [uri]}]
@@ -28,16 +70,12 @@
         global-agent-file (let [agent-file (fs/path (config/global-config-dir) agent-file)]
                             (when (fs/readable? agent-file)
                               (fs/canonicalize agent-file)))]
-    (mapv (fn [path]
-            {:type :file
-             :path (str path)
-             :partial false
-             :content (llm-api/refine-file-context (str path) nil)})
-          (concat local-agent-files
-                  (when global-agent-file [global-agent-file])))))
+    (->> (concat local-agent-files
+                 (when global-agent-file [global-agent-file]))
+         (mapcat #(parse-agents-file (str %))))))
 
 (defn ^:private file->refined-context [path lines-range]
-  (let [ext (string/lower-case (fs/extension path))]
+  (let [ext (string/lower-case (or (fs/extension path) ""))]
     (if (contains? #{"png" "jpg" "jpeg" "gif" "webp"} ext)
       {:type :image
        :media-type (case ext
@@ -52,35 +90,52 @@
         :content (llm-api/refine-file-context path lines-range)}
        :partial lines-range))))
 
-(defn raw-contexts->refined [contexts db config]
-  (concat (agents-file-contexts db config)
-          (mapcat (fn [{:keys [type path lines-range position uri]}]
-                    (case (name type)
-                      "file" [(file->refined-context path lines-range)]
-                      "directory" (->> (fs/glob path "**")
-                                       (remove fs/directory?)
-                                       (map (fn [path]
-                                              (let [filename (str (fs/canonicalize path))]
-                                                (file->refined-context filename nil)))))
-                      "repoMap" [{:type :repoMap}]
-                      "cursor" [{:type :cursor
-                                 :path path
-                                 :position position}]
-                      "mcpResource" (try
-                                      (mapv
-                                       (fn [{:keys [text]}]
-                                         {:type :mcpResource
-                                          :uri uri
-                                          :content text})
-                                       (:contents (f.mcp/get-resource! uri db)))
-                                      (catch Exception e
-                                        (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
-                                        []))
-                      nil))
-                  contexts)))
+(defn raw-contexts->refined [contexts db]
+  (mapcat (fn [{:keys [type path lines-range position uri]}]
+            (case (name type)
+              "file" [(file->refined-context path lines-range)]
+              "directory" (->> (fs/glob path "**")
+                               (remove fs/directory?)
+                               (map (fn [path]
+                                      (let [filename (str (fs/canonicalize path))]
+                                        (file->refined-context filename nil)))))
+              "repoMap" [{:type :repoMap}]
+              "cursor" [{:type :cursor
+                         :path path
+                         :position position}]
+              "mcpResource" (try
+                              (mapv
+                               (fn [{:keys [text]}]
+                                 {:type :mcpResource
+                                  :uri uri
+                                  :content text})
+                               (:contents (f.mcp/get-resource! uri db)))
+                              (catch Exception e
+                                (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
+                                []))
+              nil))
+          contexts))
+
+(defn contexts-str-from-prompt
+  "Extract all contexts (@something) and refine them."
+  [prompt db]
+  (let [context-pattern #"[@]([^\s]+)"
+        matches (re-seq context-pattern prompt)]
+    (when (seq matches)
+      (let [raw-contexts (mapv (fn [[full-match path]]
+                                 (let [type (if (string/starts-with? full-match "@")
+                                              "file"
+                                              "file")]
+                                   {:type type
+                                    :path path}))
+                               matches)]
+        (raw-contexts->refined raw-contexts db)))))
+
+(defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
+(def ^:private all-files-from (memoize all-files-from*))
 
 (defn ^:private contexts-for [root-filename query config]
-  (let [all-paths (fs/glob root-filename "**")
+  (let [all-paths (all-files-from root-filename)
         filtered (if (or (nil? query) (string/blank? query))
                    all-paths
                    (filter (fn [p]
@@ -98,7 +153,7 @@
       {:type "file"
        :path path})))
 
-(defn all-contexts [query db* config]
+(defn all-contexts [query files-only? db* config]
   (let [query (or (some-> query string/trim) "")
         first-project-path (shared/uri->filename (:uri (first (:workspace-folders @db*))))
         relative-path (and query
@@ -123,16 +178,19 @@
                                  (map :uri)
                                  (map shared/uri->filename)
                                  (mapcat #(contexts-for % query config))
-                                 (take 200) ;; for performance, user can always make query specific for better results.
+                                 (take 100) ;; for performance, user can always make query specific for better results.
                                  (map file->context))
                                 (:workspace-folders @db*)))
         root-dirs (mapv (fn [{:keys [uri]}] {:type "directory"
                                              :path (shared/uri->filename uri)})
                         (:workspace-folders @db*))
         mcp-resources (mapv #(assoc % :type "mcpResource") (f.mcp/all-resources @db*))]
-    (concat [{:type "repoMap"}
-             {:type "cursor"}]
-            root-dirs
-            relative-files
-            workspace-files
-            mcp-resources)))
+    (if files-only?
+      (concat relative-files
+              workspace-files)
+      (concat [{:type "repoMap"}
+               {:type "cursor"}]
+              root-dirs
+              relative-files
+              workspace-files
+              mcp-resources))))
