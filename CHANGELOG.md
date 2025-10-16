@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.69.1
+
 - Fix regression on models with no extraPayload.
 
 ## 0.69.0
