@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.70.1
+
 - Fix prePrompt hook.
 
 ## 0.70.0
