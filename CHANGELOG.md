@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.70.0
+
 - Add hooks support. #43
 
 ## 0.69.1
