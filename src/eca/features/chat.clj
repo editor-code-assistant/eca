@@ -945,9 +945,9 @@
                                                                  seq
                                                                  (f.prompt/contexts-str repo-map*))]
                                    [{:type :text :text contexts-str}])
-        user-messages [{:role "user" :content (concat [{:type :text :text message}]
-                                                      expanded-prompt-contexts
-                                                      image-contents)}]
+        user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
+                                                           expanded-prompt-contexts
+                                                           image-contents))}]
         chat-ctx {:chat-id chat-id
                   :message message
                   :contexts contexts
@@ -967,13 +967,14 @@
                                         :prompt message}
                                        {:on-before-action (partial notify-before-hook-action! chat-ctx)
                                         :on-after-action (fn [result]
-                                                           (when (= 0 (:status result))
-                                                             (reset! hook-outputs* (:outputs result)))
+                                                           (when (and (= 0 (:status result))
+                                                                      (:output result))
+                                                             (swap! hook-outputs* conj (:output result)))
                                                            (notify-after-hook-action! chat-ctx result))}
                                        db
                                        config)
         user-messages (if (seq @hook-outputs*)
-                        (update-in user-messages [0 :content 0 :text] str " " (string/join "\n" @hook-outputs*))
+                        (update-in user-messages [0 :content 0 :text] #(str % " " (string/join "\n" @hook-outputs*)))
                         user-messages)]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text

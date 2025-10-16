@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix prePrompt hook.
+
 ## 0.70.0
 
 - Add hooks support. #43
