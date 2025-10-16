@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.69.0
+
 - Support multiple model configs with different payloads using same model name via `modelName` config. (Ex: gpt-5 and gpt-5-high but both use gpt-5)
 
 ## 0.68.1
