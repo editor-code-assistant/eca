@@ -365,7 +365,9 @@ Allowed hook types:
 - `postToolCall`: Run after a tool was called.
 
 __Input__: Hooks will receive input as json with information from that event, like tool name, args or user prompt.
+
 __Output__: All hook actions allow printing output (stdout) and errors (stderr) which will be shown in chat.
+
 __Matcher__: Specify whether to apply this hook checking a regex applying to `mcp__tool-name`, applicable only for `*ToolCall` hooks.
 
 Examples:
