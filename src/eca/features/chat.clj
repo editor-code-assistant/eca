@@ -34,28 +34,28 @@
     :role role
     :content content}))
 
-(defn ^:private notify-before-hook! [chat-ctx {:keys [id name status]}]
+(defn ^:private notify-before-hook! [chat-ctx {:keys [id name]}]
   (send-content! chat-ctx :system
                  {:type :hookStarted
                   :name name
-                  :id id
-                  :status status}))
+                  :id id}))
 
-(defn ^:private notify-after-hook! [chat-ctx {:keys [id name status output]}]
+(defn ^:private notify-after-hook! [chat-ctx {:keys [id name outputs]}]
   (send-content! chat-ctx :system
                  {:type :hookFinished
                   :id id
                   :name name
-                  :status status
-                  :output output}))
+                  :outputs outputs}))
 
-(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics on-finished-side-effect] :as chat-ctx}]
+(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
   (swap! db* assoc-in [:chats chat-id :status] status)
-  @(f.hooks/trigger-if-matches! :postPrompt
-                                {:chat-id chat-id
-                                 :prompt message}
-                                {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                 :on-after-execute (partial notify-after-hook! chat-ctx)})
+  (f.hooks/trigger-if-matches! :postPrompt
+                               {:chat-id chat-id
+                                :prompt message}
+                               {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                :on-after-execute (partial notify-after-hook! chat-ctx)}
+                               @db*
+                               config)
   (send-content! chat-ctx :system
                  {:type :progress
                   :state :finished})
@@ -331,14 +331,16 @@
 
     :trigger-post-tool-call-hook
     (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)]
-      @(f.hooks/trigger-if-matches!
-        :postToolCall
-        {:chat-id (:chat-id chat-ctx)
-         :name (:name tool-call-state)
-         :server (:server tool-call-state)
-         :arguments (:arguments tool-call-state)}
-        {:on-before-execute (partial notify-before-hook! chat-ctx)
-         :on-after-execute (partial notify-after-hook! chat-ctx)}))
+      (f.hooks/trigger-if-matches!
+       :postToolCall
+       {:chat-id (:chat-id chat-ctx)
+        :name (:name tool-call-state)
+        :server (:server tool-call-state)
+        :arguments (:arguments tool-call-state)}
+       {:on-before-execute (partial notify-before-hook! chat-ctx)
+        :on-after-execute (partial notify-after-hook! chat-ctx)}
+       @db*
+       (:config chat-ctx)))
 
     ;; Actions on parts of the state
     :deliver-approval-false
@@ -655,19 +657,21 @@
                                                       {:approval approval :tool-call-id id})))
                                      ;; TODO: Should there be a timeout here?  If so, what would be the state transitions?
                                      @approved?* ;; wait for user respond before checking hook
-                                     @(f.hooks/trigger-if-matches! :preToolCall
-                                                                   {:chat-id chat-id
-                                                                    :name name
-                                                                    :server server
-                                                                    :arguments arguments}
-                                                                   {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                                                    :on-after-execute (fn [result]
-                                                                                        (when (= "reject" (:output result))
-                                                                                          (transition-tool-call! db* chat-ctx id :hook-rejected
-                                                                                                                 {:reason {:code :hook-rejected
-                                                                                                                           :text "Tool call rejected by hook"}})
-                                                                                          (reset! hook-approved?* false))
-                                                                                        (notify-after-hook! chat-ctx result))})
+                                     (f.hooks/trigger-if-matches! :preToolCall
+                                                                  {:chat-id chat-id
+                                                                   :name name
+                                                                   :server server
+                                                                   :arguments arguments}
+                                                                  {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                                                   :on-after-execute (fn [result]
+                                                                                       (when (= "reject" (:output result))
+                                                                                         (transition-tool-call! db* chat-ctx id :hook-rejected
+                                                                                                                {:reason {:code :hook-rejected
+                                                                                                                          :text "Tool call rejected by hook"}})
+                                                                                         (reset! hook-approved?* false))
+                                                                                       (notify-after-hook! chat-ctx result))}
+                                                                  db
+                                                                  config)
                                      (if (and @approved?* @hook-approved?*)
                                        ;; assert: In :execution-approved or :stopping or :cleanup
                                        (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
@@ -945,11 +949,13 @@
                   :config config
                   :messenger messenger}
         decision (message->decision message)
-        {:keys [output]} @(f.hooks/trigger-if-matches! :prePrompt
-                                                       {:chat-id chat-id
-                                                        :prompt message}
-                                                       {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                                        :on-after-execute (partial notify-after-hook! chat-ctx)})
+        {:keys [output]} (f.hooks/trigger-if-matches! :prePrompt
+                                                      {:chat-id chat-id
+                                                       :prompt message}
+                                                      {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                                       :on-after-execute (partial notify-after-hook! chat-ctx)}
+                                                      db
+                                                      config)
         user-messages (if output
                         (update-in user-messages [0 :content 0 :text] str " " output)
                         user-messages)]
