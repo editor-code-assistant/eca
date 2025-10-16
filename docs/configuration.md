@@ -352,6 +352,60 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
       }
     }
     ```
+    
+## Hooks
+
+Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.
+
+Allowed hook types:
+
+- `prePrompt`: Run before prompt is sent to LLM, if a hook output is provided, append to user prompt.
+- `postPrompt`: Run after prompt is finished, when chat come back to idle state.
+- `preToolCall`: Run before a tool is called, if a hook exit with status `2`, reject the tool call.
+- `postToolCall`: Run after a tool was called.
+
+__Input__: Hooks will receive input as json with information from that event, like tool name, args or user prompt.
+__Output__: All hook actions allow printing output (stdout) and errors (stderr) which will be shown in chat.
+__Matcher__: Specify whether to apply this hook checking a regex applying to `mcp__tool-name`, applicable only for `*ToolCall` hooks.
+
+Examples:
+
+=== "Notify after prompt finish"
+
+    ```javascript
+    {
+      "hooks": {
+        "notify-me": {
+          "type": "postPrompt", 
+          "actions": [
+            {
+              "type": "shell",
+              "shell": "notify-send \"Hey, prompt finished!\""
+            }
+          ]
+        }
+      }
+    } 
+    ```
+    
+=== "Block specific tool call"
+
+    ```javascript
+    {
+      "hooks": {
+        "notify-me": {
+          "type": "preToolCall", 
+          "matcher": "my-mcp__some-tool",
+          "actions": [
+            {
+              "type": "shell",
+              "shell": "echo \"We should not run this tool bro!\" >&2 && exit 2"
+            }
+          ]
+        }
+      }
+    }
+    ```
 
 ## Opentelemetry integration
 
