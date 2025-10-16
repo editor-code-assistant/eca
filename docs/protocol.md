@@ -515,6 +515,8 @@ type ChatContent =
     | ChatReasonStartedContent 
     | ChatReasonTextContent 
     | ChatReasonFinishedContent 
+    | ChatHookActionStartedContent 
+    | ChatHookActionFinishedContent 
     | ChatToolCallPrepareContent
     | ChatToolCallRunContent
     | ChatToolCallRunningContent
@@ -598,6 +600,67 @@ interface ChatReasonFinishedContent {
      * The total time the reason took in milliseconds.
      */
     totalTimeMs: number;
+}
+
+/**
+ * A hook action started to run
+ *
+ */
+interface ChatHookActionStartedContent {
+    type: 'hookActionStarted';
+    
+    /**
+     * The id of this hook
+     */
+    id: string; 
+    
+    /**
+     * The name of this hook
+     */
+    name: string;
+    
+    /**
+     * The type of this hook action
+     */
+    actionType: 'shell';
+}
+
+/**
+ * A hook action finished
+ *
+ */
+interface ChatHookActionFinishedContent {
+    type: 'hookActionFinished';
+    
+    /**
+     * The id of this hook
+     */
+    id: string; 
+    
+    /**
+     * The name of this hook
+     */
+    name: string;
+    
+    /**
+     * The type of this hook action
+     */
+    actionType: 'shell';
+    
+    /**
+     * The status code of this hook
+     */
+    status: number;
+    
+    /**
+     * The output of this hook if any
+     */
+    output?: string;
+    
+    /**
+     * The error of this hook if any
+     */
+    error?: string;
 }
 
 /**
