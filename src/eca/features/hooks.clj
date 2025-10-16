@@ -2,7 +2,6 @@
   (:require
    [babashka.process :as p]
    [cheshire.core :as json]
-   [clojure.string :as string]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -12,7 +11,7 @@
   (case type
     (:preToolCall :postToolCall)
     (re-matches (re-pattern (or (:matcher hook) ".*"))
-                (:name data))
+                (str (:server data) "__" (:name data)))
 
     true))
 
@@ -25,19 +24,17 @@
                   shell (:shell action)
                   input (json/generate-string (merge {:hook-name name} data))]
               (logger/info logger-tag (format "Running hook '%s' shell '%s' with input '%s'" name shell input))
-              (let [{:keys [out err]} @(p/process {:dir cwd
-                                                   :continue true
-                                                   :in input
-                                                   :out :string
-                                                   :err :string}
-                                                  shell)]
-                (str out err)))
+              (let [{:keys [out err exit]} @(p/sh {:dir cwd
+                                                   :continue true}
+                                                  "bash" "-c" shell "--" input)]
+                [exit out err]))
     (logger/warn logger-tag (format "Unknown hook action %s for %s" (:type action) name))))
 
 (defn trigger-if-matches!
   "Run hook of specified type if matches any config for that type"
   [type data {:keys [on-before-execute on-after-execute]} db config]
-  (let [outputs* (atom [])]
+  (let [outputs* (atom [])
+        status* (atom 0)]
     (doseq [[name hook] (:hooks config)]
       (when (= type (keyword (:type hook)))
         (when (hook-matches? type data hook)
@@ -45,9 +42,10 @@
             (on-before-execute {:id id
                                 :name name})
             (doseq [action (:actions hook)]
-              (when-let [output (run-hook-action! action name data db)]
+              (when-let [[status output] (run-hook-action! action name data db)]
+                (reset! status* (max @status* status))
                 (swap! outputs* conj output)))
             (on-after-execute {:id id
                                :name name
-                               :outputs @outputs*})))))
-    (string/join "\n" @outputs*)))
+                               :status @status*
+                               :outputs @outputs*})))))))

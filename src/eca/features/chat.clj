@@ -40,11 +40,12 @@
                   :name name
                   :id id}))
 
-(defn ^:private notify-after-hook! [chat-ctx {:keys [id name outputs]}]
+(defn ^:private notify-after-hook! [chat-ctx {:keys [id name outputs status]}]
   (send-content! chat-ctx :system
                  {:type :hookFinished
                   :id id
                   :name name
+                  :status status
                   :outputs outputs}))
 
 (defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
@@ -619,7 +620,7 @@
                          (when-not (string/blank? @received-msgs*)
                            (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
                            (reset! received-msgs* ""))
-                         (let [any-rejected-tool-call?* (atom false)]
+                         (let [any-rejected-tool-call?* (atom nil)]
                            (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
                                    (let [approved?* (promise) ; created here, stored in the state.
                                          hook-approved?* (atom true)
@@ -664,10 +665,10 @@
                                                                    :arguments arguments}
                                                                   {:on-before-execute (partial notify-before-hook! chat-ctx)
                                                                    :on-after-execute (fn [result]
-                                                                                       (when (= "reject" (:output result))
+                                                                                       (when (= 2 (:status result))
                                                                                          (transition-tool-call! db* chat-ctx id :hook-rejected
                                                                                                                 {:reason {:code :hook-rejected
-                                                                                                                          :text "Tool call rejected by hook"}})
+                                                                                                                          :text (str "Tool call rejected by hook: " (string/join "\n" (:outputs result)))}})
                                                                                          (reset! hook-approved?* false))
                                                                                        (notify-after-hook! chat-ctx result))}
                                                                   db
@@ -750,7 +751,7 @@
                                                            :content (assoc tool-call :output {:error true
                                                                                               :contents [{:text text
                                                                                                           :type :text}]})})
-                                         (reset! any-rejected-tool-call?* true)
+                                         (reset! any-rejected-tool-call?* code)
                                          (transition-tool-call! db* chat-ctx id :send-reject
                                                                 {:origin origin
                                                                  :name name
@@ -796,13 +797,21 @@
                                                              :ex-data (ex-data t)
                                                              :message (.getMessage t)
                                                              :cause (.getCause t)})))))))
-                           (if @any-rejected-tool-call?*
+                           (if-let [reason-code @any-rejected-tool-call?*]
                              (do
-                               (send-content! chat-ctx :system
-                                              {:type :text
-                                               :text "Tell ECA what to do differently for the rejected tool(s)"})
-                               (add-to-history! {:role "user" :content [{:type :text
-                                                                         :text "I rejected one or more tool calls with the following reason"}]})
+                               (if (= :hook-rejected reason-code)
+                                 (do
+                                   (send-content! chat-ctx :system
+                                                  {:type :text
+                                                   :text "Tool rejected by hook"})
+                                   (add-to-history! {:role "user" :content [{:type :text
+                                                                             :text "A user hook rejected one or more tool calls with the following reason"}]}))
+                                 (do
+                                   (send-content! chat-ctx :system
+                                                  {:type :text
+                                                   :text "Tell ECA what to do differently for the rejected tool(s)"})
+                                   (add-to-history! {:role "user" :content [{:type :text
+                                                                             :text "I rejected one or more tool calls with the following reason"}]})))
                                (finish-chat-prompt! :idle chat-ctx)
                                nil)
                              {:new-messages (get-in @db* [:chats chat-id :messages])})))
@@ -949,15 +958,19 @@
                   :config config
                   :messenger messenger}
         decision (message->decision message)
-        {:keys [output]} (f.hooks/trigger-if-matches! :prePrompt
-                                                      {:chat-id chat-id
-                                                       :prompt message}
-                                                      {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                                       :on-after-execute (partial notify-after-hook! chat-ctx)}
-                                                      db
-                                                      config)
-        user-messages (if output
-                        (update-in user-messages [0 :content 0 :text] str " " output)
+        hook-outputs* (atom [])
+        _ (f.hooks/trigger-if-matches! :prePrompt
+                                       {:chat-id chat-id
+                                        :prompt message}
+                                       {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                        :on-after-execute (fn [result]
+                                                            (when (= 0 (:status result))
+                                                              (reset! hook-outputs* (:outputs result)))
+                                                            (notify-after-hook! chat-ctx result))}
+                                       db
+                                       config)
+        user-messages (if (seq @hook-outputs*)
+                        (update-in user-messages [0 :content 0 :text] str " " (string/join "\n" @hook-outputs*))
                         user-messages)]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text
