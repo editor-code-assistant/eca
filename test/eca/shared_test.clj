@@ -2,7 +2,8 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.shared :as shared]
-   [eca.test-helper :as h]))
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]]))
 
 (deftest uri->filename-test
   (testing "should decode special characters in file URI"
@@ -48,3 +49,45 @@
       (is (nil? (shared/tokens->cost 30 nil nil 20 {}))))
     (testing "returns nil when mandatory costs are missing"
       (is (nil? (shared/tokens->cost 30 nil nil 20 {:input-token-cost 0.01}))))))
+
+(deftest deep-merge-test
+  (testing "second map as nil returns first map"
+    (is (match?
+         {:a 1}
+         (shared/deep-merge {:a 1}
+                            nil))))
+  (testing "basic merge"
+    (is (match?
+         {:a 1
+          :b 4
+          :c 3
+          :d 1}
+         (shared/deep-merge {:a 1}
+                            {:b 2}
+                            {:c 3}
+                            {:b 4 :d 1}))))
+  (testing "deep merging"
+    (is (match?
+         {:a 1
+          :b {:c {:d 3
+                  :e 4}}}
+         (shared/deep-merge {:a 1
+                             :b {:c {:d 3}}}
+                            {:b {:c {:e 4}}}))))
+  (testing "deep merging maps with other keys"
+    (is (match?
+         {:a 1
+          :b {:c {:e 3
+                  :f 4}
+              :d 2}}
+         (shared/deep-merge {:a 1
+                             :b {:c {:e 3}
+                                 :d 2}}
+                            {:b {:c {:f 4}}}))))
+  (testing "overrides when leaf values are not maps"
+    (is (= {:a 2}
+           (shared/deep-merge {:a {:b 1}}
+                              {:a 2})))
+    (is (= {:a {:b 1}}
+           (shared/deep-merge {:a 2}
+                              {:a {:b 1}})))))
