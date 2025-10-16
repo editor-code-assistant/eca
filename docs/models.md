@@ -75,7 +75,7 @@ Schema:
 | `models <model> extraPayload` | map    | Extra payload sent in body to LLM                                                                            | No       |
 | `models <model> modelName`    | string | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
 
-_* url and key will be search as env `<provider>_API_URL` / `<provider>_API_KEY`, but require config or to be found to work._
+_* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
 
 Examples:
 
