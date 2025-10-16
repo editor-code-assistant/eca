@@ -338,7 +338,7 @@
       (f.hooks/trigger-if-matches!
        :postToolCall
        {:chat-id (:chat-id chat-ctx)
-        :name (:name tool-call-state)
+        :tool-name (:name tool-call-state)
         :server (:server tool-call-state)
         :arguments (:arguments tool-call-state)}
        {:on-before-action (partial notify-before-hook-action! chat-ctx)
@@ -663,7 +663,7 @@
                                      @approved?* ;; wait for user respond before checking hook
                                      (f.hooks/trigger-if-matches! :preToolCall
                                                                   {:chat-id chat-id
-                                                                   :name name
+                                                                   :tool-name name
                                                                    :server server
                                                                    :arguments arguments}
                                                                   {:on-before-action (partial notify-before-hook-action! chat-ctx)

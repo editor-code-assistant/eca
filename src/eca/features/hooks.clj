@@ -11,7 +11,7 @@
   (case type
     (:preToolCall :postToolCall)
     (re-matches (re-pattern (or (:matcher hook) ".*"))
-                (str (:server data) "__" (:name data)))
+                (str (:server data) "__" (:tool-name data)))
 
     true))
 
@@ -26,12 +26,18 @@
               (logger/info logger-tag (format "Running hook '%s' shell '%s' with input '%s'" name shell input))
               (let [{:keys [exit out err]} (p/sh {:dir cwd}
                                                  "bash" "-c" shell "--" input)]
-                [exit out err]))
+                [exit (not-empty out) (not-empty err)]))
     (logger/warn logger-tag (format "Unknown hook action %s for %s" (:type action) name))))
 
 (defn trigger-if-matches!
   "Run hook of specified type if matches any config for that type"
-  [type data {:keys [on-before-action on-after-action]} db config]
+  [type
+   data
+   {:keys [on-before-action on-after-action]
+    :or {on-before-action identity
+         on-after-action identity}}
+   db
+   config]
   (doseq [[name hook] (:hooks config)]
     (when (= type (keyword (:type hook)))
       (when (hook-matches? type data hook)
