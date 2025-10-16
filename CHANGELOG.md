@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add hooks support. #43
+
 ## 0.69.1
 
 - Fix regression on models with no extraPayload.

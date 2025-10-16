@@ -111,7 +111,7 @@ The built-in commands are:
 
 It's possible to configure custom command prompts, for more details check [its configuration](./configuration.md#custom-command-prompts)
 
-### Login
+#### Login
 
 It's possible to login to some providers using `/login` command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its cache `~/.cache/eca/db.transit.json`.
 
@@ -119,6 +119,14 @@ Current supported providers with login:
 
 - `anthropic`: with options to login to Claude Max/Pro or create API keys.
 - `github-copilot`: via Github oauth.
+
+### Hooks
+
+Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.
+
+![](./images/features/hooks.png)
+
+For more details, check [hooks configuration](./configuration.md#hooks)
 
 ## OpenTelemetry integration
 
