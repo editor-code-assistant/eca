@@ -77,24 +77,50 @@ Schema:
 
 _* url and key will be search as env `<provider>_API_URL` / `<provider>_API_KEY`, but require config or to be found to work._
 
-Example:
+Examples:
 
-`~/.config/eca/config.json`
-```javascript
-{
-  "providers": {
-    "my-company": {
-      "api": "openai-chat",
-      "urlEnv": "MY_COMPANY_API_URL", // or "url"
-      "keyEnv": "MY_COMPANY_API_KEY", // or "key"
-      "models": {
-        "gpt-5": {},
-        "deepseek-r1": {}
-       }
+=== "Custom provider"
+
+    `~/.config/eca/config.json`
+    ```javascript
+    {
+      "providers": {
+        "my-company": {
+          "api": "openai-chat",
+          "urlEnv": "MY_COMPANY_API_URL", // or "url"
+          "keyEnv": "MY_COMPANY_API_KEY", // or "key"
+          "models": {
+            "gpt-5": {},
+            "deepseek-r1": {}
+           }
+        }
+      }
     }
-  }
-}
-```
+    ```
+
+=== "Custom model settings / payload"
+
+    Using `modelName`, you can configure multiple model names using same model with different settings:
+
+    `~/.config/eca/config.json`
+    ```javascript
+    {
+      "providers": {
+        "openai": {
+          "api": "openai-responses",
+          "models": { 
+            "gpt-5": {},
+            "gpt-5-high": {
+              "modelName": "gpt-5",
+              "extraPayload": { "reasoning": {"effort": "high"}}
+            }
+          }
+        }
+      }
+    }
+    ```
+    
+    This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
 
 ### API Types
 
@@ -299,27 +325,6 @@ Notes:
             "GLM-4.5": {},
             "GLM-4.5-Air": {}
            }
-        }
-      }
-    }
-    ```
-
-=== "Same model with different settings"
-
-    Using `modelName`, you can configure multiple model names using same model with different settings:
-
-    ```javascript
-    {
-      "providers": {
-        "openai": {
-          "api": "openai-responses",
-          "models": { 
-            "gpt-5": {},
-            "gpt-5-high": {
-              "modelName": "gpt-5",
-              "extraPayload": { "reasoning": {"effort": "high"}}
-            }
-          }
         }
       }
     }
