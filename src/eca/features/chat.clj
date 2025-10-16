@@ -174,6 +174,10 @@
    {:status :rejected
     :actions [:send-toolCallRejected]}
 
+   [:execution-approved :hook-rejected]
+   {:status :rejected
+    :actions [:set-decision-reason]}
+
    [:execution-approved :execution-start]
    {:status :executing
     :actions [:set-start-time :add-future :send-toolCallRunning :send-progress]}
@@ -184,7 +188,7 @@
 
    [:cleanup :cleanup-finished]
    {:status :completed
-    :actions [:destroy-all-resources :remove-all-resources :remove-all-promises :remove-future]}
+    :actions [:destroy-all-resources :remove-all-resources :remove-all-promises :remove-future :trigger-post-tool-call-hook]}
 
    [:executing :resources-created]
    {:status :executing
@@ -324,6 +328,17 @@
                        :reason (:code (:reason event-data) :user)}
                       :details (:details event-data)
                       :summary (:summary event-data))))
+
+    :trigger-post-tool-call-hook
+    (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)]
+      (f.hooks/trigger-if-matches!
+       :postToolCall
+       {:chat-id (:chat-id chat-ctx)
+        :name (:name tool-call-state)
+        :server (:server tool-call-state)
+        :arguments (:arguments tool-call-state)}
+       {:on-before-execute (partial notify-before-hook! chat-ctx)
+        :on-after-execute (partial notify-after-hook! chat-ctx)}))
 
     ;; Actions on parts of the state
     :deliver-approval-false
@@ -605,6 +620,7 @@
                          (let [any-rejected-tool-call?* (atom false)]
                            (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
                                    (let [approved?* (promise) ; created here, stored in the state.
+                                         hook-approved?* (atom true)
                                          details (f.tools/tool-call-details-before-invocation name arguments)
                                          summary (f.tools/tool-call-summary all-tools name arguments config)
                                          origin (tool-name->origin name all-tools)
@@ -637,8 +653,22 @@
                                                                                 :text "Tool call rejected by user config"}})
                                          (logger/warn logger-tag "Unknown value of approval in config"
                                                       {:approval approval :tool-call-id id})))
-                                     ;; Execute each tool call concurrently
-                                     (if @approved?* ;TODO: Should there be a timeout here?  If so, what would be the state transitions?
+                                     ;; TODO: Should there be a timeout here?  If so, what would be the state transitions?
+                                     @approved?* ;; wait for user respond before checking hook
+                                     (f.hooks/trigger-if-matches! :preToolCall
+                                                                  {:chat-id chat-id
+                                                                   :name name
+                                                                   :server server
+                                                                   :arguments arguments}
+                                                                  {:on-before-execute (partial notify-before-hook! chat-ctx)
+                                                                   :on-after-execute (fn [result]
+                                                                                       (when (= "reject" (:output result))
+                                                                                         (transition-tool-call! db* chat-ctx id :hook-rejected
+                                                                                                                {:reason {:code :hook-rejected
+                                                                                                                          :text "Tool call rejected by hook"}})
+                                                                                         (reset! hook-approved?* false))
+                                                                                       (notify-after-hook! chat-ctx result))})
+                                     (if (and @approved?* @hook-approved?*)
                                        ;; assert: In :execution-approved or :stopping or :cleanup
                                        (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                                          (assert-chat-not-stopped! chat-ctx)
