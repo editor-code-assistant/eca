@@ -24,28 +24,35 @@
                   shell (:shell action)
                   input (json/generate-string (merge {:hook-name name} data))]
               (logger/info logger-tag (format "Running hook '%s' shell '%s' with input '%s'" name shell input))
-              (let [{:keys [out err exit]} @(p/sh {:dir cwd
-                                                   :continue true}
-                                                  "bash" "-c" shell "--" input)]
+              (let [{:keys [exit out err]} (p/sh {:dir cwd}
+                                                 "bash" "-c" shell "--" input)]
                 [exit out err]))
     (logger/warn logger-tag (format "Unknown hook action %s for %s" (:type action) name))))
 
 (defn trigger-if-matches!
   "Run hook of specified type if matches any config for that type"
-  [type data {:keys [on-before-execute on-after-execute]} db config]
-  (let [outputs* (atom [])
-        status* (atom 0)]
-    (doseq [[name hook] (:hooks config)]
-      (when (= type (keyword (:type hook)))
-        (when (hook-matches? type data hook)
-          (let [id (str (random-uuid))]
-            (on-before-execute {:id id
-                                :name name})
-            (doseq [action (:actions hook)]
-              (when-let [[status output] (run-hook-action! action name data db)]
-                (reset! status* (max @status* status))
-                (swap! outputs* conj output)))
-            (on-after-execute {:id id
-                               :name name
-                               :status @status*
-                               :outputs @outputs*})))))))
+  [type data {:keys [on-before-action on-after-action]} db config]
+  (doseq [[name hook] (:hooks config)]
+    (when (= type (keyword (:type hook)))
+      (when (hook-matches? type data hook)
+        (vec
+         (map-indexed (fn [i action]
+                        (let [id (str (random-uuid))
+                              type (:type action)
+                              name (if (> 1 (count (:actions hook)))
+                                     (str name "-" (inc i))
+                                     name)]
+                          (on-before-action {:id id
+                                             :name name})
+                          (if-let [[status output error] (run-hook-action! action name data db)]
+                            (on-after-action {:id id
+                                              :name name
+                                              :type type
+                                              :status status
+                                              :output output
+                                              :error error})
+                            (on-after-action {:id id
+                                              :name name
+                                              :type type
+                                              :status -1}))))
+                      (:actions hook)))))))

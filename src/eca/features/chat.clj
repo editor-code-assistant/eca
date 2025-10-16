@@ -34,27 +34,30 @@
     :role role
     :content content}))
 
-(defn ^:private notify-before-hook! [chat-ctx {:keys [id name]}]
+(defn ^:private notify-before-hook-action! [chat-ctx {:keys [id name type]}]
   (send-content! chat-ctx :system
-                 {:type :hookStarted
+                 {:type :hookActionStarted
+                  :action-type type
                   :name name
                   :id id}))
 
-(defn ^:private notify-after-hook! [chat-ctx {:keys [id name outputs status]}]
+(defn ^:private notify-after-hook-action! [chat-ctx {:keys [id name output error status type]}]
   (send-content! chat-ctx :system
-                 {:type :hookFinished
+                 {:type :hookActionFinished
+                  :action-type type
                   :id id
                   :name name
                   :status status
-                  :outputs outputs}))
+                  :output output
+                  :error error}))
 
 (defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
   (swap! db* assoc-in [:chats chat-id :status] status)
   (f.hooks/trigger-if-matches! :postPrompt
                                {:chat-id chat-id
                                 :prompt message}
-                               {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                :on-after-execute (partial notify-after-hook! chat-ctx)}
+                               {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                :on-after-action (partial notify-after-hook-action! chat-ctx)}
                                @db*
                                config)
   (send-content! chat-ctx :system
@@ -338,8 +341,8 @@
         :name (:name tool-call-state)
         :server (:server tool-call-state)
         :arguments (:arguments tool-call-state)}
-       {:on-before-execute (partial notify-before-hook! chat-ctx)
-        :on-after-execute (partial notify-after-hook! chat-ctx)}
+       {:on-before-action (partial notify-before-hook-action! chat-ctx)
+        :on-after-action (partial notify-after-hook-action! chat-ctx)}
        @db*
        (:config chat-ctx)))
 
@@ -663,14 +666,14 @@
                                                                    :name name
                                                                    :server server
                                                                    :arguments arguments}
-                                                                  {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                                                   :on-after-execute (fn [result]
-                                                                                       (when (= 2 (:status result))
-                                                                                         (transition-tool-call! db* chat-ctx id :hook-rejected
-                                                                                                                {:reason {:code :hook-rejected
-                                                                                                                          :text (str "Tool call rejected by hook: " (string/join "\n" (:outputs result)))}})
-                                                                                         (reset! hook-approved?* false))
-                                                                                       (notify-after-hook! chat-ctx result))}
+                                                                  {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                                                   :on-after-action (fn [result]
+                                                                                      (when (= 2 (:status result))
+                                                                                        (transition-tool-call! db* chat-ctx id :hook-rejected
+                                                                                                               {:reason {:code :hook-rejected
+                                                                                                                         :text (str "Tool call rejected by hook, output: " (:output result))}})
+                                                                                        (reset! hook-approved?* false))
+                                                                                      (notify-after-hook-action! chat-ctx result))}
                                                                   db
                                                                   config)
                                      (if (and @approved?* @hook-approved?*)
@@ -962,11 +965,11 @@
         _ (f.hooks/trigger-if-matches! :prePrompt
                                        {:chat-id chat-id
                                         :prompt message}
-                                       {:on-before-execute (partial notify-before-hook! chat-ctx)
-                                        :on-after-execute (fn [result]
-                                                            (when (= 0 (:status result))
-                                                              (reset! hook-outputs* (:outputs result)))
-                                                            (notify-after-hook! chat-ctx result))}
+                                       {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                        :on-after-action (fn [result]
+                                                           (when (= 0 (:status result))
+                                                             (reset! hook-outputs* (:outputs result)))
+                                                           (notify-after-hook-action! chat-ctx result))}
                                        db
                                        config)
         user-messages (if (seq @hook-outputs*)
