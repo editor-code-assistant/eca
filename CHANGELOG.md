@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.70.2
+
 - Fix model capabilities for models with custom names.
 
 ## 0.70.1
