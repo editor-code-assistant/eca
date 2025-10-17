@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix model capabilities for models with custom names.
+
 ## 0.70.1
 
 - Fix prePrompt hook.

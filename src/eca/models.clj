@@ -77,19 +77,21 @@
                                 (merge p
                                        (reduce
                                         (fn [m [model model-config]]
-                                          (let [full-model (str provider "/" model)
+                                          (let [real-model-name (or (:modelName model-config) model)
+                                                full-real-model (str provider "/" real-model-name)
+                                                full-model (str provider "/" model)
                                                 model-capabilities (merge
-                                                                    (or (get all-models full-model)
+                                                                    (or (get all-models full-real-model)
                                                                            ;; we guess the capabilities from
                                                                            ;; the first model with same name
-                                                                        (when-let [found-full-model (first (filter #(= (shared/normalize-model-name model)
+                                                                        (when-let [found-full-model (first (filter #(= (shared/normalize-model-name real-model-name)
                                                                                                                        (shared/normalize-model-name (second (string/split % #"/" 2))))
                                                                                                                    (keys all-models)))]
                                                                           (get all-models found-full-model))
-                                                                        {:model-name (or (:modelName model-config) model)
-                                                                         :tools true
+                                                                        {:tools true
                                                                          :reason? true
-                                                                         :web-search true}))]
+                                                                         :web-search true})
+                                                                    {:model-name real-model-name})]
                                             (assoc m full-model model-capabilities)))
                                         {}
                                         (:models provider-config))))
