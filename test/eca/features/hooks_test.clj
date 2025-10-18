@@ -30,11 +30,13 @@
          (h/config)))
       (is (match?
            {:id string?
+            :visible? true
             :name "my-hook"}
            @on-before-action*))
       (is (match?
            {:id string?
             :name "my-hook"
+            :visible? true
             :status 0
             :output "hey"
             :error nil}
@@ -56,11 +58,42 @@
          (h/config)))
       (is (match?
            {:id string?
+            :visible? true
             :name "my-hook"}
            @on-before-action*))
       (is (match?
            {:id string?
             :name "my-hook"
+            :visible? true
+            :status 0
+            :output "hey"
+            :error nil}
+           @on-after-action*))))
+  (testing "when visible is false"
+    (h/reset-components!)
+    (h/config! {:hooks {"my-hook" {:type "preRequest"
+                                   :visible false
+                                   :actions [{:type "shell"
+                                              :shell "echo hey"}]}}})
+    (let [on-before-action* (atom nil)
+          on-after-action* (atom nil)]
+      (with-redefs [p/sh (constantly {:exit 0 :out "hey" :err nil})]
+        (f.hooks/trigger-if-matches!
+         :preRequest
+         {:foo "1"}
+         {:on-before-action (set-action-payload on-before-action*)
+          :on-after-action (set-action-payload on-after-action*)}
+         (h/db)
+         (h/config)))
+      (is (match?
+           {:id string?
+            :visible? false
+            :name "my-hook"}
+           @on-before-action*))
+      (is (match?
+           {:id string?
+            :name "my-hook"
+            :visible? false
             :status 0
             :output "hey"
             :error nil}
@@ -107,11 +140,13 @@
          (h/config)))
       (is (match?
            {:id string?
+            :visible? true
             :name "my-hook"}
            @on-before-action*))
       (is (match?
            {:id string?
             :name "my-hook"
+            :visible? true
             :status 2
             :output nil
             :error "stop!"}

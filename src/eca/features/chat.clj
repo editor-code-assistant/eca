@@ -34,22 +34,24 @@
     :role role
     :content content}))
 
-(defn ^:private notify-before-hook-action! [chat-ctx {:keys [id name type]}]
-  (send-content! chat-ctx :system
-                 {:type :hookActionStarted
-                  :action-type type
-                  :name name
-                  :id id}))
+(defn ^:private notify-before-hook-action! [chat-ctx {:keys [id name type visible?]}]
+  (when visible?
+    (send-content! chat-ctx :system
+                   {:type :hookActionStarted
+                    :action-type type
+                    :name name
+                    :id id})))
 
-(defn ^:private notify-after-hook-action! [chat-ctx {:keys [id name output error status type]}]
-  (send-content! chat-ctx :system
-                 {:type :hookActionFinished
-                  :action-type type
-                  :id id
-                  :name name
-                  :status status
-                  :output output
-                  :error error}))
+(defn ^:private notify-after-hook-action! [chat-ctx {:keys [id name output error status type visible?]}]
+  (when visible?
+    (send-content! chat-ctx :system
+                   {:type :hookActionFinished
+                    :action-type type
+                    :id id
+                    :name name
+                    :status status
+                    :output output
+                    :error error})))
 
 (defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
   (swap! db* assoc-in [:chats chat-id :status] status)

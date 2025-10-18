@@ -55,18 +55,22 @@
                             type (:type action)
                             name (if (> 1 (count (:actions hook)))
                                    (str name "-" (inc i))
-                                   name)]
+                                   name)
+                            visible? (get hook :visible true)]
                         (on-before-action {:id id
+                                           :visible? visible?
                                            :name name})
                         (if-let [[status output error] (run-hook-action! action name data db)]
                           (on-after-action {:id id
                                             :name name
                                             :type type
+                                            :visible? visible?
                                             :status status
                                             :output output
                                             :error error})
                           (on-after-action {:id id
                                             :name name
+                                            :visible? visible?
                                             :type type
                                             :status -1}))))
                     (:actions hook))))))

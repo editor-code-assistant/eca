@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support `visible` field in hooks configuration to show or not in client.
+
 ## 0.70.3
 
 - Deprecate prePrompt and postPrompt in favor of preRequest and prePrompt.

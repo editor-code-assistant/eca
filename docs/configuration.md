@@ -370,6 +370,8 @@ __Output__: All hook actions allow printing output (stdout) and errors (stderr) 
 
 __Matcher__: Specify whether to apply this hook checking a regex applying to `mcp__tool-name`, applicable only for `*ToolCall` hooks.
 
+__Visible__: whether to show or not this hook in chat when executing, defaults to true.
+
 Examples:
 
 === "Notify after prompt finish"
@@ -398,6 +400,7 @@ Examples:
         "check-my-tool": {
           "type": "preToolCall", 
           "matcher": "my-mcp__some-tool",
+          "visible": false,
           "actions": [
             {
               "type": "shell",
@@ -446,6 +449,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         hooks?: {[key: string]: {
                 type: 'preToolCall' | 'postToolCall' | 'preRequest' | 'postRequest';
                 matcher: string;
+                visible?: boolean;
                 actions: {
                     type: 'shell';
                     shell: string;
