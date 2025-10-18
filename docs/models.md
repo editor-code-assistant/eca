@@ -26,8 +26,7 @@ For more details, check the [config schema](./configuration.md#all-configs).
 
 Example:
 
-`~/.config/eca/config.json`
-```javascript
+```javascript title="~/.config/eca/config.json"
 {
   "providers": {
     "openai": {
@@ -81,8 +80,7 @@ Examples:
 
 === "Custom provider"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "my-company": {
@@ -102,8 +100,7 @@ Examples:
 
     Using `modelName`, you can configure multiple model names using same model with different settings:
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "openai": {
@@ -155,7 +152,7 @@ Use `keyRc` in your provider config to read credentials from `~/.authinfo(.gpg)`
 
 Example:
 
-```javascript
+```javascript title="~/.config/eca/config.json"
 {
   "providers": {
     "openai": {"keyRc": "api.openai.com"},
@@ -203,7 +200,7 @@ Notes:
 
 === "LiteLLM"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "litellm": {
@@ -231,7 +228,7 @@ Notes:
 
     or manually via config:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "openrouter": {
@@ -260,7 +257,7 @@ Notes:
 
     or manually via config:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "deepseek": {
@@ -288,7 +285,7 @@ Notes:
 
     or manually via config:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "azure": {
@@ -314,7 +311,7 @@ Notes:
 
     or manually via config:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "providers": {
         "z-ai": {

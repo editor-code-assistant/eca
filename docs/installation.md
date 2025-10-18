@@ -46,7 +46,7 @@ Eca is written in Clojure and compiled into a native binary via graalvm.
 
     Install using [mise](https://mise.jdx.dev) 
     
-    ```
+    ```bash
     # Install the plugin
     mise plugin install eca https://github.com/editor-code-assistant/eca-mise-plugin
 

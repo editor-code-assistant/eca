@@ -10,8 +10,7 @@ There are multiples ways to configure ECA:
 
     Convenient for users and multiple projects
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "defaultBehavior": "plan"
     }
@@ -21,8 +20,7 @@ There are multiples ways to configure ECA:
 
     Convenient for users
 
-    `.eca/config.json`
-    ```javascript
+    ```javascript title=".eca/config.json"
     {
       "defaultBehavior": "plan"
     }
@@ -60,8 +58,7 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 === "Stdio"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "mcpServers": {
         "memory": {
@@ -76,8 +73,7 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 === "HTTP-streamable"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "mcpServers": {
         "cool-mcp": {
@@ -97,7 +93,7 @@ Check some examples:
 
 === "Allow any tools by default"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -109,7 +105,7 @@ Check some examples:
 
 === "Allow all but some tools"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -125,7 +121,7 @@ Check some examples:
 
 === "Ask all but all tools from some mcps"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -143,7 +139,7 @@ Check some examples:
 
     __`argsMatchers`__ is a map of argument name by list of [java regex](https://www.regexplanet.com/advanced/java/index.html).
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -159,7 +155,7 @@ Check some examples:
 
 === "Denying a tool"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -181,7 +177,7 @@ __The `manualApproval` setting was deprecated and replaced by the `approval` one
 
 You can configure the maximum number of lines returned by the `eca_read_file` tool:
 
-```javascript
+```javascript title="~/.config/eca/config.json"
 {
   "toolCall": {
     "readFile": {
@@ -209,8 +205,7 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 
 === "Example 1"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "customTools": {
         "web-search": {
@@ -232,8 +227,7 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 
 === "Example 2"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "customTools": {
         "file-search": {
@@ -266,8 +260,7 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
 
     A `.eca/commands` folder from the workspace root containing `.md` files with the custom prompt.
 
-    `.eca/commands/check-performance.md`
-    ```markdown
+    ```markdown title=".eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
 
@@ -275,8 +268,7 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
 
     A `$XDG_CONFIG_HOME/eca/commands` or `~/.config/eca/commands` folder containing `.md` files with the custom command prompt.
 
-    `~/.config/eca/commands/check-performance.md`
-    ```markdown
+    ```markdown title="~/.config/eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
 
@@ -284,7 +276,7 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
 
     Just add to your config the `commands` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "commands": [{"path": "my-custom-prompt.md"}]
     }
@@ -305,8 +297,7 @@ There are 3 possible ways to configure rules following this order of priority:
 
     A `.eca/rules` folder from the workspace root containing `.md` files with the rules.
 
-    `.eca/rules/talk_funny.md`
-    ```markdown
+    ```markdown title=".eca/rules/talk_funny.md"
     ---
     description: Use when responding anything
     ---
@@ -318,8 +309,7 @@ There are 3 possible ways to configure rules following this order of priority:
 
     A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.md` files with the rules.
 
-    `~/.config/eca/rules/talk_funny.md`
-    ```markdown
+    ```markdown title="~/.config/eca/rules/talk_funny.md"
     ---
     description: Use when responding anything
     ---
@@ -331,7 +321,7 @@ There are 3 possible ways to configure rules following this order of priority:
 
     Just add toyour config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "rules": [{"path": "my-rule.md"}]
     }
@@ -343,7 +333,7 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
 
 === "Example: my-behavior"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "behavior": {
         "my-behavior": {
@@ -376,7 +366,7 @@ Examples:
 
 === "Notify after prompt finish"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "hooks": {
         "notify-me": {
@@ -394,7 +384,7 @@ Examples:
     
 === "Block specific tool call checking hook arg"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "hooks": {
         "check-my-tool": {
@@ -416,7 +406,7 @@ Examples:
 
 To configure, add your OTLP collector config via `:otlp` map following [otlp auto-configure settings](https://opentelemetry.io/docs/languages/java/configuration/#properties-general). Example:
 
-```javascript
+```javascript title="~/.config/eca/config.json"
 {
   "otlp": {
     "otel.exporter.otlp.metrics.protocol": "http/protobuf",
