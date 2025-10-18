@@ -1092,8 +1092,7 @@
 <p>Built-in providers have already base initial <code>providers</code> configs, so you can change to add models or set its key/url.</p>
 <p>For more details, check the <a href="../configuration/#all-configs">config schema</a>.</p>
 <p>Example:</p>
-<p><code>~/.config/eca/config.json</code>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;openai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-openai-key-here&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// configuring a key</span>
@@ -1108,7 +1107,7 @@
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
-</code></pre></div></p>
+</code></pre></div>
 <p><strong>Environment Variables</strong>: You can also set API keys using environment variables following <code>"&lt;PROVIDER&gt;_API_KEY"</code>, examples:</p>
 <ul>
 <li><code>OPENAI_API_KEY</code> for OpenAI</li>
@@ -1200,8 +1199,7 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="custom-provider" name="__tabbed_1" type="radio" /><input id="custom-model-settings--payload" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="custom-provider">Custom provider</label><label for="custom-model-settings--payload">Custom model settings / payload</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p><code>~/.config/eca/config.json</code>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;my-company&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
@@ -1214,12 +1212,11 @@
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
-</code></pre></div></p>
+</code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>Using <code>modelName</code>, you can configure multiple model names using same model with different settings:</p>
-<p><code>~/.config/eca/config.json</code>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;openai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-responses&quot;</span><span class="p">,</span>
@@ -1233,7 +1230,7 @@
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
-</code></pre></div></p>
+</code></pre></div>
 <p>This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.</p>
 </div>
 </div>
@@ -1264,7 +1261,7 @@
 <h3 id="credential-file-authentication">Credential File Authentication<a class="headerlink" href="#credential-file-authentication" title="Permanent link">#</a></h3>
 <p>Use <code>keyRc</code> in your provider config to read credentials from <code>~/.authinfo(.gpg)</code> or <code>~/.netrc(.gpg)</code> without storing keys directly in config or env vars.</p>
 <p>Example:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;openai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;keyRc&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;api.openai.com&quot;</span><span class="p">},</span>
 <span class="w">    </span><span class="s2">&quot;anthropic&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;keyRc&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;work@api.anthropic.com&quot;</span><span class="p">}</span>
@@ -1309,7 +1306,7 @@
 </ol>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;litellm&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-responses&quot;</span><span class="p">,</span>
@@ -1334,7 +1331,7 @@
 <li>Done, it should be saved to your global config.</li>
 </ol>
 <p>or manually via config:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;openrouter&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
@@ -1360,7 +1357,7 @@
 <li>Done, it should be saved to your global config.</li>
 </ol>
 <p>or manually via config:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;deepseek&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
@@ -1386,7 +1383,7 @@
 <li>Done, it should be saved to your global config.</li>
 </ol>
 <p>or manually via config:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;azure&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-responses&quot;</span><span class="p">,</span>
@@ -1410,7 +1407,7 @@
 <li>Done, it should be saved to your global config.</li>
 </ol>
 <p>or manually via config:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;z-ai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
@@ -1447,7 +1444,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 18, 2025 19:14:09 UTC">October 18, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 18, 2025 20:38:53 UTC">October 18, 2025</span>
   </span>
 
     
@@ -1513,7 +1510,7 @@
     
     
       
-      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tabs"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tabs", "content.code.copy", "content.code.select"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
       <script src="../assets/javascripts/bundle.56ea9cef.min.js"></script>
