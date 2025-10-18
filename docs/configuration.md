@@ -390,18 +390,18 @@ Examples:
     } 
     ```
     
-=== "Block specific tool call"
+=== "Block specific tool call checking hook arg"
 
     ```javascript
     {
       "hooks": {
-        "notify-me": {
+        "check-my-tool": {
           "type": "preToolCall", 
           "matcher": "my-mcp__some-tool",
           "actions": [
             {
               "type": "shell",
-              "shell": "echo \"We should not run this tool bro!\" >&2 && exit 2"
+              "shell": "tool=$(jq '.\"tool-name\"' <<< \"$1\"); echo \"We should not run the $tool tool bro!\" >&2 && exit 2"
             }
           ]
         }
