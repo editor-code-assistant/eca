@@ -359,8 +359,8 @@ Hooks are actions that can run before or after an specific event, useful to noti
 
 Allowed hook types:
 
-- `prePrompt`: Run before prompt is sent to LLM, if a hook output is provided, append to user prompt.
-- `postPrompt`: Run after prompt is finished, when chat come back to idle state.
+- `preRequest`: Run before prompt is sent to LLM, if a hook output is provided, append to user prompt.
+- `postRequest`: Run after prompt is finished, when chat come back to idle state.
 - `preToolCall`: Run before a tool is called, if a hook exit with status `2`, reject the tool call.
 - `postToolCall`: Run after a tool was called.
 
@@ -378,7 +378,7 @@ Examples:
     {
       "hooks": {
         "notify-me": {
-          "type": "postPrompt", 
+          "type": "postRequest",
           "actions": [
             {
               "type": "shell",
@@ -444,7 +444,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }};
         defaultModel?: string;
         hooks?: {[key: string]: {
-                type: 'preToolCall' | 'postToolCall' | 'preToolCallApproval' | 'prePrompt' | 'postPrompt';
+                type: 'preToolCall' | 'postToolCall' | 'preRequest' | 'postRequest';
                 matcher: string;
                 actions: {
                     type: 'shell';

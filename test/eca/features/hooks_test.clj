@@ -13,7 +13,7 @@
     (reset! a* p)))
 
 (deftest trigger-if-matches!-test
-  (testing "prePrompt"
+  (testing "legacy prePrompt"
     (h/reset-components!)
     (h/config! {:hooks {"my-hook" {:type "prePrompt"
                                    :actions [{:type "shell"
@@ -22,7 +22,33 @@
           on-after-action* (atom nil)]
       (with-redefs [p/sh (constantly {:exit 0 :out "hey" :err nil})]
         (f.hooks/trigger-if-matches!
-         :prePrompt
+         :preRequest
+         {:foo "1"}
+         {:on-before-action (set-action-payload on-before-action*)
+          :on-after-action (set-action-payload on-after-action*)}
+         (h/db)
+         (h/config)))
+      (is (match?
+           {:id string?
+            :name "my-hook"}
+           @on-before-action*))
+      (is (match?
+           {:id string?
+            :name "my-hook"
+            :status 0
+            :output "hey"
+            :error nil}
+           @on-after-action*))))
+  (testing "preRequest"
+    (h/reset-components!)
+    (h/config! {:hooks {"my-hook" {:type "preRequest"
+                                   :actions [{:type "shell"
+                                              :shell "echo hey"}]}}})
+    (let [on-before-action* (atom nil)
+          on-after-action* (atom nil)]
+      (with-redefs [p/sh (constantly {:exit 0 :out "hey" :err nil})]
+        (f.hooks/trigger-if-matches!
+         :preRequest
          {:foo "1"}
          {:on-before-action (set-action-payload on-before-action*)
           :on-after-action (set-action-payload on-after-action*)}

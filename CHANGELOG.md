@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Deprecate prePrompt and postPrompt in favor of preRequest and prePrompt.
+
 ## 0.70.2
 
 - Fix model capabilities for models with custom names.

@@ -8,12 +8,21 @@
 (def ^:private logger-tag "[HOOK]")
 
 (defn ^:private hook-matches? [type data hook]
-  (case type
-    (:preToolCall :postToolCall)
-    (re-matches (re-pattern (or (:matcher hook) ".*"))
-                (str (:server data) "__" (:tool-name data)))
+  (let [hook-config-type (keyword (:type hook))
+        hook-config-type (cond ;; legacy values
+                           (= :prePrompt hook-config-type) :preRequest
+                           (= :postPrompt hook-config-type) :postRequest
+                           :else hook-config-type)]
+    (cond
+      (not= type hook-config-type)
+      false
 
-    true))
+      (contains? #{:preToolCall :postToolCall} type)
+      (re-matches (re-pattern (or (:matcher hook) ".*"))
+                  (str (:server data) "__" (:tool-name data)))
+
+      :else
+      true)))
 
 (defn ^:private run-hook-action! [action name data db]
   (case (:type action)
@@ -39,26 +48,25 @@
    db
    config]
   (doseq [[name hook] (:hooks config)]
-    (when (= type (keyword (:type hook)))
-      (when (hook-matches? type data hook)
-        (vec
-         (map-indexed (fn [i action]
-                        (let [id (str (random-uuid))
-                              type (:type action)
-                              name (if (> 1 (count (:actions hook)))
-                                     (str name "-" (inc i))
-                                     name)]
-                          (on-before-action {:id id
-                                             :name name})
-                          (if-let [[status output error] (run-hook-action! action name data db)]
-                            (on-after-action {:id id
-                                              :name name
-                                              :type type
-                                              :status status
-                                              :output output
-                                              :error error})
-                            (on-after-action {:id id
-                                              :name name
-                                              :type type
-                                              :status -1}))))
-                      (:actions hook)))))))
+    (when (hook-matches? type data hook)
+      (vec
+       (map-indexed (fn [i action]
+                      (let [id (str (random-uuid))
+                            type (:type action)
+                            name (if (> 1 (count (:actions hook)))
+                                   (str name "-" (inc i))
+                                   name)]
+                        (on-before-action {:id id
+                                           :name name})
+                        (if-let [[status output error] (run-hook-action! action name data db)]
+                          (on-after-action {:id id
+                                            :name name
+                                            :type type
+                                            :status status
+                                            :output output
+                                            :error error})
+                          (on-after-action {:id id
+                                            :name name
+                                            :type type
+                                            :status -1}))))
+                    (:actions hook))))))

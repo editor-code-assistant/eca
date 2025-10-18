@@ -53,7 +53,7 @@
 
 (defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
   (swap! db* assoc-in [:chats chat-id :status] status)
-  (f.hooks/trigger-if-matches! :postPrompt
+  (f.hooks/trigger-if-matches! :postRequest
                                {:chat-id chat-id
                                 :prompt message}
                                {:on-before-action (partial notify-before-hook-action! chat-ctx)
@@ -962,7 +962,7 @@
                   :messenger messenger}
         decision (message->decision message)
         hook-outputs* (atom [])
-        _ (f.hooks/trigger-if-matches! :prePrompt
+        _ (f.hooks/trigger-if-matches! :preRequest
                                        {:chat-id chat-id
                                         :prompt message}
                                        {:on-before-action (partial notify-before-hook-action! chat-ctx)
