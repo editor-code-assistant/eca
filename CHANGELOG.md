@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.70.3
+
 - Deprecate prePrompt and postPrompt in favor of preRequest and prePrompt.
 
 ## 0.70.2
