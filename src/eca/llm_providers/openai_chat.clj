@@ -57,8 +57,8 @@
            :function (select-keys tool [:name :description :parameters])})
         tools))
 
-(defn ^:private base-request! [{:keys [rid extra-headers body api-url api-key on-error on-response]}]
-  (let [url (str api-url chat-completions-path)]
+(defn ^:private base-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-response]}]
+  (let [url (str api-url (or url-relative-path chat-completions-path))]
     (llm-util/log-request logger-tag rid url body)
     (http/post
      url
@@ -162,7 +162,7 @@
        (filter valid-message?)))
 
 (defn ^:private execute-accumulated-tools!
-  [{:keys [tool-calls-atom instructions extra-headers body api-url api-key
+  [{:keys [tool-calls-atom instructions extra-headers body api-url api-key url-relative-path
            on-tools-called on-error handle-response supports-image?
            thinking-start-block thinking-end-block]}]
   (let [all-accumulated (vals @tool-calls-atom)
@@ -192,6 +192,7 @@
               :extra-headers extra-headers
               :api-url api-url
               :api-key api-key
+              :url-relative-path url-relative-path
               :on-error on-error
               :on-response (fn [event data] (handle-response event data tool-calls-atom new-rid))}))))
       ;; No completed tools at all - let the streaming response provide the actual finish_reason
@@ -266,7 +267,7 @@
    Handles the full conversation flow including tool calls, streaming responses,
    and message normalization. Supports both single and parallel tool execution.
    Compatible with OpenRouter and other OpenAI-compatible providers."
-  [{:keys [model user-messages instructions temperature api-key api-url
+  [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image? parallel-tool-calls?
            thinking-tag]
     :or {temperature 1.0
@@ -327,6 +328,7 @@
                                 :body body
                                 :api-url api-url
                                 :api-key api-key
+                                :url-relative-path url-relative-path
                                 :on-tools-called on-tools-called
                                 :on-error on-error
                                 :thinking-start-block thinking-start-tag
@@ -426,6 +428,7 @@
       :extra-headers extra-headers
       :api-url api-url
       :api-key api-key
+      :url-relative-path url-relative-path
       :tool-calls* tool-calls*
       :on-error on-error
       :on-response (fn [event data] (handle-response event data tool-calls* rid))})))

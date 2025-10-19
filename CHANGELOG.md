@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `openai-chat` api not following `completionUrlRelativePath`.
+
 ## 0.70.5
 
 - Fix web-search not working for custom models using openai/anthropic apis.
