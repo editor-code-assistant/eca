@@ -221,6 +221,7 @@
             :instructions instructions
             :user-messages user-messages
             :max-output-tokens max-output-tokens
+            :web-search web-search
             :reason? reason?
             :supports-image? supports-image?
             :past-messages past-messages
@@ -237,14 +238,14 @@
         (on-error-wrapper {:exception e})))))
 
 (defn simple-prompt
-  [{:keys [provider model model-capabilitiies instructions
+  [{:keys [provider model model-capabilities instructions
            prompt user-messages config tools provider-auth]}]
   (let [result-p (promise)
         output* (atom "")]
     (complete!
      {:provider provider
       :model model
-      :model-capabilitiies model-capabilitiies
+      :model-capabilities model-capabilities
       :instructions instructions
       :tools tools
       :provider-auth provider-auth

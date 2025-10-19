@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix web-search not working for custom models using openai/anthropic apis.
+
 ## 0.70.4
 
 - Support `visible` field in hooks configuration to show or not in client.
