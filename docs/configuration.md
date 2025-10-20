@@ -85,7 +85,7 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 ### Approval / permissions
 
-By default, ECA asks to call any tool, but that can easily be configured in several ways via the `toolCall.approval` config.
+By default, ECA asks to call any non read-only tool (default [here](https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96)), but that can easily be configured in several ways via the `toolCall.approval` config.
 
 You can configure the default behavior with `byDefault` and/or configure a tool in `ask`, `allow` or `deny` configs.
 
