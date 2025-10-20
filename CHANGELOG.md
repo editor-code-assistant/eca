@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support `/resume` a specific chat.
+
 ## 0.70.6
 
 - Fix `openai-chat` api not following `completionUrlRelativePath`.

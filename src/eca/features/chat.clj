@@ -65,6 +65,8 @@
   (send-content! chat-ctx :system
                  {:type :progress
                   :state :finished})
+  (when-not (get-in @db* [:chats chat-id :created-at])
+    (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis)))
   (when on-finished-side-effect
     (on-finished-side-effect))
   (db/update-workspaces-cache! @db* metrics))
@@ -569,7 +571,10 @@
             (swap! db* assoc-in [:chats chat-id :title] title)
             (send-content! chat-ctx :system (assoc-some
                                              {:type :metadata}
-                                             :title title))))))
+                                             :title title))
+            ;; user prompt responded faster than title was generated
+            (when (= :idle (get-in @db* [:chats chat-id :status]))
+              (db/update-workspaces-cache! @db* metrics))))))
     (send-content! chat-ctx :system {:type :progress
                                      :state :running
                                      :text "Waiting model"})
@@ -696,7 +701,8 @@
                                                                                     (partial get-tool-call-state @db* chat-id id)
                                                                                     (partial transition-tool-call! db* chat-ctx id))
                                                          details (f.tools/tool-call-details-after-invocation name arguments details result)
-                                                         {:keys [start-time]} (get-tool-call-state @db* chat-id id)]
+                                                         {:keys [start-time]} (get-tool-call-state @db* chat-id id)
+                                                         total-time-ms (- (System/currentTimeMillis) start-time)]
                                                      (add-to-history! {:role "tool_call"
                                                                        :content (assoc tool-call
                                                                                        :details details
@@ -707,6 +713,7 @@
                                                                        :content (assoc tool-call
                                                                                        :error (:error result)
                                                                                        :output result
+                                                                                       :total-time-ms total-time-ms
                                                                                        :details details
                                                                                        :summary summary
                                                                                        :origin origin
@@ -722,7 +729,7 @@
                                                                                             :arguments arguments
                                                                                             :error (:error result)
                                                                                             :outputs (:contents result)
-                                                                                            :total-time-ms (- (System/currentTimeMillis) start-time)
+                                                                                            :total-time-ms total-time-ms
                                                                                             :progress-text "Generating"
                                                                                             :details details
                                                                                             :summary summary})
@@ -733,7 +740,7 @@
                                                                                            :arguments arguments
                                                                                            :error (:error result)
                                                                                            :outputs (:contents result)
-                                                                                           :total-time-ms (- (System/currentTimeMillis) start-time)
+                                                                                           :total-time-ms total-time-ms
                                                                                            :reason :user-stop
                                                                                            :details details
                                                                                            :summary summary})
@@ -834,13 +841,14 @@
                                                 {:type :reasonText
                                                  :id id
                                                  :text text}))
-                     :finished (do
+                     :finished (let [total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))]
                                  (add-to-history! {:role "reason" :content {:id id
                                                                             :external-id external-id
+                                                                            :total-time-ms total-time-ms
                                                                             :text (get-in @reasonings* [id :text])}})
                                  (send-content! chat-ctx :assistant
                                                 {:type :reasonFinished
-                                                 :total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))
+                                                 :total-time-ms total-time-ms
                                                  :id id}))
                      nil))
       :on-error (fn [{:keys [message exception]}]
@@ -865,42 +873,54 @@
   (case role
     ("user"
      "system"
-     "assistant") (reduce
-                   (fn [m content]
-                     (case (:type content)
-                       :text (assoc m
-                                    :type :text
-                                    :text (str (:text m) "\n" (:text content)))
-                       m))
-                   {}
-                   message-content)
-    "tool_call" {:type :toolCallPrepare
-                 :origin (:origin message-content)
-                 :name (:name message-content)
-                 :server (:server message-content)
-                 :arguments-text ""
-                 :id (:id message-content)}
-    "tool_call_output" {:type :toolCalled
-                        :origin (:origin message-content)
-                        :name (:name message-content)
-                        :server (:server message-content)
-                        :arguments (:arguments message-content)
-                        :error (:error message-content)
-                        :id (:id message-content)
-                        :outputs (:contents (:output message-content))}
-    "reason" {:id (:id message-content)
-              :external-id (:external-id message-content)
-              :text (:text message-content)}))
+     "assistant") [(reduce
+                    (fn [m content]
+                      (case (:type content)
+                        :text (assoc m
+                                     :type :text
+                                     :text (str (:text m) "\n" (:text content)))
+                        m))
+                    {}
+                    message-content)]
+    "tool_call" [{:type :toolCallPrepare
+                  :origin (:origin message-content)
+                  :name (:name message-content)
+                  :server (:server message-content)
+                  :arguments-text ""
+                  :id (:id message-content)}]
+    "tool_call_output" [{:type :toolCalled
+                         :origin (:origin message-content)
+                         :name (:name message-content)
+                         :server (:server message-content)
+                         :arguments (:arguments message-content)
+                         :total-time-ms (:total-time-ms message-content)
+                         :error (:error message-content)
+                         :id (:id message-content)
+                         :outputs (:contents (:output message-content))}]
+    "reason" [{:type :reasonStarted
+               :id (:id message-content)}
+              {:type :reasonText
+               :id (:id message-content)
+               :text (:text message-content)}
+              {:type :reasonFinished
+               :id (:id message-content)
+               :total-time-ms (:total-time-ms message-content)}]))
 
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
   (let [{:keys [type on-finished-side-effect] :as result} (f.commands/handle-command! command args chat-ctx)]
     (case type
       :chat-messages (do
-                       (doseq [[chat-id messages] (:chats result)]
+                       (doseq [[chat-id {:keys [messages title]}] (:chats result)]
                          (doseq [message messages]
-                           (send-content! (assoc chat-ctx :chat-id chat-id)
-                                          (:role message)
-                                          (message-content->chat-content (:role message) (:content message)))))
+                           (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
+                             (doseq [chat-content (message-content->chat-content (:role message) (:content message))]
+                               (send-content! new-chat-ctx
+                                              (:role message)
+                                              chat-content))
+                             (when title
+                               (send-content! new-chat-ctx :system (assoc-some
+                                                                    {:type :metadata}
+                                                                    :title title))))))
                        (finish-chat-prompt! :idle chat-ctx))
       :new-chat-status (finish-chat-prompt! (:status result) chat-ctx)
       :send-prompt (prompt-messages! [{:role "user" :content (:prompt result)}] (assoc chat-ctx :on-finished-side-effect on-finished-side-effect))

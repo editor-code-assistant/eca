@@ -10,10 +10,12 @@
    [eca.features.prompt :as f.prompt]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str update-some]])
   (:import
+   [clojure.lang PersistentVector]
    [java.lang ProcessHandle]))
 
 (set! *warn-on-reflection* true)
@@ -96,8 +98,8 @@
                        :arguments [{:name "additional-input"}]}
                       {:name "resume"
                        :type :native
-                       :description "Resume the chats from this session workspaces."
-                       :arguments []}
+                       :description "Resume the specified chat-id. Blank to list chats or 'latest'."
+                       :arguments [{:name "chat-id"}]}
                       {:name "config"
                        :type :native
                        :description "Show ECA config for troubleshooting."
@@ -230,13 +232,49 @@
                                        metrics)
                   {:type :new-chat-status
                    :status :login})
-      "resume" (let [chats (:chats db)]
-                 ;; Override current chat with first chat
-                 (when-let [first-chat (second (first chats))]
-                   (swap! db* assoc-in [:chats chat-id] first-chat)
-                   ;; TODO support multiple chats update
-                   {:type :chat-messages
-                    :chats {chat-id (:messages first-chat)}}))
+      "resume" (let [chats (into {}
+                                 (filter #(not= chat-id (first %)))
+                                 (:chats db))
+                     chats-ids (vec (sort-by #(:created-at (get chats %)) (keys chats)))
+                     selected-chat-id (try (if (= "latest" (first args))
+                                             (count chats-ids)
+                                             (parse-long (first args)))
+                                           (catch Exception _ nil))
+                     selected-chat-id (when selected-chat-id (nth chats-ids (dec selected-chat-id) nil))
+                     chat-message-fn (fn [text]
+                                       {:type :chat-messages
+                                        :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})]
+                 (cond
+                   (empty? chats)
+                   (chat-message-fn "No past chats found to resume")
+
+                   (string/blank? (first args))
+                   (chat-message-fn (multi-str
+                                     "Chats:"
+                                     ""
+                                     "ID - Created at - Title"
+                                     (reduce
+                                      (fn [s chat-id]
+                                        (let [chat (get chats chat-id)]
+                                          (str s (format "%s - %s - %s\n"
+                                                         (inc (.indexOf ^PersistentVector chats-ids chat-id))
+                                                         (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
+                                                         (or (:title chat) (format "No chat title (%s user messages)" (count (filter #(= "user" (:role %))
+                                                                                                                                     (:messages chat)))))))))
+                                      ""
+                                      chats-ids)
+                                     "Run `/resume <chat-id>` or `/resume latest`"))
+
+                   (not selected-chat-id)
+                   (chat-message-fn "Chat ID not found.")
+
+                   :else
+                   (let [chat (get chats selected-chat-id)]
+                     (swap! db* assoc-in [:chats chat-id] chat)
+                     {:type :chat-messages
+                      :chats {chat-id {:title (:title chat)
+                                       :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
+                                                         (:messages chat))}}})))
       "costs" (let [total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
                     total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] nil)
                     total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] nil)
@@ -250,13 +288,13 @@
                                     (str "Total output tokens: " total-output-tokens)
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
                 {:type :chat-messages
-                 :chats {chat-id [{:role "system" :content [{:type :text :text text}]}]}})
+                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "config" {:type :chat-messages
-                :chats {chat-id [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}
+                :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages
-                :chats {chat-id [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}
+                :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}}
       "repo-map-show" {:type :chat-messages
-                       :chats {chat-id [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}
+                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
       "prompt-show" (let [full-prompt (str "Instructions:\n" instructions "\n"
                                            "Prompt:\n" (reduce
                                                         (fn [s {:keys [content]}]
@@ -269,9 +307,9 @@
                                                         ""
                                                         user-messages))]
                       {:type :chat-messages
-                       :chats {chat-id [{:role "system"
-                                         :content [{:type :text
-                                                    :text full-prompt}]}]}})
+                       :chats {chat-id {:messages [{:role "system"
+                                                    :content [{:type :text
+                                                               :text full-prompt}]}]}}})
 
       ;; else check if a custom command
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

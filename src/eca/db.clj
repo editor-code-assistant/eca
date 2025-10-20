@@ -15,7 +15,7 @@
 
 (def ^:private logger-tag "[DB]")
 
-(def version 4)
+(def version 5)
 
 (defonce initial-db
   {:client-info {}
@@ -122,8 +122,10 @@
   (-> (select-keys db [:chats])
       (update :chats (fn [chats]
                        (into {}
-                             (map (fn [[k v]]
-                                    [k (dissoc v :tool-calls)]))
+                             (comp
+                               (filter #(seq (:messages (second %))))
+                               (map (fn [[k v]]
+                                      [k (dissoc v :tool-calls)])))
                              chats)))))
 
 (defn ^:private normalize-db-for-global-write [db]

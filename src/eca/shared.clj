@@ -7,7 +7,10 @@
    [clojure.walk :as walk])
   (:import
    [java.net URI]
-   [java.nio.file Paths]))
+   [java.nio.file Paths]
+   [java.time ZoneOffset]
+   [java.time.format DateTimeFormatter]
+   [java.time Instant]))
 
 (set! *warn-on-reflection* true)
 
@@ -67,7 +70,7 @@
        (if (next kvs)
          (recur ret (first kvs) (second kvs) (nnext kvs))
          (throw (IllegalArgumentException.
-                  "assoc-some expects even number of arguments after map/vector, found odd number")))
+                 "assoc-some expects even number of arguments after map/vector, found odd number")))
        ret))))
 
 (defn update-some
@@ -177,3 +180,8 @@
        (mf file (safe-mtime file)))
       ([file & args]
        (apply mf file (safe-mtime file) args)))))
+
+(defn ms->presentable-date [^Long ms ^String pattern]
+  (when ms 
+    (.format (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
+             (DateTimeFormatter/ofPattern pattern))))
