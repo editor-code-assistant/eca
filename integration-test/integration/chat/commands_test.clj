@@ -25,7 +25,7 @@
                        {:name "login" :arguments [{:name "provider-id"}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
-                       {:name "resume" :arguments []}
+                       {:name "resume" :arguments [{:name "chat-id"}]}
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}
                        {:name "repo-map-show" :arguments []}
