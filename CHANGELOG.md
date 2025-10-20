@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.71.0
+
 - Support `/resume` a specific chat.
 
 ## 0.70.6
