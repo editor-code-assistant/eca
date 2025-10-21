@@ -285,11 +285,7 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
 ## Rules
 
 Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
-Rules are text files (typically `.md`, but any format works) with the following
-optional metadata:
-
-- `description`: a description used by LLM to decide whether to include this rule in context, absent means always include this rule.
-- `globs`: list of globs separated by `,`. When present the rule will be applied only when files mentioned matches those globs.
+Rules are text files (typically `.md`, but any format works):
 
 There are 3 possible ways to configure rules following this order of priority:
 
@@ -298,10 +294,6 @@ There are 3 possible ways to configure rules following this order of priority:
     A `.eca/rules` folder from the workspace root containing `.md` files with the rules.
 
     ```markdown title=".eca/rules/talk_funny.md"
-    ---
-    description: Use when responding anything
-    ---
-
     - Talk funny like Mickey!
     ```
 
@@ -310,10 +302,6 @@ There are 3 possible ways to configure rules following this order of priority:
     A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.md` files with the rules.
 
     ```markdown title="~/.config/eca/rules/talk_funny.md"
-    ---
-    description: Use when responding anything
-    ---
-
     - Talk funny like Mickey!
     ```
 
