@@ -12,7 +12,7 @@
     ;; Save summary to replace chat history later
     (swap! db* assoc-in [:chats chat-id :last-summary] summary)
 
-    (tools.util/single-text-content summary)))
+    (tools.util/single-text-content "Compacted successfully!")))
 
 (def definitions
   {"eca_compact_chat"

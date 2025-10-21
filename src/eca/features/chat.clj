@@ -697,7 +697,7 @@
                                                    ;; assert: In :executing
                                                    (logger/debug logger-tag "Just set up the call promise"
                                                                  {:tool-call-id id})
-                                                   (let [result (f.tools/call-tool! name arguments behavior chat-id id db* config messenger metrics
+                                                   (let [result (f.tools/call-tool! name arguments chat-id id behavior db* config messenger metrics
                                                                                     (partial get-tool-call-state @db* chat-id id)
                                                                                     (partial transition-tool-call! db* chat-ctx id))
                                                          details (f.tools/tool-call-details-after-invocation name arguments details result)

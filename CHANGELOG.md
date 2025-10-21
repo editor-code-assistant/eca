@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix regression in `/compact` command.
+
 ## 0.71.1
 
 - Use web-search false if model capabiltiies are not found.

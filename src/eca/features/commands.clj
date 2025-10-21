@@ -205,11 +205,12 @@
                   {:type :send-prompt
                    :on-finished-side-effect (fn []
                                               ;; Replace chat history with summary
-                                              (swap! db* assoc-in [:chats chat-id :messages]
-                                                     [{:role "user"
-                                                       :content [{:type :text
-                                                                  :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                                             (get-in @db* [:chats chat-id :last-summary]))}]}])
+                                              (swap! db* (fn [db]
+                                                           (assoc-in db [:chats chat-id :messages]
+                                                                     [{:role "user"
+                                                                       :content [{:type :text
+                                                                                  :text (str "The conversation was compacted/summarized, consider this summary:\n"
+                                                                                             (get-in db [:chats chat-id :last-summary]))}]}])))
 
                                               ;; Zero chat usage
                                               (swap! db* assoc-in [:chats chat-id :total-input-tokens] nil)
