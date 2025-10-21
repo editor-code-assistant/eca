@@ -1227,31 +1227,18 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 </div>
 <h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h2>
 <p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
-Rules are text files (typically <code>.md</code>, but any format works) with the following
-optional metadata:</p>
-<ul>
-<li><code>description</code>: a description used by LLM to decide whether to include this rule in context, absent means always include this rule.</li>
-<li><code>globs</code>: list of globs separated by <code>,</code>. When present the rule will be applied only when files mentioned matches those globs.</li>
-</ul>
+Rules are text files (typically <code>.md</code>, but any format works):</p>
 <p>There are 3 possible ways to configure rules following this order of priority:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="project-file" name="__tabbed_6" type="radio" /><input id="global-file" name="__tabbed_6" type="radio" /><input id="config_1" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
-<div class="highlight"><span class="filename">.eca/rules/talk_funny.md</span><pre><span></span><code>---
-<span class="gu">description: Use when responding anything</span>
-<span class="gu">---</span>
-
-<span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
+<div class="highlight"><span class="filename">.eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>A <code>$XDG_CONFIG_HOME/eca/rules</code> or <code>~/.config/eca/rules</code> folder containing <code>.md</code> files with the rules.</p>
-<div class="highlight"><span class="filename">~/.config/eca/rules/talk_funny.md</span><pre><span></span><code>---
-<span class="gu">description: Use when responding anything</span>
-<span class="gu">---</span>
-
-<span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
+<div class="highlight"><span class="filename">~/.config/eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -1522,7 +1509,7 @@ optional metadata:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 20, 2025 15:56:15 UTC">October 20, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 21, 2025 12:49:02 UTC">October 21, 2025</span>
   </span>
 
     
