@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix regression in `/compact` command.
+- Fix to use local zone for time presentation in `/resume`.
 
 ## 0.71.1
 

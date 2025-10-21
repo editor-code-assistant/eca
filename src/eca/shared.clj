@@ -8,9 +8,8 @@
   (:import
    [java.net URI]
    [java.nio.file Paths]
-   [java.time ZoneOffset]
-   [java.time.format DateTimeFormatter]
-   [java.time Instant]))
+   [java.time Instant ZoneId ZoneOffset]
+   [java.time.format DateTimeFormatter]))
 
 (set! *warn-on-reflection* true)
 
@@ -182,6 +181,7 @@
        (apply mf file (safe-mtime file) args)))))
 
 (defn ms->presentable-date [^Long ms ^String pattern]
-  (when ms 
-    (.format (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
+  (when ms
+    (.format (.atZoneSameInstant (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
+                                 (ZoneId/systemDefault))
              (DateTimeFormatter/ofPattern pattern))))
