@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.71.1
+
 - Use web-search false if model capabiltiies are not found.
 
 ## 0.71.0
