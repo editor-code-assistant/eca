@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use web-search false if model capabiltiies are not found.
+
 ## 0.71.0
 
 - Support `/resume` a specific chat.

@@ -90,7 +90,7 @@
                                                                           (get all-models found-full-model))
                                                                         {:tools true
                                                                          :reason? true
-                                                                         :web-search true})
+                                                                         :web-search false})
                                                                     {:model-name real-model-name})]
                                             (assoc m full-model model-capabilities)))
                                         {}
