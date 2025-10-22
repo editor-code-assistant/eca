@@ -70,7 +70,8 @@ ECA support built-in tools to avoid user extra installation and configuration, t
 
 ![](./images/features/contexts.png){ align=right }
 
-ECA supports contexts (`@`) and files (`#`), including images and MCP resources, which can help LLM generate output with better quality.
+ECA supports contexts(`@`) including files, dirs, images, MCP resources, which can help LLM generate output with better quality/precision.
+
 Here are the current supported contexts types:
 
 - `file`: a file in the workspace, server will pass its content to LLM (Supports optional line range) and images.
@@ -78,11 +79,13 @@ Here are the current supported contexts types:
 - `cursor`: Current file path + cursor position or selection.
 - `mcpResource`: resources provided by running MCPs servers.
 
-User can include those in 3 different ways that can be used for different purposes:
+Besides thoses, ECA supports filepaths(`#`) which are just file paths mentions in the user prompt.
 
-- `#` in prompt: ECA will just mention the full file path in the mesage, LLM may use tools to read the file. __Useful for file path only mention in chat history__.
-- `@` in prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
-- `@` in context area (above prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
+So user can include those contexts in 3 different ways for different purposes:
+
+- `#` in user prompt: ECA will just mention the absolute file path in the user message, LLM may use tools to read the file. __Useful for file path only mention in chat history__.
+- `@` in user prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
+- `@` in system prompt (above user prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
 
 <img src="../images/features/contexts-files.gif" width="600">
 
