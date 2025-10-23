@@ -7,9 +7,9 @@
 
 (defmulti tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  (fn [name _arguments] (keyword name)))
+  (fn [name _arguments _server _ctx] (keyword name)))
 
-(defmethod tool-call-details-before-invocation :default [_name _arguments]
+(defmethod tool-call-details-before-invocation :default [_name _arguments _server _ctx]
   nil)
 
 (defmulti tool-call-details-after-invocation

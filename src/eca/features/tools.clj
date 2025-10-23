@@ -114,15 +114,7 @@
                                                          :tool-call-id tool-call-id
                                                          :call-state-fn call-state-fn
                                                          :state-transition-fn state-transition-fn})
-                         (f.mcp/call-tool! name arguments {:db db
-                                                           :db* db*
-                                                           :config config
-                                                           :messenger messenger
-                                                           :behavior behavior
-                                                           :chat-id chat-id
-                                                           :tool-call-id tool-call-id
-                                                           :call-state-fn call-state-fn
-                                                           :state-transition-fn state-transition-fn}))
+                         (f.mcp/call-tool! name arguments {:db db}))
                        (pretty-format-any-json-output))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
@@ -261,8 +253,14 @@
 
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  [name arguments]
-  (tools.util/tool-call-details-before-invocation name arguments))
+  [name arguments server db ask-approval?]
+  (try
+    (tools.util/tool-call-details-before-invocation name arguments server {:db db
+                                                                           :ask-approval? ask-approval?})
+    (catch Exception e
+      ;; Avoid failling tool call because of error on getting details.
+      (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
+      nil)))
 
 (defn tool-call-details-after-invocation
   "Return the tool call details after invoking the tool."

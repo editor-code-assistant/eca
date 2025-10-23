@@ -259,7 +259,6 @@
 (defn ^:private execute-action!
   "Execute a single action during state transition"
   [action db* chat-ctx tool-call-id event-data]
-  (logger/debug logger-tag "About to run the tool-call action" {:tool-call-id tool-call-id :action action :event-data event-data})
   (case action
     ;; Notification actions
     :send-progress
@@ -633,28 +632,30 @@
                          (let [any-rejected-tool-call?* (atom nil)]
                            (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
                                    (let [approved?* (promise) ; created here, stored in the state.
+                                         db @db*
                                          hook-approved?* (atom true)
-                                         details (f.tools/tool-call-details-before-invocation name arguments)
-                                         summary (f.tools/tool-call-summary all-tools name arguments config)
                                          origin (tool-name->origin name all-tools)
                                          server (tool-name->server name all-tools)
-                                         approval (f.tools/approval all-tools name arguments @db* config behavior)
-                                         ask? (= :ask approval)]
+                                         server-name (:name server)
+                                         approval (f.tools/approval all-tools name arguments db config behavior)
+                                         ask? (= :ask approval)
+                                         details (f.tools/tool-call-details-before-invocation name arguments server db ask?)
+                                         summary (f.tools/tool-call-summary all-tools name arguments config)]
                                      ;; assert: In :preparing or :stopping or :cleanup
                                      ;; Inform client the tool is about to run and store approval promise
-                                     (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
+                                     (when-not (#{:stopping :cleanup} (:status (get-tool-call-state db chat-id id)))
                                        (transition-tool-call! db* chat-ctx id :tool-run
                                                               {:approved?* approved?*
                                                                :future-cleanup-complete?* (promise)
                                                                :name name
-                                                               :server server
+                                                               :server server-name
                                                                :origin origin
                                                                :arguments arguments
                                                                :manual-approval ask?
                                                                :details details
                                                                :summary summary}))
                                      ;; assert: In: :check-approval or :stopping or :cleanup or :rejected
-                                     (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state @db* chat-id id)))
+                                     (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state db chat-id id)))
                                        (case approval
                                          :ask (transition-tool-call! db* chat-ctx id :approval-ask
                                                                      {:progress-text "Waiting for tool call approval"})
@@ -671,7 +672,7 @@
                                      (f.hooks/trigger-if-matches! :preToolCall
                                                                   {:chat-id chat-id
                                                                    :tool-name name
-                                                                   :server server
+                                                                   :server server-name
                                                                    :arguments arguments}
                                                                   {:on-before-action (partial notify-before-hook-action! chat-ctx)
                                                                    :on-after-action (fn [result]
@@ -695,8 +696,6 @@
                                                (delay
                                                  (future
                                                    ;; assert: In :executing
-                                                   (logger/debug logger-tag "Just set up the call promise"
-                                                                 {:tool-call-id id})
                                                    (let [result (f.tools/call-tool! name arguments chat-id id behavior db* config messenger metrics
                                                                                     (partial get-tool-call-state @db* chat-id id)
                                                                                     (partial transition-tool-call! db* chat-ctx id))
@@ -708,7 +707,7 @@
                                                                                        :details details
                                                                                        :summary summary
                                                                                        :origin origin
-                                                                                       :server server)})
+                                                                                       :server server-name)})
                                                      (add-to-history! {:role "tool_call_output"
                                                                        :content (assoc tool-call
                                                                                        :error (:error result)
@@ -717,7 +716,7 @@
                                                                                        :details details
                                                                                        :summary summary
                                                                                        :origin origin
-                                                                                       :server server)})
+                                                                                       :server server-name)})
                                                      ;; assert: In :executing or :stopping
                                                      (let [state (get-tool-call-state  @db* chat-id id)
                                                            status (:status state)]
@@ -725,7 +724,7 @@
                                                          :executing (transition-tool-call! db* chat-ctx id :execution-end
                                                                                            {:origin origin
                                                                                             :name name
-                                                                                            :server server
+                                                                                            :server server-name
                                                                                             :arguments arguments
                                                                                             :error (:error result)
                                                                                             :outputs (:contents result)
@@ -736,7 +735,7 @@
                                                          :stopping (transition-tool-call! db* chat-ctx id :stop-attempted
                                                                                           {:origin origin
                                                                                            :name name
-                                                                                           :server server
+                                                                                           :server server-name
                                                                                            :arguments arguments
                                                                                            :error (:error result)
                                                                                            :outputs (:contents result)
@@ -749,7 +748,7 @@
                                                                   {:delayed-future delayed-future
                                                                    :origin origin
                                                                    :name name
-                                                                   :server server
+                                                                   :server server-name
                                                                    :arguments arguments
                                                                    :start-time (System/currentTimeMillis)
                                                                    :details details
@@ -767,7 +766,7 @@
                                          (transition-tool-call! db* chat-ctx id :send-reject
                                                                 {:origin origin
                                                                  :name name
-                                                                 :server server
+                                                                 :server server-name
                                                                  :arguments arguments
                                                                  :reason code
                                                                  :details details
@@ -792,8 +791,7 @@
                                                    {:tool-call-id tool-call-id
                                                     :promise p})
                                      (deref p) ; TODO: May need a timeout here too, in case the tool does not clean up.
-                                     (logger/debug logger-tag "Future has finished cleanup."
-                                                   {:tool-call-id tool-call-id})))
+                                     ))
                                  (catch Throwable t
                                    (logger/debug logger-tag "Ignoring a Throwable while deref'ing a tool call future"
                                                  {:tool-call-id tool-call-id

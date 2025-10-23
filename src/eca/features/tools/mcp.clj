@@ -175,6 +175,7 @@
     (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
     (try
       (.initialize client)
+      (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
       (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
       (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
       (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
@@ -219,14 +220,12 @@
 
 (defn all-tools [db]
   (into []
-        (mapcat (fn [[name {:keys [tools]}]]
-                  (map #(assoc % :server name) tools)))
+        (mapcat (fn [[name {:keys [tools version]}]]
+                  (map #(assoc % :server {:name name
+                                          :version version}) tools)))
         (:mcp-clients db)))
 
-(defn call-tool! [^String name ^Map arguments {:keys [db _db*
-                                                      _config _messenger _behavior
-                                                      _chat-id _tool-call-id
-                                                      _call-state-fn _state-transition-fn]}]
+(defn call-tool! [^String name ^Map arguments {:keys [db]}]
   (let [mcp-client (->> (vals (:mcp-clients db))
                         (keep (fn [{:keys [client tools]}]
                                 (when (some #(= name (:name %)) tools)

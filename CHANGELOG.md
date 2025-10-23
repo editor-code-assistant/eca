@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support clojureMCP dry-run flags for edit/write tools, being able to show preview of diffs before running tool.
+
 ## 0.71.3
 
 - Assoc `parallel_tool_calls` to openai-chat only if truth.

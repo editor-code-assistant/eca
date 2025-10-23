@@ -14,14 +14,15 @@
   (testing "Include mcp tools"
     (is (match?
          (m/embeds [{:name "eval"
-                     :server "clojureMCP"
+                     :server {:name "clojureMCP" :version "1.0.2"}
                      :description "eval code"
                      :parameters {"type" "object"
                                   :properties {"code" {:type "string"}}}
                      :origin :mcp}])
          (f.tools/all-tools "123" "agent"
                             {:mcp-clients {"clojureMCP"
-                                           {:tools [{:name "eval"
+                                           {:version "1.0.2"
+                                            :tools [{:name "eval"
                                                      :description "eval code"
                                                      :parameters {"type" "object"
                                                                   :properties {"code" {:type "string"}}}}]}}}
