@@ -2,6 +2,159 @@
 
 ## Unreleased
 
+## 0.72.0
+
+- Support clojureMCP dry-run flags for edit/write tools, being able to show preview of diffs before running tool.
+
+## 0.71.3
+
+- Assoc `parallel_tool_calls` to openai-chat only if truth.
+
+## 0.71.2
+
+- Fix regression in `/compact` command. #162
+- Fix to use local zone for time presentation in `/resume`.
+
+## 0.71.1
+
+- Use web-search false if model capabiltiies are not found.
+
+## 0.71.0
+
+- Support `/resume` a specific chat.
+
+## 0.70.6
+
+- Fix `openai-chat` api not following `completionUrlRelativePath`.
+
+## 0.70.5
+
+- Fix web-search not working for custom models using openai/anthropic apis.
+
+## 0.70.4
+
+- Support `visible` field in hooks configuration to show or not in client.
+
+## 0.70.3
+
+- Deprecate prePrompt and postPrompt in favor of preRequest and prePrompt.
+
+## 0.70.2
+
+- Fix model capabilities for models with custom names.
+
+## 0.70.1
+
+- Fix prePrompt hook.
+
+## 0.70.0
+
+- Add hooks support. #43
+
+## 0.69.1
+
+- Fix regression on models with no extraPayload.
+
+## 0.69.0
+
+- Support multiple model configs with different payloads using same model name via `modelName` config. (Ex: gpt-5 and gpt-5-high but both use gpt-5)
+
+## 0.68.1
+
+- Add `anthropic/haiku-4.5` model by default.
+
+## 0.68.0
+
+- Unwrap mentioned @contexts in prompt appending as user message its content. #154
+
+## 0.67.0
+
+- Improved flaky test #150
+- Obfuscate env vars in /doctor.
+- Bump clj-otel to 0.2.10
+- Rename $ARGS to $ARGUMENTS placeholder alias for custom commands.
+- Support recursive AGENTS.md file inclusions with @file mention. #140
+
+## 0.66.1
+
+- Improve plan behavior prompt. #139
+
+## 0.66.0
+
+- Add support for secrets stored in authinfo and netrc files
+- Added tests for stopping concurrent tool calls. #147
+- Improve logging.
+- Improve performance of `chat/queryContext`.
+
+## 0.65.0
+
+- Added ability to cancel tool calls. Only the shell tool currently. #145
+- Bump mcp java sdk to 0.14.1.
+- Improve json output for tools that output json.
+
+## 0.64.1
+
+- Fix duplicated arguments on `toolCallPrepare` for openai-chat API models. https://github.com/editor-code-assistant/eca-emacs/issues/56
+
+## 0.64.0
+
+- Add `server` to tool call messages.
+
+## 0.63.3
+
+- Fix last word going after tool call for openai-chat API.
+
+## 0.63.2
+
+- Fix retrocompatibility with some models not working with openai-chat like deepseek.
+
+## 0.63.1
+
+- Add `gpt-5-codex` model as default for `openai` provider.
+
+## 0.63.0
+
+- Support "accept and remember" tool call per session and name.
+- Avoid generating huge chat titles.
+
+## 0.62.1
+
+- Add `claude-sonnet-4.5` for github-copilot provider.
+- Add `prompt-received` metric.
+
+## 0.62.0
+
+- Use a default of 32k tokens for max_tokens in openai-chat API.
+- Improve rejection prompt for tool calls.
+- Use `max_completion_tokens` instead of `max_tokens` in openai-chat API.
+- Support context/tokens usage/cost for openai-chat API.
+- Support `anthropic/claude-sonnet-4.5` by default.
+
+## 0.61.1
+
+- More tolerant whitespace handling after `data:`.
+- Fix login for google provider. #134
+
+## 0.61.0
+
+- Fix chat titles not working for some providers.
+- Enable reasoning for google models.
+- Support reasoning blocks in models who use openai-chat api.
+
+## 0.60.0
+
+- Support google gemini as built-in models. #50
+
+## 0.59.0
+
+- Deprecate repoMap context, will be removed in the future.
+  - After lots of tunnings and improvements, the repoMap is no longer relevant as `eca_directory_tree` provides similar and more specific view for LLM to use.
+- Support `toolCall shellCommand summaryMaxLength` to configure UX of command length. #130
+
+## 0.58.2
+
+- Fix MCP prompt for native image.
+
 ## 0.58.1
 
 - Improve progress notification when tool is running.

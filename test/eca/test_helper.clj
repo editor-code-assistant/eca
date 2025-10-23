@@ -10,9 +10,15 @@
 
 (def windows? (string/starts-with? (System/getProperty "os.name") "Windows"))
 
+(def windows-drive-letter
+  (when windows?
+    (second (re-find #"^([A-Za-z]).+" (System/getProperty "user.dir")))))
+
+
+
 (defn file-path [path]
   (cond-> path windows?
-          (-> (string/replace-first #"^/" "C:\\\\")
+          (-> (string/replace-first #"^/" (str windows-drive-letter ":\\\\"))
               (->> (re-matches #"(.+?)(\.jar:.*)?"))
               (update 1 string/replace "/" "\\")
               rest
@@ -20,7 +26,7 @@
 
 (defn file-uri [uri]
   (cond-> uri windows?
-          (string/replace #"^(file):///(?!\w:/)" "$1:///C:/")))
+          (string/replace #"^(file):///(?!\w:/)" (str "$1:///" windows-drive-letter ":/"))))
 
 (defrecord TestMessenger [messages* diagnostics*]
   messenger/IMessenger

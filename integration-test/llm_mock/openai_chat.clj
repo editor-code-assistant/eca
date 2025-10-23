@@ -5,6 +5,11 @@
    [llm-mock.mocks :as llm.mocks]
    [org.httpkit.server :as hk]))
 
+(def ^:dynamic *thinking-tag* "think")
+
+(defn set-thinking-tag! [tag]
+  (alter-var-root #'*thinking-tag* (constantly tag)))
+
 (defn ^:private send-sse!
   "Send a single SSE data line with a JSON payload, followed by a blank line."
   [ch m]
@@ -62,6 +67,28 @@
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
+(defn ^:private reasoning-text-0 [ch]
+  (send-sse! ch {:choices [{:delta {:content (str "<" *thinking-tag* ">")}}]})
+  (send-sse! ch {:choices [{:delta {:content "I should say"}}]})
+  (send-sse! ch {:choices [{:delta {:content " hello"}}]})
+  (send-sse! ch {:choices [{:delta {:content (str "</" *thinking-tag* ">")}}]})
+  (send-sse! ch {:choices [{:delta {:content "hello"}}]})
+  (send-sse! ch {:choices [{:delta {:content " there!"}}]})
+  (send-sse! ch {:usage {:prompt_tokens 10 :completion_tokens 20}})
+  (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+  (hk/close ch))
+
+(defn ^:private reasoning-text-1 [ch]
+  (send-sse! ch {:choices [{:delta {:content (str "<" *thinking-tag* ">")}}]})
+  (send-sse! ch {:choices [{:delta {:content "I should say"}}]})
+  (send-sse! ch {:choices [{:delta {:content " fine"}}]})
+  (send-sse! ch {:choices [{:delta {:content (str "</" *thinking-tag* ">")}}]})
+  (send-sse! ch {:choices [{:delta {:content "I'm "}}]})
+  (send-sse! ch {:choices [{:delta {:content " fine"}}]})
+  (send-sse! ch {:usage {:prompt_tokens 10 :completion_tokens 20}})
+  (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+  (hk/close ch))
+
 (defn ^:private chat-title-text-0 [ch]
   (send-sse! ch {:choices [{:delta {:content "Some Cool"}}]})
   (send-sse! ch {:choices [{:delta {:content " Title"}}]})
@@ -73,8 +100,8 @@
   ;; Capture and normalize the request body for assertions in tests
   (let [body (some-> (slurp (:body req)) (json/parse-string true))
         messages (:messages body)
-        normalized (messages->normalized-input messages)]
-    (llm.mocks/set-last-req-body! (merge normalized (select-keys body [:tools])))
+        normalized (messages->normalized-input messages)
+        normalized-body (merge normalized (select-keys body [:tools]))]
     (hk/as-channel
      req
      {:on-open (fn [ch]
@@ -88,12 +115,16 @@
                    (do
                      (Thread/sleep 2000) ;; avoid tests failing with mismatch order of contents
                      (chat-title-text-0 ch))
-                   (case llm.mocks/*case*
-                     :simple-text-0 (simple-text-0 ch)
-                     :simple-text-1 (simple-text-1 ch)
-                     :simple-text-2 (simple-text-2 ch)
-                      ;; default fallback
-                     (do
-                       (send-sse! ch {:choices [{:delta {:content "hello"}}]})
-                       (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
-                       (hk/close ch)))))})))
+                   (do
+                     (llm.mocks/set-req-body! llm.mocks/*case* normalized-body)
+                     (case llm.mocks/*case*
+                       :simple-text-0 (simple-text-0 ch)
+                       :simple-text-1 (simple-text-1 ch)
+                       :simple-text-2 (simple-text-2 ch)
+                       :reasoning-0 (reasoning-text-0 ch)
+                       :reasoning-1 (reasoning-text-1 ch)
+                       ;; default fallback
+                       (do
+                         (send-sse! ch {:choices [{:delta {:content "hello"}}]})
+                         (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+                         (hk/close ch))))))})))

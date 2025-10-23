@@ -42,6 +42,27 @@ Eca is written in Clojure and compiled into a native binary via graalvm.
     brew install editor-code-assistant/brew/eca
     ```
 
+=== "mise"
+
+    Install using [mise](https://mise.jdx.dev) 
+    
+    ```bash
+    # Install the plugin
+    mise plugin install eca https://github.com/editor-code-assistant/eca-mise-plugin
+
+    # Install latest version ECA
+    mise install eca
+    mise use -g eca
+
+    # or install and use
+    # desired version
+    mise install eca@0.58.0
+    mise use -g eca@0.58.0
+
+    # Verify installation
+    eca --version
+    ```
+
 === "Gtihub releases"
 
     You can download the [native binaries from Github Releases](https://github.com/editor-code-assistant/eca/releases), although it's easy to have outdated ECA using this way.

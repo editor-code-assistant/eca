@@ -20,7 +20,7 @@
                     {:db* db* :chat-id chat-id})]
         (testing "returns correct response format"
           (is (match?
-               {:contents [{:type :text :text test-summary}]}
+               {:contents [{:type :text :text "Compacted successfully!"}]}
                result)))
         
         (testing "updates database state correctly"
@@ -40,29 +40,12 @@
                     {"summary" empty-summary}
                     {:db* db* :chat-id chat-id})]
         (is (match?
-             {:contents [{:type :text :text empty-summary}]}
+             {:contents [{:type :text :text "Compacted successfully!"}]}
              result))
         
         (let [chat-state (get-in @db* [:chats chat-id])]
           (is (= false (:compacting? chat-state)))
-          (is (= empty-summary (:last-summary chat-state)))))))
-
-  (testing "Handles missing summary parameter gracefully"
-    (let [db* (h/db*)
-          chat-id "test-chat-789"]
-      (swap! db* assoc-in [:chats chat-id :compacting?] true)
-      
-      ;; This should not throw, but handle the missing parameter
-      (try
-        (let [result ((get-in f.tools.chat/definitions ["eca_compact_chat" :handler])
-                      {}
-                      {:db* db* :chat-id chat-id})]
-          (is (match?
-               {:contents [{:type :text :text nil}]}
-               result)))
-        (catch Exception _
-          ;; If it throws, that's also acceptable behavior for missing required parameter
-          (is true "Exception is acceptable for missing required parameter"))))))
+          (is (= empty-summary (:last-summary chat-state))))))))
 
 (deftest compact-chat-enabled-test
   (testing "Tool is enabled when chat is compacting"
@@ -98,7 +81,7 @@
 
 (deftest compact-chat-summary-fn-test
   (testing "Summary function returns constant string"
-    (is (= "Compacting..." ((get-in f.tools.chat/definitions ["eca_compact_chat" :summary-fn]))))))
+    (is (= "Compacting..." ((get-in f.tools.chat/definitions ["eca_compact_chat" :summary-fn]) {})))))
 
 (deftest compact-chat-tool-definition-test
   (testing "Tool definition has correct structure"

@@ -16,6 +16,9 @@
                 :keyEnv "FOO"}
    "github-copilot" {:url (str base-llm-mock-url "/github-copilot")
                      :key "foo-key"
+                     :keyEnv "FOO"}
+   "google" {:url (str base-llm-mock-url "/google")
+                     :key "foo-key"
                      :keyEnv "FOO"}})
 
 (def default-init-options {:pureConfig true
@@ -46,3 +49,6 @@
 
 (defn chat-prompt-request [params]
   [:chat/prompt params])
+
+(defn chat-query-commands-request [params]
+  [:chat/queryCommands params])

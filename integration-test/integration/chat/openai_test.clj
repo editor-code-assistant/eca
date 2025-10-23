@@ -43,7 +43,7 @@
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
               :instructions (m/pred string?)}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-0)))))
 
     (testing "We reply"
       (llm.mocks/set-case! :simple-text-1)
@@ -72,7 +72,7 @@
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-1)))))
 
     (testing "model reply again keeping context"
       (llm.mocks/set-case! :simple-text-2)
@@ -106,7 +106,7 @@
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Foo"}]}
                       {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :simple-text-2)))))))
 
 (deftest reasoning-text
   (eca/start-process!)
@@ -144,7 +144,7 @@
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}]
               :instructions (m/pred string?)}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :reasoning-0)))))
 
     (testing "We reply"
       (llm.mocks/set-case! :reasoning-1)
@@ -183,7 +183,7 @@
                       {:role "assistant" :content [{:type "output_text" :text "hello there!"}]}
                       {:role "user" :content [{:type "input_text" :text "how are you?"}]}]
               :instructions (m/pred string?)}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :reasoning-1)))))))
 
 (deftest tool-calling
   (eca/start-process!)
@@ -283,4 +283,4 @@
               :tools (m/embeds
                       [{:name "eca_directory_tree"}])
               :instructions (m/pred string?)}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :tool-calling-0)))))))

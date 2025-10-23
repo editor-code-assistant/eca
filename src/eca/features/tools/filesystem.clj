@@ -93,7 +93,7 @@
                                                " parameter to read more content.")
                                           content)))))
 
-(defn ^:private read-file-summary [args]
+(defn ^:private read-file-summary [{:keys [args]}]
   (if-let [path (get args "path")]
     (str "Reading file " (fs/file-name (fs/file path)))
     "Reading file"))
@@ -106,7 +106,7 @@
         (spit path content)
         (tools.util/single-text-content (format "Successfully wrote to %s" path)))))
 
-(defn ^:private write-file-summary [args]
+(defn ^:private write-file-summary [{:keys [args]}]
   (if-let [path (get args "path")]
     (str "Creating file " (fs/file-name (fs/file path)))
     "Creating file"))
@@ -203,7 +203,7 @@
           (tools.util/single-text-content (string/join "\n" paths))
           (tools.util/single-text-content "No files found for given pattern" :error)))))
 
-(defn grep-summary [args]
+(defn grep-summary [{:keys [args]}]
   (if-let [pattern (get args "pattern")]
     (if (> (count pattern) 22)
       (format "Searching for '%s...'" (subs pattern 0 22))
@@ -364,7 +364,7 @@
     :handler #'grep
     :summary-fn #'grep-summary}})
 
-(defmethod tools.util/tool-call-details-before-invocation :eca_edit_file [_name arguments]
+(defmethod tools.util/tool-call-details-before-invocation :eca_edit_file [_name arguments _server _ctx]
   (let [path (get arguments "path")
         original-content (get arguments "original_content")
         new-content (get arguments "new_content")
@@ -394,10 +394,10 @@
 
       :else nil)))
 
-(defmethod tools.util/tool-call-details-before-invocation :eca_preview_file_change [_name arguments]
-  (tools.util/tool-call-details-before-invocation :eca_edit_file arguments))
+(defmethod tools.util/tool-call-details-before-invocation :eca_preview_file_change [_name arguments server ctx]
+  (tools.util/tool-call-details-before-invocation :eca_edit_file arguments server ctx))
 
-(defmethod tools.util/tool-call-details-before-invocation :eca_write_file [_name arguments]
+(defmethod tools.util/tool-call-details-before-invocation :eca_write_file [_name arguments _server _ctx]
   (let [path (get arguments "path")
         content (get arguments "content")]
     (when (and path content)

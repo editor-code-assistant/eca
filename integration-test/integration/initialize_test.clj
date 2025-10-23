@@ -12,17 +12,21 @@
 (deftest default-initialize-and-shutdown
   (eca/start-process!)
 
-  (let [models ["anthropic/claude-3-5-haiku-20241022"
+  (let [models ["anthropic/claude-haiku-4-5-20251001"
                 "anthropic/claude-opus-4-1-20250805"
                 "anthropic/claude-opus-4-20250514"
                 "anthropic/claude-sonnet-4-20250514"
-                "github-copilot/claude-sonnet-4"
+                "anthropic/claude-sonnet-4-5-20250929"
+                "github-copilot/claude-sonnet-4.5"
                 "github-copilot/gemini-2.5-pro"
                 "github-copilot/gpt-4.1"
                 "github-copilot/gpt-5"
                 "github-copilot/gpt-5-mini"
+                "google/gemini-2.0-flash"
+                "google/gemini-2.5-pro"
                 "openai/gpt-4.1"
                 "openai/gpt-5"
+                "openai/gpt-5-codex"
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/o3"
@@ -30,7 +34,7 @@
     (testing "initialize request with default config"
       (is (match?
            {:models models
-            :chatDefaultModel "anthropic/claude-sonnet-4-20250514"
+            :chatDefaultModel "anthropic/claude-sonnet-4-5-20250929"
             :chatBehaviors ["agent" "plan"]
             :chatDefaultBehavior "plan"
             :chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
@@ -44,7 +48,7 @@
     (testing "config updated"
       (is (match?
            {:chat {:models models
-                   :selectModel "anthropic/claude-sonnet-4-20250514"
+                   :selectModel "anthropic/claude-sonnet-4-5-20250929"
                    :behaviors ["agent" "plan"]
                    :selectBehavior "plan"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
@@ -68,19 +72,23 @@
 
 (deftest initialize-with-custom-providers
   (eca/start-process!)
-  (let [models ["anthropic/claude-3-5-haiku-20241022"
+  (let [models ["anthropic/claude-haiku-4-5-20251001"
                 "anthropic/claude-opus-4-1-20250805"
                 "anthropic/claude-opus-4-20250514"
                 "anthropic/claude-sonnet-4-20250514"
-                "github-copilot/claude-sonnet-4"
+                "anthropic/claude-sonnet-4-5-20250929"
+                "github-copilot/claude-sonnet-4.5"
                 "github-copilot/gemini-2.5-pro"
                 "github-copilot/gpt-4.1"
                 "github-copilot/gpt-5"
                 "github-copilot/gpt-5-mini"
+                "google/gemini-2.0-flash"
+                "google/gemini-2.5-pro"
                 "my-custom/bar2"
                 "my-custom/foo1"
                 "openai/gpt-4.1"
                 "openai/gpt-5"
+                "openai/gpt-5-codex"
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/o3"

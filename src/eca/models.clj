@@ -30,10 +30,11 @@
     "openai/gpt-5"
     "openai/gpt-5-mini"
     "openai/gpt-5-nano"
+    "anthropic/claude-sonnet-4-5-20250929"
     "anthropic/claude-sonnet-4-20250514"
     "anthropic/claude-opus-4-20250514"
     "anthropic/claude-opus-4-1-20250805"
-    "anthropic/claude-3-5-haiku-20241022"})
+    "anthropic/claude-haiku-4-5-20251001"})
 
 (defn ^:private all
   "Return all known existing models with their capabilities and configs."
@@ -75,19 +76,22 @@
                               (fn [p [provider provider-config]]
                                 (merge p
                                        (reduce
-                                        (fn [m [model _model-config]]
-                                          (let [full-model (str provider "/" model)
+                                        (fn [m [model model-config]]
+                                          (let [real-model-name (or (:modelName model-config) model)
+                                                full-real-model (str provider "/" real-model-name)
+                                                full-model (str provider "/" model)
                                                 model-capabilities (merge
-                                                                    (or (get all-models full-model)
+                                                                    (or (get all-models full-real-model)
                                                                            ;; we guess the capabilities from
                                                                            ;; the first model with same name
-                                                                        (when-let [found-full-model (first (filter #(= (shared/normalize-model-name model)
+                                                                        (when-let [found-full-model (first (filter #(= (shared/normalize-model-name real-model-name)
                                                                                                                        (shared/normalize-model-name (second (string/split % #"/" 2))))
                                                                                                                    (keys all-models)))]
                                                                           (get all-models found-full-model))
                                                                         {:tools true
                                                                          :reason? true
-                                                                         :web-search true}))]
+                                                                         :web-search false})
+                                                                    {:model-name real-model-name})]
                                             (assoc m full-model model-capabilities)))
                                         {}
                                         (:models provider-config))))

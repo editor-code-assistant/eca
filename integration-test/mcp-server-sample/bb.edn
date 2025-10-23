@@ -1,0 +1,4 @@
+{:paths ["src"]
+ :deps {io.modelcontextprotocol.sdk/mcp {:mvn/version "0.13.1"}
+        com.fasterxml.jackson.core/jackson-databind {:mvn/version "2.17.2"}}
+ :tasks {server mcp-server-sample.main/start!}}

@@ -15,7 +15,7 @@
 (def ^:private default-timeout 60000)
 (def ^:private max-timeout (* 60000 10))
 
-(defn ^:private shell-command [arguments {:keys [db]}]
+(defn ^:private shell-command [arguments {:keys [db tool-call-id call-state-fn state-transition-fn]}]
   (let [command-args (get arguments "command")
         user-work-dir (get arguments "working_directory")
         timeout (min (or (get arguments "timeout") default-timeout) max-timeout)]
@@ -29,15 +29,37 @@
                            (config/get-property "user.home"))
               _ (logger/debug logger-tag "Running command:" command-args)
               result (try
-                       (deref (p/process {:dir work-dir
-                                          :out :string
-                                          :err :string
-                                          :timeout timeout
-                                          :continue true} "bash -c" command-args)
-                              timeout
-                              ::timeout)
+                       (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
+                                       (p/process {:dir work-dir
+                                                   :out :string
+                                                   :err :string
+                                                   :timeout timeout
+                                                   :continue true} "bash -c" command-args))]
+                         (do
+                           (state-transition-fn :resources-created {:resources {:process proc}})
+                           (try (deref proc
+                                       timeout
+                                       ::timeout)
+                                (catch InterruptedException e
+                                  (let [msg (or (.getMessage e) "Shell tool call was interrupted")]
+                                    (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
+                                    (tools.util/tool-call-destroy-resource! "eca_shell_command" :process proc)
+                                    (state-transition-fn :resources-destroyed {:resources [:process]})
+                                    {:exit 1 :err msg}))))
+                         {:exit 1 :err "Tool call is :stopping, so shell rpocess not spawned"})
                        (catch Exception e
-                         {:exit 1 :err (.getMessage e)}))
+                         ;; Process did not start, or had an Exception (other than InterruptedException) during execution.
+                         (let [msg (or (.getMessage e) "Caught an Exception during execution of the shell tool")]
+                           (logger/warn logger-tag "Got an Exception during execution" {:message msg})
+                           {:exit 1 :err msg}))
+                       (finally
+                         ;; If any resources remain, destroy them.
+                         (let [state (call-state-fn)]
+                           (when-let [resources (:resources state)]
+                             (doseq [[res-kwd res] resources]
+                               (tools.util/tool-call-destroy-resource! "eca_shell_command" res-kwd res))
+                             (when (#{:executing :stopping} (:status state))
+                               (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
               err (some-> (:err result) string/trim)
               out (some-> (:out result) string/trim)]
           (cond
@@ -64,12 +86,13 @@
                                            [{:type :text
                                              :text (str "Stdout:\n" out)}])))}))))))
 
-(defn shell-command-summary [args]
-  (if-let [command (get args "command")]
-    (if (> (count command) 20)
-      (format "Running '%s...'" (subs command 0 20))
-      (format "Running '%s'" command))
-    "Running shell command"))
+(defn shell-command-summary [{:keys [args config]}]
+  (let [max-length (get-in config [:toolCall :shellCommand :summaryMaxLength])]
+    (if-let [command (get args "command")]
+      (if (> (count command) max-length)
+        (format "Running '%s...'" (subs command 0 max-length))
+        (format "Running '%s'" command))
+      "Running shell command")))
 
 (def definitions
   {"eca_shell_command"
@@ -89,3 +112,10 @@
                                (let [workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))]
                                  (not-any? #(fs/starts-with? wd %) workspace-roots)))))
     :summary-fn #'shell-command-summary}})
+
+(defmethod tools.util/tool-call-destroy-resource! :eca_shell_command [name resource-kwd resource]
+  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
+  (case resource-kwd
+    :process (p/destroy-tree resource)
+    (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
+                                                        :resource-kwd resource-kwd})))

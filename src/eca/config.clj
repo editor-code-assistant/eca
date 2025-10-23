@@ -33,7 +33,8 @@
                          :url "https://api.openai.com"
                          :key nil
                          :keyEnv "OPENAI_API_KEY"
-                         :models {"gpt-5" {}
+                         :models {"gpt-5-codex" {}
+                                  "gpt-5" {}
                                   "gpt-5-mini" {}
                                   "gpt-5-nano" {}
                                   "gpt-4.1" {}
@@ -43,10 +44,11 @@
                             :url "https://api.anthropic.com"
                             :key nil
                             :keyEnv "ANTHROPIC_API_KEY"
-                            :models {"claude-sonnet-4-20250514" {}
+                            :models {"claude-sonnet-4-5-20250929" {}
+                                     "claude-sonnet-4-20250514" {}
                                      "claude-opus-4-1-20250805" {}
                                      "claude-opus-4-20250514" {}
-                                     "claude-3-5-haiku-20241022" {}}}
+                                     "claude-haiku-4-5-20251001" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "https://api.githubcopilot.com"
                                  :key nil ;; not supported, requires login auth
@@ -55,7 +57,13 @@
                                           "gpt-5-mini" {}
                                           "gpt-4.1" {}
                                           "gemini-2.5-pro" {}
-                                          "claude-sonnet-4" {}}}
+                                          "claude-sonnet-4.5" {}}}
+               "google" {:api "openai-chat"
+                         :url "https://generativelanguage.googleapis.com/v1beta/openai"
+                         :key nil
+                         :keyEnv "GOOGLE_API_KEY"
+                         :models {"gemini-2.0-flash" {}
+                                  "gemini-2.5-pro" {}}}
                "ollama" {:url "http://localhost:11434"
                          :urlEnv "OLLAMA_API_URL"}}
    :defaultBehavior "agent"
@@ -73,6 +81,7 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
+   :hooks {} 
    :rules []
    :commands []
    :disabledTools []
@@ -85,7 +94,8 @@
                                  "eca_editor_diagnostics" {}}
                          :ask {}
                          :deny {}}
-              :readFile {:maxLines 2000}}
+              :readFile {:maxLines 2000}
+              :shellCommand {:summaryMaxLength 25}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}

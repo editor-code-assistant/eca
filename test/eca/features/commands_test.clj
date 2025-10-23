@@ -25,4 +25,9 @@
   (testing "multiple occurrences of the same placeholder are all replaced"
     (let [custom [{:name "dup" :content "$ARG1-$ARG1 $ARGS"}]]
       (is (= "x-x x y"
-             (#'f.commands/get-custom-command "dup" ["x" "y"] custom))))))
+             (#'f.commands/get-custom-command "dup" ["x" "y"] custom)))))
+
+  (testing "$ARGUMENTS is supported as alias for $ARGS"
+    (let [custom [{:name "test" :content "Process $ARGUMENTS here"}]]
+      (is (= "Process one two here"
+             (#'f.commands/get-custom-command "test" ["one" "two"] custom))))))

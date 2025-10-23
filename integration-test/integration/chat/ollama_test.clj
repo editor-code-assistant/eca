@@ -47,7 +47,7 @@
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
                          {:role "user" :content "Tell me a joke!"}]}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-0)))))
 
     (testing "We reply"
       (llm.mocks/set-case! :simple-text-1)
@@ -99,7 +99,7 @@
                          {:role "user" :content "Who's there?"}
                          {:role "assistant" :content "Foo"}
                          {:role "user" :content "What foo?"}]}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :simple-text-2)))))))
 
 (deftest reasoning-text
   (eca/start-process!)
@@ -142,7 +142,7 @@
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
                          {:role "user" :content "hello!"}]}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :reasoning-0)))))
 
     (testing "We reply"
       (llm.mocks/set-case! :reasoning-1)
@@ -175,7 +175,7 @@
                          {:role "assistant" :content "I should say hello"}
                          {:role "assistant" :content "hello there!"}
                          {:role "user" :content "how are you?"}]}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :reasoning-1)))))))
 
 (deftest tool-calling
   (eca/start-process!)
@@ -258,4 +258,4 @@
                                                      " file2.md\n\n"
                                                      "0 directories, 2 files\n")}]
               :tools (m/embeds [{:type "function" :function {:name "eca_directory_tree"}}])}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :tool-calling-0)))))))

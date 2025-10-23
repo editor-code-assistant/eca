@@ -389,6 +389,8 @@ interface WebContext {
  * Context about the workspaces repo-map, automatically calculated by server.
  * Clients should include this to chat by default but users may want exclude 
  * this context to reduce context size if needed.
+ *
+ * @deprecated No longer needed, replaced by eca_directory_tree tool.
  */
 interface RepoMapContext {
     type: 'repoMap'; 
@@ -513,6 +515,8 @@ type ChatContent =
     | ChatReasonStartedContent 
     | ChatReasonTextContent 
     | ChatReasonFinishedContent 
+    | ChatHookActionStartedContent 
+    | ChatHookActionFinishedContent 
     | ChatToolCallPrepareContent
     | ChatToolCallRunContent
     | ChatToolCallRunningContent
@@ -599,6 +603,67 @@ interface ChatReasonFinishedContent {
 }
 
 /**
+ * A hook action started to run
+ *
+ */
+interface ChatHookActionStartedContent {
+    type: 'hookActionStarted';
+    
+    /**
+     * The id of this hook
+     */
+    id: string; 
+    
+    /**
+     * The name of this hook
+     */
+    name: string;
+    
+    /**
+     * The type of this hook action
+     */
+    actionType: 'shell';
+}
+
+/**
+ * A hook action finished
+ *
+ */
+interface ChatHookActionFinishedContent {
+    type: 'hookActionFinished';
+    
+    /**
+     * The id of this hook
+     */
+    id: string; 
+    
+    /**
+     * The name of this hook
+     */
+    name: string;
+    
+    /**
+     * The type of this hook action
+     */
+    actionType: 'shell';
+    
+    /**
+     * The status code of this hook
+     */
+    status: number;
+    
+    /**
+     * The output of this hook if any
+     */
+    output?: string;
+    
+    /**
+     * The error of this hook if any
+     */
+    error?: string;
+}
+
+/**
  * URL content message from the LLM
  */
 interface ChatURLContent {
@@ -671,6 +736,11 @@ interface ChatToolCallPrepareContent {
      */
     name: string;
     
+    /**
+     * Server name of this tool
+     */
+    server: string;
+    
     /*
      * Argument text of this tool call
      */
@@ -706,6 +776,11 @@ interface ChatToolCallRunContent {
      * Name of the tool
      */
     name: string;
+    
+    /**
+     * Server name of this tool
+     */
+    server: string;
     
     /*
      * Arguments of this tool call
@@ -748,6 +823,11 @@ interface ChatToolCallRunningContent {
      */
     name: string;
     
+    /**
+     * Server name of this tool
+     */
+    server: string;
+    
     /*
      * Arguments of this tool call
      */
@@ -783,6 +863,11 @@ interface ChatToolCalledContent {
      * Name of the tool
      */
     name: string;
+    
+    /**
+     * Server name of this tool
+     */
+    server: string;
     
     /*
      * Arguments of this tool call
@@ -844,6 +929,11 @@ interface ChatToolCallRejectedContent {
      * Name of the tool
      */
     name: string;
+    
+    /**
+     * Server name of this tool
+     */
+    server: string;
     
     /*
      * Arguments of this tool call
@@ -927,6 +1017,11 @@ interface ChatToolCallApproveParams {
      */
     chatId: string;
     
+    /**
+     * The approach to save this tool call.
+     */
+    save?: 'session';
+
     /**
      * The tool call identifier to approve.
      */

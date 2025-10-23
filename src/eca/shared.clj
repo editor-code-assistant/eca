@@ -1,12 +1,15 @@
 (ns eca.shared
   (:require
    [camel-snake-kebab.core :as csk]
+   [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk])
   (:import
    [java.net URI]
-   [java.nio.file Paths]))
+   [java.nio.file Paths]
+   [java.time Instant ZoneId ZoneOffset]
+   [java.time.format DateTimeFormatter]))
 
 (set! *warn-on-reflection* true)
 
@@ -49,11 +52,12 @@
 
 (defn deep-merge [v & vs]
   (letfn [(rec-merge [v1 v2]
-            (if (and (map? v1) (map? v2))
-              (merge-with deep-merge v1 v2)
-              v2))]
-    (when (some identity vs)
-      (reduce #(rec-merge %1 %2) v vs))))
+            (cond
+              (nil? v1) v2
+              (nil? v2) v1
+              (and (map? v1) (map? v2)) (merge-with deep-merge v1 v2)
+              :else v2))]
+    (reduce rec-merge v vs)))
 
 (defn assoc-some
   "Assoc[iate] if the value is not nil. "
@@ -125,6 +129,9 @@
                   :last-message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities)
                   :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))))
 
+(defn sum [a b]
+  (+ a b))
+
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]
             (if (keyword? k)
@@ -155,3 +162,26 @@
                   (string/replace-first (str model) ":" "")
                   model)]
     (string/lower-case model-s)))
+
+(defn memoize-by-file-last-modified
+  "Return a memoized variant of f where the first argument is a filename.
+   The cache key includes the file's last-modified timestamp, so the cache
+   automatically invalidates when the file changes."
+  [f]
+  (let [mf (memoize/memo (fn [file _mtime & args]
+                           (apply f file args)))
+        safe-mtime (fn [file]
+                     (try
+                       (.lastModified (io/file file))
+                       (catch Exception _ 0)))]
+    (fn
+      ([file]
+       (mf file (safe-mtime file)))
+      ([file & args]
+       (apply mf file (safe-mtime file) args)))))
+
+(defn ms->presentable-date [^Long ms ^String pattern]
+  (when ms
+    (.format (.atZoneSameInstant (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
+                                 (ZoneId/systemDefault))
+             (DateTimeFormatter/ofPattern pattern))))

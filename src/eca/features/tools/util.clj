@@ -7,9 +7,9 @@
 
 (defmulti tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  (fn [name _arguments] (keyword name)))
+  (fn [name _arguments _server _ctx] (keyword name)))
 
-(defmethod tool-call-details-before-invocation :default [_name _arguments]
+(defmethod tool-call-details-before-invocation :default [_name _arguments _server _ctx]
   nil)
 
 (defmulti tool-call-details-after-invocation
@@ -18,6 +18,14 @@
 
 (defmethod tool-call-details-after-invocation :default [_name _arguments details _result]
   details)
+
+(defmulti tool-call-destroy-resource!
+  "Destroy the tool call resource."
+  (fn [name _resource-kwd _resource] (keyword name)))
+
+(defmethod tool-call-destroy-resource! :default [_name _resource-kwd _resource]
+  ;; By default, do nothing
+  )
 
 (defn single-text-content [text & [error]]
   {:error (boolean error)

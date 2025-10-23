@@ -26,6 +26,10 @@
       (llm-mock.openai-chat/handle-openai-chat req)
 
       (and (= :post request-method)
+           (= uri "/google/chat/completions"))
+      (llm-mock.openai-chat/handle-openai-chat req)
+
+      (and (= :post request-method)
            (= uri "/anthropic/v1/messages"))
       (llm-mock.anthropic/handle-anthropic-messages req)
 

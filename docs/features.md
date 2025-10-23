@@ -1,85 +1,100 @@
 # Features
 
+<img src="https://raw.githubusercontent.com/editor-code-assistant/eca-emacs/master/demo.gif" width="720"/>
+
 ## Chat
 
 Chat is the main feature of ECA, allowing user to talk with LLM to behave like an agent, making changes using tools or just planning changes and next steps.
 
 ### Behaviors
 
-![](./images/features/chat-behaviors.png)
+![behaviors](./images/features/chat-behaviors.png){ align=right }
 
-Behavior affect the prompt passed to LLM and the tools to include, ECA allow to override or customize your owns behaviors, the built-in provider behaviors are:
+Behavior affect the prompt passed to LLM and the tools to include, ECA allow to override or __create your owns behaviors__, the built-in provider behaviors are:
 
-- `plan`: Useful to plan changes and define better LLM plan before changing code via agent mode, has ability to preview changes (Check picture). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_behavior.md)
 - `agent`: Make changes to code via file changing tools. (Default) [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/agent_behavior.md)
+- `plan`: Useful to plan changes and define better LLM plan before changing code via agent mode, has ability to preview changes (Check below). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_behavior.md)
 
 ![](./images/features/plan_preview_change.png)
 
-To create and customize your own behaviors, check [config](./configuration.md#).
+!!! info "Custom behaviors"
+
+    To create and customize your own behaviors, check the [config](./configuration.md#).
 
 ### Tools
 
-![](./images/features/tools.png)
+![](./images/features/tools.png){ align=right }
 
 ECA leverage tools to give more power to the LLM, this is the best way to make LLMs have more context about your codebase and behave like an agent.
 It supports both MCP server tools + ECA native tools.
 
 !!! info "Approval / permissions"
 
-    By default, ECA ask to approve any tool, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` behavior.
+    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` behavior.
 
 #### Native tools
 
 ECA support built-in tools to avoid user extra installation and configuration, these tools are always included on models requests that support tools and can be [disabled via config](./configuration.md) `disabledTools`.
 
-##### Filesystem
+=== "Filesystem"
 
-Provides access to filesystem under workspace root, listing, reading and writing files, important for agentic operations.
+    Provides access to filesystem under workspace root, listing, reading and writing files, important for agentic operations.
 
-- `eca_directory_tree`: list a directory as a tree (can be recursive).
-- `eca_read_file`: read a file content.
-- `eca_write_file`: write content to a new file.
-- `eca_edit_file`: replace lines of a file with a new content.
-- `eca_preview_edit_file`: Only used in plan mode, showing what changes will happen after user decides to execute the plan.
-- `eca_move_file`: move/rename a file.
-- `eca_grep`: ripgrep/grep for paths with specified content.
+    - `eca_directory_tree`: list a directory as a tree (can be recursive).
+    - `eca_read_file`: read a file content.
+    - `eca_write_file`: write content to a new file.
+    - `eca_edit_file`: replace lines of a file with a new content.
+    - `eca_preview_edit_file`: Only used in plan mode, showing what changes will happen after user decides to execute the plan.
+    - `eca_move_file`: move/rename a file.
+    - `eca_grep`: ripgrep/grep for paths with specified content.
 
-##### Shell
+=== "Shell"
 
-Provides access to run shell commands, useful to run build tools, tests, and other common commands, supports exclude/include commands. 
+    Provides access to run shell commands, useful to run build tools, tests, and other common commands, supports exclude/include commands. 
 
-- `eca_shell_command`: run shell command. Command exclusion can be configured using toolCall approval configuration with regex patterns.
+    - `eca_shell_command`: run shell command. Command exclusion can be configured using toolCall approval configuration with regex patterns.
 
-##### Editor
+=== "Editor"
 
-Provides access to get information from editor workspaces.
+    Provides access to get information from editor workspaces.
 
-- `eca_editor_diagnostics`: Ask client about the diagnostics (like LSP diagnostics).
+    - `eca_editor_diagnostics`: Ask client about the diagnostics (like LSP diagnostics).
 
-#### Custom Tools
+!!! info "Custom Tools"
 
-Besides the built-in native tools, ECA allows you to define your own tools by wrapping any command-line executable. This feature enables you to extend ECA's capabilities to match your specific workflows, such as running custom scripts, interacting with internal services, or using your favorite CLI tools.
+    Besides the built-in native tools, ECA allows you to define your own tools by wrapping any command-line executable. This feature enables you to extend ECA's capabilities to match your specific workflows, such as running custom scripts, interacting with internal services, or using your favorite CLI tools.
 
-Custom tools are configured in your `config.json` file. For a detailed guide on how to set them up, check the [Custom Tools configuration documentation](./configuration.md#custom-tools).
+    Custom tools are configured in your `config.json` file. For a detailed guide on how to set them up, check the [Custom Tools configuration documentation](./configuration.md#custom-tools).
 
 ### Contexts
 
-![](./images/features/contexts.png)
+![](./images/features/contexts.png){ align=right }
 
-User can include contexts to the chat (`@`), including images and MCP resources, which can help LLM generate output with better quality.
+ECA supports contexts(`@`) including files, dirs, images, MCP resources, which can help LLM generate output with better quality/precision.
+
 Here are the current supported contexts types:
 
 - `file`: a file in the workspace, server will pass its content to LLM (Supports optional line range) and images.
 - `directory`: a directory in the workspace, server will read all file contexts and pass to LLM.
-- `repoMap`: a summary view of workspaces files and folders, server will calculate this and pass to LLM. Currently, the repo-map includes only the file paths in git.
 - `cursor`: Current file path + cursor position or selection.
 - `mcpResource`: resources provided by running MCPs servers.
 
+Besides thoses, ECA supports filepaths(`#`) which are just file paths mentions in the user prompt.
+
+So user can include those contexts in 3 different ways for different purposes:
+
+- `#` in user prompt: ECA will just mention the absolute file path in the user message, LLM may use tools to read the file. __Useful for file path only mention in chat history__.
+- `@` in user prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
+- `@` in system prompt (above user prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
+
+<img src="../images/features/contexts-files.gif" width="600">
+
 #### AGENTS.md automatic context
 
-ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`.
+ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`, it will recursively check for any `@some-file.md` mention as well.
 
 You can ask ECA to create/update this file via `/init` command.
+you can check/debug what goes to final prompt with `/prompt-show` as well.
 
 ### Commands
 
@@ -89,33 +104,42 @@ Eca supports commands that usually are triggered via shash (`/`) in the chat, co
 
 The built-in commands are:
 
-`/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
-`/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
-`/compact`: Compact/summarize conversation helping reduce context window.
-`/resume`: Resume a chat from previous session of this workspace folder.
-`/costs`: Show costs about current session.
-`/config`: Show ECA config for troubleshooting.
-`/doctor`: Show information about ECA, useful for troubleshooting.
-`/repo-map-show`: Show the current repoMap context of the session.
-`/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
+- `/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
+- `/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
+- `/compact`: Compact/summarize conversation helping reduce context window.
+- `/resume`: Resume a chat from previous session of this workspace folder.
+- `/costs`: Show costs about current session.
+- `/config`: Show ECA config for troubleshooting.
+- `/doctor`: Show information about ECA, useful for troubleshooting.
+- `/repo-map-show`: Show the current repoMap context of the session.
+- `/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
 
-#### Custom commands
+!!! info "Custom commands"
 
-It's possible to configure custom command prompts, for more details check [its configuration](./configuration.md#custom-command-prompts)
+    It's possible to configure custom command prompts, for more details check [its configuration](./configuration.md#custom-command-prompts)
 
-### Login
+#### Login
 
 It's possible to login to some providers using `/login` command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its cache `~/.cache/eca/db.transit.json`.
 
 Current supported providers with login:
+
 - `anthropic`: with options to login to Claude Max/Pro or create API keys.
 - `github-copilot`: via Github oauth.
+
+### Hooks
+
+Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.
+
+![](./images/features/hooks.png)
+
+For more details, check [hooks configuration](./configuration.md#hooks).
 
 ## OpenTelemetry integration
 
 ECA has support for [OpenTelemetry](https://opentelemetry.io/)(otlp), if configured, server tasks, tool calls, and more will be metrified via otlp API.
 
-For more details check [its configuration](./configuration.md#opentelemetry-integration)
+For more details check [its configuration](./configuration.md#opentelemetry-integration).
 
 ##  Completion
 

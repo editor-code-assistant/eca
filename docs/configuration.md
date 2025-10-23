@@ -10,8 +10,7 @@ There are multiples ways to configure ECA:
 
     Convenient for users and multiple projects
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "defaultBehavior": "plan"
     }
@@ -21,8 +20,7 @@ There are multiples ways to configure ECA:
 
     Convenient for users
 
-    `.eca/config.json`
-    ```javascript
+    ```javascript title=".eca/config.json"
     {
       "defaultBehavior": "plan"
     }
@@ -60,24 +58,22 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 === "Stdio"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "mcpServers": {
         "memory": {
           "command": "npx",
           "args": ["-y", "@modelcontextprotocol/server-memory"],
           // optional
-          "env": {"FOO": "bar"} 
+          "env": {"FOO": "bar"}
         }
       }
     }
     ```
-    
+
 === "HTTP-streamable"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "mcpServers": {
         "cool-mcp": {
@@ -89,15 +85,15 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 ### Approval / permissions
 
-By default, ECA ask to call any tool, but that's can easily be configureed in many ways via the `toolCall approval` config.
+By default, ECA asks to call any non read-only tool (default [here](https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96)), but that can easily be configured in several ways via the `toolCall.approval` config.
 
-You can configure the default behavior via `byDefault` and/or configure a tool in `ask`, `allow` or `deny` configs.
+You can configure the default behavior with `byDefault` and/or configure a tool in `ask`, `allow` or `deny` configs.
 
 Check some examples:
 
 === "Allow any tools by default"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -109,7 +105,7 @@ Check some examples:
 
 === "Allow all but some tools"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -125,7 +121,7 @@ Check some examples:
 
 === "Ask all but all tools from some mcps"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -138,17 +134,17 @@ Check some examples:
       }
     }
     ```
-   
+
 === "Matching by a tool argument"
 
     __`argsMatchers`__ is a map of argument name by list of [java regex](https://www.regexplanet.com/advanced/java/index.html).
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
           "byDefault": "allow",
-          "allow": {
+          "ask": {
             "eca_shell_command": {"argsMatchers": {"command": [".*rm.*",
                                                                ".*mv.*"]}}
           }
@@ -156,10 +152,10 @@ Check some examples:
       }
     }
     ```
-    
+
 === "Denying a tool"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "toolCall": {
         "approval": {
@@ -181,7 +177,7 @@ __The `manualApproval` setting was deprecated and replaced by the `approval` one
 
 You can configure the maximum number of lines returned by the `eca_read_file` tool:
 
-```javascript
+```javascript title="~/.config/eca/config.json"
 {
   "toolCall": {
     "readFile": {
@@ -209,8 +205,7 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 
 === "Example 1"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "customTools": {
         "web-search": {
@@ -232,8 +227,7 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 
 === "Example 2"
 
-    `~/.config/eca/config.json`
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "customTools": {
         "file-search": {
@@ -260,14 +254,13 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 ## Custom command prompts
 
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
-Prompts can use variables like `$ARGS`, `$ARG1`, `ARG2`, to replace in the prompt during command call.
+Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the prompt during command call.
 
 === "Local custom commands"
 
     A `.eca/commands` folder from the workspace root containing `.md` files with the custom prompt.
 
-    `.eca/commands/check-performance.md`
-    ```markdown
+    ```markdown title=".eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
 
@@ -275,8 +268,7 @@ Prompts can use variables like `$ARGS`, `$ARG1`, `ARG2`, to replace in the promp
 
     A `$XDG_CONFIG_HOME/eca/commands` or `~/.config/eca/commands` folder containing `.md` files with the custom command prompt.
 
-    `~/.config/eca/commands/check-performance.md`
-    ```markdown
+    ```markdown title="~/.config/eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
 
@@ -284,7 +276,7 @@ Prompts can use variables like `$ARGS`, `$ARG1`, `ARG2`, to replace in the promp
 
     Just add to your config the `commands` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "commands": [{"path": "my-custom-prompt.md"}]
     }
@@ -293,11 +285,7 @@ Prompts can use variables like `$ARGS`, `$ARG1`, `ARG2`, to replace in the promp
 ## Rules
 
 Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
-Rules are text files (typically `.md`, but any format works) with the following
-optional metadata:
-
-- `description`: a description used by LLM to decide whether to include this rule in context, absent means always include this rule.
-- `globs`: list of globs separated by `,`. When present the rule will be applied only when files mentioned matches those globs.
+Rules are text files (typically `.md`, but any format works):
 
 There are 3 possible ways to configure rules following this order of priority:
 
@@ -305,12 +293,7 @@ There are 3 possible ways to configure rules following this order of priority:
 
     A `.eca/rules` folder from the workspace root containing `.md` files with the rules.
 
-    `.eca/rules/talk_funny.md`
-    ```markdown
-    ---
-    description: Use when responding anything
-    ---
-
+    ```markdown title=".eca/rules/talk_funny.md"
     - Talk funny like Mickey!
     ```
 
@@ -318,12 +301,7 @@ There are 3 possible ways to configure rules following this order of priority:
 
     A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.md` files with the rules.
 
-    `~/.config/eca/rules/talk_funny.md`
-    ```markdown
-    ---
-    description: Use when responding anything
-    ---
-
+    ```markdown title="~/.config/eca/rules/talk_funny.md"
     - Talk funny like Mickey!
     ```
 
@@ -331,23 +309,82 @@ There are 3 possible ways to configure rules following this order of priority:
 
     Just add toyour config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "rules": [{"path": "my-rule.md"}]
     }
     ```
-    
+
 ## Behaviors / prompts
 
 ECA allows to totally customize the prompt sent to LLM via the `behavior` config, allowing to have multiple behaviors for different tasks or workflows.
 
 === "Example: my-behavior"
 
-    ```javascript
+    ```javascript title="~/.config/eca/config.json"
     {
       "behavior": {
         "my-behavior": {
           "systemPromptFile": "/path/to/my-behavior-prompt.md"
+        }
+      }
+    }
+    ```
+    
+## Hooks
+
+Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.
+
+Allowed hook types:
+
+- `preRequest`: Run before prompt is sent to LLM, if a hook output is provided, append to user prompt.
+- `postRequest`: Run after prompt is finished, when chat come back to idle state.
+- `preToolCall`: Run before a tool is called, if a hook exit with status `2`, reject the tool call.
+- `postToolCall`: Run after a tool was called.
+
+__Input__: Hooks will receive input as json with information from that event, like tool name, args or user prompt.
+
+__Output__: All hook actions allow printing output (stdout) and errors (stderr) which will be shown in chat.
+
+__Matcher__: Specify whether to apply this hook checking a regex applying to `mcp__tool-name`, applicable only for `*ToolCall` hooks.
+
+__Visible__: whether to show or not this hook in chat when executing, defaults to true.
+
+Examples:
+
+=== "Notify after prompt finish"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "notify-me": {
+          "type": "postRequest",
+          "actions": [
+            {
+              "type": "shell",
+              "shell": "notify-send \"Hey, prompt finished!\""
+            }
+          ]
+        }
+      }
+    } 
+    ```
+    
+=== "Block specific tool call checking hook arg"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "check-my-tool": {
+          "type": "preToolCall", 
+          "matcher": "my-mcp__some-tool",
+          "visible": false,
+          "actions": [
+            {
+              "type": "shell",
+              "shell": "tool=$(jq '.\"tool-name\"' <<< \"$1\"); echo \"We should not run the $tool tool bro!\" >&2 && exit 2"
+            }
+          ]
         }
       }
     }
@@ -357,15 +394,15 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
 
 To configure, add your OTLP collector config via `:otlp` map following [otlp auto-configure settings](https://opentelemetry.io/docs/languages/java/configuration/#properties-general). Example:
 
-    ```javascript
-    {
-      "otlp": {
-        "otel.exporter.otlp.metrics.protocol": "http/protobuf",
-        "otel.exporter.otlp.metrics.endpoint": "https://my-otlp-endpoint.com/foo",
-        "otel.exporter.otlp.headers": "Authorization=Bearer 123456"
-      }
-    }
-    ```
+```javascript title="~/.config/eca/config.json"
+{
+  "otlp": {
+    "otel.exporter.otlp.metrics.protocol": "http/protobuf",
+    "otel.exporter.otlp.metrics.endpoint": "https://my-otlp-endpoint.com/foo",
+    "otel.exporter.otlp.headers": "Authorization=Bearer 123456"
+  }
+}
+```
 
 ## All configs
 
@@ -379,12 +416,24 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             urlEnv?: string;
             key?: string; // when provider supports api key.
             keyEnv?: string;
+            keyRc?: string; // credential file lookup in format [login@]machine[:port]
             completionUrlRelativePath?: string;
             models: {[key: string]: {
+              modelName?: string;
               extraPayload?: {[key: string]: any}
             }};
         }};
         defaultModel?: string;
+        hooks?: {[key: string]: {
+                type: 'preToolCall' | 'postToolCall' | 'preRequest' | 'postRequest';
+                matcher: string;
+                visible?: boolean;
+                actions: {
+                    type: 'shell';
+                    shell: string;
+                }[];
+            };
+        };
         rules?: [{path: string;}];
         commands?: [{path: string;}];
         behavior?: {[key: string]: {
@@ -422,6 +471,9 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
           readFile?: {
             maxLines?: number;
           };
+          shellCommand?: {
+            summaryMaxLength?: number,
+          };
         };
         mcpTimeoutSeconds?: number;
         lspTimeoutSeconds?: number;
@@ -452,14 +504,14 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
     ```javascript
     {
       "providers": {
-          "openai": {"key": null,
-                     "url": "https://api.openai.com"},
-          "anthropic": {"key": null,
-                        "url": "https://api.anthropic.com"},
+          "openai": {"url": "https://api.openai.com"},
+          "anthropic": {"url": "https://api.anthropic.com"},
           "github-copilot": {"url": "https://api.githubcopilot.com"},
+          "google": {"url": "https://generativelanguage.googleapis.com/v1beta/openai"},
           "ollama": {"url": "http://localhost:11434"}
       },
       "defaultModel": null, // let ECA decides the default model.
+      "hooks": {},
       "rules" : [],
       "commands" : [],
       "disabledTools": [],
@@ -476,7 +528,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         },
         "readFile": {
           "maxLines": 2000
-        }
+        },
+        "shellCommand": {
+          "summaryMaxLength": 30,
+        },
       },
       "mcpTimeoutSeconds" : 60,
       "lspTimeoutSeconds" : 30,

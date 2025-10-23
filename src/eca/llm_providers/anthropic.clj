@@ -7,7 +7,7 @@
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :as shared :refer [assoc-some multi-str]]
+   [eca.shared :as shared :refer [assoc-some deep-merge multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -155,17 +155,18 @@
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated]}]
   (let [messages (concat (normalize-messages past-messages supports-image?)
                          (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
-        body (merge (assoc-some
-                     {:model model
-                      :messages (add-cache-to-last-message messages)
-                      :max_tokens (or max-output-tokens 32000)
-                      :stream true
-                      :tools (->tools tools web-search)
-                      :system [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
-                               {:type "text" :text instructions :cache_control {:type "ephemeral"}}]}
-                     :thinking (when reason?
-                                 {:type "enabled" :budget_tokens 2048}))
-                    extra-payload)
+        body (deep-merge
+              (assoc-some
+               {:model model
+                :messages (add-cache-to-last-message messages)
+                :max_tokens (or max-output-tokens 32000)
+                :stream true
+                :tools (->tools tools web-search)
+                :system [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
+                         {:type "text" :text instructions :cache_control {:type "ephemeral"}}]}
+               :thinking (when reason?
+                           {:type "enabled" :budget_tokens 2048}))
+              extra-payload)
 
         on-response-fn
         (fn handle-response [event data content-block* reason-id]

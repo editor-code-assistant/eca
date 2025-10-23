@@ -3,6 +3,7 @@
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.llm-util :as llm-util]
+   [eca.secrets :as secrets]
    [matcher-combinators.test :refer [match?]])
   (:import
    [java.io ByteArrayInputStream]))
@@ -42,4 +43,95 @@
       (is (match?
            [["foo.bar" {:type "foo.bar"}]
             ["foo.baz" {:type "foo.baz"}]]
+           (llm-util/event-data-seq r)))))
+  (testing "when no extra space after data:"
+    (with-open [r (io/reader (ByteArrayInputStream. (.getBytes (str "data:{\"type\": \"foo.bar\"}\n"
+                                                                    "\n"
+                                                                    "data:{\"type\": \"foo.baz\"}\n"
+                                                                    "\n"
+                                                                    "data:[DONE]\n"))))]
+      (is (match?
+           [["foo.bar" {:type "foo.bar"}]
+            ["foo.baz" {:type "foo.baz"}]]
            (llm-util/event-data-seq r))))))
+
+(deftest provider-api-key-with-key-rc-test
+  (testing "provider-api-key uses keyRc when configured"
+    (let [temp-file (java.io.File/createTempFile "netrc-test" ".netrc")
+          temp-path (.getPath temp-file)]
+      (try
+        ;; Create a test netrc file
+        (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-test-from-netrc\n")
+
+        ;; Mock credential-file-paths to return our test file
+        (with-redefs [secrets/credential-file-paths (constantly [temp-path])]
+          (let [config {:providers
+                        {"openai" {:url "https://api.openai.com"
+                                   :keyRc "api.openai.com"}}}
+                result (llm-util/provider-api-key "openai" nil config)]
+            (is (= "sk-test-from-netrc" result))))
+        (finally
+          (.delete temp-file))))))
+
+(deftest provider-api-key-priority-order-test
+  (testing "provider-api-key respects priority order: key > keyRc > keyEnv"
+    (let [temp-file (java.io.File/createTempFile "netrc-test" ".netrc")
+          temp-path (.getPath temp-file)]
+      (try
+        ;; Create a test netrc file
+        (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-test-from-netrc\n")
+
+        (with-redefs [secrets/credential-file-paths (constantly [temp-path])]
+          ;; Test 1: explicit key takes precedence over keyRc
+          (let [config {:providers
+                        {"openai" {:key "sk-explicit-key"
+                                   :keyRc "api.openai.com"}}}
+                result (llm-util/provider-api-key "openai" nil config)]
+            (is (= "sk-explicit-key" result)))
+
+          ;; Test 2: oauth token takes precedence over keyRc
+          (let [config {:providers
+                        {"openai" {:keyRc "api.openai.com"}}}
+                provider-auth {:api-key "sk-oauth-token"}
+                result (llm-util/provider-api-key "openai" provider-auth config)]
+            (is (= "sk-oauth-token" result)))
+
+          ;; Test 3: keyRc is used when key and oauth are not available
+          (let [config {:providers
+                        {"openai" {:keyRc "api.openai.com"}}}
+                result (llm-util/provider-api-key "openai" nil config)]
+            (is (= "sk-test-from-netrc" result))))
+        (finally
+          (.delete temp-file))))))
+
+(deftest provider-api-key-with-login-prefix-test
+  (testing "provider-api-key works with login prefix in keyRc"
+    (let [temp-file (java.io.File/createTempFile "netrc-test" ".netrc")
+          temp-path (.getPath temp-file)]
+      (try
+        ;; Create a test netrc file with multiple entries
+        (spit temp-path (str "machine api.anthropic.com\nlogin work\npassword sk-ant-work-key\n\n"
+                             "machine api.anthropic.com\nlogin personal\npassword sk-ant-personal-key\n"))
+
+        (with-redefs [secrets/credential-file-paths (constantly [temp-path])]
+          ;; Test with specific login
+          (let [config {:providers
+                        {"anthropic" {:keyRc "work@api.anthropic.com"}}}
+                result (llm-util/provider-api-key "anthropic" nil config)]
+            (is (= "sk-ant-work-key" result)))
+
+          ;; Test with different login
+          (let [config {:providers
+                        {"anthropic" {:keyRc "personal@api.anthropic.com"}}}
+                result (llm-util/provider-api-key "anthropic" nil config)]
+            (is (= "sk-ant-personal-key" result))))
+        (finally
+          (.delete temp-file))))))
+
+(deftest provider-api-key-missing-credential-test
+  (testing "provider-api-key returns nil when credential not found"
+    (with-redefs [secrets/credential-file-paths (constantly ["/nonexistent/file"])]
+      (let [config {:providers
+                    {"openai" {:keyRc "api.openai.com"}}}
+            result (llm-util/provider-api-key "openai" nil config)]
+        (is (nil? result))))))

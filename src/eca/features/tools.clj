@@ -2,6 +2,7 @@
   "This ns centralizes all available tools for LLMs including
    eca native tools and MCP servers."
   (:require
+   [cheshire.core :as json]
    [clojure.string :as string]
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
@@ -74,19 +75,47 @@
       (mapv #(assoc % :origin :native) (native-tools db config))
       (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db))))))
 
-(defn call-tool! [^String name ^Map arguments chat-id behavior db* config messenger metrics]
+(defn ^:private pretty-format-any-json-output
+  [result]
+  (update result
+          :contents
+          (fn [contents]
+            (mapv (fn [content]
+                    (if (= :text (:type content))
+                      (let [text (string/trim (:text content))]
+                        (if (or (and (string/starts-with? text "{")
+                                     (string/ends-with? text "}"))
+                                (and (string/starts-with? text "[")
+                                     (string/ends-with? text "]")))
+                          (try
+                            (update content :text #(json/generate-string (json/parse-string %) {:pretty true}))
+                            (catch Exception e
+                              (logger/warn logger-tag "Could not pretty format json text output for %s: %s" content (.getMessage e))
+                              content))
+                          content))
+                      content))
+                  contents))))
+
+(defn call-tool! [^String name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
+                  call-state-fn         ; thunk
+                  state-transition-fn   ; params: event & event-data
+                  ]
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" name arguments))
   (let [arguments (update-keys arguments clojure.core/name)
         db @db*]
     (try
-      (let [result (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
-                     (native-tool-handler arguments {:db db
-                                                     :db* db*
-                                                     :config config
-                                                     :messenger messenger
-                                                     :chat-id chat-id
-                                                     :behavior behavior})
-                     (f.mcp/call-tool! name arguments db))]
+      (let [result (-> (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
+                         (native-tool-handler arguments {:db db
+                                                         :db* db*
+                                                         :config config
+                                                         :messenger messenger
+                                                         :behavior behavior
+                                                         :chat-id chat-id
+                                                         :tool-call-id tool-call-id
+                                                         :call-state-fn call-state-fn
+                                                         :state-transition-fn state-transition-fn})
+                         (f.mcp/call-tool! name arguments {:db db}))
+                       (pretty-format-any-json-output))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
         result)
@@ -175,13 +204,17 @@
   "Return the approval keyword for the specific tool call: ask, allow or deny.
    Behavior parameter is required - pass nil for global-only approval rules."
   [all-tools tool-call-name args db config behavior]
-  (let [{:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
+  (let [remember-to-approve? (get-in db [:tool-calls tool-call-name :remember-to-approve?])
+        {:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
                                                             all-tools))
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                     (get-in config [:behavior behavior :toolCall :approval]))]
     (cond
       (and require-approval-fn (require-approval-fn args {:db db}))
       :ask
+
+      remember-to-approve?
+      :allow
 
       (some #(approval-matches? % server tool-call-name args) deny)
       :deny
@@ -208,24 +241,36 @@
       :else
       :ask)))
 
-(defn tool-call-summary [all-tools name args]
+(defn tool-call-summary [all-tools name args config]
   (when-let [summary-fn (:summary-fn (first (filter #(= name (:name %))
                                                     all-tools)))]
     (try
-      (summary-fn args)
+      (summary-fn {:args args
+                   :config config})
       (catch Exception e
         (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
         nil))))
 
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  [name arguments]
-  (tools.util/tool-call-details-before-invocation name arguments))
+  [name arguments server db ask-approval?]
+  (try
+    (tools.util/tool-call-details-before-invocation name arguments server {:db db
+                                                                           :ask-approval? ask-approval?})
+    (catch Exception e
+      ;; Avoid failling tool call because of error on getting details.
+      (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
+      nil)))
 
 (defn tool-call-details-after-invocation
   "Return the tool call details after invoking the tool."
   [name arguments details result]
   (tools.util/tool-call-details-after-invocation name arguments details result))
+
+(defn tool-call-destroy-resource!
+  "Destroy the resource in the tool call named `name`."
+  [name resource-kwd resource]
+  (tools.util/tool-call-destroy-resource! name resource-kwd resource))
 
 (defn refresh-tool-servers!
   "Updates all tool servers (native and MCP) with new behavior status."

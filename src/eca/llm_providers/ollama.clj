@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.shared :refer [deep-merge]]
    [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
@@ -103,12 +104,13 @@
   (let [messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
                   (normalize-messages user-messages))
-        body (merge {:model model
-                     :messages messages
-                     :think reason?
-                     :tools (->tools tools)
-                     :stream true}
-                    extra-payload)
+        body (deep-merge
+              {:model model
+               :messages messages
+               :think reason?
+               :tools (->tools tools)
+               :stream true}
+              extra-payload)
         url (format chat-url api-url)
         tool-calls* (atom {})
         on-response-fn (fn handle-response [rid _event data reasoning?* reason-id]

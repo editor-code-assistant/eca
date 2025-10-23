@@ -37,7 +37,7 @@
   (alter-var-root #'*eca-process* (constantly nil))
   (alter-var-root #'*mock-client* (constantly nil))
   (llm.mocks/set-case! nil)
-  (llm.mocks/set-last-req-body! nil))
+  (llm.mocks/clean-req-bodies!))
 
 (defn clean-after-test []
   (use-fixtures :each (fn [f] (clean!) (f)))

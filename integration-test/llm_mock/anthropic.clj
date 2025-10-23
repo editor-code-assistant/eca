@@ -135,9 +135,8 @@
                       :output_tokens 20}})
   (hk/close ch))
 
-(defn ^:private tool-calling-0 [ch]
-  (let [body llm.mocks/*last-req-body*
-        second-stage? (some (fn [{:keys [content]}]
+(defn ^:private tool-calling-0 [ch body]
+  (let [second-stage? (some (fn [{:keys [content]}]
                               (some #(= "tool_result" (:type %)) content))
                             (:messages body))]
     (if-not second-stage?
@@ -225,7 +224,6 @@
 (defn handle-anthropic-messages [req]
   (let [body (some-> (slurp (:body req))
                      (json/parse-string true))]
-    (llm.mocks/set-last-req-body! body)
     (hk/as-channel
      req
      {:on-open (fn [ch]
@@ -238,10 +236,12 @@
                    (do
                      (Thread/sleep 2000) ;; avoid tests failing with mismatch order of contents
                      (chat-title-text-0 ch))
-                   (case llm.mocks/*case*
-                     :simple-text-0 (simple-text-0 ch)
-                     :simple-text-1 (simple-text-1 ch)
-                     :simple-text-2 (simple-text-2 ch)
-                     :reasoning-0 (reasoning-0 ch)
-                     :reasoning-1 (reasoning-1 ch)
-                     :tool-calling-0 (tool-calling-0 ch))))})))
+                   (do
+                     (llm.mocks/set-req-body! llm.mocks/*case* body)
+                     (case llm.mocks/*case*
+                       :simple-text-0 (simple-text-0 ch)
+                       :simple-text-1 (simple-text-1 ch)
+                       :simple-text-2 (simple-text-2 ch)
+                       :reasoning-0 (reasoning-0 ch)
+                       :reasoning-1 (reasoning-1 ch)
+                       :tool-calling-0 (tool-calling-0 ch body)))))})))

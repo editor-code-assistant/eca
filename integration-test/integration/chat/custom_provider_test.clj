@@ -58,7 +58,7 @@
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
               :instructions (m/pred string?)}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-0)))))
 
     (testing "We reply"
       (llm.mocks/set-case! :simple-text-1)
@@ -87,7 +87,7 @@
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-1)))))
 
     (testing "model reply again keeping context"
       (llm.mocks/set-case! :simple-text-2)
@@ -121,7 +121,7 @@
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Foo"}]}
                       {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :simple-text-2)))))))
 
 (deftest openai-chat-simple-text
   (eca/start-process!)
@@ -160,13 +160,14 @@
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
-        (match-content chat-id "assistant" {:type "text" :text "Knock"})
-        (match-content chat-id "assistant" {:type "text" :text " knock!"})
+        (match-content chat-id "assistant" {:type "text" :text "Knock "})
+        (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "assistant" {:type "text" :text "knock!"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
               :instructions (m/pred string?)}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-0)))))
 
     (testing "We reply"
       (llm.mocks/set-case! :simple-text-1)
@@ -184,6 +185,7 @@
 
         (match-content chat-id "user" {:type "text" :text "Who's there?\n"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+        (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
@@ -191,7 +193,7 @@
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
-             llm.mocks/*last-req-body*))))
+             (llm.mocks/get-req-body :simple-text-1)))))
 
     (testing "model reply again keeping context"
       (llm.mocks/set-case! :simple-text-2)
@@ -210,10 +212,11 @@
         (match-content chat-id "user" {:type "text" :text "What foo?\n"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
-        (match-content chat-id "assistant" {:type "text" :text "Foo"})
-        (match-content chat-id "assistant" {:type "text" :text " bar!"})
-        (match-content chat-id "assistant" {:type "text" :text "\n\n"})
-        (match-content chat-id "assistant" {:type "text" :text "Ha!"})
+        (match-content chat-id "assistant" {:type "text" :text "Fo"})
+        (match-content chat-id "assistant" {:type "text" :text "o "})
+        (match-content chat-id "assistant" {:type "text" :text "bar"})
+        (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "assistant" {:type "text" :text "!\n\nHa!"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -221,4 +224,4 @@
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Foo"}]}
                       {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
-             llm.mocks/*last-req-body*))))))
+             (llm.mocks/get-req-body :simple-text-2)))))))

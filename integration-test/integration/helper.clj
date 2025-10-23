@@ -21,6 +21,14 @@
       fs/canonicalize
       str))
 
+(def mcp-server-sample-path
+  (-> (io/file *file*)
+      .getParentFile
+      .getParentFile
+      (fs/path "mcp-server-sample")
+      fs/canonicalize
+      str))
+
 (defn project-path->canon-path
   "Returns the canonical name of the root project's SUB-PATH."
   [sub-path]

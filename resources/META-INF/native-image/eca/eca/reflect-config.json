@@ -207,6 +207,12 @@
         "allDeclaredMethods":true
     },
     {
+        "name":"io.modelcontextprotocol.spec.McpJsonMapper",
+        "allDeclaredFields":true,
+        "allDeclaredConstructors":true,
+        "allDeclaredMethods":true
+    },
+    {
         "name":"io.modelcontextprotocol.spec.McpSchema$Result",
         "allDeclaredFields":true,
         "allDeclaredConstructors":true,
@@ -219,7 +225,25 @@
         "allDeclaredMethods":true
     },
     {
+        "name":"io.modelcontextprotocol.spec.McpSchema$LoggingMessageNotification",
+        "allDeclaredFields":true,
+        "allDeclaredConstructors":true,
+        "allDeclaredMethods":true
+    },
+    {
+        "name":"io.modelcontextprotocol.spec.McpSchema$GetPromptRequest",
+        "allDeclaredFields":true,
+        "allDeclaredConstructors":true,
+        "allDeclaredMethods":true
+    },
+    {
         "name":"io.modelcontextprotocol.spec.McpSchema$GetPromptResult",
+        "allDeclaredFields":true,
+        "allDeclaredConstructors":true,
+        "allDeclaredMethods":true
+    },
+    {
+        "name":"io.modelcontextprotocol.spec.McpError",
         "allDeclaredFields":true,
         "allDeclaredConstructors":true,
         "allDeclaredMethods":true

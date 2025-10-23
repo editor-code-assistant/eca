@@ -25,7 +25,7 @@
                   "Choose a provider:\n"
                   providers)))))
 
-(defn handle-step [{:keys [message chat-id]} db* messenger config]
+(defn handle-step [{:keys [message chat-id]} db* messenger config metrics]
   (let [provider (get-in @db* [:chats chat-id :login-provider])
         step (get-in @db* [:auth provider :step] :login/start)
         input (string/trim message)
@@ -35,6 +35,7 @@
              :db* db*
              :config config
              :messenger messenger
+             :metrics metrics
              :provider provider
              :send-msg! (fn [msg]
                           (messenger/chat-content-received
@@ -89,4 +90,4 @@
   (swap! db* assoc-in [:chats chat-id :login-provider] nil)
   (swap! db* assoc-in [:chats chat-id :status] :idle)
   (when-not silent?
-    (send-msg! (format "Login successful! You can now use the '%s' models." provider))))
+    (send-msg! (format "\nLogin successful! You can now use the '%s' models." provider))))
