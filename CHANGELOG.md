@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.71.3
+
 - Assoc `parallel_tool_calls` to openai-chat only if truth.
 
 ## 0.71.2
