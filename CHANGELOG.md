@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Assoc `parallel_tool_calls` to openai-chat only if truth.
+
 ## 0.71.2
 
 - Fix regression in `/compact` command. #162

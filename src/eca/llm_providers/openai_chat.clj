@@ -287,8 +287,8 @@
                 :messages messages
                 :temperature temperature
                 :stream true
-                :parallel_tool_calls parallel-tool-calls?
                 :max_completion_tokens 32000}
+               :parallel_tool_calls (or parallel-tool-calls? (:parallel_tool_calls extra-payload))
                :tools (when (seq tools) (->tools tools)))
               extra-payload)
 
