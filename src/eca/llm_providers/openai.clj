@@ -107,23 +107,24 @@
         tools (cond-> tools
                 web-search (conj {:type "web_search_preview"}))
         body (deep-merge
-              {:model model
-               :input input
-               :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-               :parallel_tool_calls true
-               :instructions (if (= :auth/oauth auth-type)
-                               (str "You are Codex." instructions)
-                               instructions)
-               :tools tools
-               :include (when reason?
-                          ["reasoning.encrypted_content"])
-               :store false
-               :reasoning (when reason?
-                            {:effort "medium"
-                             :summary "detailed"})
-               :stream true
-                     ;; :verbosity "medium"
-               :max_output_tokens max-output-tokens}
+              (assoc-some
+               {:model model
+                :input input
+                :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+                :instructions (if (= :auth/oauth auth-type)
+                                (str "You are Codex." instructions)
+                                instructions)
+                :tools tools
+                :include (when reason?
+                           ["reasoning.encrypted_content"])
+                :store false
+                :reasoning (when reason?
+                             {:effort "medium"
+                              :summary "detailed"})
+                :stream true
+                  ;; :verbosity "medium"
+                :max_output_tokens max-output-tokens}
+               :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
         on-response-fn

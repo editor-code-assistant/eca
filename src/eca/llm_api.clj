@@ -131,7 +131,8 @@
           :past-messages past-messages
           :tools tools
           :web-search web-search
-          :extra-payload extra-payload
+          :extra-payload (merge {:parallel_tool_calls true}
+                                extra-payload)
           :api-url api-url
           :api-key api-key
           :auth-type provider-auth-type}
@@ -164,9 +165,11 @@
           :supports-image? supports-image?
           :past-messages past-messages
           :tools tools
-          :extra-payload extra-payload
+          :extra-payload (merge {:parallel_tool_calls true}
+                                extra-payload)
           :api-url api-url
           :api-key api-key
+
           :extra-headers {"openai-intent" "conversation-panel"
                           "x-request-id" (str (random-uuid))
                           "vscode-sessionid" ""
@@ -186,11 +189,10 @@
           :past-messages past-messages
           :tools tools
           :thinking-tag "thought"
-          :extra-payload (merge {}
+          :extra-payload (merge {:parallel_tool_calls false}
                                 (when reason?
                                   {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
                                 extra-payload)
-          :parallel-tool-calls? false
           :api-url api-url
           :api-key api-key}
          callbacks)
