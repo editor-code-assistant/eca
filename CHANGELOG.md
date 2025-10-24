@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.72.1
+
+- Only include `parallel_tool_calls` to openai-responses and openai-chat if true. #169
+
 ## 0.72.0
 
 - Support clojureMCP dry-run flags for edit/write tools, being able to show preview of diffs before running tool.

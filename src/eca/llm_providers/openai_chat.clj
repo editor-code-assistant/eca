@@ -268,10 +268,9 @@
    and message normalization. Supports both single and parallel tool execution.
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
-           past-messages tools extra-payload extra-headers supports-image? parallel-tool-calls?
+           past-messages tools extra-payload extra-headers supports-image?
            thinking-tag]
     :or {temperature 1.0
-         parallel-tool-calls? true
          thinking-tag "think"}}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated]}]
   (let [thinking-start-tag (str "<" thinking-tag ">")
@@ -288,7 +287,7 @@
                 :temperature temperature
                 :stream true
                 :max_completion_tokens 32000}
-               :parallel_tool_calls (or parallel-tool-calls? (:parallel_tool_calls extra-payload))
+               :parallel_tool_calls (:parallel_tool_calls extra-payload)
                :tools (when (seq tools) (->tools tools)))
               extra-payload)
 
