@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.72.1
+
 - Only include `parallel_tool_calls` to openai-responses and openai-chat if true. #169
 
 ## 0.72.0
