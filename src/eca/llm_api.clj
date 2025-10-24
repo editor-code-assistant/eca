@@ -263,9 +263,26 @@
           :api-key api-key
           :auth-type provider-auth-type})
 
+        (= "github-copilot" provider)
+        (llm-providers.openai-chat/completion!
+         {:model real-model
+          :instructions instructions
+          :input-code input-code
+          :reason? reason?
+          :extra-payload extra-payload
+          :api-url api-url
+          :api-key api-key
+          :extra-headers {"openai-intent" "conversation-panel"
+                          "x-request-id" (str (random-uuid))
+                          "vscode-sessionid" ""
+                          "vscode-machineid" ""
+                          "Copilot-Vision-Request" "true"
+                          "copilot-integration-id" "vscode-chat"}})
+
         model-config
         (let [provider-fn (case (:api provider-config)
                             "openai-responses" llm-providers.openai/completion!
+                            "openai-chat" llm-providers.openai-chat/completion!
                             {:error-message (format "Unknown model %s for provider %s" (:api provider-config) provider)})
               url-relative-path (:completionUrlRelativePath provider-config)]
           (provider-fn

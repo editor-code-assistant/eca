@@ -26,7 +26,7 @@
                         json/parse-string)]
     (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])))
 
-(defn ^:private base-completion-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-response]}]
+(defn ^:private base-chat-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-response]}]
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
@@ -206,7 +206,7 @@
                                    :input-cache-read-tokens input-cache-read-tokens}))
               (if (seq tool-calls)
                 (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
-                  (base-completion-request!
+                  (base-chat-request!
                    {:rid (llm-util/gen-rid)
                     :body (assoc body :input (normalize-messages new-messages supports-image?))
                     :api-url api-url
@@ -226,7 +226,7 @@
                                 (on-message-received {:type :finish
                                                       :finish-reason (-> data :response :status)}))
             nil))]
-    (base-completion-request!
+    (base-chat-request!
      {:rid (llm-util/gen-rid)
       :body body
       :api-url api-url
@@ -236,12 +236,25 @@
       :on-error on-error
       :on-response on-response-fn})))
 
-(defn completion! [{:keys [auth-type api-url api-key url-relative-path input-code model instructions reason?]}]
+(defn completion! [{:keys [auth-type api-url api-key url-relative-path input-code model instructions reason?
+                           extra-payload]}]
   (let [oauth? (= :auth/oauth auth-type)
         rid (llm-util/gen-rid)
         url (if oauth?
               codex-url
               (str api-url (or url-relative-path responses-path)))
+        body (deep-merge
+               {:model model
+                :input input-code
+                :reasoning (when reason?
+                             {:effort "medium"})
+                :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+                :instructions (if (= :auth/oauth auth-type)
+                                (str "You are Codex." instructions)
+                                instructions)
+                :store false}
+               extra-payload)
+        _ (llm-util/log-request logger-tag rid url body)
         {:keys [status body]} (http/post
                                url
                                {:headers (assoc-some
@@ -251,23 +264,14 @@
                                           "OpenAI-Beta" (when oauth? "responses=experimental"),
                                           "Originator" (when oauth? "codex_cli_rs")
                                           "Session-ID" (when oauth? (str (random-uuid))))
-                                :body (json/generate-string
-                                       {:model model
-                                        :input input-code
-                                        :reasoning (when reason?
-                                                     {:effort "medium"})
-                                        :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-                                        :instructions (if (= :auth/oauth auth-type)
-                                                        (str "You are Codex." instructions)
-                                                        instructions)
-                                        :store false})
+                                :body (json/generate-string body)
                                 :as :json
                                 :throw-exceptions? false})]
     (try
       (if (not= 200 status)
         (do
           (logger/warn logger-tag "Unexpected response status: %s body: %s" status body)
-          {:error-message (format "Unknown LLM response status '%s': %s" status body)})
+          {:error-message (format "Unknown LLM response status '%s'" status)})
         (let [{:keys [output]} body]
           (llm-util/log-response logger-tag rid "completion" body)
           {:result
@@ -276,7 +280,7 @@
             ""
             (:content (last output)))}))
       (catch Exception e
-        (logger/warn logger-tag "Unexpected error: %s error: %s" status (.getMessage e))
+        (logger/error logger-tag "Unexpected error: %s error: %s" status (.getMessage e))
         {:error-message (format "Unexpected error: %s" (.getMessage e))}))))
 
 (def ^:private client-id "app_EMoamEEZ73f0CkXaXp7hrann")

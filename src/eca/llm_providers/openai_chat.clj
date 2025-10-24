@@ -57,7 +57,7 @@
            :function (select-keys tool [:name :description :parameters])})
         tools))
 
-(defn ^:private base-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-response]}]
+(defn ^:private base-chat-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-response]}]
   (let [url (str api-url (or url-relative-path chat-completions-path))]
     (llm-util/log-request logger-tag rid url body)
     (http/post
@@ -186,7 +186,7 @@
                                       (normalize-messages new-messages supports-image? thinking-start-block thinking-end-block)))]
           (reset! tool-calls-atom {})
           (let [new-rid (llm-util/gen-rid)]
-            (base-request!
+            (base-chat-request!
              {:rid new-rid
               :body (assoc body :messages new-messages-list)
               :extra-headers extra-headers
@@ -421,7 +421,7 @@
                                                  :output-tokens (:completion_tokens usage)
                                                  :input-cache-read-tokens input-cache-read-tokens}))))
         rid (llm-util/gen-rid)]
-    (base-request!
+    (base-chat-request!
      {:rid rid
       :body body
       :extra-headers extra-headers
@@ -431,3 +431,35 @@
       :tool-calls* tool-calls*
       :on-error on-error
       :on-response (fn [event data] (handle-response event data tool-calls* rid))})))
+
+(defn completion! [{:keys [api-url api-key url-relative-path extra-headers input-code model instructions
+                           extra-payload]}]
+  (let [rid (llm-util/gen-rid)
+        url (str api-url (or url-relative-path chat-completions-path))
+        body (deep-merge
+              {:model model
+               :messages (vec (concat
+                               (when instructions [{:role "system" :content instructions}])
+                               [{:role "user" :content input-code}]))
+               :max_completion_tokens 32000}
+              extra-payload)
+        _ (llm-util/log-request logger-tag rid url body)
+        {:keys [status body]} (http/post
+                               url
+                               {:headers (merge {"Authorization" (str "Bearer " api-key)
+                                                 "Content-Type" "application/json"}
+                                                extra-headers)
+                                :body (json/generate-string body)
+                                :as :json
+                                :throw-exceptions? false})]
+    (try
+      (if (not= 200 status)
+        (do
+          (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body)
+          {:error-message (format "Unknown LLM response status: %s body: %s" status body)})
+        (let [{:keys [choices]} body]
+          (llm-util/log-response logger-tag rid "completion" body)
+          {:result (:content (:message (last choices)))}))
+      (catch Exception e
+        (logger/error logger-tag "Unexpected error: %s error: %s" status (.getMessage e))
+        {:error-message (format "Unexpected error: %s" (.getMessage e))}))))
