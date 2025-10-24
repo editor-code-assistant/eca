@@ -157,6 +157,6 @@
       (f.tools/refresh-tool-servers! tool-status-fn db* messenger config))))
 
 (defn completion-inline
-  [{:keys [db* config metrics]} params]
+  [{:keys [db* config metrics messenger]} params]
   (metrics/task metrics :eca/completion-inline
-    (f.completion/complete params db* config)))
+    (f.completion/complete params db* config messenger)))

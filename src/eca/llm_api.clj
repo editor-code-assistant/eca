@@ -242,6 +242,7 @@
   (let [reason? (:reason? model-capabilities)
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
+        real-model (real-model-name model model-capabilities)
         extra-payload (:extraPayload model-config)
         api-key (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
@@ -251,7 +252,7 @@
       (cond
         (= "openai" provider)
         (llm-providers.openai/completion!
-         {:model model
+         {:model real-model
           :instructions instructions
           :input-code input-code
           :reason? reason?
@@ -259,6 +260,21 @@
           :api-url api-url
           :api-key api-key
           :auth-type provider-auth-type})
+
+        model-config
+        (let [provider-fn (case (:api provider-config)
+                            "openai-responses" llm-providers.openai/completion!
+                            {:error-message (format "Unknown model %s for provider %s" (:api provider-config) provider)})
+              url-relative-path (:completionUrlRelativePath provider-config)]
+          (provider-fn
+           {:model real-model
+            :instructions instructions
+            :input-code input-code
+            :reason? reason?
+            :extra-payload extra-payload
+            :url-relative-path url-relative-path
+            :api-url api-url
+            :api-key api-key}))
 
         :else
         {:error-message (format "ECA Unsupported model %s for provider %s" model provider)})

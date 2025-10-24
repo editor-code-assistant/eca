@@ -264,7 +264,9 @@
                                 :throw-exceptions? false})]
     (try
       (if (not= 200 status)
-        (logger/warn logger-tag "Unexpected response status: %s body: %s" status body)
+        (do
+          (logger/warn logger-tag "Unexpected response status: %s body: %s" status body)
+          {:error-message (format "Unknown LLM response status '%s': %s" status body)})
         (let [{:keys [output]} body]
           (llm-util/log-response logger-tag rid "completion" body)
           {:result

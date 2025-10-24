@@ -2,7 +2,8 @@
   (:require
    [clojure.string :as string]
    [eca.features.prompt :as f.prompt]
-   [eca.llm-api :as llm-api]))
+   [eca.llm-api :as llm-api]
+   [eca.messenger :as messenger]))
 
 (def ^:private completion-tag "<|ECA_TAG|>")
 
@@ -37,8 +38,8 @@
      (string/trim inner))
    code))
 
-(defn complete [{:keys [doc-text doc-version position]} db* config]
-  (let [full-model (get-in config [:completion :model]) 
+(defn complete [{:keys [doc-text doc-version position]} db* config messenger]
+  (let [full-model (get-in config [:completion :model])
         [provider model] (string/split full-model #"/" 2)
         db @db*
         model-capabilities (get-in db [:models full-model])
@@ -56,10 +57,10 @@
                                          :model-capabilities model-capabilities})]
     (cond
       error-message
-      {:error-message error-message}
+      (messenger/showMessage messenger {:type :warning :message error-message})
 
       (not result)
-      {:error-message "No suggestions found"}
+      (messenger/showMessage messenger {:type :info :message "No suggestions found"})
 
       :else
       {:items [{:id "123"
