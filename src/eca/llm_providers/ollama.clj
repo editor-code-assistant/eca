@@ -51,7 +51,7 @@
       (logger/warn logger-tag "Error getting model:" (ex-message e))
       [])))
 
-(defn ^:private base-completion-request! [{:keys [rid url body on-error on-response]}]
+(defn ^:private base-chat-request! [{:keys [rid url body on-error on-response]}]
   (llm-util/log-request logger-tag rid url body)
   (let [reason-id (str (random-uuid))
         reasoning?* (atom false)]
@@ -130,7 +130,7 @@
                                ;; TODO support multiple tool calls
                                (when-let [{:keys [new-messages]} (on-tools-called [tool-call])]
                                  (swap! tool-calls* dissoc rid)
-                                 (base-completion-request!
+                                 (base-chat-request!
                                   {:rid (llm-util/gen-rid)
                                    :url url
                                    :body (assoc body :messages (normalize-messages new-messages))
@@ -156,7 +156,7 @@
                                    (reset! reasoning?* false))
                                  (on-message-received {:type :text
                                                        :text (:content message)}))))))]
-    (base-completion-request!
+    (base-chat-request!
      {:rid (llm-util/gen-rid)
       :url url
       :body body

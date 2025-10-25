@@ -26,39 +26,50 @@
                         json/parse-string)]
     (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])))
 
-(defn ^:private base-chat-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-response]}]
+(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-stream]}]
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
-              (str api-url (or url-relative-path responses-path)))]
+              (str api-url (or url-relative-path responses-path)))
+        response* (atom nil)
+        on-error (if on-stream
+                   on-error
+                   (fn [error-data] (reset! response* error-data)))]
     (llm-util/log-request logger-tag rid url body)
-    (http/post
-     url
-     {:headers (assoc-some
-                {"Authorization" (str "Bearer " api-key)
-                 "Content-Type" "application/json"}
-                "chatgpt-account-id" (jtw-token->account-id api-key)
-                "OpenAI-Beta" (when oauth? "responses=experimental"),
-                "Originator" (when oauth? "codex_cli_rs")
-                "Session-ID" (when oauth? (str (random-uuid))))
-      :body (json/generate-string body)
-      :throw-exceptions? false
-      :async? true
-      :as :stream}
-     (fn [{:keys [status body]}]
-       (try
-         (if (not= 200 status)
-           (let [body-str (slurp body)]
-             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
-             (on-error {:message (format "OpenAI response status: %s body: %s" status body-str)}))
-           (with-open [rdr (io/reader body)]
-             (doseq [[event data] (llm-util/event-data-seq rdr)]
-               (llm-util/log-response logger-tag rid event data)
-               (on-response event data))))
-         (catch Exception e
-           (on-error {:exception e}))))
-     (fn [e]
-       (on-error {:exception e})))))
+    @(http/post
+      url
+      {:headers (assoc-some
+                 {"Authorization" (str "Bearer " api-key)
+                  "Content-Type" "application/json"}
+                 "chatgpt-account-id" (jtw-token->account-id api-key)
+                 "OpenAI-Beta" (when oauth? "responses=experimental"),
+                 "Originator" (when oauth? "codex_cli_rs")
+                 "Session-ID" (when oauth? (str (random-uuid))))
+       :body (json/generate-string body)
+       :throw-exceptions? false
+       :async? true
+       :as (if on-stream :stream :json)}
+      (fn [{:keys [status body]}]
+        (try
+          (if (not= 200 status)
+            (let [body-str (if on-stream (slurp body) body)]
+              (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
+              (on-error {:message (format "OpenAI response status: %s body: %s" status body-str)}))
+            (if on-stream
+              (with-open [rdr (io/reader body)]
+                (doseq [[event data] (llm-util/event-data-seq rdr)]
+                  (llm-util/log-response logger-tag rid event data)
+                  (on-stream event data)))
+              (reset! response*
+                      {:result (reduce
+                                #(str %1 (:text %2))
+                                ""
+                                (:content (last (:output body))))})))
+          (catch Exception e
+            (on-error {:exception e}))))
+      (fn [e]
+        (on-error {:exception e})))
+    @response*))
 
 (defn ^:private normalize-messages [messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]
@@ -99,13 +110,14 @@
                                            c))))))
         messages))
 
-(defn chat! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                     max-output-tokens past-messages tools web-search extra-payload auth-type]}
-             {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated]}]
+(defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
+                                max-output-tokens past-messages tools web-search extra-payload auth-type]}
+                        {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (cond-> tools
                 web-search (conj {:type "web_search_preview"}))
+        stream? (boolean callbacks)
         body (deep-merge
               (assoc-some
                {:model model
@@ -121,167 +133,121 @@
                 :reasoning (when reason?
                              {:effort "medium"
                               :summary "detailed"})
-                :stream true
-                  ;; :verbosity "medium"
-                :max_output_tokens max-output-tokens}
+                :stream stream?}
+               :max_output_tokens max-output-tokens
                :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
-        on-response-fn
-        (fn handle-response [event data]
-          (case event
-            ;; text
-            "response.output_text.delta"
-            (on-message-received {:type :text
-                                  :text (:delta data)})
-            ;; tools
-            "response.function_call_arguments.delta" (let [call (get @tool-call-by-item-id* (:item_id data))]
-                                                       (on-prepare-tool-call {:id (:id call)
-                                                                              :name (:name call)
-                                                                              :arguments-text (:delta data)}))
+        on-stream-fn
+        (when stream?
+          (fn handle-response [event data]
+            (case event
+              ;; text
+              "response.output_text.delta"
+              (on-message-received {:type :text
+                                    :text (:delta data)})
+              ;; tools
+              "response.function_call_arguments.delta" (let [call (get @tool-call-by-item-id* (:item_id data))]
+                                                         (on-prepare-tool-call {:id (:id call)
+                                                                                :name (:name call)
+                                                                                :arguments-text (:delta data)}))
 
-            "response.output_item.done"
-            (case (:type (:item data))
-              "reasoning" (on-reason {:status :finished
-                                      :id (-> data :item :id)
-                                      :external-id (-> data :item :encrypted_content)})
-              nil)
+              "response.output_item.done"
+              (case (:type (:item data))
+                "reasoning" (on-reason {:status :finished
+                                        :id (-> data :item :id)
+                                        :external-id (-> data :item :encrypted_content)})
+                nil)
 
-            ;; URL mentioned
-            "response.output_text.annotation.added"
-            (case (-> data :annotation :type)
-              "url_citation" (on-message-received
-                              {:type :url
-                               :title (-> data :annotation :title)
-                               :url (-> data :annotation :url)})
-              nil)
+              ;; URL mentioned
+              "response.output_text.annotation.added"
+              (case (-> data :annotation :type)
+                "url_citation" (on-message-received
+                                {:type :url
+                                 :title (-> data :annotation :title)
+                                 :url (-> data :annotation :url)})
+                nil)
 
-            ;; reasoning / tools
-            "response.reasoning_summary_text.delta"
-            (on-reason {:status :thinking
-                        :id (:item_id data)
-                        :text (:delta data)})
+              ;; reasoning / tools
+              "response.reasoning_summary_text.delta"
+              (on-reason {:status :thinking
+                          :id (:item_id data)
+                          :text (:delta data)})
 
-            "response.reasoning_summary_text.done"
-            (on-reason {:status :thinking
-                        :id (:item_id data)
-                        :text "\n"})
+              "response.reasoning_summary_text.done"
+              (on-reason {:status :thinking
+                          :id (:item_id data)
+                          :text "\n"})
 
-            "response.output_item.added"
-            (case (-> data :item :type)
-              "reasoning" (on-reason {:status :started
-                                      :id (-> data :item :id)})
-              "function_call" (let [call-id (-> data :item :call_id)
-                                    item-id (-> data :item :id)
-                                    function-name (-> data :item :name)
-                                    function-args (-> data :item :arguments)]
-                                (swap! tool-call-by-item-id* assoc item-id {:name function-name :id call-id})
-                                (on-prepare-tool-call {:id call-id
-                                                       :name function-name
-                                                       :arguments-text function-args}))
-              nil)
+              "response.output_item.added"
+              (case (-> data :item :type)
+                "reasoning" (on-reason {:status :started
+                                        :id (-> data :item :id)})
+                "function_call" (let [call-id (-> data :item :call_id)
+                                      item-id (-> data :item :id)
+                                      function-name (-> data :item :name)
+                                      function-args (-> data :item :arguments)]
+                                  (swap! tool-call-by-item-id* assoc item-id {:name function-name :id call-id})
+                                  (on-prepare-tool-call {:id call-id
+                                                         :name function-name
+                                                         :arguments-text function-args}))
+                nil)
 
-            ;; done
-            "response.completed"
-            (let [response (:response data)
-                  tool-calls (keep (fn [{:keys [id call_id name arguments] :as output}]
-                                     (when (= "function_call" (:type output))
-                                       ;; Fallback case when the tool call was not prepared before when
-                                       ;; some models/apis respond only with response.completed (skipping streaming).
-                                       (when-not (get @tool-call-by-item-id* id)
-                                         (swap! tool-call-by-item-id* assoc id {:name name :id call_id})
-                                         (on-prepare-tool-call {:id call_id
-                                                                :name name
-                                                                :arguments-text arguments}))
-                                       {:id call_id
-                                        :item-id id
-                                        :name name
-                                        :arguments (json/parse-string arguments)}))
-                                   (:output response))]
-              (on-usage-updated (let [input-cache-read-tokens (-> response :usage :input_tokens_details :cached_tokens)]
-                                  {:input-tokens (if input-cache-read-tokens
-                                                   (- (-> response :usage :input_tokens) input-cache-read-tokens)
-                                                   (-> response :usage :input_tokens))
-                                   :output-tokens (-> response :usage :output_tokens)
-                                   :input-cache-read-tokens input-cache-read-tokens}))
-              (if (seq tool-calls)
-                (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
-                  (base-chat-request!
-                   {:rid (llm-util/gen-rid)
-                    :body (assoc body :input (normalize-messages new-messages supports-image?))
-                    :api-url api-url
-                    :url-relative-path url-relative-path
-                    :api-key api-key
-                    :auth-type auth-type
-                    :on-error on-error
-                    :on-response handle-response})
-                  (doseq [tool-call tool-calls]
-                    (swap! tool-call-by-item-id* dissoc (:item-id tool-call))))
-                (on-message-received {:type :finish
-                                      :finish-reason (-> data :response :status)})))
+              ;; done
+              "response.completed"
+              (let [response (:response data)
+                    tool-calls (keep (fn [{:keys [id call_id name arguments] :as output}]
+                                       (when (= "function_call" (:type output))
+                                         ;; Fallback case when the tool call was not prepared before when
+                                         ;; some models/apis respond only with response.completed (skipping streaming).
+                                         (when-not (get @tool-call-by-item-id* id)
+                                           (swap! tool-call-by-item-id* assoc id {:name name :id call_id})
+                                           (on-prepare-tool-call {:id call_id
+                                                                  :name name
+                                                                  :arguments-text arguments}))
+                                         {:id call_id
+                                          :item-id id
+                                          :name name
+                                          :arguments (json/parse-string arguments)}))
+                                     (:output response))]
+                (on-usage-updated (let [input-cache-read-tokens (-> response :usage :input_tokens_details :cached_tokens)]
+                                    {:input-tokens (if input-cache-read-tokens
+                                                     (- (-> response :usage :input_tokens) input-cache-read-tokens)
+                                                     (-> response :usage :input_tokens))
+                                     :output-tokens (-> response :usage :output_tokens)
+                                     :input-cache-read-tokens input-cache-read-tokens}))
+                (if (seq tool-calls)
+                  (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
+                    (base-responses-request!
+                     {:rid (llm-util/gen-rid)
+                      :body (assoc body :input (normalize-messages new-messages supports-image?))
+                      :api-url api-url
+                      :url-relative-path url-relative-path
+                      :api-key api-key
+                      :auth-type auth-type
+                      :on-error on-error
+                      :on-stream handle-response})
+                    (doseq [tool-call tool-calls]
+                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call))))
+                  (on-message-received {:type :finish
+                                        :finish-reason (-> data :response :status)})))
 
-            "response.failed" (do
-                                (when-let [error (-> data :response :error)]
-                                  (on-error {:message (:message error)}))
-                                (on-message-received {:type :finish
-                                                      :finish-reason (-> data :response :status)}))
-            nil))]
-    (base-chat-request!
+              "response.failed" (do
+                                  (when-let [error (-> data :response :error)]
+                                    (on-error {:message (:message error)}))
+                                  (on-message-received {:type :finish
+                                                        :finish-reason (-> data :response :status)}))
+              nil)))]
+    (base-responses-request!
      {:rid (llm-util/gen-rid)
       :body body
       :api-url api-url
       :url-relative-path url-relative-path
       :api-key api-key
       :auth-type auth-type
+      :stream? stream?
       :on-error on-error
-      :on-response on-response-fn})))
-
-(defn completion! [{:keys [auth-type api-url api-key url-relative-path input-code model instructions reason?
-                           extra-payload]}]
-  (let [oauth? (= :auth/oauth auth-type)
-        rid (llm-util/gen-rid)
-        url (if oauth?
-              codex-url
-              (str api-url (or url-relative-path responses-path)))
-        body (deep-merge
-               {:model model
-                :input input-code
-                :reasoning (when reason?
-                             {:effort "medium"})
-                :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-                :instructions (if (= :auth/oauth auth-type)
-                                (str "You are Codex." instructions)
-                                instructions)
-                :store false}
-               extra-payload)
-        _ (llm-util/log-request logger-tag rid url body)
-        {:keys [status body]} (http/post
-                               url
-                               {:headers (assoc-some
-                                          {"Authorization" (str "Bearer " api-key)
-                                           "Content-Type" "application/json"}
-                                          "chatgpt-account-id" (jtw-token->account-id api-key)
-                                          "OpenAI-Beta" (when oauth? "responses=experimental"),
-                                          "Originator" (when oauth? "codex_cli_rs")
-                                          "Session-ID" (when oauth? (str (random-uuid))))
-                                :body (json/generate-string body)
-                                :as :json
-                                :throw-exceptions? false})]
-    (try
-      (if (not= 200 status)
-        (do
-          (logger/warn logger-tag "Unexpected response status: %s body: %s" status body)
-          {:error-message (format "Unknown LLM response status '%s'" status)})
-        (let [{:keys [output]} body]
-          (llm-util/log-response logger-tag rid "completion" body)
-          {:result
-           (reduce
-            #(str %1 (:text %2))
-            ""
-            (:content (last output)))}))
-      (catch Exception e
-        (logger/error logger-tag "Unexpected error: %s error: %s" status (.getMessage e))
-        {:error-message (format "Unexpected error: %s" (.getMessage e))}))))
+      :on-stream on-stream-fn})))
 
 (def ^:private client-id "app_EMoamEEZ73f0CkXaXp7hrann")
 

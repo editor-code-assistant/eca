@@ -66,11 +66,12 @@
    {:keys [on-error]}]
   (try
     (login-step
-     {:provider provider
-      :messenger messenger
-      :config config
-      :step :login/renew-token
-      :db* db*})
+      {:provider provider
+       :metrics metrics
+       :messenger messenger
+       :config config
+       :step :login/renew-token
+       :db* db*})
     (db/update-global-cache! @db* metrics)
     (catch Exception e
       (on-error (.getMessage e)))))

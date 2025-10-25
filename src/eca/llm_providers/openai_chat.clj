@@ -57,33 +57,46 @@
            :function (select-keys tool [:name :description :parameters])})
         tools))
 
-(defn ^:private base-chat-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-response]}]
-  (let [url (str api-url (or url-relative-path chat-completions-path))]
+(defn ^:private base-chat-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream]}]
+  (let [url (str api-url (or url-relative-path chat-completions-path))
+        response* (atom nil)
+        on-error (if on-stream
+                   on-error
+                   (fn [error-data]
+                     (logger/error error-data)
+                     (reset! response* error-data)))]
+
     (llm-util/log-request logger-tag rid url body)
-    (http/post
-     url
-     {:headers (merge {"Authorization" (str "Bearer " api-key)
-                       "Content-Type" "application/json"}
-                      extra-headers)
-      :body (json/generate-string body)
-      :throw-exceptions? false
-      :async? true
-      :as :stream}
-     (fn [{:keys [status body]}]
-       (try
-         (if (not= 200 status)
-           (let [body-str (slurp body)]
-             (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
-             (on-error {:message (format "LLM response status: %s body: %s" status body-str)}))
-           (with-open [rdr (io/reader body)]
-             (doseq [[event data] (llm-util/event-data-seq rdr)]
-               (llm-util/log-response logger-tag rid event data)
-               (on-response event data))
-             (on-response "stream-end" {})))
-         (catch Exception e
-           (on-error {:exception e}))))
-     (fn [e]
-       (on-error {:exception e})))))
+    @(http/post
+      url
+      {:headers (merge {"Authorization" (str "Bearer " api-key)
+                        "Content-Type" "application/json"}
+                       extra-headers)
+       :body (json/generate-string body)
+       :throw-exceptions? false
+       :async? true
+       :as (if on-stream :stream :json)}
+      (fn [{:keys [status body]}]
+        (try
+          (if (not= 200 status)
+            (let [body-str (if on-stream (slurp body) body)]
+              (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
+              (on-error {:message (format "LLM response status: %s body: %s" status body-str)}))
+            (if on-stream
+              (with-open [rdr (io/reader body)]
+                (doseq [[event data] (llm-util/event-data-seq rdr)]
+                  (llm-util/log-response logger-tag rid event data)
+                  (on-stream event data))
+                (on-stream "stream-end" {}))
+              (do
+                (llm-util/log-response logger-tag rid "full-response" body)
+                (reset! response*
+                        {:result (:content (:message (last (:choices body))))}))))
+          (catch Exception e
+            (on-error {:exception e}))))
+      (fn [e]
+        (on-error {:exception e})))
+    @response*))
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles."
@@ -194,7 +207,7 @@
               :api-key api-key
               :url-relative-path url-relative-path
               :on-error on-error
-              :on-response (fn [event data] (handle-response event data tool-calls-atom new-rid))}))))
+              :on-stream (fn [event data] (handle-response event data tool-calls-atom new-rid))}))))
       ;; No completed tools at all - let the streaming response provide the actual finish_reason
       nil)))
 
@@ -261,7 +274,7 @@
                     (emit-text! (.substring buf 0 emit-len))
                     (reset! content-buffer* (.substring buf emit-len))))))))))))
 
-(defn chat!
+(defn chat-completion!
   "Primary entry point for OpenAI chat completions with streaming support.
 
    Handles the full conversation flow including tool calls, streaming responses,
@@ -272,9 +285,10 @@
            thinking-tag]
     :or {temperature 1.0
          thinking-tag "think"}}
-   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated]}]
+   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [thinking-start-tag (str "<" thinking-tag ">")
         thinking-end-tag (str "</" thinking-tag ">")
+        stream? (boolean callbacks)
         messages (vec (concat
                        (when instructions [{:role "system" :content instructions}])
                        (normalize-messages past-messages supports-image? thinking-start-tag thinking-end-tag)
@@ -285,7 +299,7 @@
                {:model model
                 :messages messages
                 :temperature temperature
-                :stream true
+                :stream stream?
                 :max_completion_tokens 32000}
                :parallel_tool_calls (:parallel_tool_calls extra-payload)
                :tools (when (seq tools) (->tools tools)))
@@ -430,36 +444,4 @@
       :url-relative-path url-relative-path
       :tool-calls* tool-calls*
       :on-error on-error
-      :on-response (fn [event data] (handle-response event data tool-calls* rid))})))
-
-(defn completion! [{:keys [api-url api-key url-relative-path extra-headers input-code model instructions
-                           extra-payload]}]
-  (let [rid (llm-util/gen-rid)
-        url (str api-url (or url-relative-path chat-completions-path))
-        body (deep-merge
-              {:model model
-               :messages (vec (concat
-                               (when instructions [{:role "system" :content instructions}])
-                               [{:role "user" :content input-code}]))
-               :max_completion_tokens 32000}
-              extra-payload)
-        _ (llm-util/log-request logger-tag rid url body)
-        {:keys [status body]} (http/post
-                               url
-                               {:headers (merge {"Authorization" (str "Bearer " api-key)
-                                                 "Content-Type" "application/json"}
-                                                extra-headers)
-                                :body (json/generate-string body)
-                                :as :json
-                                :throw-exceptions? false})]
-    (try
-      (if (not= 200 status)
-        (do
-          (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body)
-          {:error-message (format "Unknown LLM response status: %s body: %s" status body)})
-        (let [{:keys [choices]} body]
-          (llm-util/log-response logger-tag rid "completion" body)
-          {:result (:content (:message (last choices)))}))
-      (catch Exception e
-        (logger/error logger-tag "Unexpected error: %s error: %s" status (.getMessage e))
-        {:error-message (format "Unexpected error: %s" (.getMessage e))}))))
+      :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* rid)))})))

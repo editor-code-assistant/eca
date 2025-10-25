@@ -121,7 +121,7 @@
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
         (= "openai" provider)
-        (llm-providers.openai/chat!
+        (llm-providers.openai/create-response!
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -156,7 +156,7 @@
          callbacks)
 
         (= "github-copilot" provider)
-        (llm-providers.openai-chat/chat!
+        (llm-providers.openai-chat/chat-completion!
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -169,7 +169,6 @@
                                 extra-payload)
           :api-url api-url
           :api-key api-key
-
           :extra-headers {"openai-intent" "conversation-panel"
                           "x-request-id" (str (random-uuid))
                           "vscode-sessionid" ""
@@ -179,7 +178,7 @@
          callbacks)
 
         (= "google" provider)
-        (llm-providers.openai-chat/chat!
+        (llm-providers.openai-chat/chat-completion!
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -213,9 +212,9 @@
         model-config
         (let [provider-fn (case (:api provider-config)
                             ("openai-responses"
-                             "openai") llm-providers.openai/chat!
+                             "openai") llm-providers.openai/create-response!
                             "anthropic" llm-providers.anthropic/chat!
-                            "openai-chat" llm-providers.openai-chat/chat!
+                            "openai-chat" llm-providers.openai-chat/chat-completion!
                             (on-error-wrapper {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
               url-relative-path (:completionUrlRelativePath provider-config)]
           (provider-fn
@@ -245,29 +244,39 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         real-model (real-model-name model model-capabilities)
+        max-output-tokens (:max-output-tokens model-capabilities)
         extra-payload (:extraPayload model-config)
         api-key (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
-        provider-auth-type (:type provider-auth)]
+        provider-auth-type (:type provider-auth)
+        user-messages [{:role "user" :content [{:type :text :text input-code}]}]]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
         (= "openai" provider)
-        (llm-providers.openai/completion!
+        (llm-providers.openai/create-response!
          {:model real-model
           :instructions instructions
-          :input-code input-code
+          :user-messages user-messages
+          :past-messages []
+          :tools []
+          :web-search false
+          :max-output-tokens max-output-tokens
           :reason? reason?
           :extra-payload extra-payload
           :api-url api-url
           :api-key api-key
-          :auth-type provider-auth-type})
+          :auth-type provider-auth-type}
+         nil)
 
         (= "github-copilot" provider)
-        (llm-providers.openai-chat/completion!
+        (llm-providers.openai-chat/chat-completion!
          {:model real-model
           :instructions instructions
-          :input-code input-code
+          :user-messages user-messages
+          :past-messages []
+          :tools []
+          :max-output-tokens max-output-tokens
           :reason? reason?
           :extra-payload extra-payload
           :api-url api-url
@@ -277,23 +286,47 @@
                           "vscode-sessionid" ""
                           "vscode-machineid" ""
                           "Copilot-Vision-Request" "true"
-                          "copilot-integration-id" "vscode-chat"}})
+                          "copilot-integration-id" "vscode-chat"}}
+         nil)
+
+        (= "google" provider)
+        (llm-providers.openai-chat/chat-completion!
+         {:model real-model
+          :instructions instructions
+          :user-messages user-messages
+          :max-output-tokens max-output-tokens
+          :reason? reason?
+          :past-messages []
+          :tools []
+          :thinking-tag "thought"
+          :extra-payload (merge {:parallel_tool_calls false}
+                                (when reason?
+                                  {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
+                                extra-payload)
+          :api-url api-url
+          :api-key api-key}
+         nil)
 
         model-config
         (let [provider-fn (case (:api provider-config)
-                            "openai-responses" llm-providers.openai/completion!
-                            "openai-chat" llm-providers.openai-chat/completion!
+                            "openai-responses" llm-providers.openai/create-response!
+                            "openai-chat" llm-providers.openai-chat/chat-completion!
                             {:error-message (format "Unknown model %s for provider %s" (:api provider-config) provider)})
               url-relative-path (:completionUrlRelativePath provider-config)]
           (provider-fn
            {:model real-model
             :instructions instructions
-            :input-code input-code
+            :web-search false
+            :max-output-tokens max-output-tokens
+            :user-messages user-messages
+            :past-messages []
+            :tools []
             :reason? reason?
             :extra-payload extra-payload
             :url-relative-path url-relative-path
             :api-url api-url
-            :api-key api-key}))
+            :api-key api-key}
+           nil))
 
         :else
         {:error-message (format "ECA Unsupported model %s for provider %s" model provider)})
