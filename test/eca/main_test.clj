@@ -22,6 +22,10 @@
     [] {:options {:verbose m/absent}}
     ["--verbose"] {:options {:verbose true}}
     ["-v"] {:options {:verbose m/absent}}
+    ;; config-file
+    [] {:options {:config-file m/absent}}
+    ["--config-file"] {:options {:config-file m/absent}}
+    ["--config-file" "/dev/config.json"] {:options {:config-file "/dev/config.json"}}
     #_()))
 
 (deftest parse

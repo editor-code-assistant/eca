@@ -42,7 +42,7 @@
 (def log-levels #{"error" "warn" "info" "debug"})
 
 (def cli-spec
-  {:order [:help :version :verbose]
+  {:order [:help :version :verbose :config-file]
    :spec {:help {:alias :h
                  :desc "Print the available commands and its options"}
           :version {:desc "Print eca version"}
@@ -52,6 +52,10 @@
                       :validate {:pred log-levels
                                  :ex-msg (fn [{:keys [_option _value]}]
                                            (format "Must be in %s" log-levels))}}
+          :config-file {:ref "<FILE>"
+                        :desc "Path to a JSON config <FILE> to use instead of searching default locations"
+                        :coerce :string
+                        :default nil}
           :verbose {:desc "Use stdout for eca logs instead of default log settings"}}})
 
 (defn ^:private parse-opts
@@ -92,6 +96,8 @@
   [action options]
   (proxy/load!)
   (when (= "server" action)
+    (when-some [cfg-file (:config-file options)]
+      (reset! config/custom-config-file-path* cfg-file))
     (alter-var-root #'logger/*level* (constantly (keyword (:log-level options))))
     (let [finished @(server/run-io-server! (:verbose options))]
       {:result-code (if (= :done finished) 0 1)})))
