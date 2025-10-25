@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.72.2
+
+- Run `preToolCall` hook before user approval if any. #170
+
 ## 0.72.1
 
 - Only include `parallel_tool_calls` to openai-responses and openai-chat if true. #169
