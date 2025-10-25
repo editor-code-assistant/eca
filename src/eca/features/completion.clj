@@ -1,9 +1,13 @@
 (ns eca.features.completion
   (:require
    [clojure.string :as string]
+   [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
+   [eca.logger :as logger]
    [eca.messenger :as messenger]))
+
+(def ^:private logger-tag "[COMPLETION]")
 
 (def ^:private completion-tag "<|ECA_TAG|>")
 
@@ -38,9 +42,21 @@
      (string/trim inner))
    code))
 
-(defn complete [{:keys [doc-text doc-version position]} db* config messenger]
+(defn ^:private maybe-renew-auth-token! [provider db* messenger config metrics]
+  (when-let [expires-at (get-in @db* [:auth provider :expires-at])]
+    (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
+      (f.login/renew-auth! provider
+                           {:db db*
+                            :messenger messenger
+                            :config config
+                            :metrics metrics}
+                           {:on-error (fn [error-msg]
+                                        (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}))))
+
+(defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
   (let [full-model (get-in config [:completion :model])
         [provider model] (string/split full-model #"/" 2)
+        _ (maybe-renew-auth-token! provider db* messenger config metrics)
         db @db*
         model-capabilities (get-in db [:models full-model])
         provider-auth (get-in db [:auth provider])

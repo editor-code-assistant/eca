@@ -159,4 +159,4 @@
 (defn completion-inline
   [{:keys [db* config metrics messenger]} params]
   (metrics/task metrics :eca/completion-inline
-    (f.completion/complete params db* config messenger)))
+    (f.completion/complete params db* config messenger metrics)))
