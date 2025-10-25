@@ -65,37 +65,50 @@
                       :max_uses 10
                       :cache_control {:type "ephemeral"}})))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-response]}]
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream]}]
   (let [url (str api-url (or url-relative-path messages-path))
         reason-id (str (random-uuid))
-        oauth? (= :auth/oauth auth-type)]
+        oauth? (= :auth/oauth auth-type)
+        response* (atom nil)
+        on-error (if on-stream
+                   on-error
+                   (fn [error-data]
+                     (llm-util/log-response logger-tag rid "response-error" body)
+                     (reset! response* error-data)))]
     (llm-util/log-request logger-tag rid url body)
-    (http/post
-     url
-     {:headers (assoc-some
-                {"anthropic-version" "2023-06-01"
-                 "Content-Type" "application/json"}
-                "x-api-key" (when-not oauth? api-key)
-                "Authorization" (when oauth? (str "Bearer " api-key))
-                "anthropic-beta" (when oauth? "oauth-2025-04-20"))
-      :body (json/generate-string body)
-      :throw-exceptions? false
-      :async? true
-      :as :stream}
-     (fn [{:keys [status body]}]
-       (try
-         (if (not= 200 status)
-           (let [body-str (slurp body)]
-             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
-             (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)}))
-           (with-open [rdr (io/reader body)]
-             (doseq [[event data] (llm-util/event-data-seq rdr)]
-               (llm-util/log-response logger-tag rid event data)
-               (on-response event data content-block* reason-id))))
-         (catch Exception e
-           (on-error {:exception e}))))
-     (fn [e]
-       (on-error {:exception e})))))
+    @(http/post
+      url
+      {:headers (assoc-some
+                 {"anthropic-version" "2023-06-01"
+                  "Content-Type" "application/json"}
+                 "x-api-key" (when-not oauth? api-key)
+                 "Authorization" (when oauth? (str "Bearer " api-key))
+                 "anthropic-beta" (when oauth? "oauth-2025-04-20"))
+       :body (json/generate-string body)
+       :throw-exceptions? false
+       :async? true
+       :as (if on-stream :stream :json)}
+      (fn [{:keys [status body]}]
+        (try
+          (if (not= 200 status)
+            (let [body-str (if on-stream (slurp body) body)]
+              (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
+              (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)}))
+            (if on-stream
+              (with-open [rdr (io/reader body)]
+                (doseq [[event data] (llm-util/event-data-seq rdr)]
+                  (llm-util/log-response logger-tag rid event data)
+                  (on-stream event data content-block* reason-id)))
+              
+              (do
+                (llm-util/log-response logger-tag rid "response" body)
+                (reset! response*
+                        {:result (:text (last (:content body)))}))))
+          (catch Exception e
+            (on-error {:exception e}))))
+      (fn [e]
+        (on-error {:exception e})))
+    @response*))
 
 (defn ^:private normalize-messages [past-messages supports-image?]
   (mapv (fn [{:keys [role content] :as msg}]
@@ -148,100 +161,101 @@
                                         :cache_control {:type "ephemeral"}}])
          (assoc-in message [:content (dec (count content)) :cache_control] {:type "ephemeral"}))))))
 
-(defn completion!
+(defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload supports-image?]}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated]}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
   (let [messages (concat (normalize-messages past-messages supports-image?)
                          (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
+        stream? (boolean callbacks)
         body (deep-merge
               (assoc-some
                {:model model
                 :messages (add-cache-to-last-message messages)
                 :max_tokens (or max-output-tokens 32000)
-                :stream true
+                :stream stream?
                 :tools (->tools tools web-search)
                 :system [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
                          {:type "text" :text instructions :cache_control {:type "ephemeral"}}]}
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)
+        on-stream-fn
+        (when stream?
+          (fn handle-stream [event data content-block* reason-id]
+            (case event
+              "content_block_start" (case (-> data :content_block :type)
+                                      "thinking" (do
+                                                   (on-reason {:status :started
+                                                               :id reason-id})
+                                                   (swap! content-block* assoc (:index data) (:content_block data)))
+                                      "tool_use" (do
+                                                   (on-prepare-tool-call {:name (-> data :content_block :name)
+                                                                          :id (-> data :content_block :id)
+                                                                          :arguments-text ""})
+                                                   (swap! content-block* assoc (:index data) (:content_block data)))
 
-        on-response-fn
-        (fn handle-response [event data content-block* reason-id]
-          (case event
-            "content_block_start" (case (-> data :content_block :type)
-                                    "thinking" (do
-                                                 (on-reason {:status :started
-                                                             :id reason-id})
-                                                 (swap! content-block* assoc (:index data) (:content_block data)))
-                                    "tool_use" (do
-                                                 (on-prepare-tool-call {:name (-> data :content_block :name)
-                                                                        :id (-> data :content_block :id)
-                                                                        :arguments-text ""})
-                                                 (swap! content-block* assoc (:index data) (:content_block data)))
-
-                                    nil)
-            "content_block_delta" (case (-> data :delta :type)
-                                    "text_delta" (on-message-received {:type :text
-                                                                       :text (-> data :delta :text)})
-                                    "input_json_delta" (let [text (-> data :delta :partial_json)
-                                                             _ (swap! content-block* update-in [(:index data) :input-json] str text)
-                                                             content-block (get @content-block* (:index data))]
-                                                         (on-prepare-tool-call {:name (:name content-block)
-                                                                                :id (:id content-block)
-                                                                                :arguments-text text}))
-                                    "citations_delta" (case (-> data :delta :citation :type)
-                                                        "web_search_result_location" (on-message-received
-                                                                                      {:type :url
-                                                                                       :title (-> data :delta :citation :title)
-                                                                                       :url (-> data :delta :citation :url)})
-                                                        nil)
-                                    "thinking_delta" (on-reason {:status :thinking
-                                                                 :id reason-id
-                                                                 :text (-> data :delta :thinking)})
-                                    "signature_delta" (on-reason {:status :finished
-                                                                  :external-id (-> data :delta :signature)
-                                                                  :id reason-id})
-                                    nil)
-            "message_delta" (do
-                              (when-let [usage (and (-> data :delta :stop_reason)
-                                                    (:usage data))]
-                                (on-usage-updated {:input-tokens (:input_tokens usage)
-                                                   :input-cache-creation-tokens (:cache_creation_input_tokens usage)
-                                                   :input-cache-read-tokens (:cache_read_input_tokens usage)
-                                                   :output-tokens (:output_tokens usage)}))
-                              (case (-> data :delta :stop_reason)
-                                "tool_use" (let [tool-calls (keep
-                                                             (fn [content-block]
-                                                               (when (= "tool_use" (:type content-block))
-                                                                 {:id (:id content-block)
-                                                                  :name (:name content-block)
-                                                                  :arguments (json/parse-string (:input-json content-block))}))
-                                                             (vals @content-block*))]
-                                             (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
-                                               (let [messages (-> (normalize-messages new-messages supports-image?)
-                                                                  add-cache-to-last-message)]
-                                                 (reset! content-block* {})
-                                                 (base-request!
-                                                  {:rid (llm-util/gen-rid)
-                                                   :body (assoc body :messages messages)
-                                                   :api-url api-url
-                                                   :api-key api-key
-                                                   :auth-type auth-type
-                                                   :url-relative-path url-relative-path
-                                                   :content-block* (atom nil)
-                                                   :on-error on-error
-                                                   :on-response handle-response}))))
-                                "end_turn" (do
-                                             (reset! content-block* {})
-                                             (on-message-received {:type :finish
-                                                                   :finish-reason (-> data :delta :stop_reason)}))
-                                "max_tokens" (on-message-received {:type :limit-reached
-                                                                   :tokens (:usage data)})
-                                nil))
-            nil))]
+                                      nil)
+              "content_block_delta" (case (-> data :delta :type)
+                                      "text_delta" (on-message-received {:type :text
+                                                                         :text (-> data :delta :text)})
+                                      "input_json_delta" (let [text (-> data :delta :partial_json)
+                                                               _ (swap! content-block* update-in [(:index data) :input-json] str text)
+                                                               content-block (get @content-block* (:index data))]
+                                                           (on-prepare-tool-call {:name (:name content-block)
+                                                                                  :id (:id content-block)
+                                                                                  :arguments-text text}))
+                                      "citations_delta" (case (-> data :delta :citation :type)
+                                                          "web_search_result_location" (on-message-received
+                                                                                        {:type :url
+                                                                                         :title (-> data :delta :citation :title)
+                                                                                         :url (-> data :delta :citation :url)})
+                                                          nil)
+                                      "thinking_delta" (on-reason {:status :thinking
+                                                                   :id reason-id
+                                                                   :text (-> data :delta :thinking)})
+                                      "signature_delta" (on-reason {:status :finished
+                                                                    :external-id (-> data :delta :signature)
+                                                                    :id reason-id})
+                                      nil)
+              "message_delta" (do
+                                (when-let [usage (and (-> data :delta :stop_reason)
+                                                      (:usage data))]
+                                  (on-usage-updated {:input-tokens (:input_tokens usage)
+                                                     :input-cache-creation-tokens (:cache_creation_input_tokens usage)
+                                                     :input-cache-read-tokens (:cache_read_input_tokens usage)
+                                                     :output-tokens (:output_tokens usage)}))
+                                (case (-> data :delta :stop_reason)
+                                  "tool_use" (let [tool-calls (keep
+                                                               (fn [content-block]
+                                                                 (when (= "tool_use" (:type content-block))
+                                                                   {:id (:id content-block)
+                                                                    :name (:name content-block)
+                                                                    :arguments (json/parse-string (:input-json content-block))}))
+                                                               (vals @content-block*))]
+                                               (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
+                                                 (let [messages (-> (normalize-messages new-messages supports-image?)
+                                                                    add-cache-to-last-message)]
+                                                   (reset! content-block* {})
+                                                   (base-request!
+                                                    {:rid (llm-util/gen-rid)
+                                                     :body (assoc body :messages messages)
+                                                     :api-url api-url
+                                                     :api-key api-key
+                                                     :auth-type auth-type
+                                                     :url-relative-path url-relative-path
+                                                     :content-block* (atom nil)
+                                                     :on-error on-error
+                                                     :on-stream handle-stream}))))
+                                  "end_turn" (do
+                                               (reset! content-block* {})
+                                               (on-message-received {:type :finish
+                                                                     :finish-reason (-> data :delta :stop_reason)}))
+                                  "max_tokens" (on-message-received {:type :limit-reached
+                                                                     :tokens (:usage data)})
+                                  nil))
+              nil)))]
     (base-request!
      {:rid (llm-util/gen-rid)
       :body body
@@ -251,7 +265,7 @@
       :url-relative-path url-relative-path
       :content-block* (atom nil)
       :on-error on-error
-      :on-response on-response-fn})))
+      :on-stream on-stream-fn})))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
 

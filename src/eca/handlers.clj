@@ -3,6 +3,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.completion :as f.completion]
    [eca.features.login :as f.login]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -154,3 +155,8 @@
           tool-status-fn (f.tools/make-tool-status-fn config validated-behavior)]
       (update-behavior-model! behavior-config config messenger db*)
       (f.tools/refresh-tool-servers! tool-status-fn db* messenger config))))
+
+(defn completion-inline
+  [{:keys [db* config metrics messenger]} params]
+  (metrics/task metrics :eca/completion-inline
+    (f.completion/complete params db* config messenger metrics)))

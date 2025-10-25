@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `:config-file` cli option to pass in config.
+- Add support for completion. #12
 
 ## 0.72.2
 

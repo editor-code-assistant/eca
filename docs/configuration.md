@@ -495,6 +495,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                 maxEntriesPerDir?: number;
             };
         };
+        completion?: {
+            model?: string;
+            systemPromptFile?: string;
+        };
         otlp?: {[key: string]: string};
     }
     ```
@@ -562,6 +566,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
           "maxTotalEntries": 800,
           "maxEntriesPerDir": 50
         }
+      },
+      "completion": {
+        "model": "openai/gpt-4o",
+        "systemPromptFile": "prompts/inline_completion.md"
       }
     }
     ```

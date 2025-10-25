@@ -13,9 +13,9 @@
 
 (h/reset-components-before-test)
 
-(defn ^:private complete! [params mocks]
+(defn ^:private prompt! [params mocks]
   (let [{:keys [chat-id] :as resp}
-        (with-redefs [llm-api/complete! (:api-mock mocks)
+        (with-redefs [llm-api/async-prompt! (:api-mock mocks)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/approval (constantly :allow)]
           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
@@ -38,7 +38,7 @@
   (testing "Simple hello"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (prompt!
            {:message "Hey!"}
            {:api-mock
             (fn [{:keys [on-first-response-received
@@ -76,7 +76,7 @@
   (testing "LLM error"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (prompt!
            {:message "Hey!"}
            {:api-mock
             (fn [{:keys [on-error]}]
@@ -104,7 +104,7 @@
   (testing "Chat history"
     (h/reset-components!)
     (let [res-1
-          (complete!
+          (prompt!
            {:message "Count with me: 1 mississippi"}
            {:api-mock
             (fn [{:keys [on-first-response-received
@@ -142,7 +142,7 @@
            (h/messages)))
       (h/reset-messenger!)
       (let [res-2
-            (complete!
+            (prompt!
              {:message "3 mississippi"
               :chat-id chat-id-1}
              {:api-mock
@@ -186,44 +186,44 @@
   (testing "When prompt contains @file we add a user message"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
-            {:message "Check @/path/to/file please"}
-            {:api-mock
-             (fn [{:keys [on-first-response-received
-                          on-message-received]}]
-               (on-first-response-received {:type :text :text "On it..."})
-               (on-message-received {:type :text :text "On it..."})
-               (on-message-received {:type :finish}))})]
+          (prompt!
+           {:message "Check @/path/to/file please"}
+           {:api-mock
+            (fn [{:keys [on-first-response-received
+                         on-message-received]}]
+              (on-first-response-received {:type :text :text "On it..."})
+              (on-message-received {:type :text :text "On it..."})
+              (on-message-received {:type :finish}))})]
       (is (match?
-            {chat-id {:id chat-id
-                      :messages [{:role "user" :content [{:type :text :text "Check @/path/to/file please"}
-                                                         {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
-                                 {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
-            (:chats (h/db))))
+           {chat-id {:id chat-id
+                     :messages [{:role "user" :content [{:type :text :text "Check @/path/to/file please"}
+                                                        {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
+                                {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
+           (:chats (h/db))))
       (is (match?
-            {:chat-content-received
-             [{:chat-id chat-id
-               :content {:type :text :text "Check @/path/to/file please\n"}
-               :role :user}
-              {:chat-id chat-id
-               :content {:type :progress :state :running :text "Waiting model"}
-               :role :system}
-              {:chat-id chat-id
-               :content {:type :progress :state :running :text "Generating"}
-               :role :system}
-              {:chat-id chat-id
-               :content {:type :text :text "On it..."}
-               :role :assistant}
-              {:chat-id chat-id
-               :content {:state :finished :type :progress}
-               :role :system}]}
-            (h/messages))))))
+           {:chat-content-received
+            [{:chat-id chat-id
+              :content {:type :text :text "Check @/path/to/file please\n"}
+              :role :user}
+             {:chat-id chat-id
+              :content {:type :progress :state :running :text "Waiting model"}
+              :role :system}
+             {:chat-id chat-id
+              :content {:type :progress :state :running :text "Generating"}
+              :role :system}
+             {:chat-id chat-id
+              :content {:type :text :text "On it..."}
+              :role :assistant}
+             {:chat-id chat-id
+              :content {:state :finished :type :progress}
+              :role :system}]}
+           (h/messages))))))
 
 (deftest basic-tool-calling-prompt-test
   (testing "Asking to list directories, LLM will check for allowed directories and then list files"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (prompt!
            {:message "List the files you are allowed to see"}
            {:api-mock
             (fn [{:keys [on-first-response-received
@@ -274,7 +274,7 @@
   (testing "Running three calls simultaneously"
     (h/reset-components!)
     (let [{:keys [chat-id]}
-          (complete!
+          (prompt!
            {:message "Run 3 read-only tool calls simultaneously."}
            {:api-mock
             (fn [{:keys [on-first-response-received
@@ -375,7 +375,7 @@
           wait-for-tool2 (promise)
           wait-for-stop (promise)
           {:keys [chat-id]}
-          (complete!
+          (prompt!
            {:message "Run 3 read-only tool calls simultaneously."}
            {:api-mock
             (fn [{:keys [on-first-response-received

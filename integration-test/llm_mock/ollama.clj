@@ -63,10 +63,10 @@
         (hk/close ch)))))
 
 (defn ^:private chat-title-text-0 [ch]
-  (sse-send! ch {:message {:thinking "Some Cool"}})
-  (sse-send! ch {:message {:thinking " Title"}})
-  (sse-send! ch {:done_reason "stop"})
-  (hk/close ch))
+  (hk/send! ch
+            (json/generate-string
+             {:message {:content "Some Cool Title"}})
+            true))
 
 (defn handle-ollama-chat [req]
   (let [body-str (slurp (:body req))

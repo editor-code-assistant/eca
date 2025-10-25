@@ -206,19 +206,10 @@
         (hk/close ch)))))
 
 (defn ^:private chat-title-text-0 [ch]
-  (sse-send! ch "content_block_delta"
-             {:type "content_block_delta"
-              :index 0
-              :delta {:type "text_delta" :text "Some Cool"}})
-  (sse-send! ch "content_block_delta"
-             {:type "content_block_delta"
-              :index 0
-              :delta {:type "text_delta" :text " Title"}})
-  (sse-send! ch "message_delta"
-             {:type "message_delta"
-              :delta {:stop_reason "end_turn"}
-              :usage {:input_tokens 5
-                      :output_tokens 10}})
+  (hk/send! ch
+            (json/generate-string
+             {:content [{:text "Some Cool Title"}]})
+            true)
   (hk/close ch))
 
 (defn handle-anthropic-messages [req]
