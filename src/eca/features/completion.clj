@@ -62,18 +62,24 @@
         {:keys [line character]} position
         input-code (insert-completion-tag doc-text position)
         instructions (f.prompt/inline-completion-prompt config)
-        {:keys [error-message result]} (llm-api/complete!
-                                        {:provider provider
-                                         :model model
-                                         :config config
-                                         :input-code input-code
-                                         :instructions instructions
-                                         :provider-auth provider-auth
-                                         :model-capabilities model-capabilities})]
+        {:keys [error result]} (llm-api/sync-prompt!
+                                {:provider provider
+                                 :model model
+                                 :config config
+                                 :prompt input-code
+                                 :instructions instructions
+                                 :provider-auth provider-auth
+                                 :model-capabilities model-capabilities})]
     (cond
-      error-message
+      (:message error)
       {:error {:type :warning
-               :message error-message}}
+               :message (:message error)}}
+
+      (:exception error)
+      (do
+        (logger/error logger-tag "Error when requesting completion: %s" (:exception error))
+        {:error {:type :warning
+                 :message (:message (.getMessage ^Exception (:exception error)))}})
 
       (not result)
       {:error {:type :info

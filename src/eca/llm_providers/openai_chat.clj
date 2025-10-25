@@ -283,8 +283,7 @@
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
            thinking-tag]
-    :or {temperature 1.0
-         thinking-tag "think"}}
+    :or {thinking-tag "think"}}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [thinking-start-tag (str "<" thinking-tag ">")
         thinking-end-tag (str "</" thinking-tag ">")

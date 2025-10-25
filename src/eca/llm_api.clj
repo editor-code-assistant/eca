@@ -69,36 +69,11 @@
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
-(defn chat!
-  [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
+(defn ^:private prompt!
+  [{:keys [provider model model-capabilities instructions user-messages config
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           past-messages tools provider-auth]
-    :or {on-first-response-received identity
-         on-message-received identity
-         on-error identity
-         on-prepare-tool-call identity
-         on-tools-called identity
-         on-reason identity
-         on-usage-updated identity}}]
-  (let [first-response-received* (atom false)
-        emit-first-message-fn (fn [& args]
-                                (when-not @first-response-received*
-                                  (reset! first-response-received* true)
-                                  (apply on-first-response-received args)))
-        on-message-received-wrapper (fn [& args]
-                                      (apply emit-first-message-fn args)
-                                      (apply on-message-received args))
-        on-reason-wrapper (fn [& args]
-                            (apply emit-first-message-fn args)
-                            (apply on-reason args))
-        on-prepare-tool-call-wrapper (fn [& args]
-                                       (apply emit-first-message-fn args)
-                                       (apply on-prepare-tool-call args))
-        on-error-wrapper (fn [{:keys [exception] :as args}]
-                           (when-not (:silent? (ex-data exception))
-                             (logger/error args)
-                             (on-error args)))
-        real-model (real-model-name model model-capabilities)
+           past-messages tools provider-auth sync?]}]
+  (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities)
                 (mapv tool->llm-tool tools))
         reason? (:reason? model-capabilities)
@@ -111,12 +86,13 @@
         api-key (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
         provider-auth-type (:type provider-auth)
-        callbacks {:on-message-received on-message-received-wrapper
-                   :on-error on-error-wrapper
-                   :on-prepare-tool-call on-prepare-tool-call-wrapper
-                   :on-tools-called on-tools-called
-                   :on-reason on-reason-wrapper
-                   :on-usage-updated on-usage-updated}]
+        callbacks (when-not sync?
+                    {:on-message-received on-message-received
+                     :on-error on-error
+                     :on-prepare-tool-call on-prepare-tool-call
+                     :on-tools-called on-tools-called
+                     :on-reason on-reason
+                     :on-usage-updated on-usage-updated})]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
@@ -215,7 +191,7 @@
                              "openai") llm-providers.openai/create-response!
                             "anthropic" llm-providers.anthropic/chat!
                             "openai-chat" llm-providers.openai-chat/chat-completion!
-                            (on-error-wrapper {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
+                            (on-error {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
               url-relative-path (:completionUrlRelativePath provider-config)]
           (provider-fn
            {:model real-model
@@ -234,127 +210,69 @@
            callbacks))
 
         :else
-        (on-error-wrapper {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
+        (on-error {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
       (catch Exception e
-        (on-error-wrapper {:exception e})))))
+        (on-error {:exception e})))))
 
-(defn complete!
-  [{:keys [provider model model-capabilities instructions input-code config provider-auth]}]
-  (let [reason? (:reason? model-capabilities)
-        provider-config (get-in config [:providers provider])
-        model-config (get-in provider-config [:models model])
-        real-model (real-model-name model model-capabilities)
-        max-output-tokens (:max-output-tokens model-capabilities)
-        extra-payload (:extraPayload model-config)
-        api-key (llm-util/provider-api-key provider provider-auth config)
-        api-url (llm-util/provider-api-url provider config)
-        provider-auth-type (:type provider-auth)
-        user-messages [{:role "user" :content [{:type :text :text input-code}]}]]
-    (try
-      (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
-      (cond
-        (= "openai" provider)
-        (llm-providers.openai/create-response!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :past-messages []
-          :tools []
-          :web-search false
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :extra-payload extra-payload
-          :api-url api-url
-          :api-key api-key
-          :auth-type provider-auth-type}
-         nil)
-
-        (= "github-copilot" provider)
-        (llm-providers.openai-chat/chat-completion!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :past-messages []
-          :tools []
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :extra-payload extra-payload
-          :api-url api-url
-          :api-key api-key
-          :extra-headers {"openai-intent" "conversation-panel"
-                          "x-request-id" (str (random-uuid))
-                          "vscode-sessionid" ""
-                          "vscode-machineid" ""
-                          "Copilot-Vision-Request" "true"
-                          "copilot-integration-id" "vscode-chat"}}
-         nil)
-
-        (= "google" provider)
-        (llm-providers.openai-chat/chat-completion!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :past-messages []
-          :tools []
-          :thinking-tag "thought"
-          :extra-payload (merge {:parallel_tool_calls false}
-                                (when reason?
-                                  {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
-                                extra-payload)
-          :api-url api-url
-          :api-key api-key}
-         nil)
-
-        model-config
-        (let [provider-fn (case (:api provider-config)
-                            "openai-responses" llm-providers.openai/create-response!
-                            "openai-chat" llm-providers.openai-chat/chat-completion!
-                            {:error-message (format "Unknown model %s for provider %s" (:api provider-config) provider)})
-              url-relative-path (:completionUrlRelativePath provider-config)]
-          (provider-fn
-           {:model real-model
-            :instructions instructions
-            :web-search false
-            :max-output-tokens max-output-tokens
-            :user-messages user-messages
-            :past-messages []
-            :tools []
-            :reason? reason?
-            :extra-payload extra-payload
-            :url-relative-path url-relative-path
-            :api-url api-url
-            :api-key api-key}
-           nil))
-
-        :else
-        {:error-message (format "ECA Unsupported model %s for provider %s" model provider)})
-      (catch Exception e
-        (logger/warn logger-tag "Error completing: %s" (.getMessage e))
-        {:error-message (.getMessage e)}))))
-
-(defn simple-prompt
-  [{:keys [provider model model-capabilities instructions
-           prompt user-messages config tools provider-auth]}]
-  (let [result-p (promise)
-        output* (atom "")]
-    (chat!
-     {:provider provider
+(defn async-prompt! [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
+                             on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+                             past-messages tools provider-auth]
+                      :or {on-first-response-received identity
+                           on-message-received identity
+                           on-error identity
+                           on-prepare-tool-call identity
+                           on-tools-called identity
+                           on-reason identity
+                           on-usage-updated identity}}]
+  (let [first-response-received* (atom false)
+        emit-first-message-fn (fn [& args]
+                                (when-not @first-response-received*
+                                  (reset! first-response-received* true)
+                                  (apply on-first-response-received args)))
+        on-message-received-wrapper (fn [& args]
+                                      (apply emit-first-message-fn args)
+                                      (apply on-message-received args))
+        on-reason-wrapper (fn [& args]
+                            (apply emit-first-message-fn args)
+                            (apply on-reason args))
+        on-prepare-tool-call-wrapper (fn [& args]
+                                       (apply emit-first-message-fn args)
+                                       (apply on-prepare-tool-call args))
+        on-error-wrapper (fn [{:keys [exception] :as args}]
+                           (when-not (:silent? (ex-data exception))
+                             (logger/error args)
+                             (on-error args)))]
+    (prompt!
+     {:sync? false
+      :provider provider
       :model model
       :model-capabilities model-capabilities
       :instructions instructions
       :tools tools
       :provider-auth provider-auth
-      :past-messages []
-      :user-messages (or user-messages
-                         [{:role "user" :content [{:type :text :text prompt}]}])
-      :config config
-      :on-message-received (fn [{:keys [type] :as msg}]
-                             (case type
-                               :text (swap! output* str (:text msg))
-                               :finish (deliver result-p @output*)
-                               nil))
-      :on-error (fn [_]
-                  (deliver result-p nil))})
-    result-p))
+      :past-messages past-messages
+      :user-messages user-messages
+      :on-message-received on-message-received-wrapper
+      :on-prepare-tool-call on-prepare-tool-call-wrapper
+      :on-tools-called on-tools-called
+      :on-usage-updated on-usage-updated
+      :on-reason on-reason-wrapper
+      :on-error on-error-wrapper
+      :config config})))
+
+(defn sync-prompt!
+  [{:keys [provider model model-capabilities instructions
+           prompt past-messages user-messages config tools provider-auth]}]
+  (prompt!
+   {:sync? true
+    :provider provider
+    :model model
+    :model-capabilities model-capabilities
+    :instructions instructions
+    :tools tools
+    :provider-auth provider-auth
+    :past-messages past-messages
+    :user-messages (or user-messages
+                       [{:role "user" :content [{:type :text :text prompt}]}])
+    :config config
+    :on-error identity}))

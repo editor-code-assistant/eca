@@ -561,27 +561,28 @@
 
     (when-not (get-in db [:chats chat-id :title])
       (future
-        (when-let [title @(llm-api/simple-prompt
-                           {:provider provider
-                            :model model
-                            :model-capabilities model-capabilities
-                            :instructions (f.prompt/title-prompt)
-                            :user-messages user-messages
-                            :config config
-                            :tools []
-                            :provider-auth provider-auth})]
-          (let [title (subs title 0 (min (count title) 30))]
-            (swap! db* assoc-in [:chats chat-id :title] title)
-            (send-content! chat-ctx :system (assoc-some
-                                             {:type :metadata}
-                                             :title title))
-            ;; user prompt responded faster than title was generated
-            (when (= :idle (get-in @db* [:chats chat-id :status]))
-              (db/update-workspaces-cache! @db* metrics))))))
+        (when-let [{:keys [result]} (llm-api/sync-prompt!
+                                     {:provider provider
+                                      :model model
+                                      :model-capabilities model-capabilities
+                                      :instructions (f.prompt/title-prompt)
+                                      :user-messages user-messages
+                                      :config config
+                                      :tools []
+                                      :provider-auth provider-auth})]
+          (when result
+            (let [title (subs result 0 (min (count result) 30))]
+              (swap! db* assoc-in [:chats chat-id :title] title)
+              (send-content! chat-ctx :system (assoc-some
+                                               {:type :metadata}
+                                               :title title))
+              ;; user prompt responded faster than title was generated
+              (when (= :idle (get-in @db* [:chats chat-id :status]))
+                (db/update-workspaces-cache! @db* metrics)))))))
     (send-content! chat-ctx :system {:type :progress
                                      :state :running
                                      :text "Waiting model"})
-    (llm-api/chat!
+    (llm-api/async-prompt!
      {:model model
       :provider provider
       :model-capabilities model-capabilities
