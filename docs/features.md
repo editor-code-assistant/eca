@@ -135,17 +135,20 @@ Hooks are actions that can run before or after an specific event, useful to noti
 
 For more details, check [hooks configuration](./configuration.md#hooks).
 
+##  Completion (alpha)
+
+Inline code completion
+
+![](./images/features/inline_completion.png)
+
+For mode details check [configuration](./configuration.md#completion).
+
 ## OpenTelemetry integration
 
 ECA has support for [OpenTelemetry](https://opentelemetry.io/)(otlp), if configured, server tasks, tool calls, and more will be metrified via otlp API.
 
 For more details check [its configuration](./configuration.md#opentelemetry-integration).
 
-##  Completion (alpha)
-
-Inline code completion
-
-![](./images/features/inline_completion.png)
 
 ## Edit 
 
