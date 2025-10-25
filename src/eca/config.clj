@@ -25,13 +25,13 @@
 (def ^:private logger-tag "[CONFIG]")
 
 (def ^:dynamic *env-var-config-error* false)
-(def ^:dynamic *cli-file-config-error* false)
+(def ^:dynamic *custom-config-error* false)
 (def ^:dynamic *global-config-error* false)
 (def ^:dynamic *local-config-error* false)
 
 (def ^:private listen-idle-ms 3000)
 
-(def config-file-path-from-cli* (atom nil))
+(def custom-config-file-path* (atom nil))
 
 (def initial-config
   {:providers {"openai" {:api "openai-responses"
@@ -153,13 +153,13 @@
 
 (def ^:private config-from-envvar (memoize config-from-envvar*))
 
-(defn ^:private config-from-cli* []
-  (when-some [path @config-file-path-from-cli*]
+(defn ^:private config-from-custom* []
+  (when-some [path @custom-config-file-path*]
     (let [config-file (io/file path)]
       (when (.exists config-file)
-        (safe-read-json-string (slurp config-file) (var *cli-file-config-error*))))))
+        (safe-read-json-string (slurp config-file) (var *custom-config-error*))))))
 
-(def ^:private config-from-cli (memoize config-from-cli*))
+(def ^:private config-from-custom (memoize config-from-custom*))
 
 (defn global-config-dir ^File []
   (let [xdg-config-home (or (get-env "XDG_CONFIG_HOME")
@@ -275,9 +275,9 @@
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
     [:otlp]]})
 
-(defn ^:private config-from-cli-or-default-location [pure-config? db]
-  (if-some [config-from-cli (config-from-cli)]
-    (when-not pure-config? config-from-cli)
+(defn ^:private config-from-custom-or-default-location [pure-config? db]
+  (if-some [config-from-custom (config-from-custom)]
+    (when-not pure-config? config-from-custom)
     (deep-merge
      (when-not pure-config? (config-from-global-file))
      (when-not pure-config? (config-from-local-file (:workspace-folders db))))))
@@ -290,7 +290,7 @@
                  eca-config-normalization-rules
                  (deep-merge initialization-config
                              (when-not pure-config? (config-from-envvar))
-                             (config-from-cli-or-default-location pure-config? db))))))
+                             (config-from-custom-or-default-location pure-config? db))))))
 
 (defn validation-error []
   (cond

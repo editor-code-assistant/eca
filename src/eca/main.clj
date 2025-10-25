@@ -97,7 +97,7 @@
   (proxy/load!)
   (when (= "server" action)
     (when-some [cfg-file (:config-file options)]
-      (reset! config/config-file-path-from-cli* cfg-file))
+      (reset! config/custom-config-file-path* cfg-file))
     (alter-var-root #'logger/*level* (constantly (keyword (:log-level options))))
     (let [finished @(server/run-io-server! (:verbose options))]
       {:result-code (if (= :done finished) 0 1)})))
