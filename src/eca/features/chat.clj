@@ -174,6 +174,10 @@
    {:status :execution-approved
     :actions [:set-decision-reason :deliver-approval-true]}
 
+   [:waiting-approval :hook-rejected]
+   {:status :rejected
+    :actions [:set-decision-reason :deliver-approval-false]}
+
    [:waiting-approval :user-reject]
    {:status :rejected
     :actions [:set-decision-reason :deliver-approval-false :log-rejection]}
@@ -667,8 +671,6 @@
                                                                                 :text "Tool call rejected by user config"}})
                                          (logger/warn logger-tag "Unknown value of approval in config"
                                                       {:approval approval :tool-call-id id})))
-                                     ;; TODO: Should there be a timeout here?  If so, what would be the state transitions?
-                                     @approved?* ;; wait for user respond before checking hook
                                      (f.hooks/trigger-if-matches! :preToolCall
                                                                   {:chat-id chat-id
                                                                    :tool-name name
