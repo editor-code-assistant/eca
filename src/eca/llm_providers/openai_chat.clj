@@ -63,7 +63,7 @@
         on-error (if on-stream
                    on-error
                    (fn [error-data]
-                     (logger/error error-data)
+                     (llm-util/log-response logger-tag rid "response-error" body)
                      (reset! response* error-data)))]
 
     (llm-util/log-request logger-tag rid url body)

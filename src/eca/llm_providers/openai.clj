@@ -34,7 +34,9 @@
         response* (atom nil)
         on-error (if on-stream
                    on-error
-                   (fn [error-data] (reset! response* error-data)))]
+                   (fn [error-data]
+                     (llm-util/log-response logger-tag rid "response-error" body)
+                     (reset! response* error-data)))]
     (llm-util/log-request logger-tag rid url body)
     @(http/post
       url
@@ -60,11 +62,13 @@
                 (doseq [[event data] (llm-util/event-data-seq rdr)]
                   (llm-util/log-response logger-tag rid event data)
                   (on-stream event data)))
-              (reset! response*
-                      {:result (reduce
-                                #(str %1 (:text %2))
-                                ""
-                                (:content (last (:output body))))})))
+              (do
+                (llm-util/log-response logger-tag rid "response" body)
+                (reset! response*
+                        {:result (reduce
+                                  #(str %1 (:text %2))
+                                  ""
+                                  (:content (last (:output body))))}))))
           (catch Exception e
             (on-error {:exception e}))))
       (fn [e]
@@ -245,7 +249,6 @@
       :url-relative-path url-relative-path
       :api-key api-key
       :auth-type auth-type
-      :stream? stream?
       :on-error on-error
       :on-stream on-stream-fn})))
 
