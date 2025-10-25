@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.72.2
+
 - Run `preToolCall` hook before user approval if any. #170
 
 ## 0.72.1
