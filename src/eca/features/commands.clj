@@ -10,7 +10,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
-   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str update-some]])
