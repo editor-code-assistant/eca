@@ -144,7 +144,7 @@
         tool-call-by-item-id* (atom {})
         on-stream-fn
         (when stream?
-          (fn handle-response [event data]
+          (fn handle-stream [event data]
             (case event
               ;; text
               "response.output_text.delta"
@@ -230,7 +230,7 @@
                       :api-key api-key
                       :auth-type auth-type
                       :on-error on-error
-                      :on-stream handle-response})
+                      :on-stream handle-stream})
                     (doseq [tool-call tool-calls]
                       (swap! tool-call-by-item-id* dissoc (:item-id tool-call))))
                   (on-message-received {:type :finish
