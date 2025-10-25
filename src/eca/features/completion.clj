@@ -4,14 +4,13 @@
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
-   [eca.logger :as logger]
-   [eca.messenger :as messenger]))
+   [eca.logger :as logger]))
 
 (def ^:private logger-tag "[COMPLETION]")
 
-(def ^:private completion-tag "<|ECA_TAG|>")
+(def ^:private completion-tag "<ECA_TAG>")
 
-(defn ^:private insert-compleiton-tag [doc-text position]
+(defn ^:private insert-completion-tag [doc-text position]
   (let [{:keys [line character]} position
         ;; Ensure we have at least one line to work with
         lines (let [ls (if (seq doc-text)
@@ -46,7 +45,7 @@
   (when-let [expires-at (get-in @db* [:auth provider :expires-at])]
     (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
       (f.login/renew-auth! provider
-                           {:db db*
+                           {:db* db*
                             :messenger messenger
                             :config config
                             :metrics metrics}
@@ -61,8 +60,8 @@
         model-capabilities (get-in db [:models full-model])
         provider-auth (get-in db [:auth provider])
         {:keys [line character]} position
-        input-code (insert-compleiton-tag doc-text position)
-        instructions (f.prompt/inline-completion-prompt)
+        input-code (insert-completion-tag doc-text position)
+        instructions (f.prompt/inline-completion-prompt config)
         {:keys [error-message result]} (llm-api/complete!
                                         {:provider provider
                                          :model model
@@ -73,15 +72,15 @@
                                          :model-capabilities model-capabilities})]
     (cond
       error-message
-      (messenger/showMessage messenger {:type :warning :message error-message})
+      {:error {:type :warning
+               :message error-message}}
 
       (not result)
-      (messenger/showMessage messenger {:type :info :message "No suggestions found"})
+      {:error {:type :info
+               :message "No suggestions found"}}
 
       :else
-      {:items [{:id "123"
-                :text (normalize-code-result result)
-
+      {:items [{:text (normalize-code-result result)
                 :doc-version doc-version
                 :range {:start {:line line :character character}
                         :end {:line line :character character}}}]})))

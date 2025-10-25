@@ -114,7 +114,8 @@
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}
-   :completion {:model "openai/gpt-4o"}})
+   :completion {:model "openai/gpt-4o"
+                :systemPromptFile "prompts/inline_completion.md"}})
    
 
 (def ^:private fallback-behavior "agent")

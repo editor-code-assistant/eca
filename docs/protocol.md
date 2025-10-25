@@ -87,6 +87,30 @@ The protocol defines a set of lifecycle messages that manage the connection and 
         Note right of S: Server stops its process
     ```
 
+### Basic structures
+
+```typescript
+export type ErrorType = 'error' | 'warning' | 'info';
+
+interface Error {
+    type: ErrorType;
+    message: string;
+}
+
+interface Range {
+   start: {
+       line: number;
+       character: number;
+   };
+   
+   end: {
+       line: number;
+       character: number;
+   };
+}
+```
+
+
 ### Initialize (↩️)
 
 The first request sent from client to server. This message:
@@ -1274,17 +1298,7 @@ interface EditorDiagnostic {
     /**
      * The diagnostic range (1-based).
      */
-    range: {
-        start: {
-            line: number;
-            character: number;
-        };
-        
-        end: {
-            line: number;
-            character: number;
-        };
-    };
+    range: Range;
     
     /**
      * The diagnostic code. Ex: 'wrong-args'
@@ -1300,7 +1314,65 @@ interface EditorDiagnostic {
 
 ### Completion (↩️)
 
-Soon
+A request sent from client to server, asking for a text to be presented to user as a inline completion for the current text code.
+
+_Request:_ 
+
+* method: `completion/inline`
+* params: `CompletionInlineParams` defined as follows:
+
+```typescript
+interface CompletionInlineParams {
+    /**
+     * The current document text.
+     */
+    docText: string;
+
+    /**
+     * The document version.
+     * Clients should increment this on their side each time document is changed.
+     * Server will return this on its completion so clients can 
+     * discard if document was changed/version was increased.
+     */
+    docVersion: number;
+
+    /**
+     * The cursor position.
+     */
+    position: {
+       line: number;
+       character: number;
+    };
+}
+```
+
+_Response:_ `CompletionInlineResponse | Error`
+
+```typescript
+interface CompletionInlineResponse {
+    /**
+     * The items available as completion.
+     */
+    items: CompletionInlineItem[];
+}
+
+interface CompletionInlineItem {
+    /**
+     * The item text
+     */
+    text: string;
+
+    /**
+     * The item doc-version
+     */
+    docVersion: number;
+    
+    /**
+     * The range of this new text in the document
+     */
+    range: Range;
+}
+```
 
 ### Edit (↩️)
 
@@ -1494,17 +1566,5 @@ _Request:_
 * params: `ShowMessageParams` defined as follows:
 
 ```typescript
-interface ShowMessageParams {
-    /**
-     * The message type. See {@link MessageType}.
-    */
-    type: MessageType;
-
-    /**
-     * The actual message.
-     */
-    message: string;
-}
-
-export type MessageType = 'error' | 'warning' | 'info';
+type ShowMessageParams = Error;
 ```

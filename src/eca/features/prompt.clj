@@ -25,9 +25,6 @@
 (defn ^:private title-prompt-template* [] (slurp (io/resource "prompts/title.md")))
 (def ^:private title-prompt-template (memoize title-prompt-template*))
 
-(defn ^:private inline-completion-prompt-template* [] (slurp (io/resource "prompts/inline_completion.md")))
-(def ^:private inline-completion-prompt-template (memoize inline-completion-prompt-template*))
-
 (defn ^:private compact-prompt-template* [file-path]
   (if (fs/relative? file-path)
     (slurp (io/resource file-path))
@@ -46,7 +43,7 @@
   (let [behavior-config (get-in config [:behavior behavior])
         ;; Use systemPromptFile from behavior config, or fall back to built-in
         prompt-file (or (:systemPromptFile behavior-config)
-                       ;; For built-in behaviors without explicit config
+                        ;; For built-in behaviors without explicit config
                         (when (#{"agent" "plan"} behavior)
                           (str "prompts/" behavior "_behavior.md")))]
     (cond
@@ -116,8 +113,16 @@
                          (format "You MUST respect this user input in the summarization: %s." additional-input)
                          "")}))
 
-(defn inline-completion-prompt []
-  (inline-completion-prompt-template))
+(defn inline-completion-prompt [config]
+  (let [prompt-file (get-in config [:completion :systemPromptFile])]
+    (cond
+      ;; Absolute path
+      (and prompt-file (string/starts-with? prompt-file "/"))
+      (slurp prompt-file)
+
+      ;; Resource path
+      :else
+      (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" ""))))))
 
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))

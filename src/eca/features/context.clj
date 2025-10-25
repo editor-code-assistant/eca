@@ -165,7 +165,6 @@
                             (when (or (string/starts-with? query "./")
                                       (string/starts-with? query "../"))
                               (fs/file first-project-path query))))
-        _ (logger/info "--->" relative-path)
         relative-files (when relative-path
                          (mapv file->context
                                (try
