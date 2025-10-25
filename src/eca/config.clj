@@ -4,7 +4,9 @@
   1. base: fixed config var `eca.config/initial-config`.
   2. env var: searching for a `ECA_CONFIG` env var which should contains a valid json config.
   3. local config-file: searching from a local `.eca/config.json` file.
-  4. `initializatonOptions` sent in `initialize` request."
+  4. `initializatonOptions` sent in `initialize` request.
+
+  When `:config-file` from cli option is passed, it uses that instead of searching default locations."
   (:require
    [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
@@ -23,10 +25,13 @@
 (def ^:private logger-tag "[CONFIG]")
 
 (def ^:dynamic *env-var-config-error* false)
+(def ^:dynamic *cli-file-config-error* false)
 (def ^:dynamic *global-config-error* false)
 (def ^:dynamic *local-config-error* false)
 
 (def ^:private listen-idle-ms 3000)
+
+(def config-file-path-from-cli* (atom nil))
 
 (def initial-config
   {:providers {"openai" {:api "openai-responses"
@@ -148,6 +153,14 @@
 
 (def ^:private config-from-envvar (memoize config-from-envvar*))
 
+(defn ^:private config-from-cli* []
+  (when-some [path @config-file-path-from-cli*]
+    (let [config-file (io/file path)]
+      (when (.exists config-file)
+        (safe-read-json-string (slurp config-file) (var *cli-file-config-error*))))))
+
+(def ^:private config-from-cli (memoize config-from-cli*))
+
 (defn global-config-dir ^File []
   (let [xdg-config-home (or (get-env "XDG_CONFIG_HOME")
                             (io/file (get-property "user.home") ".config"))]
@@ -262,6 +275,13 @@
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
     [:otlp]]})
 
+(defn ^:private config-from-cli-or-default-location [pure-config? db]
+  (if-some [config-from-cli (config-from-cli)]
+    (when-not pure-config? config-from-cli)
+    (deep-merge
+     (when-not pure-config? (config-from-global-file))
+     (when-not pure-config? (config-from-local-file (:workspace-folders db))))))
+
 (defn all [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)]
@@ -270,8 +290,7 @@
                  eca-config-normalization-rules
                  (deep-merge initialization-config
                              (when-not pure-config? (config-from-envvar))
-                             (when-not pure-config? (config-from-global-file))
-                             (when-not pure-config? (config-from-local-file (:workspace-folders db))))))))
+                             (config-from-cli-or-default-location pure-config? db))))))
 
 (defn validation-error []
   (cond

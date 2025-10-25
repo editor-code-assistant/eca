@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `:config-file` cli option to pass in config.
+
 ## 0.72.2
 
 - Run `preToolCall` hook before user approval if any. #170
