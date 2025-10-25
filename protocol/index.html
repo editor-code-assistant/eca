@@ -598,6 +598,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#basic-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic structures
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#initialize" class="md-nav__link">
     <span class="md-ellipsis">
       Initialize (↩️)
@@ -1079,6 +1088,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#basic-structures" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic structures
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#initialize" class="md-nav__link">
     <span class="md-ellipsis">
       Initialize (↩️)
@@ -1440,6 +1458,26 @@ separated by a <code>\r\n</code>.</p>
 </div>
 </div>
 </div>
+<h3 id="basic-structures">Basic structures<a class="headerlink" href="#basic-structures" title="Permanent link">#</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">export</span><span class="w"> </span><span class="kr">type</span><span class="w"> </span><span class="nx">ErrorType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;warning&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;info&#39;</span><span class="p">;</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="ne">Error</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="nx">ErrorType</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">Range</span><span class="w"> </span><span class="p">{</span>
+<span class="w">   </span><span class="nx">start</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">       </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">       </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">   </span><span class="p">};</span>
+
+<span class="w">   </span><span class="nx">end</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">       </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">       </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">   </span><span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="initialize">Initialize (↩️)<a class="headerlink" href="#initialize" title="Permanent link">#</a></h3>
 <p>The first request sent from client to server. This message:
 - Establishes the connection
@@ -2552,17 +2590,7 @@ Useful for server to provide to LLM information about errors/warnings about curr
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The diagnostic range (1-based).</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nx">start</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
-<span class="w">            </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
-<span class="w">        </span><span class="p">};</span>
-
-<span class="w">        </span><span class="nx">end</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
-<span class="w">            </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
-<span class="w">        </span><span class="p">};</span>
-<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="kt">Range</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The diagnostic code. Ex: &#39;wrong-args&#39;</span>
@@ -2576,7 +2604,60 @@ Useful for server to provide to LLM information about errors/warnings about curr
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="completion">Completion (↩️)<a class="headerlink" href="#completion" title="Permanent link">#</a></h3>
-<p>Soon</p>
+<p>A request sent from client to server, asking for a text to be presented to user as a inline completion for the current text code.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>completion/inline</code></li>
+<li>params: <code>CompletionInlineParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">CompletionInlineParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The current document text.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">docText</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The document version.</span>
+<span class="cm">     * Clients should increment this on their side each time document is changed.</span>
+<span class="cm">     * Server will return this on its completion so clients can </span>
+<span class="cm">     * discard if document was changed/version was increased.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">docVersion</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The cursor position.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">position</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">       </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">       </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em> <code>CompletionInlineResponse | Error</code></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">CompletionInlineResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The items available as completion.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">items</span><span class="o">:</span><span class="w"> </span><span class="kt">CompletionInlineItem</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">CompletionInlineItem</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The item text</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The item doc-version</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">docVersion</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The range of this new text in the document</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="kt">Range</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="edit">Edit (↩️)<a class="headerlink" href="#edit" title="Permanent link">#</a></h3>
 <p>Soon</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
@@ -2744,19 +2825,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
 <li>method: <code>$/showMessage</code></li>
 <li>params: <code>ShowMessageParams</code> defined as follows:</li>
 </ul>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ShowMessageParams</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The message type. See {@link MessageType}.</span>
-<span class="cm">    */</span>
-<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="nx">MessageType</span><span class="p">;</span>
-
-<span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The actual message.</span>
-<span class="cm">     */</span>
-<span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="k">export</span><span class="w"> </span><span class="kr">type</span><span class="w"> </span><span class="nx">MessageType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;warning&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;info&#39;</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="kr">type</span><span class="w"> </span><span class="nx">ShowMessageParams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ne">Error</span><span class="p">;</span>
 </code></pre></div>
 
 
@@ -2778,7 +2847,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 25, 2025 19:27:18 UTC">October 25, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 25, 2025 21:51:26 UTC">October 25, 2025</span>
   </span>
 
     
