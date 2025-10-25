@@ -141,9 +141,11 @@ ECA has support for [OpenTelemetry](https://opentelemetry.io/)(otlp), if configu
 
 For more details check [its configuration](./configuration.md#opentelemetry-integration).
 
-##  Completion
+##  Completion (alpha)
 
-Soon
+Inline code completion
+
+![](./images/features/inline_completion.png)
 
 ## Edit 
 
