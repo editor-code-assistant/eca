@@ -90,11 +90,10 @@
   (hk/close ch))
 
 (defn ^:private chat-title-text-0 [ch]
-  (send-sse! ch {:choices [{:delta {:content "Some Cool"}}]})
-  (send-sse! ch {:choices [{:delta {:content " Title"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 10}})
-  (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
-  (hk/close ch))
+  (hk/send! ch
+            (json/generate-string
+             {:choices [{:message {:content "Some Cool Title"}}]})
+            true))
 
 (defn handle-openai-chat [req]
   ;; Capture and normalize the request body for assertions in tests
