@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve chat title generation.
+
 ## 0.73.0
 
 - Add `:config-file` cli option to pass in config.

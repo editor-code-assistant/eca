@@ -564,11 +564,13 @@
         (when-let [{:keys [result]} (llm-api/sync-prompt!
                                      {:provider provider
                                       :model model
-                                      :model-capabilities model-capabilities
+                                      :model-capabilities (assoc model-capabilities
+                                                                 :reason? false
+                                                                 :tools false
+                                                                 :web-search false)
                                       :instructions (f.prompt/title-prompt)
                                       :user-messages user-messages
                                       :config config
-                                      :tools []
                                       :provider-auth provider-auth})]
           (when result
             (let [title (subs result 0 (min (count result) 30))]
