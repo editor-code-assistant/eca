@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improve chat title generation.
+- Fix completion error handling.
 
 ## 0.73.0
 

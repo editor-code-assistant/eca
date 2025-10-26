@@ -72,7 +72,8 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           past-messages tools provider-auth sync?]}]
+           past-messages tools provider-auth sync?]
+    :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities)
                 (mapv tool->llm-tool tools))
@@ -274,5 +275,4 @@
     :past-messages past-messages
     :user-messages (or user-messages
                        [{:role "user" :content [{:type :text :text prompt}]}])
-    :config config
-    :on-error identity}))
+    :config config}))

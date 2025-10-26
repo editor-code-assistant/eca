@@ -108,7 +108,7 @@
 
 (defn chat-query-commands [{:keys [db* config metrics]} params]
   (metrics/task metrics :eca/chat-query-commands
-                (f.chat/query-commands params db* config)))
+    (f.chat/query-commands params db* config)))
 
 (defn chat-tool-call-approve [{:keys [messenger db* metrics]} params]
   (metrics/task metrics :eca/chat-tool-call-approve

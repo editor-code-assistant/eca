@@ -36,7 +36,7 @@
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" body)
-                     (reset! response* error-data)))]
+                     (reset! response* {:error error-data})))]
     (llm-util/log-request logger-tag rid url body)
     @(http/post
       url
