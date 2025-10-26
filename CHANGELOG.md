@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.73.3
+
 - Fix tool call approval ignoring configs for mcp servers.
 
 ## 0.73.2
