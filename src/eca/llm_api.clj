@@ -275,4 +275,5 @@
     :past-messages past-messages
     :user-messages (or user-messages
                        [{:role "user" :content [{:type :text :text prompt}]}])
-    :config config}))
+    :config config
+    :on-error (fn [error] {:error error})}))

@@ -399,7 +399,7 @@ You can configure which model and system prompt ECA will use during its inline c
     ```javascript title="~/.config/eca/config.json"
     {
       "completion": {
-        "model": "github-copilot/gpt-4o",
+        "model": "github-copilot/gpt-4.1",
         "systemPromptFile": "/path/to/my-prompt.md"
       }
     }
@@ -583,7 +583,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }
       },
       "completion": {
-        "model": "openai/gpt-4o",
+        "model": "openai/gpt-4.1",
         "systemPromptFile": "prompts/inline_completion.md"
       }
     }

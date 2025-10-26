@@ -4,6 +4,7 @@
 
 - Improve chat title generation.
 - Fix completion error handling.
+- Default to `openai/gpt-4.1` on completion.
 
 ## 0.73.0
 
