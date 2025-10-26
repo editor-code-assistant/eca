@@ -94,126 +94,129 @@
                      :on-tools-called on-tools-called
                      :on-reason on-reason
                      :on-usage-updated on-usage-updated})]
-    (try
-      (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
-      (cond
-        (= "openai" provider)
-        (llm-providers.openai/create-response!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :web-search web-search
-          :extra-payload (merge {:parallel_tool_calls true}
-                                extra-payload)
-          :api-url api-url
-          :api-key api-key
-          :auth-type provider-auth-type}
-         callbacks)
-
-        (= "anthropic" provider)
-        (llm-providers.anthropic/chat!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :web-search web-search
-          :extra-payload extra-payload
-          :api-url api-url
-          :api-key api-key
-          :auth-type provider-auth-type}
-         callbacks)
-
-        (= "github-copilot" provider)
-        (llm-providers.openai-chat/chat-completion!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :extra-payload (merge {:parallel_tool_calls true}
-                                extra-payload)
-          :api-url api-url
-          :api-key api-key
-          :extra-headers {"openai-intent" "conversation-panel"
-                          "x-request-id" (str (random-uuid))
-                          "vscode-sessionid" ""
-                          "vscode-machineid" ""
-                          "Copilot-Vision-Request" "true"
-                          "copilot-integration-id" "vscode-chat"}}
-         callbacks)
-
-        (= "google" provider)
-        (llm-providers.openai-chat/chat-completion!
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :thinking-tag "thought"
-          :extra-payload (merge {:parallel_tool_calls false}
-                                (when reason?
-                                  {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
-                                extra-payload)
-          :api-url api-url
-          :api-key api-key}
-         callbacks)
-
-        (= "ollama" provider)
-        (llm-providers.ollama/chat!
-         {:api-url api-url
-          :reason? (:reason? model-capabilities)
-          :supports-image? supports-image?
-          :model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :past-messages past-messages
-          :tools tools
-          :extra-payload extra-payload}
-         callbacks)
-
-        model-config
-        (let [provider-fn (case (:api provider-config)
-                            ("openai-responses"
-                             "openai") llm-providers.openai/create-response!
-                            "anthropic" llm-providers.anthropic/chat!
-                            "openai-chat" llm-providers.openai-chat/chat-completion!
-                            (on-error {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
-              url-relative-path (:completionUrlRelativePath provider-config)]
-          (provider-fn
+    ;; We spawn a new future to not block the lsp4clj thread
+    ;; in case a tool call approval is needed
+    (future
+      (try
+        (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
+        (cond
+          (= "openai" provider)
+          (llm-providers.openai/create-response!
            {:model real-model
             :instructions instructions
             :user-messages user-messages
             :max-output-tokens max-output-tokens
-            :web-search web-search
             :reason? reason?
             :supports-image? supports-image?
             :past-messages past-messages
             :tools tools
+            :web-search web-search
+            :extra-payload (merge {:parallel_tool_calls true}
+                                  extra-payload)
+            :api-url api-url
+            :api-key api-key
+            :auth-type provider-auth-type}
+           callbacks)
+
+          (= "anthropic" provider)
+          (llm-providers.anthropic/chat!
+           {:model real-model
+            :instructions instructions
+            :user-messages user-messages
+            :max-output-tokens max-output-tokens
+            :reason? reason?
+            :supports-image? supports-image?
+            :past-messages past-messages
+            :tools tools
+            :web-search web-search
             :extra-payload extra-payload
-            :url-relative-path url-relative-path
+            :api-url api-url
+            :api-key api-key
+            :auth-type provider-auth-type}
+           callbacks)
+
+          (= "github-copilot" provider)
+          (llm-providers.openai-chat/chat-completion!
+           {:model real-model
+            :instructions instructions
+            :user-messages user-messages
+            :max-output-tokens max-output-tokens
+            :reason? reason?
+            :supports-image? supports-image?
+            :past-messages past-messages
+            :tools tools
+            :extra-payload (merge {:parallel_tool_calls true}
+                                  extra-payload)
+            :api-url api-url
+            :api-key api-key
+            :extra-headers {"openai-intent" "conversation-panel"
+                            "x-request-id" (str (random-uuid))
+                            "vscode-sessionid" ""
+                            "vscode-machineid" ""
+                            "Copilot-Vision-Request" "true"
+                            "copilot-integration-id" "vscode-chat"}}
+           callbacks)
+
+          (= "google" provider)
+          (llm-providers.openai-chat/chat-completion!
+           {:model real-model
+            :instructions instructions
+            :user-messages user-messages
+            :max-output-tokens max-output-tokens
+            :reason? reason?
+            :supports-image? supports-image?
+            :past-messages past-messages
+            :tools tools
+            :thinking-tag "thought"
+            :extra-payload (merge {:parallel_tool_calls false}
+                                  (when reason?
+                                    {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
+                                  extra-payload)
             :api-url api-url
             :api-key api-key}
-           callbacks))
+           callbacks)
 
-        :else
-        (on-error {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
-      (catch Exception e
-        (on-error {:exception e})))))
+          (= "ollama" provider)
+          (llm-providers.ollama/chat!
+           {:api-url api-url
+            :reason? (:reason? model-capabilities)
+            :supports-image? supports-image?
+            :model real-model
+            :instructions instructions
+            :user-messages user-messages
+            :past-messages past-messages
+            :tools tools
+            :extra-payload extra-payload}
+           callbacks)
+
+          model-config
+          (let [provider-fn (case (:api provider-config)
+                              ("openai-responses"
+                               "openai") llm-providers.openai/create-response!
+                              "anthropic" llm-providers.anthropic/chat!
+                              "openai-chat" llm-providers.openai-chat/chat-completion!
+                              (on-error {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
+                url-relative-path (:completionUrlRelativePath provider-config)]
+            (provider-fn
+             {:model real-model
+              :instructions instructions
+              :user-messages user-messages
+              :max-output-tokens max-output-tokens
+              :web-search web-search
+              :reason? reason?
+              :supports-image? supports-image?
+              :past-messages past-messages
+              :tools tools
+              :extra-payload extra-payload
+              :url-relative-path url-relative-path
+              :api-url api-url
+              :api-key api-key}
+             callbacks))
+
+          :else
+          (on-error {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
+        (catch Exception e
+          (on-error {:exception e}))))))
 
 (defn async-prompt! [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
                              on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
@@ -264,16 +267,16 @@
 (defn sync-prompt!
   [{:keys [provider model model-capabilities instructions
            prompt past-messages user-messages config tools provider-auth]}]
-  (prompt!
-   {:sync? true
-    :provider provider
-    :model model
-    :model-capabilities model-capabilities
-    :instructions instructions
-    :tools tools
-    :provider-auth provider-auth
-    :past-messages past-messages
-    :user-messages (or user-messages
-                       [{:role "user" :content [{:type :text :text prompt}]}])
-    :config config
-    :on-error (fn [error] {:error error})}))
+  @(prompt!
+    {:sync? true
+     :provider provider
+     :model model
+     :model-capabilities model-capabilities
+     :instructions instructions
+     :tools tools
+     :provider-auth provider-auth
+     :past-messages past-messages
+     :user-messages (or user-messages
+                        [{:role "user" :content [{:type :text :text prompt}]}])
+     :config config
+     :on-error (fn [error] {:error error})}))

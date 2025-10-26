@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix tool call approval thread lock.
+
 ## 0.73.1
 
 - Improve chat title generation.

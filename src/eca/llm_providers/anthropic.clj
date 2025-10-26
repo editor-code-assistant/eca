@@ -99,7 +99,7 @@
                 (doseq [[event data] (llm-util/event-data-seq rdr)]
                   (llm-util/log-response logger-tag rid event data)
                   (on-stream event data content-block* reason-id)))
-              
+
               (do
                 (llm-util/log-response logger-tag rid "response" body)
                 (reset! response*
