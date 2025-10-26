@@ -92,12 +92,12 @@
              (#'f.tools/get-disabled-tools config "plan"))))))
 
 (deftest approval-test
-  (let [all-tools [{:name "eca_read" :server "eca"}
-                   {:name "eca_write" :server "eca"}
-                   {:name "eca_shell" :server "eca" :require-approval-fn (constantly true)}
-                   {:name "eca_plan" :server "eca" :require-approval-fn (constantly false)}
-                   {:name "request" :server "web"}
-                   {:name "download" :server "web"}]]
+  (let [all-tools [{:name "eca_read" :server {:name "eca"}}
+                   {:name "eca_write" :server {:name "eca"}}
+                   {:name "eca_shell" :server {:name "eca"} :require-approval-fn (constantly true)}
+                   {:name "eca_plan" :server {:name "eca"} :require-approval-fn (constantly false)}
+                   {:name "request" :server {:name "web"}}
+                   {:name "download" :server {:name "web"}}]]
     (testing "tool has require-approval-fn which returns true"
       (is (= :ask (f.tools/approval all-tools "eca_shell" {} {} {} nil))))
     (testing "tool has require-approval-fn which returns false we ignore it"
@@ -110,7 +110,8 @@
       (testing "when matches allow config"
         (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web__request" {}}}}} nil)))
         (is (= :allow (f.tools/approval all-tools "eca_read" {} {} {:toolCall {:approval {:allow {"eca_read" {}}}}} nil)))
-        (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil))))
+        (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil)))
+        (is (= :allow (f.tools/approval all-tools "eca_read" {} {} {:toolCall {:approval {:allow {"eca" {}}}}} nil))))
       (testing "when matches ask config"
         (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:ask {"web__request" {}}}}} nil)))
         (is (= :ask (f.tools/approval all-tools "eca_read" {} {} {:toolCall {:approval {:ask {"eca_read" {}}}}} nil)))
@@ -146,8 +147,8 @@
         (is (= :ask (f.tools/approval all-tools "request" {} {} {} nil)))))))
 
 (deftest behavior-specific-approval-test
-  (let [all-tools [{:name "eca_shell_command" :server "eca"}
-                   {:name "eca_read_file" :server "eca"}]]
+  (let [all-tools [{:name "eca_shell_command" :server {:name "eca"}}
+                   {:name "eca_read_file" :server {:name "eca"}}]]
     (testing "behavior-specific approval overrides global rules"
       (let [config {:toolCall {:approval {:byDefault "allow"}}
                     :behavior {"plan" {:toolCall {:approval {:deny {"eca_shell_command" {:argsMatchers {"command" [".*rm.*"]}}}

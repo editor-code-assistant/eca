@@ -216,13 +216,13 @@
       remember-to-approve?
       :allow
 
-      (some #(approval-matches? % server tool-call-name args) deny)
+      (some #(approval-matches? % (:name server) tool-call-name args) deny)
       :deny
 
-      (some #(approval-matches? % server tool-call-name args) ask)
+      (some #(approval-matches? % (:name server) tool-call-name args) ask)
       :ask
 
-      (some #(approval-matches? % server tool-call-name args) allow)
+      (some #(approval-matches? % (:name server) tool-call-name args) allow)
       :allow
 
       (legacy-manual-approval? config tool-call-name)

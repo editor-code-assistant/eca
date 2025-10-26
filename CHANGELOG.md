@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix tool call approval ignoring configs for mcp servers.
+
 ## 0.73.2
 
 - Fix tool call approval thread lock.

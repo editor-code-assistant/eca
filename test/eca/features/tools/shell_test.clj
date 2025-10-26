@@ -148,7 +148,7 @@
       "env")))
 
 (deftest plan-mode-approval-restrictions-test
-  (let [all-tools [{:name "eca_shell_command" :server "eca"}]
+  (let [all-tools [{:name "eca_shell_command" :server {:name "eca"}}]
         config config/initial-config]
 
     (testing "dangerous commands blocked in plan mode via approval"
