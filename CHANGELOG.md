@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.73.2
+
 - Fix tool call approval thread lock.
 
 ## 0.73.1
