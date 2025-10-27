@@ -185,3 +185,10 @@
     (.format (.atZoneSameInstant (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
                                  (ZoneId/systemDefault))
              (DateTimeFormatter/ofPattern pattern))))
+
+(defmacro future*
+  "Wrapper for future unless in tests"
+  [config & body]
+  `(if (= "test" (:env ~config))
+     ~@body
+     (future ~@body)))
