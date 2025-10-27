@@ -129,9 +129,6 @@
                   :last-message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities)
                   :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))))
 
-(defn sum [a b]
-  (+ a b))
-
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]
             (if (keyword? k)
