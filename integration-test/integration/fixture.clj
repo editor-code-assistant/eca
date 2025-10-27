@@ -22,6 +22,7 @@
                      :keyEnv "FOO"}})
 
 (def default-init-options {:pureConfig true
+                           :env "test"
                            :toolCall {:approval {:byDefault "allow"}}
                            :providers default-providers})
 

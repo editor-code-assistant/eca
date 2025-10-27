@@ -129,9 +129,6 @@
                   :last-message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities)
                   :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))))
 
-(defn sum [a b]
-  (+ a b))
-
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]
             (if (keyword? k)
@@ -185,3 +182,10 @@
     (.format (.atZoneSameInstant (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
                                  (ZoneId/systemDefault))
              (DateTimeFormatter/ofPattern pattern))))
+
+(defmacro future*
+  "Wrapper for future unless in tests"
+  [config & body]
+  `(if (= "test" (:env ~config))
+     ~@body
+     (future ~@body)))

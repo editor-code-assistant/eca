@@ -30,7 +30,7 @@
   (testing "Include enabled native tools"
     (is (match?
          (m/embeds [{:name "eca_directory_tree"
-                     :server "eca"
+                     :server {:name "eca"}
                      :description string?
                      :parameters some?
                      :origin :native}])

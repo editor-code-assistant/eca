@@ -18,7 +18,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :as shared :refer [assoc-some]]))
+   [eca.shared :as shared :refer [assoc-some future*]]))
 
 (set! *warn-on-reflection* true)
 
@@ -560,7 +560,7 @@
                                                    usage))))]
 
     (when-not (get-in db [:chats chat-id :title])
-      (future
+      (future* config
         (when-let [{:keys [result]} (llm-api/sync-prompt!
                                      {:provider provider
                                       :model model
@@ -726,7 +726,7 @@
                                                                                          :origin origin
                                                                                          :server server-name)})
                                                         ;; assert: In :executing or :stopping
-                                                       (let [state (get-tool-call-state  @db* chat-id id)
+                                                       (let [state (get-tool-call-state @db* chat-id id)
                                                              status (:status state)]
                                                          (case status
                                                            :executing (transition-tool-call! db* chat-ctx id :execution-end

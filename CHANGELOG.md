@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Improved `eca_edit_file` to automatically handle whitespace and indentation differences in single-occurrence edits.
+
+## 0.73.5
+
+- Support use API keys even if subscription is logged. #175
+
+## 0.73.4
+
+- Fix tool call approval ignoring eca tools.
 
 ## 0.73.3
 
