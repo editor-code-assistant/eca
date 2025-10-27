@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.73.4
+
 - Fix tool call approval ignoring eca tools.
 
 ## 0.73.3
