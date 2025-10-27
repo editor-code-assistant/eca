@@ -84,9 +84,8 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         extra-payload (:extraPayload model-config)
-        api-key (llm-util/provider-api-key provider provider-auth config)
+        [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
-        provider-auth-type (:type provider-auth)
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -112,7 +111,7 @@
                                 extra-payload)
           :api-url api-url
           :api-key api-key
-          :auth-type provider-auth-type}
+          :auth-type auth-type}
          callbacks)
 
         (= "anthropic" provider)
@@ -129,7 +128,7 @@
           :extra-payload extra-payload
           :api-url api-url
           :api-key api-key
-          :auth-type provider-auth-type}
+          :auth-type auth-type}
          callbacks)
 
         (= "github-copilot" provider)
@@ -251,61 +250,61 @@
                   (:stream extra-payload)
                   true)]
     (if (not stream?)
-      (let [result @(prompt!
-                     {:sync? true
-                      :provider provider
-                      :model model
-                      :model-capabilities model-capabilities
-                      :instructions instructions
-                      :tools tools
-                      :provider-auth provider-auth
-                      :past-messages past-messages
-                      :user-messages user-messages
-                      :on-error on-error-wrapper
-                      :config config})
-            {:keys [output-text reason-text tools-called reason-id usage]} result]
+      (let [result (prompt!
+                    {:sync? true
+                     :provider provider
+                     :model model
+                     :model-capabilities model-capabilities
+                     :instructions instructions
+                     :tools tools
+                     :provider-auth provider-auth
+                     :past-messages past-messages
+                     :user-messages user-messages
+                     :on-error on-error-wrapper
+                     :config config})
+            {:keys [output-text reason-text tools-to-call call-tools-fn reason-id usage]} result]
         (when reason-text
           (on-reason-wrapper {:status :started :id reason-id})
           (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
           (on-reason-wrapper {:status :finished :id reason-id}))
         (on-message-received-wrapper {:type :text :text output-text})
-        (when (seq tools-called)
-          (doseq [tool-called tools-called]
-            (on-prepare-tool-call tool-called))
-          (on-tools-called tools-called))
         (some-> usage (on-usage-updated))
+        (when (seq tools-to-call)
+          (doseq [tool-to-call tools-to-call]
+            (on-prepare-tool-call tool-to-call))
+          (call-tools-fn on-tools-called))
         (on-message-received-wrapper {:type :finish :finish-reason "stop"}))
-      @(prompt!
-        {:sync? false
-         :provider provider
-         :model model
-         :model-capabilities model-capabilities
-         :instructions instructions
-         :tools tools
-         :provider-auth provider-auth
-         :past-messages past-messages
-         :user-messages user-messages
-         :on-message-received on-message-received-wrapper
-         :on-prepare-tool-call on-prepare-tool-call-wrapper
-         :on-tools-called on-tools-called
-         :on-usage-updated on-usage-updated
-         :on-reason on-reason-wrapper
-         :on-error on-error-wrapper
-         :config config}))))
+      (prompt!
+       {:sync? false
+        :provider provider
+        :model model
+        :model-capabilities model-capabilities
+        :instructions instructions
+        :tools tools
+        :provider-auth provider-auth
+        :past-messages past-messages
+        :user-messages user-messages
+        :on-message-received on-message-received-wrapper
+        :on-prepare-tool-call on-prepare-tool-call-wrapper
+        :on-tools-called on-tools-called
+        :on-usage-updated on-usage-updated
+        :on-reason on-reason-wrapper
+        :on-error on-error-wrapper
+        :config config}))))
 
 (defn sync-prompt!
   [{:keys [provider model model-capabilities instructions
            prompt past-messages user-messages config tools provider-auth]}]
-  @(prompt!
-    {:sync? true
-     :provider provider
-     :model model
-     :model-capabilities model-capabilities
-     :instructions instructions
-     :tools tools
-     :provider-auth provider-auth
-     :past-messages past-messages
-     :user-messages (or user-messages
-                        [{:role "user" :content [{:type :text :text prompt}]}])
-     :config config
-     :on-error (fn [error] {:error error})}))
+  (prompt!
+   {:sync? true
+    :provider provider
+    :model model
+    :model-capabilities model-capabilities
+    :instructions instructions
+    :tools tools
+    :provider-auth provider-auth
+    :past-messages past-messages
+    :user-messages (or user-messages
+                       [{:role "user" :content [{:type :text :text prompt}]}])
+    :config config
+    :on-error (fn [error] {:error error})}))

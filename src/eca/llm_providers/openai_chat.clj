@@ -65,16 +65,18 @@
            :function (select-keys tool [:name :description :parameters])})
         tools))
 
-(defn ^:private response-body->result [body]
-  (try
+(defn ^:private response-body->result [body on-tools-called-wrapper]
+  (let [tools-to-call (->> (:choices body)
+                           (mapcat (comp :tool_calls :message))
+                           (map (fn [tool-call]
+                                  {:id (:id tool-call)
+                                   :name (:name (:function tool-call))
+                                   :arguments (json/parse-string (:arguments (:function tool-call)))})))]
     {:usage (parse-usage (:usage body))
      :reason-id (str (random-uuid))
-     :tools-called (->> (:choices body)
-                        (mapcat (comp :tool_calls :message))
-                        (map (fn [tool-call]
-                               {:id (:id tool-call)
-                                :name (:name (:function tool-call))
-                                :arguments (json/parse-string (:arguments (:function tool-call)))})))
+     :tools-to-call tools-to-call
+     :call-tools-fn (fn [on-tools-called]
+                      (on-tools-called-wrapper tools-to-call on-tools-called nil))
      :reason-text (->> (:choices body)
                        (map (comp :reasoning :message))
                        (string/join "\n")
@@ -82,18 +84,16 @@
      :output-text (->> (:choices body)
                        (map (comp :content :message))
                        (string/join "\n")
-                       not-empty)}
-    (catch Exception e
-      (logger/error e))))
+                       not-empty)}))
 
-(defn ^:private base-chat-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream]}]
+(defn ^:private base-chat-request!
+  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-tools-called-wrapper]}]
   (let [url (str api-url (or url-relative-path chat-completions-path))
-        response* (atom nil)
         on-error (if on-stream
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" error-data)
-                     (reset! response* error-data)))]
+                     error-data))]
     (llm-util/log-request logger-tag rid url body)
     @(http/post
       url
@@ -118,16 +118,15 @@
                 (on-stream "stream-end" {}))
               (do
                 (llm-util/log-response logger-tag rid "full-response" body)
-                (reset! response* (response-body->result body)))))
+                (response-body->result body on-tools-called-wrapper))))
           (catch Exception e
             (on-error {:exception e}))))
       (fn [e]
-        (on-error {:exception e})))
-    @response*))
+        (on-error {:exception e})))))
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles."
-  [{:keys [role content] :as _msg} supports-image? thinking-start-block thinking-end-block]
+  [{:keys [role content] :as _msg} supports-image? thinking-start-tag thinking-end-tag]
   (case role
     "tool_call" {:type :tool-call ; Special marker for accumulation
                  :data {:id (:id content)
@@ -141,7 +140,7 @@
             :content (extract-content content supports-image?)}
     "reason" {:role "assistant"
               :content [{:type "text"
-                         :text (str thinking-start-block (:text content) thinking-end-block)}]}
+                         :text (str thinking-start-tag (:text content) thinking-end-tag)}]}
     "assistant" {:role "assistant"
                  :content (extract-content content supports-image?)}
     "system" {:role "system"
@@ -194,18 +193,16 @@
    'assistant' role message, not as separate messages. This function ensures compliance
    with that requirement by accumulating tool calls and flushing them into assistant
    messages when a non-tool_call message is encountered."
-  [messages supports-image? thinking-start-block thinking-end-block]
+  [messages supports-image? thinking-start-tag thinking-end-tag]
   (->> messages
-       (map #(transform-message % supports-image? thinking-start-block thinking-end-block))
+       (map #(transform-message % supports-image? thinking-start-tag thinking-end-tag))
        (remove nil?)
        accumulate-tool-calls
        (filter valid-message?)))
 
 (defn ^:private execute-accumulated-tools!
-  [{:keys [tool-calls-atom instructions extra-headers body api-url api-key url-relative-path
-           on-tools-called on-error handle-response supports-image?
-           thinking-start-block thinking-end-block]}]
-  (let [all-accumulated (vals @tool-calls-atom)
+  [tool-calls* on-tools-called-wrapper on-tools-called handle-response]
+  (let [all-accumulated (vals @tool-calls*)
         completed-tools (->> all-accumulated
                              (filter #(every? % [:id :name :arguments-text]))
                              (map (fn [{:keys [arguments-text name] :as tool-call}]
@@ -220,21 +217,7 @@
         valid-tools (remove :parse-error completed-tools)]
     (if (seq completed-tools)
       ;; We have some completed tools (valid or with errors), so continue the conversation
-      (when-let [{:keys [new-messages]} (on-tools-called valid-tools)]
-        (let [new-messages-list (vec (concat
-                                      (when instructions [{:role "system" :content instructions}])
-                                      (normalize-messages new-messages supports-image? thinking-start-block thinking-end-block)))]
-          (reset! tool-calls-atom {})
-          (let [new-rid (llm-util/gen-rid)]
-            (base-chat-request!
-             {:rid new-rid
-              :body (assoc body :messages new-messages-list)
-              :extra-headers extra-headers
-              :api-url api-url
-              :api-key api-key
-              :url-relative-path url-relative-path
-              :on-error on-error
-              :on-stream (fn [event data] (handle-response event data tool-calls-atom new-rid))}))))
+      (on-tools-called-wrapper valid-tools on-tools-called handle-response)
       ;; No completed tools at all - let the streaming response provide the actual finish_reason
       nil)))
 
@@ -324,9 +307,9 @@
               (assoc-some
                {:model model
                 :messages messages
-                :temperature temperature
                 :stream stream?
                 :max_completion_tokens 32000}
+               :temperature temperature
                :parallel_tool_calls (:parallel_tool_calls extra-payload)
                :tools (when (seq tools) (->tools tools)))
               extra-payload)
@@ -345,7 +328,24 @@
         reasoning-type* (atom nil)
         ;; Incremental parser buffer for content to detect thinking tags across chunks
         content-buffer* (atom "")
-        handle-response (fn handle-response [event data tool-calls-atom rid]
+        on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
+                                  (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
+                                    (let [new-messages-list (vec (concat
+                                                                  (when instructions [{:role "system" :content instructions}])
+                                                                  (normalize-messages new-messages supports-image? thinking-start-tag thinking-end-tag)))
+                                          new-rid (llm-util/gen-rid)]
+                                      (reset! tool-calls* {})
+                                      (base-chat-request!
+                                       {:rid new-rid
+                                        :body (assoc body :messages new-messages-list)
+                                        :on-tools-called-wrapper on-tools-called-wrapper
+                                        :extra-headers extra-headers
+                                        :api-url api-url
+                                        :api-key api-key
+                                        :url-relative-path url-relative-path
+                                        :on-error on-error
+                                        :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* (llm-util/gen-rid))))}))))
+        handle-response (fn handle-response [event data tool-calls* rid]
                           (if (= event "stream-end")
                             (do
                               ;; Flush any leftover buffered content and finish reasoning if needed
@@ -359,20 +359,7 @@
                                 (on-reason {:status :finished :id @current-reason-id*})
                                 (reset! reasoning-started* false)
                                 (reset! reasoning-type* nil))
-                              (execute-accumulated-tools!
-                               {:tool-calls-atom tool-calls-atom
-                                :instructions instructions
-                                :supports-image? supports-image?
-                                :extra-headers extra-headers
-                                :body body
-                                :api-url api-url
-                                :api-key api-key
-                                :url-relative-path url-relative-path
-                                :on-tools-called on-tools-called
-                                :on-error on-error
-                                :thinking-start-block thinking-start-tag
-                                :thinking-end-block thinking-end-tag
-                                :handle-response handle-response}))
+                              (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
                             (when (seq (:choices data))
                               (doseq [choice (:choices data)]
                                 (let [delta (:delta choice)
@@ -425,13 +412,13 @@
                                             unique-id (when id (str rid "-" id))]
                                         (when (and name unique-id)
                                           (on-prepare-tool-call {:id unique-id :name name :arguments-text ""}))
-                                        (swap! tool-calls-atom update tool-key
+                                        (swap! tool-calls* update tool-key
                                                (fn [existing]
                                                  (cond-> (or existing {:index index})
                                                    unique-id (assoc :id unique-id)
                                                    name (assoc :name name)
                                                    args (update :arguments-text (fnil str "") args))))
-                                        (when-let [updated-tool-call (get @tool-calls-atom tool-key)]
+                                        (when-let [updated-tool-call (get @tool-calls* tool-key)]
                                           (when (and (:id updated-tool-call)
                                                      (:name updated-tool-call)
                                                      args)
@@ -464,5 +451,7 @@
       :api-key api-key
       :url-relative-path url-relative-path
       :tool-calls* tool-calls*
+      :on-tools-called-wrapper on-tools-called-wrapper
       :on-error on-error
-      :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* rid)))})))
+      :on-stream (when stream?
+                   (fn [event data] (handle-response event data tool-calls* rid)))})))
