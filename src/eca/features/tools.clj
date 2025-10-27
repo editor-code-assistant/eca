@@ -55,7 +55,7 @@
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
-  (mapv #(assoc % :server "eca") (vals (native-definitions db config))))
+  (mapv #(assoc % :server {:name "eca"}) (vals (native-definitions db config))))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools

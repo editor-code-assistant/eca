@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix tool call approval ignoring eca tools.
+
 ## 0.73.3
 
 - Fix tool call approval ignoring configs for mcp servers.
