@@ -341,7 +341,61 @@
               {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
       (is (match?
            {(h/file-path "/project/foo/my-file.txt") "REPLACED"}
-           @file-content*)))))
+           @file-content*))))
+
+  (testing "Optimistic retry succeeds when file changed between read and write"
+    (let [writes* (atom {})
+          slurp-calls* (atom 0)
+          initial "a b a c"
+          changed "a z a c"
+          path (h/file-path "/project/foo/my-file.txt")]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text (format "Successfully replaced content in %s." path)}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         f.tools.filesystem/allowed-path? (constantly true)
+                         slurp (fn [_]
+                                 (let [n (swap! slurp-calls* inc)]
+                                   (if (= n 1) initial changed)))
+                         spit (fn [f content] (swap! writes* assoc f content))]
+             ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
+              {"path" path
+               "original_content" "a"
+               "new_content" "X"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      ;; Should have applied retry on changed content
+      (is (match?
+           {path "X z a c"}
+           @writes*))))
+
+  (testing "Optimistic retry returns conflict when retry cannot match uniquely"
+    (let [writes* (atom {})
+          slurp-calls* (atom 0)
+          initial "A\nB\nC\n"
+          changed "A\nQ\nC\n"
+          path (h/file-path "/project/foo/my-file.txt")]
+      (is (match?
+           {:error true
+            :contents [{:type :text
+                        :text (format (str "File changed since it was read: %s. "
+                                           "Re-read the file and retry the edit so we don't overwrite concurrent changes.")
+                                      path)}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         f.tools.filesystem/allowed-path? (constantly true)
+                         slurp (fn [_]
+                                 (let [n (swap! slurp-calls* inc)]
+                                   (if (= n 1) initial changed)))
+                         spit (fn [f content] (swap! writes* assoc f content))]
+             ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
+              {"path" path
+               "original_content" "B"
+               "new_content" "X"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      ;; No write should have occurred
+      (is (empty? @writes*)))))
 
 (deftest move-file-test
   (testing "Not readable source path"
