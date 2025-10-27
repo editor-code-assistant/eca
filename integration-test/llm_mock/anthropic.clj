@@ -224,9 +224,7 @@
                                          "Connection" "keep-alive"}}
                            false)
                  (if (string/includes? (:text (last (:system body))) llm.mocks/chat-title-generator-str)
-                   (do
-                     (Thread/sleep 2000) ;; avoid tests failing with mismatch order of contents
-                     (chat-title-text-0 ch))
+                   (chat-title-text-0 ch)
                    (do
                      (llm.mocks/set-req-body! llm.mocks/*case* body)
                      (case llm.mocks/*case*

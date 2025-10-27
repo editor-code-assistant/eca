@@ -18,7 +18,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :as shared :refer [assoc-some]]))
+   [eca.shared :as shared :refer [assoc-some future*]]))
 
 (set! *warn-on-reflection* true)
 
@@ -560,7 +560,7 @@
                                                    usage))))]
 
     (when-not (get-in db [:chats chat-id :title])
-      (future
+      (future* config
         (when-let [{:keys [result]} (llm-api/sync-prompt!
                                      {:provider provider
                                       :model model

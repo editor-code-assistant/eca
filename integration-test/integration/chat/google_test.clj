@@ -31,6 +31,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Knoc"})
@@ -62,7 +63,6 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
-        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
@@ -84,7 +84,6 @@
               :status "prompting"}
              resp))
 
-        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "user" {:type "text" :text "What foo?\n"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -123,6 +122,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "hello!\n"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "reasonStarted" :id (m/pred string?)})

@@ -1,1 +1,2 @@
-{:extra-indents {task [[:inner 0]]}}
+{:extra-indents {task [[:inner 0]]
+                 future* [[:inner 0]]}}
