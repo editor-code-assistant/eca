@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support use API keys even if subscription is logged. #175
+
 ## 0.73.4
 
 - Fix tool call approval ignoring eca tools.

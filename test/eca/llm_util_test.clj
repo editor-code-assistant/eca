@@ -69,7 +69,7 @@
                         {"openai" {:url "https://api.openai.com"
                                    :keyRc "api.openai.com"}}}
                 result (llm-util/provider-api-key "openai" nil config)]
-            (is (= "sk-test-from-netrc" result))))
+            (is (= [:auth/token "sk-test-from-netrc"] result))))
         (finally
           (.delete temp-file))))))
 
@@ -87,20 +87,20 @@
                         {"openai" {:key "sk-explicit-key"
                                    :keyRc "api.openai.com"}}}
                 result (llm-util/provider-api-key "openai" nil config)]
-            (is (= "sk-explicit-key" result)))
+            (is (= [:auth/token "sk-explicit-key"] result)))
 
           ;; Test 2: oauth token takes precedence over keyRc
           (let [config {:providers
                         {"openai" {:keyRc "api.openai.com"}}}
                 provider-auth {:api-key "sk-oauth-token"}
                 result (llm-util/provider-api-key "openai" provider-auth config)]
-            (is (= "sk-oauth-token" result)))
+            (is (= [:auth/oauth "sk-oauth-token"] result)))
 
           ;; Test 3: keyRc is used when key and oauth are not available
           (let [config {:providers
                         {"openai" {:keyRc "api.openai.com"}}}
                 result (llm-util/provider-api-key "openai" nil config)]
-            (is (= "sk-test-from-netrc" result))))
+            (is (= [:auth/token "sk-test-from-netrc"] result))))
         (finally
           (.delete temp-file))))))
 
@@ -118,13 +118,13 @@
           (let [config {:providers
                         {"anthropic" {:keyRc "work@api.anthropic.com"}}}
                 result (llm-util/provider-api-key "anthropic" nil config)]
-            (is (= "sk-ant-work-key" result)))
+            (is (= [:auth/token "sk-ant-work-key"] result)))
 
           ;; Test with different login
           (let [config {:providers
                         {"anthropic" {:keyRc "personal@api.anthropic.com"}}}
                 result (llm-util/provider-api-key "anthropic" nil config)]
-            (is (= "sk-ant-personal-key" result))))
+            (is (= [:auth/token "sk-ant-personal-key"] result))))
         (finally
           (.delete temp-file))))))
 

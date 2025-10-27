@@ -84,9 +84,8 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         extra-payload (:extraPayload model-config)
-        api-key (llm-util/provider-api-key provider provider-auth config)
+        [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
-        provider-auth-type (:type provider-auth)
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -115,7 +114,7 @@
                                   extra-payload)
             :api-url api-url
             :api-key api-key
-            :auth-type provider-auth-type}
+            :auth-type auth-type}
            callbacks)
 
           (= "anthropic" provider)
@@ -132,7 +131,7 @@
             :extra-payload extra-payload
             :api-url api-url
             :api-key api-key
-            :auth-type provider-auth-type}
+            :auth-type auth-type}
            callbacks)
 
           (= "github-copilot" provider)
