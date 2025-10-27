@@ -723,7 +723,7 @@
                                                                                        :origin origin
                                                                                        :server server-name)})
                                                      ;; assert: In :executing or :stopping
-                                                     (let [state (get-tool-call-state  @db* chat-id id)
+                                                     (let [state (get-tool-call-state @db* chat-id id)
                                                            status (:status state)]
                                                        (case status
                                                          :executing (transition-tool-call! db* chat-ctx id :execution-end

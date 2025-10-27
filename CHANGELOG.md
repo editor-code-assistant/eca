@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Improved `eca_edit_file` to automatically handle whitespace and indentation differences in single-occurrence edits.
 
 ## 0.73.5
 
