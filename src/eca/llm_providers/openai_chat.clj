@@ -14,6 +14,14 @@
 
 (def ^:private chat-completions-path "/chat/completions")
 
+(defn ^:private parse-usage [usage]
+  (let [input-cache-read-tokens (-> usage :prompt_tokens_details :cached_tokens)]
+    {:input-tokens (if input-cache-read-tokens
+                     (- (:prompt_tokens usage) input-cache-read-tokens)
+                     (:prompt_tokens usage))
+     :output-tokens (:completion_tokens usage)
+     :input-cache-read-tokens input-cache-read-tokens}))
+
 (defn ^:private extract-content
   "Extract text content from various message content formats.
    Handles: strings (legacy eca), nested arrays from chat.clj, and fallback."
@@ -57,15 +65,35 @@
            :function (select-keys tool [:name :description :parameters])})
         tools))
 
+(defn ^:private response-body->result [body]
+  (try
+    {:usage (parse-usage (:usage body))
+     :reason-id (str (random-uuid))
+     :tools-called (->> (:choices body)
+                        (mapcat (comp :tool_calls :message))
+                        (map (fn [tool-call]
+                               {:id (:id tool-call)
+                                :name (:name (:function tool-call))
+                                :arguments (json/parse-string (:arguments (:function tool-call)))})))
+     :reason-text (->> (:choices body)
+                       (map (comp :reasoning :message))
+                       (string/join "\n")
+                       not-empty)
+     :output-text (->> (:choices body)
+                       (map (comp :content :message))
+                       (string/join "\n")
+                       not-empty)}
+    (catch Exception e
+      (logger/error e))))
+
 (defn ^:private base-chat-request! [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream]}]
   (let [url (str api-url (or url-relative-path chat-completions-path))
         response* (atom nil)
         on-error (if on-stream
                    on-error
                    (fn [error-data]
-                     (llm-util/log-response logger-tag rid "response-error" body)
+                     (llm-util/log-response logger-tag rid "response-error" error-data)
                      (reset! response* error-data)))]
-
     (llm-util/log-request logger-tag rid url body)
     @(http/post
       url
@@ -90,8 +118,7 @@
                 (on-stream "stream-end" {}))
               (do
                 (llm-util/log-response logger-tag rid "full-response" body)
-                (reset! response*
-                        {:result (:content (:message (last (:choices body))))}))))
+                (reset! response* (response-body->result body)))))
           (catch Exception e
             (on-error {:exception e}))))
       (fn [e]
@@ -427,12 +454,7 @@
                                     (when (not= finish-reason "tool_calls")
                                       (on-message-received {:type :finish :finish-reason finish-reason})))))))
                           (when-let [usage (:usage data)]
-                            (on-usage-updated (let [input-cache-read-tokens (-> usage :prompt_tokens_details :cached_tokens)]
-                                                {:input-tokens (if input-cache-read-tokens
-                                                                 (- (:prompt_tokens usage) input-cache-read-tokens)
-                                                                 (:prompt_tokens usage))
-                                                 :output-tokens (:completion_tokens usage)
-                                                 :input-cache-read-tokens input-cache-read-tokens}))))
+                            (on-usage-updated (parse-usage usage))))
         rid (llm-util/gen-rid)]
     (base-chat-request!
      {:rid rid

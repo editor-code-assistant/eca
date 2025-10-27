@@ -65,10 +65,10 @@
               (do
                 (llm-util/log-response logger-tag rid "response" body)
                 (reset! response*
-                        {:result (reduce
-                                  #(str %1 (:text %2))
-                                  ""
-                                  (:content (last (:output body))))}))))
+                        {:output-text (reduce
+                                       #(str %1 (:text %2))
+                                       ""
+                                       (:content (last (:output body))))}))))
           (catch Exception e
             (on-error {:exception e}))))
       (fn [e]
