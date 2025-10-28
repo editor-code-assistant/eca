@@ -1,7 +1,9 @@
 # Changelog
 
 ## Unreleased
+
 - Improved `eca_edit_file` to automatically handle whitespace and indentation differences in single-occurrence edits.
+- Fix contexts in user prompts (not system contexts) not parsing lines ranges properly.
 
 ## 0.73.5
 
