@@ -93,7 +93,7 @@
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" error-data)
-                     error-data))]
+                     {:error error-data}))]
     (llm-util/log-request logger-tag rid url body)
     @(http/post
       url

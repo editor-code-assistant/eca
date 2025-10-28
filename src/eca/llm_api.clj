@@ -262,19 +262,22 @@
                       :user-messages user-messages
                       :on-error on-error-wrapper
                       :config config})]
-        (let [{:keys [output-text reason-text tools-to-call call-tools-fn reason-id usage]} result]
-          (when reason-text
-            (on-reason-wrapper {:status :started :id reason-id})
-            (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
-            (on-reason-wrapper {:status :finished :id reason-id}))
-          (on-message-received-wrapper {:type :text :text output-text})
-          (some-> usage (on-usage-updated))
-          (if-let [new-result (when (seq tools-to-call)
-                                (doseq [tool-to-call tools-to-call]
-                                  (on-prepare-tool-call tool-to-call))
-                                (call-tools-fn on-tools-called))]
-            (recur new-result)
-            (on-message-received-wrapper {:type :finish :finish-reason "stop"}))))
+        (let [{:keys [error output-text reason-text tools-to-call call-tools-fn reason-id usage]} result]
+          (if error
+            (on-error-wrapper error)
+            (do
+              (when reason-text
+                (on-reason-wrapper {:status :started :id reason-id})
+                (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
+                (on-reason-wrapper {:status :finished :id reason-id}))
+              (on-message-received-wrapper {:type :text :text output-text})
+              (some-> usage (on-usage-updated))
+              (if-let [new-result (when (seq tools-to-call)
+                                    (doseq [tool-to-call tools-to-call]
+                                      (on-prepare-tool-call tool-to-call))
+                                    (call-tools-fn on-tools-called))]
+                (recur new-result)
+                (on-message-received-wrapper {:type :finish :finish-reason "stop"}))))))
       (prompt!
        {:sync? false
         :provider provider
