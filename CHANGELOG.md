@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.74.0
+
 - Improved `eca_edit_file` to automatically handle whitespace and indentation differences in single-occurrence edits.
 - Fix contexts in user prompts (not system contexts) not parsing lines ranges properly.
 - Support non-stream providers on openai-chat API. #174
