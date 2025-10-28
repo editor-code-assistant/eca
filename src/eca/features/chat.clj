@@ -586,161 +586,149 @@
                                      :text "Waiting model"})
     ;; We spawn a new future to not block the lsp4clj thread
     ;; in case a tool call approval is needed
-    (future
-      (llm-api/sync-or-async-prompt!
-       {:model model
-        :provider provider
-        :model-capabilities model-capabilities
-        :user-messages user-messages
-        :instructions instructions
-        :past-messages past-messages
-        :config config
-        :tools all-tools
-        :provider-auth provider-auth
-        :on-first-response-received (fn [& _]
-                                      (assert-chat-not-stopped! chat-ctx)
-                                      (doseq [message user-messages]
-                                        (add-to-history! message))
-                                      (send-content! chat-ctx :system {:type :progress
-                                                                       :state :running
-                                                                       :text "Generating"}))
-        :on-usage-updated on-usage-updated
-        :on-message-received (fn [{:keys [type] :as msg}]
-                               (assert-chat-not-stopped! chat-ctx)
-                               (case type
-                                 :text (do
-                                         (swap! received-msgs* str (:text msg))
-                                         (send-content! chat-ctx :assistant {:type :text
-                                                                             :text (:text msg)}))
-                                 :url (send-content! chat-ctx :assistant {:type :url
-                                                                          :title (:title msg)
-                                                                          :url (:url msg)})
-                                 :limit-reached (do
-                                                  (send-content! chat-ctx :system
-                                                                 {:type :text
-                                                                  :text (str "API limit reached. Tokens: " (json/generate-string (:tokens msg)))})
+    (llm-api/sync-or-async-prompt!
+      {:model model
+       :provider provider
+       :model-capabilities model-capabilities
+       :user-messages user-messages
+       :instructions instructions
+       :past-messages past-messages
+       :config config
+       :tools all-tools
+       :provider-auth provider-auth
+       :on-first-response-received (fn [& _]
+                                     (assert-chat-not-stopped! chat-ctx)
+                                     (doseq [message user-messages]
+                                       (add-to-history! message))
+                                     (send-content! chat-ctx :system {:type :progress
+                                                                      :state :running
+                                                                      :text "Generating"}))
+       :on-usage-updated on-usage-updated
+       :on-message-received (fn [{:keys [type] :as msg}]
+                              (assert-chat-not-stopped! chat-ctx)
+                              (case type
+                                :text (do
+                                        (swap! received-msgs* str (:text msg))
+                                        (send-content! chat-ctx :assistant {:type :text
+                                                                            :text (:text msg)}))
+                                :url (send-content! chat-ctx :assistant {:type :url
+                                                                         :title (:title msg)
+                                                                         :url (:url msg)})
+                                :limit-reached (do
+                                                 (send-content! chat-ctx :system
+                                                                {:type :text
+                                                                 :text (str "API limit reached. Tokens: " (json/generate-string (:tokens msg)))})
 
-                                                  (finish-chat-prompt! :idle chat-ctx))
-                                 :finish (do
-                                           (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
-                                           (finish-chat-prompt! :idle chat-ctx))))
-        :on-prepare-tool-call (fn [{:keys [id name arguments-text]}]
-                                (assert-chat-not-stopped! chat-ctx)
-                                (transition-tool-call! db* chat-ctx id :tool-prepare
-                                                       {:name name
-                                                        :server (tool-name->server name all-tools)
-                                                        :origin (tool-name->origin name all-tools)
-                                                        :arguments-text arguments-text
-                                                        :summary (f.tools/tool-call-summary all-tools name nil config)}))
-        :on-tools-called (fn [tool-calls]
-                            ;; If there are multiple tool calls, they are allowed to execute concurrently.
-                           (assert-chat-not-stopped! chat-ctx)
-                            ;; Flush any pending assistant text once before processing multiple tool calls
-                           (when-not (string/blank? @received-msgs*)
-                             (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
-                             (reset! received-msgs* ""))
-                           (let [any-rejected-tool-call?* (atom nil)]
-                             (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
-                                     (let [approved?* (promise) ; created here, stored in the state.
-                                           db @db*
-                                           hook-approved?* (atom true)
-                                           origin (tool-name->origin name all-tools)
-                                           server (tool-name->server name all-tools)
-                                           server-name (:name server)
-                                           approval (f.tools/approval all-tools name arguments db config behavior)
-                                           ask? (= :ask approval)
-                                           details (f.tools/tool-call-details-before-invocation name arguments server db ask?)
-                                           summary (f.tools/tool-call-summary all-tools name arguments config)]
-                                        ;; assert: In :preparing or :stopping or :cleanup
-                                        ;; Inform client the tool is about to run and store approval promise
-                                       (when-not (#{:stopping :cleanup} (:status (get-tool-call-state db chat-id id)))
-                                         (transition-tool-call! db* chat-ctx id :tool-run
-                                                                {:approved?* approved?*
-                                                                 :future-cleanup-complete?* (promise)
-                                                                 :name name
-                                                                 :server server-name
-                                                                 :origin origin
-                                                                 :arguments arguments
-                                                                 :manual-approval ask?
-                                                                 :details details
-                                                                 :summary summary}))
-                                        ;; assert: In: :check-approval or :stopping or :cleanup or :rejected
-                                       (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state db chat-id id)))
-                                         (case approval
-                                           :ask (transition-tool-call! db* chat-ctx id :approval-ask
-                                                                       {:progress-text "Waiting for tool call approval"})
-                                           :allow (transition-tool-call! db* chat-ctx id :approval-allow
-                                                                         {:reason {:code :user-config-allow
-                                                                                   :text "Tool call allowed by user config"}})
-                                           :deny (transition-tool-call! db* chat-ctx id :approval-deny
-                                                                        {:reason {:code :user-config-deny
-                                                                                  :text "Tool call rejected by user config"}})
-                                           (logger/warn logger-tag "Unknown value of approval in config"
-                                                        {:approval approval :tool-call-id id})))
-                                       (f.hooks/trigger-if-matches! :preToolCall
-                                                                    {:chat-id chat-id
-                                                                     :tool-name name
-                                                                     :server server-name
-                                                                     :arguments arguments}
-                                                                    {:on-before-action (partial notify-before-hook-action! chat-ctx)
-                                                                     :on-after-action (fn [result]
-                                                                                        (when (= 2 (:status result))
-                                                                                          (transition-tool-call! db* chat-ctx id :hook-rejected
-                                                                                                                 {:reason {:code :hook-rejected
-                                                                                                                           :text (str "Tool call rejected by hook, output: " (:output result))}})
-                                                                                          (reset! hook-approved?* false))
-                                                                                        (notify-after-hook-action! chat-ctx result))}
-                                                                    db
-                                                                    config)
-                                       (if (and @approved?* @hook-approved?*)
-                                          ;; assert: In :execution-approved or :stopping or :cleanup
-                                         (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
-                                           (assert-chat-not-stopped! chat-ctx)
-                                           (let [;; Since a future starts executing immediately,
-                                                  ;; we need to delay the future so that the add-future action,
-                                                  ;; used implicitly in the transition-tool-call! on the :execution-start event,
-                                                  ;; can activate the future only *after* the state transition to :executing.
-                                                 delayed-future
-                                                 (delay
-                                                   (future
-                                                      ;; assert: In :executing
-                                                     (let [result (f.tools/call-tool! name arguments chat-id id behavior db* config messenger metrics
-                                                                                      (partial get-tool-call-state @db* chat-id id)
-                                                                                      (partial transition-tool-call! db* chat-ctx id))
-                                                           details (f.tools/tool-call-details-after-invocation name arguments details result)
-                                                           {:keys [start-time]} (get-tool-call-state @db* chat-id id)
-                                                           total-time-ms (- (System/currentTimeMillis) start-time)]
-                                                       (add-to-history! {:role "tool_call"
-                                                                         :content (assoc tool-call
-                                                                                         :details details
-                                                                                         :summary summary
-                                                                                         :origin origin
-                                                                                         :server server-name)})
-                                                       (add-to-history! {:role "tool_call_output"
-                                                                         :content (assoc tool-call
-                                                                                         :error (:error result)
-                                                                                         :output result
-                                                                                         :total-time-ms total-time-ms
-                                                                                         :details details
-                                                                                         :summary summary
-                                                                                         :origin origin
-                                                                                         :server server-name)})
-                                                        ;; assert: In :executing or :stopping
-                                                       (let [state (get-tool-call-state @db* chat-id id)
-                                                             status (:status state)]
-                                                         (case status
-                                                           :executing (transition-tool-call! db* chat-ctx id :execution-end
-                                                                                             {:origin origin
-                                                                                              :name name
-                                                                                              :server server-name
-                                                                                              :arguments arguments
-                                                                                              :error (:error result)
-                                                                                              :outputs (:contents result)
-                                                                                              :total-time-ms total-time-ms
-                                                                                              :progress-text "Generating"
-                                                                                              :details details
-                                                                                              :summary summary})
-                                                           :stopping (transition-tool-call! db* chat-ctx id :stop-attempted
+                                                 (finish-chat-prompt! :idle chat-ctx))
+                                :finish (do
+                                          (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
+                                          (finish-chat-prompt! :idle chat-ctx))))
+       :on-prepare-tool-call (fn [{:keys [id name arguments-text]}]
+                               (assert-chat-not-stopped! chat-ctx)
+                               (transition-tool-call! db* chat-ctx id :tool-prepare
+                                                      {:name name
+                                                       :server (tool-name->server name all-tools)
+                                                       :origin (tool-name->origin name all-tools)
+                                                       :arguments-text arguments-text
+                                                       :summary (f.tools/tool-call-summary all-tools name nil config)}))
+       :on-tools-called (fn [tool-calls]
+                          ;; If there are multiple tool calls, they are allowed to execute concurrently.
+                          (assert-chat-not-stopped! chat-ctx)
+                          ;; Flush any pending assistant text once before processing multiple tool calls
+                          (when-not (string/blank? @received-msgs*)
+                            (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
+                            (reset! received-msgs* ""))
+                          (let [any-rejected-tool-call?* (atom nil)]
+                            (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
+                                    (let [approved?* (promise) ; created here, stored in the state.
+                                          db @db*
+                                          hook-approved?* (atom true)
+                                          origin (tool-name->origin name all-tools)
+                                          server (tool-name->server name all-tools)
+                                          server-name (:name server)
+                                          approval (f.tools/approval all-tools name arguments db config behavior)
+                                          ask? (= :ask approval)
+                                          details (f.tools/tool-call-details-before-invocation name arguments server db ask?)
+                                          summary (f.tools/tool-call-summary all-tools name arguments config)]
+                                      ;; assert: In :preparing or :stopping or :cleanup
+                                      ;; Inform client the tool is about to run and store approval promise
+                                      (when-not (#{:stopping :cleanup} (:status (get-tool-call-state db chat-id id)))
+                                        (transition-tool-call! db* chat-ctx id :tool-run
+                                                               {:approved?* approved?*
+                                                                :future-cleanup-complete?* (promise)
+                                                                :name name
+                                                                :server server-name
+                                                                :origin origin
+                                                                :arguments arguments
+                                                                :manual-approval ask?
+                                                                :details details
+                                                                :summary summary}))
+                                      ;; assert: In: :check-approval or :stopping or :cleanup or :rejected
+                                      (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state db chat-id id)))
+                                        (case approval
+                                          :ask (transition-tool-call! db* chat-ctx id :approval-ask
+                                                                      {:progress-text "Waiting for tool call approval"})
+                                          :allow (transition-tool-call! db* chat-ctx id :approval-allow
+                                                                        {:reason {:code :user-config-allow
+                                                                                  :text "Tool call allowed by user config"}})
+                                          :deny (transition-tool-call! db* chat-ctx id :approval-deny
+                                                                       {:reason {:code :user-config-deny
+                                                                                 :text "Tool call rejected by user config"}})
+                                          (logger/warn logger-tag "Unknown value of approval in config"
+                                                       {:approval approval :tool-call-id id})))
+                                      (f.hooks/trigger-if-matches! :preToolCall
+                                                                   {:chat-id chat-id
+                                                                    :tool-name name
+                                                                    :server server-name
+                                                                    :arguments arguments}
+                                                                   {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                                                    :on-after-action (fn [result]
+                                                                                       (when (= 2 (:status result))
+                                                                                         (transition-tool-call! db* chat-ctx id :hook-rejected
+                                                                                                                {:reason {:code :hook-rejected
+                                                                                                                          :text (str "Tool call rejected by hook, output: " (:output result))}})
+                                                                                         (reset! hook-approved?* false))
+                                                                                       (notify-after-hook-action! chat-ctx result))}
+                                                                   db
+                                                                   config)
+                                      (if (and @approved?* @hook-approved?*)
+                                        ;; assert: In :execution-approved or :stopping or :cleanup
+                                        (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
+                                          (assert-chat-not-stopped! chat-ctx)
+                                          (let [;; Since a future starts executing immediately,
+                                                ;; we need to delay the future so that the add-future action,
+                                                ;; used implicitly in the transition-tool-call! on the :execution-start event,
+                                                ;; can activate the future only *after* the state transition to :executing.
+                                                delayed-future
+                                                (delay
+                                                  (future
+                                                    ;; assert: In :executing
+                                                    (let [result (f.tools/call-tool! name arguments chat-id id behavior db* config messenger metrics
+                                                                                     (partial get-tool-call-state @db* chat-id id)
+                                                                                     (partial transition-tool-call! db* chat-ctx id))
+                                                          details (f.tools/tool-call-details-after-invocation name arguments details result)
+                                                          {:keys [start-time]} (get-tool-call-state @db* chat-id id)
+                                                          total-time-ms (- (System/currentTimeMillis) start-time)]
+                                                      (add-to-history! {:role "tool_call"
+                                                                        :content (assoc tool-call
+                                                                                        :details details
+                                                                                        :summary summary
+                                                                                        :origin origin
+                                                                                        :server server-name)})
+                                                      (add-to-history! {:role "tool_call_output"
+                                                                        :content (assoc tool-call
+                                                                                        :error (:error result)
+                                                                                        :output result
+                                                                                        :total-time-ms total-time-ms
+                                                                                        :details details
+                                                                                        :summary summary
+                                                                                        :origin origin
+                                                                                        :server server-name)})
+                                                      ;; assert: In :executing or :stopping
+                                                      (let [state (get-tool-call-state @db* chat-id id)
+                                                            status (:status state)]
+                                                        (case status
+                                                          :executing (transition-tool-call! db* chat-ctx id :execution-end
                                                                                             {:origin origin
                                                                                              :name name
                                                                                              :server server-name
@@ -748,120 +736,131 @@
                                                                                              :error (:error result)
                                                                                              :outputs (:contents result)
                                                                                              :total-time-ms total-time-ms
-                                                                                             :reason :user-stop
+                                                                                             :progress-text "Generating"
                                                                                              :details details
                                                                                              :summary summary})
-                                                           (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
-                                             (transition-tool-call! db* chat-ctx id :execution-start
-                                                                    {:delayed-future delayed-future
-                                                                     :origin origin
-                                                                     :name name
-                                                                     :server server-name
-                                                                     :arguments arguments
-                                                                     :start-time (System/currentTimeMillis)
-                                                                     :details details
-                                                                     :summary summary
-                                                                     :progress-text "Calling tool"})))
-                                          ;; assert: In :rejected state
-                                         (let [tool-call-state (get-tool-call-state @db* chat-id id)
-                                               {:keys [code text]} (:decision-reason tool-call-state)]
-                                           (add-to-history! {:role "tool_call" :content tool-call})
-                                           (add-to-history! {:role "tool_call_output"
-                                                             :content (assoc tool-call :output {:error true
-                                                                                                :contents [{:text text
-                                                                                                            :type :text}]})})
-                                           (reset! any-rejected-tool-call?* code)
-                                           (transition-tool-call! db* chat-ctx id :send-reject
-                                                                  {:origin origin
-                                                                   :name name
-                                                                   :server server-name
-                                                                   :arguments arguments
-                                                                   :reason code
-                                                                   :details details
-                                                                   :summary summary})))))
-                                   tool-calls)
-                             (assert-chat-not-stopped! chat-ctx)
-                              ;; assert: In :cleanup
-                              ;; assert: Only those tool calls that have reached :executing have futures.
-                              ;; Before we handle interrupts, we will wait for all tool calls with futures to complete naturally.
-                              ;; Since a deref of a cancelled future *immediately* results in a CancellationException without waiting for the future to cleanup,
-                              ;; we have to use another promise and deref that to know when the tool call is finished cleaning up.
-                             (doseq [[tool-call-id state] (get-active-tool-calls @db* chat-id)]
-                               (when-let [f (:future state)]
-                                 (try
-                                   (deref f) ; TODO: A timeout would be useful for tools that get into an infinite loop.
-                                   (catch java.util.concurrent.CancellationException _
-                                      ;; The future was cancelled
-                                      ;; TODO: Why not just wait for the promise and not bother about the future?
-                                      ;; If future was cancelled, wait for the future's cleanup to finish.
-                                     (when-let [p (:future-cleanup-complete?* state)]
-                                       (logger/debug logger-tag "Caught CancellationException.  Waiting for future to finish cleanup."
-                                                     {:tool-call-id tool-call-id
-                                                      :promise p})
-                                       (deref p) ; TODO: May need a timeout here too, in case the tool does not clean up.
-                                       ))
-                                   (catch Throwable t
-                                     (logger/debug logger-tag "Ignoring a Throwable while deref'ing a tool call future"
-                                                   {:tool-call-id tool-call-id
-                                                    :ex-data (ex-data t)
-                                                    :message (.getMessage t)
-                                                    :cause (.getCause t)}))
-                                   (finally (try
-                                              (transition-tool-call! db* chat-ctx tool-call-id :cleanup-finished
-                                                                     {:name name})
-                                              (catch Throwable t
-                                                (logger/debug logger-tag "Ignoring an exception while finishing tool call"
-                                                              {:tool-call-id tool-call-id
-                                                               :ex-data (ex-data t)
-                                                               :message (.getMessage t)
-                                                               :cause (.getCause t)})))))))
-                             (if-let [reason-code @any-rejected-tool-call?*]
-                               (do
-                                 (if (= :hook-rejected reason-code)
-                                   (do
-                                     (send-content! chat-ctx :system
-                                                    {:type :text
-                                                     :text "Tool rejected by hook"})
-                                     (add-to-history! {:role "user" :content [{:type :text
-                                                                               :text "A user hook rejected one or more tool calls with the following reason"}]}))
-                                   (do
-                                     (send-content! chat-ctx :system
-                                                    {:type :text
-                                                     :text "Tell ECA what to do differently for the rejected tool(s)"})
-                                     (add-to-history! {:role "user" :content [{:type :text
-                                                                               :text "I rejected one or more tool calls with the following reason"}]})))
-                                 (finish-chat-prompt! :idle chat-ctx)
-                                 nil)
-                               {:new-messages (get-in @db* [:chats chat-id :messages])})))
-        :on-reason (fn [{:keys [status id text external-id]}]
-                     (assert-chat-not-stopped! chat-ctx)
-                     (case status
-                       :started (do
-                                  (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
+                                                          :stopping (transition-tool-call! db* chat-ctx id :stop-attempted
+                                                                                           {:origin origin
+                                                                                            :name name
+                                                                                            :server server-name
+                                                                                            :arguments arguments
+                                                                                            :error (:error result)
+                                                                                            :outputs (:contents result)
+                                                                                            :total-time-ms total-time-ms
+                                                                                            :reason :user-stop
+                                                                                            :details details
+                                                                                            :summary summary})
+                                                          (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
+                                            (transition-tool-call! db* chat-ctx id :execution-start
+                                                                   {:delayed-future delayed-future
+                                                                    :origin origin
+                                                                    :name name
+                                                                    :server server-name
+                                                                    :arguments arguments
+                                                                    :start-time (System/currentTimeMillis)
+                                                                    :details details
+                                                                    :summary summary
+                                                                    :progress-text "Calling tool"})))
+                                        ;; assert: In :rejected state
+                                        (let [tool-call-state (get-tool-call-state @db* chat-id id)
+                                              {:keys [code text]} (:decision-reason tool-call-state)]
+                                          (add-to-history! {:role "tool_call" :content tool-call})
+                                          (add-to-history! {:role "tool_call_output"
+                                                            :content (assoc tool-call :output {:error true
+                                                                                               :contents [{:text text
+                                                                                                           :type :text}]})})
+                                          (reset! any-rejected-tool-call?* code)
+                                          (transition-tool-call! db* chat-ctx id :send-reject
+                                                                 {:origin origin
+                                                                  :name name
+                                                                  :server server-name
+                                                                  :arguments arguments
+                                                                  :reason code
+                                                                  :details details
+                                                                  :summary summary})))))
+                                  tool-calls)
+                            (assert-chat-not-stopped! chat-ctx)
+                            ;; assert: In :cleanup
+                            ;; assert: Only those tool calls that have reached :executing have futures.
+                            ;; Before we handle interrupts, we will wait for all tool calls with futures to complete naturally.
+                            ;; Since a deref of a cancelled future *immediately* results in a CancellationException without waiting for the future to cleanup,
+                            ;; we have to use another promise and deref that to know when the tool call is finished cleaning up.
+                            (doseq [[tool-call-id state] (get-active-tool-calls @db* chat-id)]
+                              (when-let [f (:future state)]
+                                (try
+                                  (deref f) ; TODO: A timeout would be useful for tools that get into an infinite loop.
+                                  (catch java.util.concurrent.CancellationException _
+                                    ;; The future was cancelled
+                                    ;; TODO: Why not just wait for the promise and not bother about the future?
+                                    ;; If future was cancelled, wait for the future's cleanup to finish.
+                                    (when-let [p (:future-cleanup-complete?* state)]
+                                      (logger/debug logger-tag "Caught CancellationException.  Waiting for future to finish cleanup."
+                                                    {:tool-call-id tool-call-id
+                                                     :promise p})
+                                      (deref p) ; TODO: May need a timeout here too, in case the tool does not clean up.
+                                      ))
+                                  (catch Throwable t
+                                    (logger/debug logger-tag "Ignoring a Throwable while deref'ing a tool call future"
+                                                  {:tool-call-id tool-call-id
+                                                   :ex-data (ex-data t)
+                                                   :message (.getMessage t)
+                                                   :cause (.getCause t)}))
+                                  (finally (try
+                                             (transition-tool-call! db* chat-ctx tool-call-id :cleanup-finished
+                                                                    {:name name})
+                                             (catch Throwable t
+                                               (logger/debug logger-tag "Ignoring an exception while finishing tool call"
+                                                             {:tool-call-id tool-call-id
+                                                              :ex-data (ex-data t)
+                                                              :message (.getMessage t)
+                                                              :cause (.getCause t)})))))))
+                            (if-let [reason-code @any-rejected-tool-call?*]
+                              (do
+                                (if (= :hook-rejected reason-code)
+                                  (do
+                                    (send-content! chat-ctx :system
+                                                   {:type :text
+                                                    :text "Tool rejected by hook"})
+                                    (add-to-history! {:role "user" :content [{:type :text
+                                                                              :text "A user hook rejected one or more tool calls with the following reason"}]}))
+                                  (do
+                                    (send-content! chat-ctx :system
+                                                   {:type :text
+                                                    :text "Tell ECA what to do differently for the rejected tool(s)"})
+                                    (add-to-history! {:role "user" :content [{:type :text
+                                                                              :text "I rejected one or more tool calls with the following reason"}]})))
+                                (finish-chat-prompt! :idle chat-ctx)
+                                nil)
+                              {:new-messages (get-in @db* [:chats chat-id :messages])})))
+       :on-reason (fn [{:keys [status id text external-id]}]
+                    (assert-chat-not-stopped! chat-ctx)
+                    (case status
+                      :started (do
+                                 (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
+                                 (send-content! chat-ctx :assistant
+                                                {:type :reasonStarted
+                                                 :id id}))
+                      :thinking (do
+                                  (swap! reasonings* update-in [id :text] str text)
                                   (send-content! chat-ctx :assistant
-                                                 {:type :reasonStarted
+                                                 {:type :reasonText
+                                                  :id id
+                                                  :text text}))
+                      :finished (let [total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))]
+                                  (add-to-history! {:role "reason" :content {:id id
+                                                                             :external-id external-id
+                                                                             :total-time-ms total-time-ms
+                                                                             :text (get-in @reasonings* [id :text])}})
+                                  (send-content! chat-ctx :assistant
+                                                 {:type :reasonFinished
+                                                  :total-time-ms total-time-ms
                                                   :id id}))
-                       :thinking (do
-                                   (swap! reasonings* update-in [id :text] str text)
-                                   (send-content! chat-ctx :assistant
-                                                  {:type :reasonText
-                                                   :id id
-                                                   :text text}))
-                       :finished (let [total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))]
-                                   (add-to-history! {:role "reason" :content {:id id
-                                                                              :external-id external-id
-                                                                              :total-time-ms total-time-ms
-                                                                              :text (get-in @reasonings* [id :text])}})
-                                   (send-content! chat-ctx :assistant
-                                                  {:type :reasonFinished
-                                                   :total-time-ms total-time-ms
-                                                   :id id}))
-                       nil))
-        :on-error (fn [{:keys [message exception]}]
-                    (send-content! chat-ctx :system
-                                   {:type :text
-                                    :text (or message (str "Error: " (ex-message exception)))})
-                    (finish-chat-prompt! :idle chat-ctx))}))))
+                      nil))
+       :on-error (fn [{:keys [message exception]}]
+                   (send-content! chat-ctx :system
+                                  {:type :text
+                                   :text (or message (str "Error: " (ex-message exception)))})
+                   (finish-chat-prompt! :idle chat-ctx))})))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args]}
