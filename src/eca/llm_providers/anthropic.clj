@@ -103,7 +103,7 @@
               (do
                 (llm-util/log-response logger-tag rid "response" body)
                 (reset! response*
-                        {:result (:text (last (:content body)))}))))
+                        {:output-text (:text (last (:content body)))}))))
           (catch Exception e
             (on-error {:exception e}))))
       (fn [e]

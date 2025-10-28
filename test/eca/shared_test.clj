@@ -91,3 +91,13 @@
     (is (= {:a {:b 1}}
            (shared/deep-merge {:a 2}
                               {:a {:b 1}})))))
+
+(deftest future*-test
+  (testing "on test env we run on same thread"
+    (is (= 1
+           (shared/future* {:env "test"}
+             1))))
+  (testing "on prod env we run a normal future"
+    (is (= 1
+           @(shared/future* {:env "prod"}
+              1)))))

@@ -184,8 +184,18 @@
              (DateTimeFormatter/ofPattern pattern))))
 
 (defmacro future*
-  "Wrapper for future unless in tests"
+  "Wrapper for future unless in tests. In non-test envs we spawn a Thread and
+   return a promise (derefable) to avoid relying on clojure.core/future which
+   can behave differently in some REPL tooling environments."
   [config & body]
   `(if (= "test" (:env ~config))
      ~@body
-     (future ~@body)))
+     (let [p# (promise)
+           t# (Thread. (fn []
+                         (try
+                           (deliver p# (do ~@body))
+                           (catch Throwable e#
+                             ;; deliver the Throwable so deref can inspect it if needed
+                             (deliver p# e#)))))]
+       (.start t#)
+       p#)))

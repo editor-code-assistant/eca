@@ -15,9 +15,11 @@
 
 (defn ^:private prompt! [params mocks]
   (let [{:keys [chat-id] :as resp}
-        (with-redefs [llm-api/async-prompt! (:api-mock mocks)
+        (with-redefs [llm-api/sync-or-async-prompt! (:api-mock mocks)
+                      llm-api/sync-prompt! (constantly nil) 
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/approval (constantly :allow)]
+          (h/config! {:env "test"})
           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
