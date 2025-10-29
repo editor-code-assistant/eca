@@ -71,6 +71,21 @@
                 result (llm-util/provider-api-key "openai" nil config)]
             (is (= [:auth/token "sk-test-from-netrc"] result))))
         (finally
+          (.delete temp-file)))))
+  (testing "provider-api-key uses :netrcFile in config when configured"
+    (let [temp-file (java.io.File/createTempFile "netrc-test" ".netrc")
+          temp-path (.getPath temp-file)]
+      (try
+        ;; Create a test netrc file
+        (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-test-from-custom-netrc\n")
+
+        (let [config {:providers
+                      {"openai" {:url "https://api.openai.com"
+                                 :keyRc "api.openai.com"}}
+                      :netrcFile temp-path}
+              result (llm-util/provider-api-key "openai" nil config)]
+          (is (= [:auth/token "sk-test-from-custom-netrc"] result)))
+        (finally
           (.delete temp-file))))))
 
 (deftest provider-api-key-priority-order-test
@@ -130,8 +145,8 @@
 
 (deftest provider-api-key-missing-credential-test
   (testing "provider-api-key returns nil when credential not found"
-    (with-redefs [secrets/credential-file-paths (constantly ["/nonexistent/file"])]
-      (let [config {:providers
-                    {"openai" {:keyRc "api.openai.com"}}}
-            result (llm-util/provider-api-key "openai" nil config)]
-        (is (nil? result))))))
+    (let [config {:providers
+                  {"openai" {:keyRc "api.openai.com"}}
+                  :netrcFile "/nonexistent/file"}
+          result (llm-util/provider-api-key "openai" nil config)]
+      (is (nil? result)))))

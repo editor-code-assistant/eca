@@ -139,7 +139,7 @@
 
 (defn ^:private doctor-msg [db config]
   (let [model (llm-api/default-model db config)
-        cred-check (secrets/check-credential-files)
+        cred-check (secrets/check-credential-files (:netrcFile config))
         existing-files (filter :exists (:files cred-check))]
     (multi-str (str "ECA version: " (config/eca-version))
                ""
@@ -173,7 +173,7 @@
                                                   (System/getenv)))
                ""
                (if (seq existing-files)
-                 (str "Credential files (GPG available: " (:gpg-available cred-check) "):"
+                 (str "Credential files:"
                       (reduce
                        (fn [s file-info]
                          (str s "\n  " (:path file-info) ":"
@@ -189,7 +189,7 @@
                                 (str "\n    " (:suggestion file-info)))))
                        ""
                        existing-files))
-                 (str "Credential files: None found (GPG available: " (:gpg-available cred-check) ")")))))
+                 "Credential files: None found"))))
 
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model instructions user-messages metrics]}]
   (let [db @db*

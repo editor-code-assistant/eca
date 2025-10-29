@@ -25,17 +25,13 @@ Code Style
 - Unit tests that use file paths and uris should rely on `h/file-path` and `h/file-uri` to avoid windows issues with slashes.
 
 Secrets Management
-- `src/eca/secrets/netrc.clj` - Netrc format parser (multi-line format: machine/login/password/port keywords)
-- `src/eca/secrets/authinfo.clj` - Authinfo format parser (single-line format: space-separated key-value pairs)
 - `src/eca/secrets.clj` - Main secrets manager for credential file operations:
-  - File discovery and priority order (.authinfo.gpg → .netrc.gpg → .authinfo → _authinfo → .netrc → _netrc)
+  - File discovery and priority order (`:netrcFile <FILE>` config → .netrc → _netrc)
   - Cross-platform path construction using io/file (handles / vs \ separators automatically)
-  - GPG decryption with caching (5-second TTL) and timeout (30s, configurable via GPG_TIMEOUT env var)
   - keyRc format parsing: [login@]machine[:port] (named after Unix "rc" config file tradition)
   - Credential matching logic (exact login match when specified, first match otherwise)
   - Permission validation (Unix: warns if not 0600; Windows: skipped)
 - Authentication flow: config `key` → credential files `keyRc` → env var `keyEnv` → OAuth
-- Security: passwords never logged; GPG decryption via clojure.java.process; cache with short TTL; subprocess timeout protection
 
 Notes
 - CI runs: bb test and bb integration-test. Ensure these pass locally before PRs.

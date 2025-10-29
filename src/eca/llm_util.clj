@@ -100,7 +100,7 @@
       (when-let [key (:api-key provider-auth)]
         [:auth/oauth key])
       (when-let [key (some-> (get-in config [:providers (name provider) :keyRc])
-                             (secrets/get-credential))]
+                             (secrets/get-credential (:netrcFile config)))]
         [:auth/token key])
       (when-let [key (some-> (get-in config [:providers (name provider) :keyEnv])
                              config/get-env)]
