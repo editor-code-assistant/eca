@@ -338,7 +338,7 @@
     (with-redefs [llm-api/refine-file-context (constantly "Some content")]
       (is (match?
            [{:type :file
-             :path "/path/to/file"
-             :partial true
+             :path (h/file-path "/path/to/file")
+             :lines-range {:start 1 :end 4}
              :content "Some content"}]
            (f.context/contexts-str-from-prompt "check @/path/to/file:L1-L4" (h/db)))))))

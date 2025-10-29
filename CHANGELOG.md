@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Improved file contexts: now use :lines-range
 
 ## 0.74.0
 

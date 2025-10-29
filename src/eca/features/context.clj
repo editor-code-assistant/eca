@@ -88,7 +88,7 @@
        {:type :file
         :path path
         :content (llm-api/refine-file-context path lines-range)}
-       :partial (some? lines-range)))))
+       :lines-range lines-range))))
 
 (defn raw-contexts->refined [contexts db]
   (mapcat (fn [{:keys [type path lines-range position uri]}]
