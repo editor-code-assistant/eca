@@ -6,10 +6,9 @@
    [borkdude.dynaload]
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.secrets :as secrets]
    [eca.logger :as logger]
-   [eca.server :as server]
-   [eca.proxy :as proxy]))
+   [eca.proxy :as proxy]
+   [eca.server :as server]))
 
 (set! *warn-on-reflection* true)
 

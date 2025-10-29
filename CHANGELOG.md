@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Improve protocol for tool call output formatting for tools that output json.
+- Fix inconsistencies in `eca_read_file` not passing correct content to LLM when json.
+
 ## 0.75.0
 
 - Improved file contexts: now use :lines-range
