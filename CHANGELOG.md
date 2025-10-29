@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.75.0
+
 - Improved file contexts: now use :lines-range
 - BREAKING ECA now only supports standard plain-text netrc as credential file reading. Drop authinfo and gpg decryption support. Users can choose to pass in their own provisioned netrc file from various secure source with `:netrcFile` in ECA config.
 
