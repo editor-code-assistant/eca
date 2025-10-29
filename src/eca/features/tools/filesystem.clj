@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.diff :as diff]
    [eca.features.index :as f.index]
+   [eca.features.tools.smart-edit :as smart-edit]
    [eca.features.tools.text-match :as text-match]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -225,25 +226,47 @@
      (format "Ambiguous match - content appears %d times in %s. Provide more specific context to identify the exact location."
              (:match-count result) path) :error)
 
+    (= (:error result) :conflict)
+    (tools.util/single-text-content
+     (format (str "File changed since it was read: %s. "
+                  "Re-read the file and retry the edit so we don't overwrite concurrent changes.")
+             path)
+     :error)
+
     :else
     (tools.util/single-text-content (format "Failed to process %s" path) :error)))
 
-(defn ^:private change-file [arguments {:keys [db]}]
+(defn ^:private apply-file-edit-strategy
+  "Apply the appropriate edit strategy based on whether all occurrences should be replaced.
+   - For all_occurrences=true: uses text-match (exact/normalized only) for predictability
+   - For all_occurrences=false: uses smart-edit (multi-tier matching) for better handling"
+  [file-content original-content new-content all? path]
+  (if all?
+    (text-match/apply-content-change-to-string file-content original-content new-content all? path)
+    (smart-edit/apply-smart-edit file-content original-content new-content path)))
+
+(defn ^:private edit-file [arguments {:keys [db]}]
   (or (tools.util/invalid-arguments arguments (concat (path-validations db)
                                                       [["path" fs/readable? "File $path is not readable"]]))
       (let [path (get arguments "path")
             original-content (get arguments "original_content")
             new-content (get arguments "new_content")
             all? (boolean (get arguments "all_occurrences"))
-            result (text-match/apply-content-change-to-file path original-content new-content all?)]
+            initial-content (slurp path)
+            result (apply-file-edit-strategy initial-content original-content new-content all? path)
+            write! (fn [res]
+                     (spit path (:new-full-content res))
+                     (handle-file-change-result res path (format "Successfully replaced content in %s." path)))]
         (if (:new-full-content result)
-          (do
-            (spit path (:new-full-content result))
-            (handle-file-change-result result path (format "Successfully replaced content in %s." path)))
+          (let [current-content (slurp path)]
+            (if (= current-content (:original-full-content result))
+              (write! result)
+              ;; Optimistic retry once against latest content
+              (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
+                (if (:new-full-content retry)
+                  (write! retry)
+                  (handle-file-change-result {:error :conflict} path nil)))))
           (handle-file-change-result result path nil)))))
-
-(defn ^:private edit-file [arguments components]
-  (change-file arguments components))
 
 (defn ^:private preview-file-change [arguments {:keys [db]}]
   (or (tools.util/invalid-arguments arguments [["path" (partial allowed-path? db) (str "Access denied - path $path outside allowed directories: " (tools.util/workspace-roots-strs db))]])
@@ -254,7 +277,7 @@
             file-exists? (fs/exists? path)]
         (cond
           file-exists?
-          (let [result (text-match/apply-content-change-to-file path original-content new-content all?)]
+          (let [result (apply-file-edit-strategy (slurp path) original-content new-content all? path)]
             (handle-file-change-result result path
                                        (format "Change simulation completed for %s. Original file unchanged - preview only." path)))
 
@@ -321,7 +344,7 @@
                               "new_content" {:type "string"
                                              :description "The new content to replace the original content with"}
                               "all_occurrences" {:type "boolean"
-                                                 :description "Whether to replace all occurences of the file or just the first one (default)"}}
+                                                 :description "Whether to replace all occurrences of the file or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
     :summary-fn (constantly "Editing file")}
@@ -372,7 +395,7 @@
         file-exists? (and path (fs/exists? path))]
     (cond
       (and file-exists? original-content new-content)
-      (let [result (text-match/apply-content-change-to-file path original-content new-content all?)
+      (let [result (apply-file-edit-strategy (slurp path) original-content new-content (boolean all?) path)
             original-full-content (:original-full-content result)]
         (when original-full-content
           (if-let [new-full-content (:new-full-content result)]

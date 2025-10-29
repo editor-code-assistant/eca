@@ -129,9 +129,6 @@
                   :last-message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities)
                   :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))))
 
-(defn sum [a b]
-  (+ a b))
-
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]
             (if (keyword? k)
@@ -185,3 +182,20 @@
     (.format (.atZoneSameInstant (.atOffset (Instant/ofEpochMilli ms) ZoneOffset/UTC)
                                  (ZoneId/systemDefault))
              (DateTimeFormatter/ofPattern pattern))))
+
+(defmacro future*
+  "Wrapper for future unless in tests. In non-test envs we spawn a Thread and
+   return a promise (derefable) to avoid relying on clojure.core/future which
+   can behave differently in some REPL tooling environments."
+  [config & body]
+  `(if (= "test" (:env ~config))
+     ~@body
+     (let [p# (promise)
+           t# (Thread. (fn []
+                         (try
+                           (deliver p# (do ~@body))
+                           (catch Throwable e#
+                             ;; deliver the Throwable so deref can inspect it if needed
+                             (deliver p# e#)))))]
+       (.start t#)
+       p#)))

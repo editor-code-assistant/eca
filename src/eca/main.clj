@@ -7,8 +7,8 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
-   [eca.server :as server]
-   [eca.proxy :as proxy]))
+   [eca.proxy :as proxy]
+   [eca.server :as server]))
 
 (set! *warn-on-reflection* true)
 
@@ -42,7 +42,7 @@
 (def log-levels #{"error" "warn" "info" "debug"})
 
 (def cli-spec
-  {:order [:help :version :verbose :config-file]
+  {:order [:help :version :verbose :config-file :log-level]
    :spec {:help {:alias :h
                  :desc "Print the available commands and its options"}
           :version {:desc "Print eca version"}

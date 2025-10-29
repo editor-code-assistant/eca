@@ -15,9 +15,11 @@
 
 (defn ^:private prompt! [params mocks]
   (let [{:keys [chat-id] :as resp}
-        (with-redefs [llm-api/async-prompt! (:api-mock mocks)
+        (with-redefs [llm-api/sync-or-async-prompt! (:api-mock mocks)
+                      llm-api/sync-prompt! (constantly nil) 
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/approval (constantly :allow)]
+          (h/config! {:env "test"})
           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
@@ -240,7 +242,7 @@
               (on-message-received {:type :finish}))
             :call-tool-mock
             (constantly {:error false
-                         :contents [{:type :text :content "Allowed directories: /foo/bar"}]})})]
+                         :contents [{:type :text :text "Allowed directories: /foo/bar"}]})})]
       (is (match?
            {chat-id {:id chat-id
                      :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}]}
@@ -248,7 +250,7 @@
                                 {:role "tool_call" :content {:id "call-1" :name "list_allowed_directories" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-1" :name "list_allowed_directories" :arguments {}
                                                                     :output {:error false
-                                                                             :contents [{:content "Allowed directories: /foo/bar"
+                                                                             :contents [{:text "Allowed directories: /foo/bar"
                                                                                          :type :text}]}}}
                                 {:role "assistant" :content [{:type :text :text "I can see: \n/foo/bar"}]}]}}
            (:chats (h/db))))
@@ -263,7 +265,7 @@
              {:role :assistant :content {:type :toolCallRun :id "call-1" :name "list_allowed_directories" :arguments {} :manual-approval false}}
              {:role :assistant :content {:type :toolCallRunning :id "call-1" :name "list_allowed_directories" :arguments {}}}
              {:role :system :content {:type :progress :state :running :text "Calling tool"}}
-             {:role :assistant :content {:type :toolCalled :id "call-1" :name "list_allowed_directories" :arguments {} :total-time-ms number? :outputs [{:content "Allowed directories: /foo/bar" :type :text}]}}
+             {:role :assistant :content {:type :toolCalled :id "call-1" :name "list_allowed_directories" :arguments {} :total-time-ms number? :outputs [{:text "Allowed directories: /foo/bar" :type :text}]}}
              {:role :system :content {:type :progress :state :running :text "Generating"}}
              {:role :assistant :content {:type :text :text "I can see: \n"}}
              {:role :assistant :content {:type :text :text "/foo/bar"}}
@@ -302,17 +304,17 @@
                 "ro_tool_1"
                 (do (deep-sleep 900)
                     {:error false
-                     :contents [{:type :text :content "RO tool call 1 result"}]})
+                     :contents [{:type :text :text "RO tool call 1 result"}]})
 
                 "ro_tool_2"
                 (do (deep-sleep 600)
                     {:error false
-                     :contents [{:type :text :content "RO tool call 2 result"}]})
+                     :contents [{:type :text :text "RO tool call 2 result"}]})
 
                 "ro_tool_3"
                 (do (deep-sleep 100)
                     {:error false
-                     :contents [{:type :text :content "RO tool call 3 result"}]})))})]
+                     :contents [{:type :text :text "RO tool call 3 result"}]})))})]
 
       (is (match?
            {chat-id {:id chat-id
@@ -321,15 +323,15 @@
                                 {:role "tool_call" :content {:id "call-3" :name "ro_tool_3" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-3"  :name "ro_tool_3" :arguments {}
                                                                     :output {:error false
-                                                                             :contents [{:type :text, :content "RO tool call 3 result"}]}}}
+                                                                             :contents [{:type :text, :text "RO tool call 3 result"}]}}}
                                 {:role "tool_call" :content {:id "call-2" :name "ro_tool_2" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-2" :name "ro_tool_2" :arguments {}
                                                                     :output {:error false
-                                                                             :contents [{:type :text, :content "RO tool call 2 result"}]}}}
+                                                                             :contents [{:type :text, :text "RO tool call 2 result"}]}}}
                                 {:role "tool_call" :content {:id "call-1" :name "ro_tool_1" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-1" :name "ro_tool_1" :arguments {}
                                                                     :output {:error false
-                                                                             :contents [{:type :text, :content "RO tool call 1 result"}]}}}
+                                                                             :contents [{:type :text, :text "RO tool call 1 result"}]}}}
                                 {:role "assistant" :content [{:type :text, :text "The tool calls returned: \nsomething"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -352,15 +354,15 @@
              {:role :assistant :content {:type :toolCallRunning :id "call-3" :name "ro_tool_3" :arguments {}}}
              {:role :system :content {:type :progress :state :running, :text "Calling tool"}}
              {:role :assistant :content {:type :toolCalled :id "call-3" :name "ro_tool_3" :arguments {}
-                                         :outputs [{:type :text :content "RO tool call 3 result"}]
+                                         :outputs [{:type :text :text "RO tool call 3 result"}]
                                          :error false}}
              {:role :system :content {:type :progress :state :running, :text "Generating"}}
              {:role :assistant :content {:type :toolCalled :id "call-2" :name "ro_tool_2" :arguments {}
-                                         :outputs [{:type :text :content "RO tool call 2 result"}]
+                                         :outputs [{:type :text :text "RO tool call 2 result"}]
                                          :error false}}
              {:role :system :content {:type :progress :state :running, :text "Generating"}}
              {:role :assistant :content {:type :toolCalled :id "call-1" :name "ro_tool_1" :arguments {}
-                                         :outputs [{:type :text :content "RO tool call 1 result"}]
+                                         :outputs [{:type :text :text "RO tool call 1 result"}]
                                          :error false}}
              {:role :system :content {:type :progress :state :running, :text "Generating"}}
              {:role :assistant :content {:type :text :text "The tool calls returned: \n"}}
@@ -405,7 +407,7 @@
                     (when (= :timeout (deref wait-for-tool2 10000 :timeout))
                       (println "tool-calls-with-prompt-stop-test: deref in tool 1 timed out"))
                     {:error false
-                     :contents [{:type :text :content "RO tool call 1 result"}]})
+                     :contents [{:type :text :text "RO tool call 1 result"}]})
 
                 "ro_tool_2"
                 (do (deep-sleep 800)
@@ -413,28 +415,28 @@
                       (println "tool-calls-with-prompt-stop-test: deref in tool 2 timed out"))
                     (deliver wait-for-tool2 true)
                     {:error false
-                     :contents [{:type :text :content "RO tool call 2 result"}]})
+                     :contents [{:type :text :text "RO tool call 2 result"}]})
 
                 "ro_tool_3"
                 (do (deep-sleep 200)
                     (deliver wait-for-tool3 true)
                     {:error false
-                     :contents [{:type :text :content "RO tool call 3 result"}]})))})]
+                     :contents [{:type :text :text "RO tool call 3 result"}]})))})]
       (is (match? {chat-id
                    {:id chat-id
                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
                                {:role "tool_call" :content {:id "call-3" :name "ro_tool_3" :arguments {}}}
                                {:role "tool_call_output" :content {:id "call-3" :name "ro_tool_3" :arguments {}
                                                                    :output {:error false
-                                                                            :contents [{:type :text, :content "RO tool call 3 result"}]}}}
+                                                                            :contents [{:type :text, :text "RO tool call 3 result"}]}}}
                                {:role "tool_call" :content {:id "call-2" :name "ro_tool_2" :arguments {}}}
                                {:role "tool_call_output" :content {:id "call-2" :name "ro_tool_2" :arguments {}
                                                                    :output {:error false
-                                                                            :contents [{:type :text, :content "RO tool call 2 result"}]}}}
+                                                                            :contents [{:type :text, :text "RO tool call 2 result"}]}}}
                                {:role "tool_call" :content {:id "call-1" :name "ro_tool_1" :arguments {}}}
                                {:role "tool_call_output" :content {:id "call-1" :name "ro_tool_1" :arguments {}
                                                                    :output {:error false
-                                                                            :contents [{:type :text, :content "RO tool call 1 result"}]}}}]}}
+                                                                            :contents [{:type :text, :text "RO tool call 1 result"}]}}}]}}
                   (:chats (h/db))))
       (is (match? {:chat-content-received
                    [{:role :user :content {:type :text :text "Run 3 read-only tool calls simultaneously.\n"}}
@@ -453,7 +455,7 @@
                     {:role :assistant :content {:type :toolCallRunning :id "call-3" :name "ro_tool_3" :arguments {}}}
                     {:role :system :content {:type :progress :state :running :text "Calling tool"}}
                     {:role :assistant :content {:type :toolCalled :id "call-3" :name "ro_tool_3" :arguments {}
-                                                :outputs [{:type :text :content "RO tool call 3 result"}]}}
+                                                :outputs [{:type :text :text "RO tool call 3 result"}]}}
                     {:role :system :content {:type :progress :state :running :text "Generating"}}
                     {:role :system :content {:type :text :text "\nPrompt stopped"}}
                     {:role :system :content {:type :progress :state :finished}}

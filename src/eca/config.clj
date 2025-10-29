@@ -120,7 +120,9 @@
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"
-                :systemPromptFile "prompts/inline_completion.md"}})
+                :systemPromptFile "prompts/inline_completion.md"}
+   :netrcFile nil
+   :env "prod"})
    
 
 (def ^:private fallback-behavior "agent")

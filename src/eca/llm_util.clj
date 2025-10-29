@@ -95,12 +95,16 @@
      :challenge (-> verifier str->sha256 ->base64 ->base64url (string/replace "=" ""))}))
 
 (defn provider-api-key [provider provider-auth config]
-  (or (get-in config [:providers (name provider) :key])
-      (:api-key provider-auth)
-      (when-let [key-rc (get-in config [:providers (name provider) :keyRc])]
-        (secrets/get-credential key-rc))
-      (some-> (get-in config [:providers (name provider) :keyEnv])
-              config/get-env)))
+  (or (when-let [key (get-in config [:providers (name provider) :key])]
+        [:auth/token key])
+      (when-let [key (:api-key provider-auth)]
+        [:auth/oauth key])
+      (when-let [key (some-> (get-in config [:providers (name provider) :keyRc])
+                             (secrets/get-credential (:netrcFile config)))]
+        [:auth/token key])
+      (when-let [key (some-> (get-in config [:providers (name provider) :keyEnv])
+                             config/get-env)]
+        [:auth/token key])))
 
 (defn provider-api-url [provider config]
   (or (get-in config [:providers (name provider) :url])

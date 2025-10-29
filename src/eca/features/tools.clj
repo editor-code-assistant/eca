@@ -2,7 +2,6 @@
   "This ns centralizes all available tools for LLMs including
    eca native tools and MCP servers."
   (:require
-   [cheshire.core :as json]
    [clojure.string :as string]
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
@@ -55,7 +54,7 @@
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
-  (mapv #(assoc % :server "eca") (vals (native-definitions db config))))
+  (mapv #(assoc % :server {:name "eca"}) (vals (native-definitions db config))))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
@@ -75,27 +74,6 @@
       (mapv #(assoc % :origin :native) (native-tools db config))
       (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db))))))
 
-(defn ^:private pretty-format-any-json-output
-  [result]
-  (update result
-          :contents
-          (fn [contents]
-            (mapv (fn [content]
-                    (if (= :text (:type content))
-                      (let [text (string/trim (:text content))]
-                        (if (or (and (string/starts-with? text "{")
-                                     (string/ends-with? text "}"))
-                                (and (string/starts-with? text "[")
-                                     (string/ends-with? text "]")))
-                          (try
-                            (update content :text #(json/generate-string (json/parse-string %) {:pretty true}))
-                            (catch Exception e
-                              (logger/warn logger-tag "Could not pretty format json text output for %s: %s" content (.getMessage e))
-                              content))
-                          content))
-                      content))
-                  contents))))
-
 (defn call-tool! [^String name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
@@ -104,18 +82,17 @@
   (let [arguments (update-keys arguments clojure.core/name)
         db @db*]
     (try
-      (let [result (-> (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
-                         (native-tool-handler arguments {:db db
-                                                         :db* db*
-                                                         :config config
-                                                         :messenger messenger
-                                                         :behavior behavior
-                                                         :chat-id chat-id
-                                                         :tool-call-id tool-call-id
-                                                         :call-state-fn call-state-fn
-                                                         :state-transition-fn state-transition-fn})
-                         (f.mcp/call-tool! name arguments {:db db}))
-                       (pretty-format-any-json-output))]
+      (let [result (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
+                     (native-tool-handler arguments {:db db
+                                                     :db* db*
+                                                     :config config
+                                                     :messenger messenger
+                                                     :behavior behavior
+                                                     :chat-id chat-id
+                                                     :tool-call-id tool-call-id
+                                                     :call-state-fn call-state-fn
+                                                     :state-transition-fn state-transition-fn})
+                     (f.mcp/call-tool! name arguments {:db db}))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
         result)
@@ -216,13 +193,13 @@
       remember-to-approve?
       :allow
 
-      (some #(approval-matches? % server tool-call-name args) deny)
+      (some #(approval-matches? % (:name server) tool-call-name args) deny)
       :deny
 
-      (some #(approval-matches? % server tool-call-name args) ask)
+      (some #(approval-matches? % (:name server) tool-call-name args) ask)
       :ask
 
-      (some #(approval-matches? % server tool-call-name args) allow)
+      (some #(approval-matches? % (:name server) tool-call-name args) allow)
       :allow
 
       (legacy-manual-approval? config tool-call-name)

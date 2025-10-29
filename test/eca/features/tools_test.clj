@@ -4,8 +4,6 @@
    [eca.config :as config]
    [eca.features.tools :as f.tools]
    [eca.features.tools.filesystem :as f.tools.filesystem]
-   [eca.features.tools.mcp :as f.mcp]
-   [eca.shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -30,7 +28,7 @@
   (testing "Include enabled native tools"
     (is (match?
          (m/embeds [{:name "eca_directory_tree"
-                     :server "eca"
+                     :server {:name "eca"}
                      :description string?
                      :parameters some?
                      :origin :native}])
@@ -92,12 +90,12 @@
              (#'f.tools/get-disabled-tools config "plan"))))))
 
 (deftest approval-test
-  (let [all-tools [{:name "eca_read" :server "eca"}
-                   {:name "eca_write" :server "eca"}
-                   {:name "eca_shell" :server "eca" :require-approval-fn (constantly true)}
-                   {:name "eca_plan" :server "eca" :require-approval-fn (constantly false)}
-                   {:name "request" :server "web"}
-                   {:name "download" :server "web"}]]
+  (let [all-tools [{:name "eca_read" :server {:name "eca"}}
+                   {:name "eca_write" :server {:name "eca"}}
+                   {:name "eca_shell" :server {:name "eca"} :require-approval-fn (constantly true)}
+                   {:name "eca_plan" :server {:name "eca"} :require-approval-fn (constantly false)}
+                   {:name "request" :server {:name "web"}}
+                   {:name "download" :server {:name "web"}}]]
     (testing "tool has require-approval-fn which returns true"
       (is (= :ask (f.tools/approval all-tools "eca_shell" {} {} {} nil))))
     (testing "tool has require-approval-fn which returns false we ignore it"
@@ -110,7 +108,8 @@
       (testing "when matches allow config"
         (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web__request" {}}}}} nil)))
         (is (= :allow (f.tools/approval all-tools "eca_read" {} {} {:toolCall {:approval {:allow {"eca_read" {}}}}} nil)))
-        (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil))))
+        (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil)))
+        (is (= :allow (f.tools/approval all-tools "eca_read" {} {} {:toolCall {:approval {:allow {"eca" {}}}}} nil))))
       (testing "when matches ask config"
         (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:ask {"web__request" {}}}}} nil)))
         (is (= :ask (f.tools/approval all-tools "eca_read" {} {} {:toolCall {:approval {:ask {"eca_read" {}}}}} nil)))
@@ -146,8 +145,8 @@
         (is (= :ask (f.tools/approval all-tools "request" {} {} {} nil)))))))
 
 (deftest behavior-specific-approval-test
-  (let [all-tools [{:name "eca_shell_command" :server "eca"}
-                   {:name "eca_read_file" :server "eca"}]]
+  (let [all-tools [{:name "eca_shell_command" :server {:name "eca"}}
+                   {:name "eca_read_file" :server {:name "eca"}}]]
     (testing "behavior-specific approval overrides global rules"
       (let [config {:toolCall {:approval {:byDefault "allow"}}
                     :behavior {"plan" {:toolCall {:approval {:deny {"eca_shell_command" {:argsMatchers {"command" [".*rm.*"]}}}
@@ -191,32 +190,3 @@
         ;; Test safe commands that should NOT be denied
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "ls -la"} {} config "plan")))
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "git status"} {} config "plan")))))))
-
-(deftest call-tool!-test
-  (testing "We adapt output if json"
-    (is (match?
-         {:contents [{:type :text
-                      :text (if h/windows?
-                              (multi-str "{\r"
-                                         "  \"foo\" : \"123\",\r"
-                                         "  \"bar\" : 234\r"
-                                         "}")
-                              (multi-str "{"
-                                         "  \"foo\" : \"123\","
-                                         "  \"bar\" : 234"
-                                         "}"))}]
-          :error false}
-         (with-redefs [f.mcp/call-tool! (constantly {:contents [{:type :text
-                                                                 :text "{\"foo\": \"123\", \"bar\": 234}"}]
-                                                     :error false})]
-           (f.tools/call-tool! "my-json-tool"
-                               {}
-                               "chat-123"
-                               "tool-234"
-                               "agent"
-                               (h/db*)
-                               (h/config)
-                               (h/messenger)
-                               (h/metrics)
-                               identity
-                               identity))))))

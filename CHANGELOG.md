@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.75.1
+
+- Improve protocol for tool call output formatting for tools that output json.
+- Fix inconsistencies in `eca_read_file` not passing correct content to LLM when json.
+
+## 0.75.0
+
+- Improved file contexts: now use :lines-range
+- BREAKING ECA now only supports standard plain-text netrc as credential file reading. Drop authinfo and gpg decryption support. Users can choose to pass in their own provisioned netrc file from various secure source with `:netrcFile` in ECA config.
+
+## 0.74.0
+
+- Improved `eca_edit_file` to automatically handle whitespace and indentation differences in single-occurrence edits.
+- Fix contexts in user prompts (not system contexts) not parsing lines ranges properly.
+- Support non-stream providers on openai-chat API. #174
+
+## 0.73.5
+
+- Support use API keys even if subscription is logged. #175
+
+## 0.73.4
+
+- Fix tool call approval ignoring eca tools.
+
+## 0.73.3
+
+- Fix tool call approval ignoring configs for mcp servers.
+
 ## 0.73.2
 
 - Fix tool call approval thread lock.

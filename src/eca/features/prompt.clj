@@ -61,12 +61,16 @@
 
 (defn contexts-str [refined-contexts repo-map*]
   (multi-str
-   "<contexts description=\"Manually Provided by user. Their content is current and accurate. You MUST use this information first before using tools to read them.\">"
+   "<contexts description=\"User-Provided Snippet. This content is current and accurate. Treat this as sufficient context for answering the query.\">"
    (reduce
-    (fn [context-str {:keys [type path position content partial uri]}]
+    (fn [context-str {:keys [type path position content lines-range uri]}]
       (str context-str (case type
-                         :file (if partial
-                                 (format "<file partial=true path=\"%s\">...\n%s\n...</file>\n" path content)
+                         :file (if lines-range
+                                 (format "<file line-start=%s line-end=%s path=\"%s\">%s</file>\n"
+                                         (:start lines-range)
+                                         (:end lines-range)
+                                         path
+                                         content)
                                  (format "<file path=\"%s\">%s</file>\n" path content))
                          :agents-file (multi-str
                                        (format "<agents-file description=\"Instructions following AGENTS.md spec.\" path=\"%s\">" path)

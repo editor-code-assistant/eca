@@ -30,6 +30,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Knock"})
@@ -99,7 +100,6 @@
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
-        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}
                          {:role "assistant" :content [{:type "text" :text "Knock knock!"}]}
@@ -128,6 +128,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "hello!\n"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "reasonStarted" :id (m/pred string?)})
@@ -141,7 +142,6 @@
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
-        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "hello!"}]}]
               :system (m/pred vector?)}
@@ -206,6 +206,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "What files you see?\n"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "reasonStarted" :id (m/pred string?)})
@@ -264,7 +265,6 @@
         (match-content chat-id "assistant" {:type "text" :text "The files I see:\n"})
         (match-content chat-id "assistant" {:type "text" :text "file1\nfile2\n"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
-        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "What files you see?"}]}
                          {:role "assistant"

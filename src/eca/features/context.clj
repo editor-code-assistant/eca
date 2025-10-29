@@ -88,7 +88,7 @@
        {:type :file
         :path path
         :content (llm-api/refine-file-context path lines-range)}
-       :partial lines-range))))
+       :lines-range lines-range))))
 
 (defn raw-contexts->refined [contexts db]
   (mapcat (fn [{:keys [type path lines-range position uri]}]
@@ -117,17 +117,19 @@
           contexts))
 
 (defn contexts-str-from-prompt
-  "Extract all contexts (@something) and refine them."
+  "Extract all contexts (@something) and refine them.
+   Parse lines if present in contexts like @/path/to/file:L1-L4"
   [prompt db]
-  (let [context-pattern #"[@]([^\s]+)"
+  (let [;; Capture @<path> with optional :L<start>-L<end>
+        context-pattern #"@([^\s:]+)(?::L(\d+)-L(\d+))?"
         matches (re-seq context-pattern prompt)]
     (when (seq matches)
-      (let [raw-contexts (mapv (fn [[full-match path]]
-                                 (let [type (if (string/starts-with? full-match "@")
-                                              "file"
-                                              "file")]
-                                   {:type type
-                                    :path path}))
+      (let [raw-contexts (mapv (fn [[_ path s e]]
+                                 (assoc-some {:type "file"
+                                              :path path}
+                                             :lines-range (when (and s e)
+                                                            {:start (Integer/parseInt s)
+                                                             :end (Integer/parseInt e)})))
                                matches)]
         (raw-contexts->refined raw-contexts db)))))
 

@@ -984,7 +984,7 @@ interface ChatToolCallRejectedContent {
 
 type ToolCallOrigin = 'mcp' | 'native';
 
-type ToolCallDetails = FileChangeDetails;
+type ToolCallDetails = FileChangeDetails | JsonOutputsDetails;
 
 interface FileChangeDetails {
     type: 'fileChange';
@@ -1008,6 +1008,15 @@ interface FileChangeDetails {
       * The count of lines removed in this change.
       */
      linesRemoved: number;
+}
+
+interface JsonOutputsDetails {
+    type: 'jsonOutputs';
+    
+    /**
+     * The list of json outputs of this tool call properly formatted.
+     */
+    jsons: string[];
 }
 
 /**

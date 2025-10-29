@@ -321,3 +321,24 @@
                 :path b-file
                 :content b-content}])
              (#'f.context/parse-agents-file a-file)))))))
+
+(deftest contexts-str-from-prompt-test
+  (testing "not context mention"
+    (is (match?
+         nil
+         (f.context/contexts-str-from-prompt "check /path/to/file" (h/db)))))
+  (testing "Context mention"
+    (with-redefs [llm-api/refine-file-context (constantly "Some content")]
+      (is (match?
+           [{:type :file
+             :path "/path/to/file"
+             :content "Some content"}]
+           (f.context/contexts-str-from-prompt "check @/path/to/file" (h/db))))))
+  (testing "Context mention with lines range"
+    (with-redefs [llm-api/refine-file-context (constantly "Some content")]
+      (is (match?
+           [{:type :file
+             :path "/path/to/file"
+             :lines-range {:start 1 :end 4}
+             :content "Some content"}]
+           (f.context/contexts-str-from-prompt "check @/path/to/file:L1-L4" (h/db)))))))
