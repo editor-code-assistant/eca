@@ -2,7 +2,6 @@
   (:require
    [br.dev.zz.parc :as parc]
    [clojure.java.io :as io]
-   [clojure.java.process :as process]
    [clojure.string :as string]
    [eca.logger :as logger]
    [eca.shared :as shared])
@@ -15,9 +14,6 @@
 
 (def ^:private logger-tag "[secrets]")
 
-(defn ^:private netrc-path? [path]
-  (string/includes? (string/lower-case (.getName (io/file path))) "netrc"))
-
 (defn ^:private normalize-port
   [port]
   (cond
@@ -28,15 +24,15 @@
 
 (defn credential-file-paths
   "Returns ordered list of credential file paths to check."
-  []
-  (let [home (System/getProperty "user.home")
-        files [".authinfo" "_authinfo" ".netrc" "_netrc"]]
-    (mapcat (fn [filename]
-              (let [path (str (io/file home filename))]
-                [(str path ".gpg") path]))
-            files)))
+  [netrc-file]
+  (if (some? netrc-file)
+    [netrc-file]
+    (let [home (System/getProperty "user.home")
+          files [".netrc" "_netrc"]]
+      (->> files
+           (mapv #(str (io/file home %)))))))
 
-(defn ^:private validate-permissions [^File file]
+(defn ^:private validate-permissions [^File file & {:keys [warn?] :or {warn? false}}]
   (try
     ;; On Unix systems, check if file is readable by others
     (when-not (string/includes? (System/getProperty "os.name") "Windows")
@@ -45,9 +41,10 @@
         (if (or (contains? perms PosixFilePermission/GROUP_READ)
                 (contains? perms PosixFilePermission/OTHERS_READ))
           (do
-            (logger/warn logger-tag "Credential file has insecure permissions:"
-                         (.getPath file)
-                         "- should be 0600 (readable only by owner)")
+            (when warn?
+              (logger/warn logger-tag "Credential file has insecure permissions:"
+                           (.getPath file)
+                           "- should be 0600 (readable only by owner)"))
             false)
           true)))
     true
@@ -55,88 +52,23 @@
       ;; If permission check fails (e.g., on Windows), just proceed
       true)))
 
-(defn gpg-available?
-  "Checks if gpg command is available on system."
-  []
-  (try (string? (process/exec "gpg" "--version"))
-       (catch Exception _e
-         false)))
-
-;; Cache for GPG decryption results (5-second TTL)
-(def ^:private gpg-cache (atom {}))
-
-(defn ^:private gpg-cache-key [^File file]
-  (str (.getPath file) ":" (.lastModified file)))
-
-(defn ^:private get-cached-gpg [cache-key]
-  (when-let [{:keys [content timestamp]} (@gpg-cache cache-key)]
-    (when (< (- (System/currentTimeMillis) timestamp) 5000) ; 5-second TTL
-      (logger/debug logger-tag "GPG cache hit for" cache-key)
-      content)))
-
-(defn ^:private cache-gpg-result! [cache-key content]
-  (swap! gpg-cache assoc cache-key {:content content
-                                    :timestamp (System/currentTimeMillis)})
-  content)
-
-(defn decrypt-gpg
-  "Decrypts a .gpg file using gpg command. Returns decrypted content or nil on failure.
-   Timeout: 30 seconds (configurable via GPG_TIMEOUT env var)."
-  [file-path]
-  (try
-    (let [file (io/file file-path)
-          cache-key (gpg-cache-key file)]
-      ;; Check cache first
-      (or (get-cached-gpg cache-key)
-          ;; Not in cache, decrypt using clojure.java.process directly
-          (let [timeout-seconds (try
-                                  (Long/parseLong (System/getenv "GPG_TIMEOUT"))
-                                  (catch Exception _e 30)) ; default 30 seconds
-                timeout-ms (* timeout-seconds 1000)
-                proc (process/start {:out :pipe :err :pipe}
-                                    "gpg" "--quiet" "--batch" "--decrypt" file-path)
-                exit (deref (process/exit-ref proc) timeout-ms ::timeout)]
-            (if (= exit ::timeout)
-              (do
-                (.destroy proc)
-                (logger/warn logger-tag "GPG decryption timed out after" timeout-seconds "seconds for" file-path)
-                nil)
-              (let [out (slurp (process/stdout proc))
-                    err (slurp (process/stderr proc))]
-                (if (zero? exit)
-                  (do
-                    (logger/debug logger-tag "GPG decryption successful for" file-path)
-                    (cache-gpg-result! cache-key out))
-                  (do
-                    (logger/warn logger-tag "GPG decryption failed for" file-path
-                                 "- exit code:" exit)
-                    (when-not (string/blank? err)
-                      (logger/debug logger-tag "GPG error:" err))
-                    nil)))))))
-    (catch Exception e
-      (logger/warn logger-tag "GPG command failed for" file-path ":" (.getMessage e))
-      nil)))
-
-(defn ^:private parse-credentials [path content]
+(defn ^:private parse-credentials [content]
   (let [entries (parc/->netrc (StringReader. (or content "")))]
-    (cond->> entries
-      (netrc-path? path)
-      (map (fn [entry]
-             (cond-> entry
-               (contains? entry :port)
-               (update :port normalize-port)))))))
+    (map (fn [entry]
+           (cond-> entry
+             (contains? entry :port)
+             (update :port normalize-port)))
+         entries)))
 
 (defn ^:private load-credentials-from-file* [^String file-path]
   (try
     (logger/debug logger-tag "Checking credential file:" file-path)
     (let [file (io/file file-path)]
-      (when (and (.exists file) (.isFile file) (.canRead file))
-        (let [content (if (string/ends-with? file-path ".gpg")
-                        (when (gpg-available?) (decrypt-gpg file-path))
-                        (do (validate-permissions file)
-                            (slurp file)))]
+      (when (and (.exists file) (.canRead file))
+        (validate-permissions file :warn? true)
+        (let [content (slurp file)]
           (when (seq content)
-            (when-let [credentials (seq (parse-credentials file-path content))]
+            (when-let [credentials (seq (parse-credentials content))]
               (logger/debug logger-tag "Loaded" (count credentials) "credentials from" file-path)
               (vec credentials))))))
     (catch Exception e
@@ -146,9 +78,9 @@
 (def ^:private load-credentials-from-file
   (shared/memoize-by-file-last-modified load-credentials-from-file*))
 
-(defn ^:private load-all-credentials []
+(defn ^:private load-all-credentials [netrc-file]
   (vec (mapcat #(or (load-credentials-from-file %) [])
-               (credential-file-paths))))
+               (credential-file-paths netrc-file))))
 
 (defn parse-key-rc
   "Parses keyRc value in format [login@]machine[:port].
@@ -179,70 +111,40 @@
   "Retrieves password for keyRc specifier from credential files.
    Format: [login@]machine[:port]
    Returns password string or nil if not found."
-  [key-rc]
-  (when-let [spec (parse-key-rc key-rc)]
-    (when-let [credentials (load-all-credentials)]
-      (when-let [matched (first (filter #(match-credential % spec) credentials))]
-        (logger/debug logger-tag "Found credential for" key-rc)
-        (:password matched)))))
+  ([key-rc]
+   (get-credential key-rc nil))
+  ([key-rc netrc-file]
+   (when-let [spec (parse-key-rc key-rc)]
+     (when-let [credentials (load-all-credentials netrc-file)]
+       (when-let [matched (first (filter #(match-credential % spec) credentials))]
+         (logger/debug logger-tag "Found credential for" key-rc)
+         (:password matched))))))
 
 (defn check-credential-files
   "Performs diagnostic checks on credential files for /doctor command.
    Returns a map with:
-   - :gpg-available - boolean indicating if GPG is available
    - :files - vector of file check results, each containing:
      - :path - file path
      - :exists - boolean
      - :readable - boolean (if exists)
      - :permissions-secure - boolean (Unix only, if exists)
-     - :is-gpg - boolean
      - :credentials-count - number of valid credentials (if readable)
-     - :parse-error - error message (if parse fails)
-     - :suggestion - optional security suggestion"
-  []
-  (let [gpg-avail? (gpg-available?)
-        file-paths (credential-file-paths)
+     - :parse-error - error message (if parse fails)"
+  [netrc-file]
+  (let [file-paths (credential-file-paths netrc-file)
         file-checks (for [path file-paths]
                       (let [file (io/file path)
                             exists (.exists file)
-                            is-file (and exists (.isFile file))
-                            readable (and is-file (.canRead file))
-                            is-gpg (or (string/ends-with? path ".authinfo.gpg")
-                                       (string/ends-with? path ".netrc.gpg"))
-                            is-plaintext (and (not is-gpg)
-                                              (or (string/ends-with? path ".authinfo")
-                                                  (string/ends-with? path "_authinfo")
-                                                  (string/ends-with? path ".netrc")
-                                                  (string/ends-with? path "_netrc")))]
+                            readable (.canRead file)]
                         (cond-> {:path path
-                                 :exists exists
-                                 :is-gpg is-gpg}
+                                 :exists exists}
                           ;; Check readability
                           exists (assoc :readable readable)
 
                           ;; Check permissions (Unix only, plaintext only)
-                          (and is-plaintext readable)
+                          readable
                           (assoc :permissions-secure
-                                 (try
-                                   (when-not (string/includes? (System/getProperty "os.name") "Windows")
-                                     (let [file-path (.toPath file)
-                                           perms (Files/getPosixFilePermissions
-                                                  file-path
-                                                  (into-array LinkOption []))]
-                                       (not (or (contains? perms PosixFilePermission/GROUP_READ)
-                                                (contains? perms PosixFilePermission/OTHERS_READ)))))
-                                   (catch Exception _e
-                                     true))) ; On Windows or permission check failure, consider secure
-
-                          ;; Add GPG suggestion for plaintext files
-                          (and is-plaintext readable)
-                          (assoc :suggestion
-                                 (str "Consider encrypting with GPG: "
-                                      "gpg --output "
-                                      (if (string/ends-with? path ".netrc")
-                                        "~/.netrc.gpg"
-                                        "~/.authinfo.gpg")
-                                      " --symmetric " path))
+                                 (validate-permissions file))
 
                           ;; Try to parse and count credentials
                           readable
@@ -252,5 +154,4 @@
                                {:credentials-count (count credentials)})
                              (catch Exception e
                                {:parse-error (.getMessage e)}))))))]
-    {:gpg-available gpg-avail?
-     :files (vec file-checks)}))
+    {:files (vec file-checks)}))

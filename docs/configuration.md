@@ -515,6 +515,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             systemPromptFile?: string;
         };
         otlp?: {[key: string]: string};
+        netrcFile?: string;
     }
     ```
 
@@ -530,6 +531,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
           "ollama": {"url": "http://localhost:11434"}
       },
       "defaultModel": null, // let ECA decides the default model.
+      "netrcFile": null, // search ~/.netrc or ~/_netrc when null.
       "hooks": {},
       "rules" : [],
       "commands" : [],

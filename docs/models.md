@@ -148,7 +148,9 @@ Only set this when your provider uses a different path or expects query paramete
 
 ### Credential File Authentication
 
-Use `keyRc` in your provider config to read credentials from `~/.authinfo(.gpg)` or `~/.netrc(.gpg)` without storing keys directly in config or env vars.
+ECA also supports standard plain-text .netrc file format for reading credentials.
+
+Use `keyRc` in your provider config to read credentials from `~/.netrc` without storing keys directly in config or env vars.
 
 Example:
 
@@ -163,13 +165,20 @@ Example:
 
 keyRc lookup specification format: `[login@]machine[:port]` (e.g., `api.openai.com`, `work@api.anthropic.com`, `api.custom.com:8443`).
 
+ECA by default search .netrc file stored in user's home directory. You can also provide the path to the actual file to use with `:netrcFile` in ECA config.
+
+Tip for those wish to store their credentials encrypted with tools like gpg or age:
+
+```bash
+# via secure tempororay file
+gpg --batch -q -d ./netrc.gpg > /tmp/netrc.$$ && chmod 600 /tmp/netrc.$$ && ECA_CONFIG='{"netrcFile": "/tmp/netrc.$$"}' eca server && shred -u /tmp/netrc.$$
+```
+
 Further reading on credential file formats:
-- [Emacs authinfo documentation](https://www.gnu.org/software/emacs/manual/html_node/auth/Help-for-users.html)
 - [Curl Netrc documentation](https://everything.curl.dev/usingcurl/netrc)
 - [GNU Inetutils .netrc documentation](https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html)
 
 Notes:
-- Preferred files are GPG-encrypted (`~/.authinfo.gpg` / `~/.netrc.gpg`); plaintext variants are supported.
 - Authentication priority (short): `key` > `keyRc files` > `keyEnv` > OAuth.
 - All providers with API key auth can use credential files.
 

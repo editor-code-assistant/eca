@@ -121,6 +121,7 @@
                      :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"
                 :systemPromptFile "prompts/inline_completion.md"}
+   :netrcFile nil
    :env "prod"})
    
 
