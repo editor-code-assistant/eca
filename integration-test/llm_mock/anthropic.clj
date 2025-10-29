@@ -180,7 +180,7 @@
                    {:type "content_block_delta"
                     :index 2
                     :delta {:type "input_json_delta"
-                            :partial_json (str "h\":\"" (h/project-path->canon-path "resources") "\"}")}})
+                            :partial_json (str "h\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")}})
         ;; Finish the message indicating a tool_use stop so the client triggers tools
         (sse-send! ch "message_delta"
                    {:type "message_delta"

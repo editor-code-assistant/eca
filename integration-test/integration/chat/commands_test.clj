@@ -63,8 +63,11 @@
   (eca/request! (fixture/initialize-request
                  {:initializationOptions (merge fixture/default-init-options
                                                 {:mcpServers {"mcp-server-sample"
-                                                              {:command "bash"
-                                                               :args ["-c" (str "cd " h/mcp-server-sample-path " && clojure -M:server")]}}})}))
+                                                              (if h/windows?
+                                                                {:command "cmd.exe"
+                                                                 :args ["/c" (str "cd /d " h/mcp-server-sample-path " && clojure -M:server")]}
+                                                                {:command "bash"
+                                                                 :args ["-c" (str "cd " h/mcp-server-sample-path " && clojure -M:server")]})}})}))
   (eca/notify! (fixture/initialized-notification))
 
   (Thread/sleep 10000) ;; wait MCP server start TODO Improve this
