@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.75.1
+
 - Improve protocol for tool call output formatting for tools that output json.
 - Fix inconsistencies in `eca_read_file` not passing correct content to LLM when json.
 
