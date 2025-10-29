@@ -273,7 +273,7 @@
                       {:type "function_call"
                        :name "eca_directory_tree"
                        :call_id "tool-1"
-                       :arguments (str "{\"path\":\"" (h/project-path->canon-path "resources") "\"}")}
+                       :arguments (str "{\"path\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")}
                       {:type "function_call_output"
                        :call_id "tool-1"
                        :output (str (h/project-path->canon-path "resources") "\n"

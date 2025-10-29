@@ -45,6 +45,12 @@
     windows?
     (string/replace  #"/([a-zA-Z]):/" "/$1%3A/")))
 
+(defn json-escape-path
+  "Escapes the filesystem PATH string for safe use in JSON and returns the
+  result."
+  [path]
+  (string/replace path "\\" "\\\\"))
+
 (defn file->uri [file]
   (let [uri (-> file fs/canonicalize .toUri .toString)]
     (if *escape-uris?*

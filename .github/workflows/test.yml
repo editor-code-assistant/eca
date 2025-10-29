@@ -57,10 +57,8 @@ jobs:
         os: [ubuntu-22.04]
         jdk: [24]
         include:
-          # FIXME
-          # Windows keep failing randomly because of CI issues.
-          # - os: windows-latest
-          #   jdk: 24
+          - os: windows-latest
+            jdk: 24
           - os: macos-latest
             jdk: 24
     steps:
