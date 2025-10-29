@@ -58,11 +58,15 @@
                                  :url "https://api.githubcopilot.com"
                                  :key nil ;; not supported, requires login auth
                                  :keyEnv nil ;; not supported, requires login auth
-                                 :models {"gpt-5" {}
+                                 :models {"claude-haiku-4.5" {}
+                                          "claude-opus-4.1" {}
+                                          "claude-sonnet-4.5" {}
+                                          "gpt-5" {}
                                           "gpt-5-mini" {}
                                           "gpt-4.1" {}
-                                          "gemini-2.5-pro" {}
-                                          "claude-sonnet-4.5" {}}}
+                                          "gpt-4o" {}
+                                          "grok-code-fast-1" {}
+                                          "gemini-2.5-pro" {}}}
                "google" {:api "openai-chat"
                          :url "https://generativelanguage.googleapis.com/v1beta/openai"
                          :key nil

@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Add missing models supported by Github Copilot
 
 ## 0.75.0
 
