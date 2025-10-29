@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- BREAKING ECA now only supports standard plain-text netrc as credential file reading. Drop authinfo and gpg decryption support. Users can choose to pass in their own provisioned netrc file from various secure source with `:netrcFile` in ECA config.
+
 ## 0.74.0
 
 - Improved `eca_edit_file` to automatically handle whitespace and indentation differences in single-occurrence edits.
