@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.75.2
+
 - Add missing models supported by Github Copilot
 - Fix regression: openai-chat tool call arguments error on some models.
 
