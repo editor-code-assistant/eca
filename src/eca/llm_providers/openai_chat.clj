@@ -310,7 +310,6 @@
                 :stream stream?
                 :max_completion_tokens 32000}
                :temperature temperature
-               :parallel_tool_calls (:parallel_tool_calls extra-payload)
                :tools (when (seq tools) (->tools tools)))
               extra-payload)
 
@@ -344,7 +343,7 @@
                                         :api-key api-key
                                         :url-relative-path url-relative-path
                                         :on-error on-error
-                                        :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* (llm-util/gen-rid))))}))))
+                                        :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* new-rid)))}))))
         handle-response (fn handle-response [event data tool-calls* rid]
                           (if (= event "stream-end")
                             (do

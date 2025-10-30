@@ -3,6 +3,8 @@
 ## Unreleased
 - Add missing models supported by Github Copilot
 
+- Fix regression: openai-chat tool call arguments error on some models.
+
 ## 0.75.1
 
 - Improve protocol for tool call output formatting for tools that output json.
