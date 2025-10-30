@@ -79,7 +79,13 @@ jobs:
           bb: '1.12.200'
 
       - name: Generate embedded binary
-        run: bb prod-cli
+        run: |
+          # On Windows, babashka.deps/clojure sometimes fails with
+          # AccessDeniedException exception when renaming temp files
+          # while downloading dependencies. Workaround: offload some
+          # of the deps download to the clojure CLI tool.
+          clojure -P
+          bb prod-cli
 
       - name: Run integration tests
         run: bb integration-test
