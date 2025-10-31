@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support custom think tag start and end for openai-chat models via `think-tag-start` and `think-tag-end` provider configs. #188
+
 ## 0.75.2
 
 - Add missing models supported by Github Copilot

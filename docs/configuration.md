@@ -433,6 +433,8 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             keyEnv?: string;
             keyRc?: string; // credential file lookup in format [login@]machine[:port]
             completionUrlRelativePath?: string;
+            thinkTagStart?: string;
+            thinkTagEnd?: string;
             models: {[key: string]: {
               modelName?: string;
               extraPayload?: {[key: string]: any}

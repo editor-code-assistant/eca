@@ -126,7 +126,7 @@
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles."
-  [{:keys [role content] :as _msg} supports-image? thinking-start-tag thinking-end-tag]
+  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
   (case role
     "tool_call" {:type :tool-call ; Special marker for accumulation
                  :data {:id (:id content)
@@ -140,7 +140,7 @@
             :content (extract-content content supports-image?)}
     "reason" {:role "assistant"
               :content [{:type "text"
-                         :text (str thinking-start-tag (:text content) thinking-end-tag)}]}
+                         :text (str think-tag-start (:text content) think-tag-end)}]}
     "assistant" {:role "assistant"
                  :content (extract-content content supports-image?)}
     "system" {:role "system"
@@ -193,9 +193,9 @@
    'assistant' role message, not as separate messages. This function ensures compliance
    with that requirement by accumulating tool calls and flushing them into assistant
    messages when a non-tool_call message is encountered."
-  [messages supports-image? thinking-start-tag thinking-end-tag]
+  [messages supports-image? think-tag-start think-tag-end]
   (->> messages
-       (map #(transform-message % supports-image? thinking-start-tag thinking-end-tag))
+       (map #(transform-message % supports-image? think-tag-start think-tag-end))
        (remove nil?)
        accumulate-tool-calls
        (filter valid-message?)))
@@ -228,9 +228,9 @@
    - Inside thinking: emit reasoning up to </think> and keep a small tail to detect split tags
    - When a tag boundary is found, open/close the reasoning block accordingly"
   [text content-buffer* reasoning-type* current-reason-id*
-   reasoning-started* thinking-start-tag thinking-end-tag on-message-received on-reason]
-  (let [start-len (count thinking-start-tag)
-        end-len (count thinking-end-tag)
+   reasoning-started* think-tag-start think-tag-end on-message-received on-reason]
+  (let [start-len (count think-tag-start)
+        end-len (count think-tag-end)
         ;; Keep a small tail to detect tags split across chunk boundaries.
         start-tail (max 0 (dec start-len))
         end-tail (max 0 (dec end-len))
@@ -258,7 +258,7 @@
         (let [^String buf @content-buffer*]
           (if (= @reasoning-type* :tag)
             ;; Inside a thinking block; look for end tag
-            (let [idx (.indexOf buf ^String thinking-end-tag)]
+            (let [idx (.indexOf buf ^String think-tag-end)]
               (if (>= idx 0)
                 (let [before (.substring buf 0 idx)
                       after (.substring buf (+ idx end-len))]
@@ -271,7 +271,7 @@
                     (emit-think! (.substring buf 0 emit-len))
                     (reset! content-buffer* (.substring buf emit-len))))))
             ;; Outside a thinking block; look for start tag
-            (let [idx (.indexOf buf ^String thinking-start-tag)]
+            (let [idx (.indexOf buf ^String think-tag-start)]
               (if (>= idx 0)
                 (let [before (.substring buf 0 idx)
                       after (.substring buf (+ idx start-len))]
@@ -292,16 +292,15 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
-           thinking-tag]
-    :or {thinking-tag "think"}}
+           think-tag-start think-tag-end]
+    :or {think-tag-start "<think>"
+         think-tag-end "</think>"}}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
-  (let [thinking-start-tag (str "<" thinking-tag ">")
-        thinking-end-tag (str "</" thinking-tag ">")
-        stream? (boolean callbacks)
+  (let [stream? (boolean callbacks)
         messages (vec (concat
                        (when instructions [{:role "system" :content instructions}])
-                       (normalize-messages past-messages supports-image? thinking-start-tag thinking-end-tag)
-                       (normalize-messages user-messages supports-image? thinking-start-tag thinking-end-tag)))
+                       (normalize-messages past-messages supports-image? think-tag-start think-tag-end)
+                       (normalize-messages user-messages supports-image? think-tag-start think-tag-end)))
 
         body (deep-merge
               (assoc-some
@@ -331,7 +330,7 @@
                                   (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
                                     (let [new-messages-list (vec (concat
                                                                   (when instructions [{:role "system" :content instructions}])
-                                                                  (normalize-messages new-messages supports-image? thinking-start-tag thinking-end-tag)))
+                                                                  (normalize-messages new-messages supports-image? think-tag-start think-tag-end)))
                                           new-rid (llm-util/gen-rid)]
                                       (reset! tool-calls* {})
                                       (base-chat-request!
@@ -366,7 +365,7 @@
                                   ;; Process content if present (with thinking blocks support)
                                   (when-let [ct (:content delta)]
                                     (process-text-think-aware ct content-buffer* reasoning-type* current-reason-id* reasoning-started*
-                                                              thinking-start-tag thinking-end-tag on-message-received on-reason))
+                                                              think-tag-start think-tag-end on-message-received on-reason))
 
                                   ;; Process reasoning if present (o1 models and compatible providers)
                                   (when-let [reasoning-text (or (:reasoning delta)

@@ -163,7 +163,8 @@
           :supports-image? supports-image?
           :past-messages past-messages
           :tools tools
-          :thinking-tag "thought"
+          :think-tag-start "<thought>"
+          :think-tag-end "</thought>"
           :extra-payload (merge {:parallel_tool_calls false}
                                 (when reason?
                                   {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
@@ -192,7 +193,9 @@
                             "anthropic" llm-providers.anthropic/chat!
                             "openai-chat" llm-providers.openai-chat/chat-completion!
                             (on-error {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
-              url-relative-path (:completionUrlRelativePath provider-config)]
+              url-relative-path (:completionUrlRelativePath provider-config)
+              think-tag-start (:thinkTagStart provider-config)
+              think-tag-end (:thinkTagEnd provider-config)]
           (provider-fn
            {:model real-model
             :instructions instructions
@@ -205,6 +208,8 @@
             :tools tools
             :extra-payload extra-payload
             :url-relative-path url-relative-path
+            :think-tag-start think-tag-start
+            :think-tag-end think-tag-end
             :api-url api-url
             :api-key api-key}
            callbacks))
