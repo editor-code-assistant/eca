@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.75.4
+
 - Fix 0.75.3 regression on custom openai-chat providers.
 
 ## 0.75.3
