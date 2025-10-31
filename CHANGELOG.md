@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix 0.75.3 regression on custom openai-chat providers.
+
 ## 0.75.3
 
 - Support custom think tag start and end for openai-chat models via `think-tag-start` and `think-tag-end` provider configs. #188

@@ -292,11 +292,11 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end]
-    :or {think-tag-start "<think>"
-         think-tag-end "</think>"}}
+           think-tag-start think-tag-end]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
-  (let [stream? (boolean callbacks)
+  (let [think-tag-start (or think-tag-start "<think>")
+        think-tag-end (or think-tag-end "</think>")
+        stream? (boolean callbacks)
         messages (vec (concat
                        (when instructions [{:role "system" :content instructions}])
                        (normalize-messages past-messages supports-image? think-tag-start think-tag-end)
