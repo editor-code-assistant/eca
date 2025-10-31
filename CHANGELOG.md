@@ -5,6 +5,7 @@
 ## 0.75.3
 
 - Support custom think tag start and end for openai-chat models via `think-tag-start` and `think-tag-end` provider configs. #188
+- Bump MCP java sdk to 0.15.0.
 
 ## 0.75.2
 
