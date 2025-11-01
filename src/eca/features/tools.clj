@@ -45,7 +45,7 @@
           [name (-> tool
                     (assoc :name name)
                     (update :description #(-> %
-                                              (string/replace #"\$workspaceRoots" (constantly (tools.util/workspace-roots-strs db))))))]))
+                                              (string/replace #"{workspaceRoots}" (constantly (tools.util/workspace-roots-strs db))))))]))
    (merge {}
           f.tools.filesystem/definitions
           f.tools.shell/definitions

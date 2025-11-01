@@ -628,7 +628,7 @@
                                 (assert-chat-not-stopped! chat-ctx)
                                 (transition-tool-call! db* chat-ctx id :tool-prepare
                                                        {:name name
-                                                        :server (tool-name->server name all-tools)
+                                                        :server (:name (tool-name->server name all-tools))
                                                         :origin (tool-name->origin name all-tools)
                                                         :arguments-text arguments-text
                                                         :summary (f.tools/tool-call-summary all-tools name nil config)}))

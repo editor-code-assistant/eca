@@ -4,4 +4,4 @@ Analyze this codebase and create an AGENTS.md file containing:
 
 The file you create will be given to agentic coding agents (such as yourself) that operate in this repository. Make it about 20 lines long.
 
-If there's already an AGENTS.md, improve it if it's located in $workspaceRoots.
+If there's already an AGENTS.md, improve it if it's located in {workspaceFolders}.

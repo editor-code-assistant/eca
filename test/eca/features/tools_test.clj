@@ -60,7 +60,7 @@
                      :description (format "Only in %s" (h/file-path "/path/to/project/foo"))
                      :parameters some?
                      :origin :native}])
-         (with-redefs [f.tools.filesystem/definitions {"eca_directory_tree" {:description "Only in $workspaceRoots"
+         (with-redefs [f.tools.filesystem/definitions {"eca_directory_tree" {:description "Only in {workspaceRoots}"
                                                                              :parameters {}}}]
            (f.tools/all-tools "123" "agent" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
                               {}))))))

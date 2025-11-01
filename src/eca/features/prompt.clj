@@ -113,9 +113,9 @@
 (defn compact-prompt [additional-input config]
   (replace-vars
    (compact-prompt-template (:compactPromptFile config))
-   {:addionalUserInput (if additional-input
-                         (format "You MUST respect this user input in the summarization: %s." additional-input)
-                         "")}))
+   {:additionalUserInput (if additional-input
+                           (format "You MUST respect this user input in the summarization: %s." additional-input)
+                           "")}))
 
 (defn inline-completion-prompt [config]
   (let [prompt-file (get-in config [:completion :systemPromptFile])]

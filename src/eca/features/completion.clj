@@ -6,6 +6,8 @@
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]))
 
+(set! *warn-on-reflection* true)
+
 (def ^:private logger-tag "[COMPLETION]")
 
 (def ^:private completion-tag "<ECA_TAG>")
