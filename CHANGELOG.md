@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Updated instructions for `/login` command and invalid input handling.
+
 ## 0.75.4
 
 - Fix 0.75.3 regression on custom openai-chat providers.
