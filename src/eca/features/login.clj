@@ -14,16 +14,18 @@
 ;; No provider selected
 (defmethod login-step [nil :login/start] [{:keys [db* chat-id input send-msg!] :as ctx}]
   (let [provider (string/trim input)
-        providers (->> @db* :auth keys sort)]
+        providers (->> @db* :auth keys sort)
+        provider-list-str (reduce (fn [s p] (str s "- " p "\n")) "" providers)]
     (if (get-in @db* [:auth provider])
-      (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
-          (swap! db* assoc-in [:auth provider] {:step :login/start})
-          (login-step (assoc ctx :provider provider)))
-      (send-msg! (reduce
-                  (fn [s provider]
-                    (str s "- " provider "\n"))
-                  "Choose a provider:\n"
-                  providers)))))
+      (do
+        (swap! db* assoc-in [:chats chat-id :login-provider] provider)
+        (swap! db* assoc-in [:auth provider] {:step :login/start})
+        (login-step (assoc ctx :provider provider)))
+      (if (string/blank? provider)
+        (send-msg! (str "Please type the name of your chosen provider and press Enter:\n" provider-list-str))
+        (send-msg! (str "Sorry, \"" provider "\" is not a valid provider.\n"
+                        "Please type the name of your chosen provider and press Enter:\n"
+                        provider-list-str))))))
 
 (defn handle-step [{:keys [message chat-id]} db* messenger config metrics]
   (let [provider (get-in @db* [:chats chat-id :login-provider])
