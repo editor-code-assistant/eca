@@ -1,8 +1,8 @@
-Preview file changes without making any actual modifications. Shows the exact diff that would be applied when the plan is implemented.
+Simulate an edit or new file creation; returns only the proposed content (no changes applied).
 
-**IMPORTANT: The `path` parameter must be an absolute path** (e.g., `/Users/name/project/file.js`, not `./file.js` or relative paths).
-
-Use only for showing definitive implementation, not for iterative exploration.
-When crafting the `orginal_content`, you must match the original content from the `eca_read_file` tool output exactly, including all indentation (spaces/tabs) and newlines.
-ALWAYS prefer making small, targeted content changes.
-For new files, original_content must be empty string.
+Usage:
+- `path` must be an absolute path.
+- Existing files: provide `original_content` and `new_content`; match exactly, including whitespace.
+- New files: set `original_content = ""` and provide full `new_content`.
+- Prefer small, targeted edits over replacing entire functions.
+- Read-only; to apply, use `eca_edit_file` or `eca_write_file`. To preview deletion, set `new_content` to an empty string.

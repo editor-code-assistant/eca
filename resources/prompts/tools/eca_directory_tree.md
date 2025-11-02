@@ -1,3 +1,6 @@
-Returns a recursive tree view of files and directories starting from the specified path.
-The path parameter must be an absolute path, not a relative path.
-**Only works within the directories: {workspaceRoots}.**
+Shows a recursive tree of directories and files under the given path.
+
+Usage:
+- `path` must be an absolute path.
+- Optional: `max_depth` to limit traversal.
+- Skips hidden entries (dotfiles and dot-directories).

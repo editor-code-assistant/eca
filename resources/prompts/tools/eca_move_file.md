@@ -1,4 +1,7 @@
-Move or rename files and directories.
-Can move files between directories and rename them in a single operation.
-If the destination exists, the operation will fail. Works across different directories and can be used for simple renaming within the same directory.
-Both source and destination must be within the directories: {workspaceRoots}.
+Move or rename a file or directory.
+
+Usage:
+- `source` and `destination` must be absolute paths.
+- Fails if `destination` already exists; choose a non-existing target.
+- Works across directories or for simple renames within a directory.
+- Create the destination parent directory first if needed.
