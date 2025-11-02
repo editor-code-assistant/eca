@@ -80,19 +80,25 @@
                   ]
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" name arguments))
   (let [arguments (update-keys arguments clojure.core/name)
-        db @db*]
+        db @db*
+        tool-meta (some #(when (= name (:name %)) %)
+                        (all-tools chat-id behavior db config))
+        required-args-error (when-let [parameters (:parameters tool-meta)]
+                              (tools.util/required-params-error parameters arguments))]
     (try
-      (let [result (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
-                     (native-tool-handler arguments {:db db
-                                                     :db* db*
-                                                     :config config
-                                                     :messenger messenger
-                                                     :behavior behavior
-                                                     :chat-id chat-id
-                                                     :tool-call-id tool-call-id
-                                                     :call-state-fn call-state-fn
-                                                     :state-transition-fn state-transition-fn})
-                     (f.mcp/call-tool! name arguments {:db db}))]
+      (let [result (-> (if required-args-error
+                         required-args-error
+                         (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
+                           (native-tool-handler arguments {:db db
+                                                           :db* db*
+                                                           :config config
+                                                           :messenger messenger
+                                                           :behavior behavior
+                                                           :chat-id chat-id
+                                                           :tool-call-id tool-call-id
+                                                           :call-state-fn call-state-fn
+                                                           :state-transition-fn state-transition-fn})
+                           (f.mcp/call-tool! name arguments {:db db}))))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
         result)

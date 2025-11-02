@@ -23,18 +23,11 @@
            ((get-in f.tools.filesystem/definitions ["eca_directory_tree" :handler])
             {"path" (h/file-path "/foo/qux")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
-  (testing "Unallowed dir"
-    (is (match?
-         {:error true
-          :contents [{:type :text
-                      :text (format "Access denied - path %s outside allowed directories: %s"
-                                    (h/file-path "/foo/qux")
-                                    (h/file-path "/foo/bar/baz"))}]}
-         (with-redefs [fs/canonicalize (constantly (h/file-path "/foo/qux"))
-                       fs/exists? (constantly true)]
-           ((get-in f.tools.filesystem/definitions ["eca_directory_tree" :handler])
-            {"path" (h/file-path "/foo/qux")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+  (testing "Approval required outside workspace"
+    (let [require-approval-fn (get-in f.tools.filesystem/definitions ["eca_directory_tree" :require-approval-fn])
+          args {"path" (h/file-path "/foo/qux")}
+          db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}]
+      (is (true? (require-approval-fn args {:db db})))))
   (testing "allowed dir"
     (is (match?
          {:error false
@@ -66,8 +59,7 @@
           :contents [{:type :text
                       :text (format "File %s is not readable" (h/file-path "/foo/qux"))}]}
          (with-redefs [fs/exists? (constantly true)
-                       fs/readable? (constantly false)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/readable? (constantly false)]
            ((get-in f.tools.filesystem/definitions ["eca_read_file" :handler])
             {"path" (h/file-path "/foo/qux")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
@@ -78,8 +70,7 @@
                       :text (format "%s is a directory, not a file" (h/file-path "/foo/dir"))}]}
          (with-redefs [fs/exists? (constantly true)
                        fs/readable? (constantly true)
-                       fs/directory? (constantly true)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/directory? (constantly true)]
            ((get-in f.tools.filesystem/definitions ["eca_read_file" :handler])
             {"path" (h/file-path "/foo/dir")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
@@ -91,8 +82,7 @@
          (with-redefs [slurp (constantly "fooo")
                        fs/exists? (constantly true)
                        fs/readable? (constantly true)
-                       fs/directory? (constantly false)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/directory? (constantly false)]
            ((get-in f.tools.filesystem/definitions ["eca_read_file" :handler])
             {"path" (h/file-path "/foo/qux")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
@@ -103,8 +93,7 @@
                       :text "line3\nline4\nline5"}]}
          (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
                        fs/exists? (constantly true)
-                       fs/readable? (constantly true)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/readable? (constantly true)]
            ((get-in f.tools.filesystem/definitions ["eca_read_file" :handler])
             {"path" (h/file-path "/foo/qux") "line_offset" 2}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
@@ -115,8 +104,7 @@
                       :text "line1\nline2\n\n[CONTENT TRUNCATED] Showing lines 1 to 2 of 5 total lines. Use line_offset=2 parameter to read more content."}]}
          (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
                        fs/exists? (constantly true)
-                       fs/readable? (constantly true)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/readable? (constantly true)]
            ((get-in f.tools.filesystem/definitions ["eca_read_file" :handler])
             {"path" (h/file-path "/foo/qux") "limit" 2}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
@@ -127,24 +115,17 @@
                       :text "line3\nline4\n\n[CONTENT TRUNCATED] Showing lines 3 to 4 of 5 total lines. Use line_offset=4 parameter to read more content."}]}
          (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
                        fs/exists? (constantly true)
-                       fs/readable? (constantly true)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/readable? (constantly true)]
            ((get-in f.tools.filesystem/definitions ["eca_read_file" :handler])
             {"path" (h/file-path "/foo/qux") "line_offset" 2 "limit" 2}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}}))))))
 
 (deftest write-file-test
-  (testing "Not allowed path"
-    (is (match?
-         {:error true
-          :contents [{:type :text
-                      :text (format "Access denied - path %s outside allowed directories: %s"
-                                    (h/file-path "/foo/qux/new_file.clj")
-                                    (h/file-path "/foo/bar"))}]}
-         (with-redefs [f.tools.filesystem/allowed-path? (constantly false)]
-           ((get-in f.tools.filesystem/definitions ["eca_write_file" :handler])
-            {"path" (h/file-path "/foo/qux/new_file.clj")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "bar"}]}}))))))
+  (testing "Approval required outside workspace"
+    (let [require-approval-fn (get-in f.tools.filesystem/definitions ["eca_write_file" :require-approval-fn])
+          args {"path" (h/file-path "/foo/qux/new_file.clj")}
+          db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "bar"}]}]
+      (is (true? (require-approval-fn args {:db db}))))))
 
 (deftest grep-test
   (testing "invalid pattern"
@@ -235,8 +216,7 @@
           :contents [{:type :text
                       :text (format "File %s is not readable" (h/file-path "/foo/qux"))}]}
          (with-redefs [fs/exists? (constantly true)
-                       fs/readable? (constantly false)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+                       fs/readable? (constantly false)]
            ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
             {"path" (h/file-path "/foo/qux")
              "original_content" "foo"
@@ -250,7 +230,6 @@
                       :text (format "Original content not found in %s" (h/file-path "/foo/bar/my-file.txt"))}]}
          (with-redefs [fs/exists? (constantly true)
                        fs/readable? (constantly true)
-                       f.tools.filesystem/allowed-path? (constantly true)
                        slurp (constantly "line1\nline2\nline3")]
            ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
             {"path" (h/file-path "/foo/bar/my-file.txt")
@@ -266,7 +245,6 @@
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (constantly "a b a c")
                          spit (fn [f content] (swap! file-content* assoc f content))]
              ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
@@ -286,7 +264,6 @@
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (constantly "foo bar foo baz foo")
                          spit (fn [f content] (swap! file-content* assoc f content))]
              ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
@@ -309,7 +286,6 @@
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (constantly file-content)
                          spit (fn [f content] (swap! file-content* assoc f content))]
              ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
@@ -331,7 +307,6 @@
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (constantly file-content)
                          spit (fn [f content] (swap! file-content* assoc f content))]
              ((get-in f.tools.filesystem/definitions ["eca_edit_file" :handler])
@@ -355,7 +330,6 @@
                         :text (format "Successfully replaced content in %s." path)}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (fn [_]
                                  (let [n (swap! slurp-calls* inc)]
                                    (if (= n 1) initial changed)))
@@ -384,7 +358,6 @@
                                       path)}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (fn [_]
                                  (let [n (swap! slurp-calls* inc)]
                                    (if (= n 1) initial changed)))
@@ -403,8 +376,7 @@
          {:error true
           :contents [{:type :text
                       :text (format "%s is not a valid path" (h/file-path "/foo/qux"))}]}
-         (with-redefs [fs/exists? (constantly false)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+         (with-redefs [fs/exists? (constantly false)]
            ((get-in f.tools.filesystem/definitions ["eca_move_file" :handler])
             {"source" (h/file-path "/foo/qux")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
@@ -413,8 +385,7 @@
          {:error true
           :contents [{:type :text
                       :text (format "Path %s already exists" (h/file-path "/foo/bar/other_file.clj"))}]}
-         (with-redefs [fs/exists? (constantly true)
-                       f.tools.filesystem/allowed-path? (constantly true)]
+         (with-redefs [fs/exists? (constantly true)]
            ((get-in f.tools.filesystem/definitions ["eca_move_file" :handler])
             {"source" (h/file-path "/foo/bar/some_file.clj")
              "destination" (h/file-path "/foo/bar/other_file.clj")}
@@ -427,7 +398,6 @@
                                     (h/file-path "/foo/bar/some_file.clj")
                                     (h/file-path "/foo/bar/other_file.clj"))}]}
          (with-redefs [fs/exists? (fn [path] (not (string/includes? path "other_file.clj")))
-                       f.tools.filesystem/allowed-path? (constantly true)
                        fs/move (constantly true)]
            ((get-in f.tools.filesystem/definitions ["eca_move_file" :handler])
             {"source" (h/file-path "/foo/bar/some_file.clj")
@@ -444,7 +414,6 @@
                         :text (format "Change simulation completed for %s. Original file unchanged - preview only." (h/file-path "/foo/bar/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (constantly original-file-content)
                          spit (fn [& _] (reset! spit-called* true))]
              ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
@@ -463,7 +432,6 @@
                         :text (format "Original content not found in %s" (h/file-path "/foo/bar/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.filesystem/allowed-path? (constantly true)
                          slurp (constantly "line1\nline2\nline3")
                          spit (fn [& _] (reset! spit-called* true))]
              ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
@@ -481,7 +449,6 @@
             :contents [{:type :text
                         :text (format "New file creation simulation completed for %s. File will be created - preview only." (h/file-path "/foo/bar/new-file.txt"))}]}
            (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
-                         f.tools.filesystem/allowed-path? (constantly true)
                          spit (fn [& _] (reset! spit-called* true))]
              ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
               {"path" (h/file-path "/foo/bar/new-file.txt")
@@ -496,9 +463,8 @@
       (is (match?
            {:error true
             :contents [{:type :text
-                        :text (format "Preview error for %s: For new files, original_content must be empty string (\"\"). Use markdown blocks during exploration, then eca_preview_file_change for final implementation only." (h/file-path "/foo/bar/missing-file.txt"))}]}
+                        :text (format "Preview error for %s: For new files, original_content must be empty string (\"\")." (h/file-path "/foo/bar/missing-file.txt"))}]}
            (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
-                         f.tools.filesystem/allowed-path? (constantly true)
                          spit (fn [& _] (reset! spit-called* true))]
              ((get-in f.tools.filesystem/definitions ["eca_preview_file_change" :handler])
               {"path" (h/file-path "/foo/bar/missing-file.txt")

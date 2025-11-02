@@ -80,8 +80,15 @@
                        :disabledTools ["eca_preview_file_change"]}
               "plan" {:systemPromptFile "prompts/plan_behavior.md"
                       :disabledTools ["eca_edit_file" "eca_write_file" "eca_move_file"]
-                      :toolCall {:approval {:deny {"eca_shell_command"
-                                                   {:argsMatchers {"command" [".*>.*",
+                      :toolCall {:approval {:allow {"eca_shell_command"
+                                                    {:argsMatchers {"command" ["pwd"]}}
+                                                    "eca_preview_file_change" {}
+                                                    "eca_grep" {}
+                                                    "eca_read_file" {}
+                                                    "eca_directory_tree" {}}
+                                            :deny {"eca_shell_command"
+                                                   {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
+                                                                              ".*>.*",
                                                                               ".*\\|\\s*(tee|dd|xargs).*",
                                                                               ".*\\b(sed|awk|perl)\\s+.*-i.*",
                                                                               ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",

@@ -106,11 +106,7 @@
                                          :description (format "Optional timeout in milliseconds (Default: %s)" default-timeout)}}
                  :required ["command"]}
     :handler #'shell-command
-    :require-approval-fn (fn [args {:keys [db]}]
-                           (when-let [wd (and args (get args "working_directory"))]
-                             (when-let [wd (and (fs/exists? wd) (str (fs/canonicalize wd)))]
-                               (let [workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))]
-                                 (not-any? #(fs/starts-with? wd %) workspace-roots)))))
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])
     :summary-fn #'shell-command-summary}})
 
 (defmethod tools.util/tool-call-destroy-resource! :eca_shell_command [name resource-kwd resource]
