@@ -16,7 +16,7 @@
 (defn ^:private prompt! [params mocks]
   (let [{:keys [chat-id] :as resp}
         (with-redefs [llm-api/sync-or-async-prompt! (:api-mock mocks)
-                      llm-api/sync-prompt! (constantly nil) 
+                      llm-api/sync-prompt! (constantly nil)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/approval (constantly :allow)]
           (h/config! {:env "test"})
@@ -321,7 +321,7 @@
                      :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-3" :name "ro_tool_3" :arguments {}}}
-                                {:role "tool_call_output" :content {:id "call-3"  :name "ro_tool_3" :arguments {}
+                                {:role "tool_call_output" :content {:id "call-3" :name "ro_tool_3" :arguments {}
                                                                     :output {:error false
                                                                              :contents [{:type :text, :text "RO tool call 3 result"}]}}}
                                 {:role "tool_call" :content {:id "call-2" :name "ro_tool_2" :arguments {}}}
@@ -515,3 +515,32 @@
             :prompt "prompt"
             :args ["arg1" "arg2"]}
            (#'f.chat/message->decision "/server:prompt arg1 arg2")))))
+
+(deftest finish-chat-prompt-success-flag-test
+  (testing "Does not run side effect on failure and resets compacting?"
+    (let [db* (h/db*)
+          chat-id "chat-fail-1"
+          side-effect-called* (atom false)
+          chat-ctx {:chat-id chat-id
+                    :db* db*
+                    :metrics (h/metrics)
+                    :config (h/config)
+                    :messenger (h/messenger)
+                    :on-finished-side-effect #(reset! side-effect-called* true)}]
+      (swap! db* assoc-in [:chats chat-id :compacting?] true)
+      (f.chat/finish-chat-prompt! :idle chat-ctx false)
+      (is (= false @side-effect-called*) "Side effect should not run on failure")
+      (is (false? (get-in @db* [:chats chat-id :compacting?])) "compacting? should be reset to false")))
+
+  (testing "Runs side effect on success"
+    (let [db* (h/db*)
+          chat-id "chat-success-1"
+          side-effect-called* (atom false)
+          chat-ctx {:chat-id chat-id
+                    :db* db*
+                    :metrics (h/metrics)
+                    :config (h/config)
+                    :messenger (h/messenger)
+                    :on-finished-side-effect #(reset! side-effect-called* true)}]
+      (f.chat/finish-chat-prompt! :idle chat-ctx true)
+      (is (= true @side-effect-called*) "Side effect should run on success"))))
