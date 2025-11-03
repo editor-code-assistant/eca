@@ -80,6 +80,9 @@
 (defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
   (handlers/completion-inline (with-config components) params))
 
+(defmethod jsonrpc.server/receive-request "rewrite/prompt" [_ components params]
+  (handlers/rewrite-prompt (with-config components) params))
+
 (defn ^:private monitor-server-logs [log-ch]
   ;; NOTE: if this were moved to `initialize`, after timbre has been configured,
   ;; the server's startup logs and traces would appear in the regular log file
@@ -109,6 +112,9 @@
   (chat-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/contentReceived" content)))
+  (rewrite-content-received [_this content]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))
   (config-updated [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "config/updated" params)))

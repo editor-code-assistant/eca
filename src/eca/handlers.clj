@@ -5,6 +5,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.completion :as f.completion]
    [eca.features.login :as f.login]
+   [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.logger :as logger]
@@ -160,3 +161,8 @@
   [{:keys [db* config metrics messenger]} params]
   (metrics/task metrics :eca/completion-inline
     (f.completion/complete params db* config messenger metrics)))
+
+(defn rewrite-prompt
+  [{:keys [db* config metrics messenger]} params]
+  (metrics/task metrics :eca/rewrite-prompt
+    (f.rewrite/prompt params db* config messenger metrics)))

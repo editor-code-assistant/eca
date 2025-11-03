@@ -6,6 +6,7 @@
 
 (defprotocol IMessenger
   (chat-content-received [this data])
+  (rewrite-content-received [this data])
   (tool-server-updated [this params])
   (config-updated [this params])
   (showMessage [this msg])

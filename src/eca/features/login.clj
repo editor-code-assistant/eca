@@ -14,18 +14,16 @@
 ;; No provider selected
 (defmethod login-step [nil :login/start] [{:keys [db* chat-id input send-msg!] :as ctx}]
   (let [provider (string/trim input)
-        providers (->> @db* :auth keys sort)
-        provider-list-str (reduce (fn [s p] (str s "- " p "\n")) "" providers)]
+        providers (->> @db* :auth keys sort)]
     (if (get-in @db* [:auth provider])
-      (do
-        (swap! db* assoc-in [:chats chat-id :login-provider] provider)
-        (swap! db* assoc-in [:auth provider] {:step :login/start})
-        (login-step (assoc ctx :provider provider)))
-      (if (string/blank? provider)
-        (send-msg! (str "Please type the name of your chosen provider and press Enter:\n" provider-list-str))
-        (send-msg! (str "Sorry, \"" provider "\" is not a valid provider.\n"
-                        "Please type the name of your chosen provider and press Enter:\n"
-                        provider-list-str))))))
+      (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
+          (swap! db* assoc-in [:auth provider] {:step :login/start})
+          (login-step (assoc ctx :provider provider)))
+      (send-msg! (reduce
+                  (fn [s provider]
+                    (str s "- " provider "\n"))
+                  "Choose a provider:\n"
+                  providers)))))
 
 (defn handle-step [{:keys [message chat-id]} db* messenger config metrics]
   (let [provider (get-in @db* [:chats chat-id :login-provider])
@@ -62,21 +60,28 @@
     {:chat-id chat-id
      :status :login}))
 
-(defn renew-auth!
+(defn ^:private renew-auth!
   [provider
    {:keys [db* messenger config metrics]}
    {:keys [on-error]}]
   (try
     (login-step
-      {:provider provider
-       :metrics metrics
-       :messenger messenger
-       :config config
-       :step :login/renew-token
-       :db* db*})
+     {:provider provider
+      :metrics metrics
+      :messenger messenger
+      :config config
+      :step :login/renew-token
+      :db* db*})
     (db/update-global-cache! @db* metrics)
     (catch Exception e
       (on-error (.getMessage e)))))
+
+(defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
+  (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
+    (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
+      (on-renewing)
+      (renew-auth! provider ctx
+                   {:on-error on-error}))))
 
 (defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}
                    & {:keys [silent?]

@@ -526,24 +526,22 @@
       {:type :prompt-message
        :message message})))
 
-(defn ^:private maybe-renew-auth-token! [db provider chat-ctx]
-  (when-let [expires-at (get-in db [:auth provider :expires-at])]
-    (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
-      (send-content! chat-ctx :system {:type :progress
-                                       :state :running
-                                       :text "Renewing auth token"})
-      (f.login/renew-auth! provider chat-ctx
-                           {:on-error (fn [error-msg]
-                                        (send-content! chat-ctx :system {:type :text
-                                                                         :text error-msg})
-                                        (finish-chat-prompt! :idle chat-ctx)
-                                        (throw (ex-info "Auth token renew failed" {})))}))))
-
 (defn ^:private prompt-messages!
   [user-messages
    {:keys [db* config chat-id behavior full-model instructions messenger metrics] :as chat-ctx}]
   (let [[provider model] (string/split full-model #"/" 2)
-        _ (maybe-renew-auth-token! @db* provider chat-ctx)
+        _ (f.login/maybe-renew-auth-token!
+           {:provider provider
+            :on-renewing (fn []
+                           (send-content! chat-ctx :system {:type :progress
+                                                            :state :running
+                                                            :text "Renewing auth token"}))
+            :on-error (fn [error-msg]
+                        (send-content! chat-ctx :system {:type :text
+                                                         :text error-msg})
+                        (finish-chat-prompt! :idle chat-ctx)
+                        (throw (ex-info "Auth token renew failed" {})))}
+           chat-ctx)
         db @db*
         past-messages (get-in db [:chats chat-id :messages] [])
         model-capabilities (get-in db [:models full-model])
@@ -962,11 +960,11 @@
                           (f.context/agents-file-contexts db)
                           (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
-        instructions (f.prompt/build-instructions refined-contexts
-                                                  rules
-                                                  repo-map*
-                                                  selected-behavior
-                                                  config)
+        instructions (f.prompt/build-chat-instructions refined-contexts
+                                                       rules
+                                                       repo-map*
+                                                       selected-behavior
+                                                       config)
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
         expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)

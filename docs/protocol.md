@@ -186,7 +186,15 @@ interface WorkspaceFolder {
 
 interface ClientCapabilities {
     codeAssistant?: {
+        /**
+         * Whether client supports chat feature.
+         */
         chat?: boolean;
+
+        /**
+         * Whether client supports rewrite feature.
+         */
+        rewrite?: boolean;
         
         /**
          * Whether client supports provide editor informations to server like
@@ -1383,9 +1391,65 @@ interface CompletionInlineItem {
 }
 ```
 
-### Edit (↩️)
+### Rewrite (↩️)
 
-Soon
+A request sent from client to server, asking to rewrite a piece of code in editor with what LLM respond.
+The response is streamed via `rewrite/contentReceived` server notifications.
+
+_Request:_ 
+
+* method: `rewrite/prompt`
+* params: `RewritePromptParams` defined as follows:
+
+```typescript
+interface RewritePromptParams {
+
+    /**
+     * The rewrite ID to be used in response and later notifications.
+     */
+    id: string;
+    
+    /**
+     * The text to be rewritten.
+     * This should be the content selected by user in their editor.
+     */
+    text: string;
+    
+    /**
+     * The user prompt to LLM change the text.
+     */
+    prompt: string;
+
+    /**
+     * The model used for this rewrite.
+     * If null, server will use default model.
+     */
+    model?: ChatModel;
+
+    /**
+     * Optional path of the file.
+     * Useful for give context to LLM about the file path.
+     */
+    path?: string;
+
+    /**
+     * The range of the selected text.
+     */
+    range: Range;
+}
+```
+
+_Response:_ `RewritePromptResponse | Error`
+
+```typescript
+interface RewritePromptResponse {
+
+    /**
+     * The status of this rewrite.
+     */
+    status: 'prompting';
+}
+```
 
 ## Configuration
 

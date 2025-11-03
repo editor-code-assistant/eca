@@ -43,21 +43,17 @@
      (string/trim inner))
    code))
 
-(defn ^:private maybe-renew-auth-token! [provider db* messenger config metrics]
-  (when-let [expires-at (get-in @db* [:auth provider :expires-at])]
-    (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
-      (f.login/renew-auth! provider
-                           {:db* db*
-                            :messenger messenger
-                            :config config
-                            :metrics metrics}
-                           {:on-error (fn [error-msg]
-                                        (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}))))
-
 (defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
   (let [full-model (get-in config [:completion :model])
         [provider model] (string/split full-model #"/" 2)
-        _ (maybe-renew-auth-token! provider db* messenger config metrics)
+        _ (f.login/maybe-renew-auth-token!
+           {:provider provider
+            :on-renewing identity
+            :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
+           {:db* db*
+            :messenger messenger
+            :config config
+            :metrics metrics})
         db @db*
         model-capabilities (get-in db [:models full-model])
         provider-auth (get-in db [:auth provider])
