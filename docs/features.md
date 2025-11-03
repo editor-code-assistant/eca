@@ -38,7 +38,7 @@ ECA support built-in tools to avoid user extra installation and configuration, t
 
 === "Filesystem"
 
-    Provides access to filesystem under workspace root, listing, reading and writing files, important for agentic operations.
+    Provides access to the filesystem for listing, reading, writing, editing and moving files. Operates primarily on workspace files; paths outside the workspace require approval.
 
     - `eca_directory_tree`: list a directory as a tree (can be recursive).
     - `eca_read_file`: read a file content.
