@@ -1,5 +1,6 @@
 (ns eca.features.tools.util
   (:require
+   [babashka.fs :as fs]
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
@@ -60,6 +61,31 @@
        (map #(shared/uri->filename (:uri %)))
        (string/join "\n")))
 
+(defn workspace-root-paths
+  "Returns a vector of workspace root absolute paths from `db`."
+  [db]
+  (mapv (comp shared/uri->filename :uri) (:workspace-folders db)))
+
+(defn path-outside-workspace?
+  "Returns true if `path` is outside any workspace root in `db`.
+   Works for existing or non-existing paths by absolutizing."
+  [db path]
+  (let [p (when path (str (fs/absolutize path)))
+        roots (workspace-root-paths db)]
+    (and p (not-any? #(fs/starts-with? p %) roots))))
+
+(defn require-approval-when-outside-workspace
+  "Returns a function suitable for tool `:require-approval-fn` that triggers
+   approval when any of the provided `path-keys` in args is outside the
+   workspace roots."
+  [path-keys]
+  (fn [args {:keys [db]}]
+    (when (seq path-keys)
+      (some (fn [k]
+              (when-let [p (get args k)]
+                (path-outside-workspace? db p)))
+            path-keys))))
+
 (defn command-available? [command & args]
   (try
     (zero? (:exit (apply shell/sh (concat [command] args))))
@@ -78,3 +104,17 @@
   [tool-name]
   (-> (io/resource (str "prompts/tools/" tool-name ".md"))
       (slurp)))
+
+(defn required-params-error
+  "Given a tool `parameters` JSON schema (object) and an args map, return a
+  single-text-content error when any required parameter is missing. Returns nil
+  if all required parameters are present."
+  [parameters args]
+  (when-let [req (seq (:required parameters))]
+    (let [args (update-keys args name)
+          missing (->> req (map name) (filter #(nil? (get args %))) vec)]
+      (when (seq missing)
+        (single-text-content
+         (format "INVALID_ARGS: missing required params: %s"
+                 (->> missing (map #(str "`" % "`")) (string/join ", ")))
+         :error)))))

@@ -1,5 +1,12 @@
 Executes an arbitrary shell command ensuring proper handling and security measures.
-1. Command Execution:
+
+Before executing the command, please follow these steps:
+
+1. Directory Verification:
+   - If the command will create new directories or files, first use the List tool to verify the parent directory exists and is the correct location
+   - For example, before running "mkdir foo/bar", first use List to check that "foo" exists and is the intended parent directory
+
+2. Command Execution:
   - Always quote file paths that contain spaces with double quotes (e.g., cd \" path with spaces/file.txt \")
   - Examples of proper quoting:
     - cd \"/Users/name/My Documents\" (correct)
@@ -8,10 +15,13 @@ Executes an arbitrary shell command ensuring proper handling and security measur
     - python /path/with spaces/script.py (incorrect - will fail)
   - After ensuring proper quoting, execute the command.
   - Capture the output of the command.
-  - VERY IMPORTANT: You MUST avoid using search command `grep`. Instead use eca_grep to search. You MUST avoid read tools like `cat`, `head`, `tail`, and `ls`, and use eca_read_file or eca_directory_tree.
+
+Usage notes:
+  - The `command` argument is required.
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
   - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings).
-  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.
+  - VERY IMPORTANT: You MUST avoid using search command `grep`. Instead use eca_grep to search. You MUST avoid read tools like `cat`, `head`, `tail`, and `ls`, and use eca_read_file or eca_directory_tree.
+  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You my use `cd` if the User explicitly requests it.
     <good-example>
     pytest /foo/bar/tests
     </good-example>

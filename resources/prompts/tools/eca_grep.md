@@ -1,3 +1,8 @@
-Fast content search tool that works with any codebase size. Finds the paths to files that have matching contents using regular expressions.
-Supports full regex syntax (eg. "log.*Error", "function\\s+\\w+", etc.). Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}").
-Returns matching file paths sorted by modification time. Use this tool when you need to find files containing specific patterns.
+Find files whose contents match a regular expression.
+
+Usage:
+- `path` must be an absolute path.
+- `pattern` is a regular expression to match file contents.
+- Optional: `include` file-glob filter (e.g., "*.clj", "*.{clj,cljs}").
+- Optional: `max_results` limits the number of returned paths.
+- Returns matching file paths, one per line.

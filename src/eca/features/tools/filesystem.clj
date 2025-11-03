@@ -14,13 +14,8 @@
 
 (set! *warn-on-reflection* true)
 
-(defn ^:private allowed-path? [db path]
-  (some #(fs/starts-with? path (shared/uri->filename (:uri %)))
-        (:workspace-folders db)))
-
-(defn ^:private path-validations [db]
-  [["path" fs/exists? "$path is not a valid path"]
-   ["path" (partial allowed-path? db) (str "Access denied - path $path outside allowed directories: " (tools.util/workspace-roots-strs db))]])
+(defn ^:private path-validations []
+  [["path" fs/exists? "$path is not a valid path"]])
 
 (def ^:private directory-tree-max-depth 10)
 
@@ -35,7 +30,7 @@
 
 (defn ^:private directory-tree [arguments {:keys [db config]}]
   (let [path (delay (fs/canonicalize (get arguments "path")))]
-    (or (tools.util/invalid-arguments arguments (path-validations db))
+    (or (tools.util/invalid-arguments arguments (path-validations))
         (let [max-depth (or (get arguments "max_depth") directory-tree-max-depth)
               dir-count* (atom 0)
               file-count* (atom 0)
@@ -69,8 +64,8 @@
                 summary (format "%d directories, %d files" @dir-count* @file-count*)]
             (tools.util/single-text-content (str body "\n\n" summary)))))))
 
-(defn ^:private read-file [arguments {:keys [db config]}]
-  (or (tools.util/invalid-arguments arguments (concat (path-validations db)
+(defn ^:private read-file [arguments {:keys [config]}]
+  (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]
                                                        ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
       (let [line-offset (or (get arguments "line_offset") 0)
@@ -99,13 +94,12 @@
     (str "Reading file " (fs/file-name (fs/file path)))
     "Reading file"))
 
-(defn ^:private write-file [arguments {:keys [db]}]
-  (or (tools.util/invalid-arguments arguments [["path" (partial allowed-path? db) (str "Access denied - path $path outside allowed directories: " (tools.util/workspace-roots-strs db))]])
-      (let [path (get arguments "path")
-            content (get arguments "content")]
-        (fs/create-dirs (fs/parent (fs/path path)))
-        (spit path content)
-        (tools.util/single-text-content (format "Successfully wrote to %s" path)))))
+(defn ^:private write-file [arguments _]
+  (let [path (get arguments "path")
+        content (get arguments "content")]
+    (fs/create-dirs (fs/parent (fs/path path)))
+    (spit path content)
+    (tools.util/single-text-content (format "Successfully wrote to %s" path))))
 
 (defn ^:private write-file-summary [{:keys [args]}]
   (if-let [path (get args "path")]
@@ -178,8 +172,8 @@
 
    Returns matching file paths, prioritizing by modification time when possible.
    Validates that the search path is within allowed workspace directories."
-  [arguments {:keys [db]}]
-  (or (tools.util/invalid-arguments arguments (concat (path-validations db)
+  [arguments _]
+  (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]
                                                        ["pattern" #(and % (not (string/blank? %))) "Invalid content regex pattern '$pattern'"]
                                                        ["include" #(or (nil? %) (not (string/blank? %))) "Invalid file pattern '$include'"]
@@ -245,8 +239,9 @@
     (text-match/apply-content-change-to-string file-content original-content new-content all? path)
     (smart-edit/apply-smart-edit file-content original-content new-content path)))
 
+
 (defn ^:private edit-file [arguments {:keys [db]}]
-  (or (tools.util/invalid-arguments arguments (concat (path-validations db)
+  (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
       (let [path (get arguments "path")
             original-content (get arguments "original_content")
@@ -268,38 +263,34 @@
                   (handle-file-change-result {:error :conflict} path nil)))))
           (handle-file-change-result result path nil)))))
 
-(defn ^:private preview-file-change [arguments {:keys [db]}]
-  (or (tools.util/invalid-arguments arguments [["path" (partial allowed-path? db) (str "Access denied - path $path outside allowed directories: " (tools.util/workspace-roots-strs db))]])
-      (let [path (get arguments "path")
-            original-content (get arguments "original_content")
-            new-content (get arguments "new_content")
-            all? (boolean (get arguments "all_occurrences"))
-            file-exists? (fs/exists? path)]
-        (cond
-          file-exists?
-          (let [result (apply-file-edit-strategy (slurp path) original-content new-content all? path)]
-            (handle-file-change-result result path
-                                       (format "Change simulation completed for %s. Original file unchanged - preview only." path)))
+(defn ^:private preview-file-change [arguments _]
+  (let [path (get arguments "path")
+        original-content (get arguments "original_content")
+        new-content (get arguments "new_content")
+        all? (boolean (get arguments "all_occurrences"))
+        file-exists? (fs/exists? path)]
+    (cond
+      file-exists?
+      (let [result (apply-file-edit-strategy (slurp path) original-content new-content all? path)]
+        (handle-file-change-result result path
+                                   (format "Change simulation completed for %s. Original file unchanged - preview only." path)))
 
-          (and (not file-exists?) (= "" original-content))
-          (tools.util/single-text-content (format "New file creation simulation completed for %s. File will be created - preview only." path))
+      (and (not file-exists?) (= "" original-content))
+      (tools.util/single-text-content (format "New file creation simulation completed for %s. File will be created - preview only." path))
 
-          :else
-          (tools.util/single-text-content
-           (format "Preview error for %s: For new files, original_content must be empty string (\"\"). Use markdown blocks during exploration, then eca_preview_file_change for final implementation only."
-                   path)
-           :error)))))
+      :else
+      (tools.util/single-text-content
+       (format "Preview error for %s: For new files, original_content must be empty string (\"\")."
+               path)
+       :error))))
 
-(defn ^:private move-file [arguments {:keys [db]}]
-  (let [workspace-dirs (tools.util/workspace-roots-strs db)]
-    (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
-                                                 ["source" (partial allowed-path? db) (str "Access denied - path $source outside allowed directories: " workspace-dirs)]
-                                                 ["destination" (partial allowed-path? db) (str "Access denied - path $destination outside allowed directories: " workspace-dirs)]
-                                                 ["destination" (complement fs/exists?) "Path $destination already exists"]])
-        (let [source (get arguments "source")
-              destination (get arguments "destination")]
-          (fs/move source destination {:replace-existing false})
-          (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))))))
+(defn ^:private move-file [arguments _]
+  (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
+                                               ["destination" (complement fs/exists?) "Path $destination already exists"]])
+      (let [source (get arguments "source")
+            destination (get arguments "destination")]
+        (fs/move source destination {:replace-existing false})
+        (tools.util/single-text-content (format "Successfully moved %s to %s" source destination)))))
 
 (def definitions
   {"eca_directory_tree"
@@ -311,6 +302,7 @@
                                            :description (format "Maximum depth to traverse (default: %s)" directory-tree-max-depth)}}
                  :required ["path"]}
     :handler #'directory-tree
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn (constantly "Listing file tree")}
    "eca_read_file"
    {:description (tools.util/read-tool-description "eca_read_file")
@@ -323,6 +315,7 @@
                                        :description "Maximum lines to read (default: configured in tools.readFile.maxLines, defaults to 2000)"}}
                  :required ["path"]}
     :handler #'read-file
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'read-file-summary}
    "eca_write_file"
    {:description (tools.util/read-tool-description "eca_write_file")
@@ -333,6 +326,7 @@
                                          :description "The complete content to write to the file"}}
                  :required ["path" "content"]}
     :handler #'write-file
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'write-file-summary}
    "eca_edit_file"
    {:description (tools.util/read-tool-description "eca_edit_file")
@@ -347,6 +341,7 @@
                                                  :description "Whether to replace all occurrences of the file or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn (constantly "Editing file")}
    "eca_preview_file_change"
    {:description (tools.util/read-tool-description "eca_preview_file_change")
@@ -361,6 +356,7 @@
                                                  :description "Whether to preview replacing all occurrences or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'preview-file-change
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn (constantly "Previewing change")}
    "eca_move_file"
    {:description (tools.util/read-tool-description "eca_move_file")
@@ -371,6 +367,7 @@
                                              :description "The new absolute file path to move to."}}
                  :required ["source" "destination"]}
     :handler #'move-file
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"])
     :summary-fn (constantly "Moving file")}
    "eca_grep"
    {:description (tools.util/read-tool-description "eca_grep")
@@ -385,6 +382,7 @@
                                              :description "Maximum number of results to return (default: 1000)"}}
                  :required ["path" "pattern"]}
     :handler #'grep
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'grep-summary}})
 
 (defmethod tools.util/tool-call-details-before-invocation :eca_edit_file [_name arguments _server _ctx]

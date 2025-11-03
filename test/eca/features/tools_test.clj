@@ -4,6 +4,7 @@
    [eca.config :as config]
    [eca.features.tools :as f.tools]
    [eca.features.tools.filesystem :as f.tools.filesystem]
+   [eca.features.tools.mcp :as f.mcp]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -190,3 +191,89 @@
         ;; Test safe commands that should NOT be denied
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "ls -la"} {} config "plan")))
         (is (= :ask (f.tools/approval all-tools "eca_shell_command" {"command" "git status"} {} config "plan")))))))
+
+(deftest call-tool!-test
+  (testing "INVALID_ARGS for missing required param on native tool"
+    (is (match?
+         {:error    true
+          :contents [{:type :text
+                      :text "INVALID_ARGS: missing required params: `path`"}]}
+         (with-redefs [f.tools.filesystem/definitions
+                       {"eca_test_native_tool"
+                        {:description "Test tool"
+                         :parameters  {"type"      "object"
+                                       :properties {"path" {:type "string"}}
+                                       :required   ["path"]}
+                         :handler     (fn [& _]
+                                        {:error    false
+                                         :contents [{:type :text :text "OK"}]})}}]
+           (f.tools/call-tool!
+            "eca_test_native_tool"
+            {}
+            "chat-1"
+            "call-1"
+            "agent"
+            (h/db*)
+            (h/config)
+            (h/messenger)
+            (h/metrics)
+            identity
+            identity))))))
+
+(deftest call-tool!-mcp-missing-required-test
+  (testing "INVALID_ARGS for missing required param on MCP tool"
+    (is (match?
+         {:error    true
+          :contents [{:type :text
+                      :text "INVALID_ARGS: missing required params: `code`"}]}
+         (with-redefs [f.mcp/all-tools  (fn [_]
+                                          [{:name        "mcp_eval"
+                                            :server      {:name "clojureMCP"}
+                                            :description "eval code"
+                                            :parameters  {"type"      "object"
+                                                          :properties {"code" {:type "string"}}
+                                                          :required   ["code"]}}])
+                       f.mcp/call-tool! (fn [& _]
+                                          {:error    false
+                                           :contents [{:type :text :text "should-not-be-called"}]})]
+           (f.tools/call-tool!
+            "mcp_eval"
+            {}
+            "chat-1"
+            "call-2"
+            "agent"
+            (h/db*)
+            (h/config)
+            (h/messenger)
+            (h/metrics)
+            identity
+            identity))))))
+
+(deftest call-tool!-missing-multiple-required-test
+  (testing "INVALID_ARGS for multiple missing required params on native tool"
+    (is (match?
+         {:error    true
+          :contents [{:type :text
+                      :text "INVALID_ARGS: missing required params: `path`, `content`"}]}
+         (with-redefs [f.tools.filesystem/definitions
+                       {"eca_test_native_multi"
+                        {:description "Test tool multi"
+                         :parameters  {"type"      "object"
+                                       :properties {"path" {:type "string"}
+                                                    "content" {:type "string"}}
+                                       :required   ["path" "content"]}
+                         :handler     (fn [& _]
+                                        {:error    false
+                                         :contents [{:type :text :text "OK"}]})}}]
+           (f.tools/call-tool!
+            "eca_test_native_multi"
+            {}
+            "chat-2"
+            "call-3"
+            "agent"
+            (h/db*)
+            (h/config)
+            (h/messenger)
+            (h/metrics)
+            identity
+            identity))))))
