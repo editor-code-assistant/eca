@@ -66,8 +66,9 @@
 
 (defn ^:private auth-valid? [full-model db config]
   (let [[provider _model] (string/split full-model #"/" 2)]
-    (and (llm-util/provider-api-url provider config)
-         (llm-util/provider-api-key provider (get-in db [:auth provider]) config))))
+    (or (not (get-in config [:providers provider :requiresAuth?] false))
+        (and (llm-util/provider-api-url provider config)
+             (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))
 
 (defn sync-models! [db* config on-models-updated]
   (let [all-models (all)
@@ -97,8 +98,6 @@
                                         (:models provider-config))))
                               {}
                               (:providers config))
-        authenticated-models (into {}
-                                   (filter #(auth-valid? (first %) db config) all-supported-models))
         ollama-api-url (llm-util/provider-api-url "ollama" config)
         ollama-models (mapv
                        (fn [{:keys [model] :as ollama-model}]
@@ -114,6 +113,8 @@
                                (select-keys ollama-model [:tools :reason?])))
                       {}
                       ollama-models)
+        authenticated-models (into {}
+                                   (filter #(auth-valid? (first %) db config) all-supported-models))
         all-models (merge authenticated-models local-models)]
     (swap! db* assoc :models all-models)
     (on-models-updated all-models)))

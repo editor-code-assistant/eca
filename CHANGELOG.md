@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Custom providers do not require the existense of `key` or `keyEnv`. #194
+
 ## 0.76.0
 
 - Updated instructions for `/login` command and invalid input handling.

@@ -38,6 +38,7 @@
                          :url "https://api.openai.com"
                          :key nil
                          :keyEnv "OPENAI_API_KEY"
+                         :requiresAuth? true
                          :models {"gpt-5-codex" {}
                                   "gpt-5" {}
                                   "gpt-5-mini" {}
@@ -49,6 +50,7 @@
                             :url "https://api.anthropic.com"
                             :key nil
                             :keyEnv "ANTHROPIC_API_KEY"
+                            :requiresAuth? true
                             :models {"claude-sonnet-4-5-20250929" {}
                                      "claude-sonnet-4-20250514" {}
                                      "claude-opus-4-1-20250805" {}
@@ -58,6 +60,7 @@
                                  :url "https://api.githubcopilot.com"
                                  :key nil ;; not supported, requires login auth
                                  :keyEnv nil ;; not supported, requires login auth
+                                 :requiresAuth? true
                                  :models {"claude-haiku-4.5" {}
                                           "claude-opus-4.1" {}
                                           "claude-sonnet-4.5" {}
@@ -71,6 +74,7 @@
                          :url "https://generativelanguage.googleapis.com/v1beta/openai"
                          :key nil
                          :keyEnv "GOOGLE_API_KEY"
+                         :requiresAuth? true
                          :models {"gemini-2.0-flash" {}
                                   "gemini-2.5-pro" {}}}
                "ollama" {:url "http://localhost:11434"
