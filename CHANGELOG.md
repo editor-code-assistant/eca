@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.76.0
+
 - Updated instructions for `/login` command and invalid input handling.
 - Fix server name on `chat/contentReceived` when preparing tool call.
 - Fix variable replacing in some tool prompts.
