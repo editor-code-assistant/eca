@@ -2,12 +2,11 @@
 
 ## Unreleased
 
-- Improve planning mode prompt and tool docs; clarify absolute-path usage and preview rules.
-- Centralize path approval for tools and always list all missing required params in INVALID_ARGS.
-
 - Updated instructions for `/login` command and invalid input handling.
 - Fix server name on `chat/contentReceived` when preparing tool call.
 - Fix variable replacing in some tool prompts.
+- Improve planning mode prompt and tool docs; clarify absolute-path usage and preview rules.
+- Centralize path approval for tools and always list all missing required params in INVALID_ARGS.
 
 ## 0.75.4
 
