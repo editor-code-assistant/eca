@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Custom providers do not require the existense of `key` or `keyEnv`. #194
+- New feature: rewrite. #13
 
 ## 0.76.0
 
