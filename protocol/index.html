@@ -763,9 +763,18 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#edit" class="md-nav__link">
+  <a href="#rewrite" class="md-nav__link">
     <span class="md-ellipsis">
-      Edit (↩️)
+      Rewrite (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rewrite-content-received" class="md-nav__link">
+    <span class="md-ellipsis">
+      Rewrite Content Received (⬅️)
     </span>
   </a>
   
@@ -1253,9 +1262,18 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#edit" class="md-nav__link">
+  <a href="#rewrite" class="md-nav__link">
     <span class="md-ellipsis">
-      Edit (↩️)
+      Rewrite (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rewrite-content-received" class="md-nav__link">
+    <span class="md-ellipsis">
+      Rewrite Content Received (⬅️)
     </span>
   </a>
   
@@ -1550,7 +1568,15 @@ separated by a <code>\r\n</code>.</p>
 
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ClientCapabilities</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">codeAssistant</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Whether client supports chat feature.</span>
+<span class="cm">         */</span>
 <span class="w">        </span><span class="nx">chat?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Whether client supports rewrite feature.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">rewrite?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
 
 <span class="w">        </span><span class="cm">/**</span>
 <span class="cm">         * Whether client supports provide editor informations to server like</span>
@@ -1689,7 +1715,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     * Different models may have different capabilities, response styles,</span>
 <span class="cm">     * and performance characteristics.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">model?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatModel</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">model?</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The chat behavior used by server to handle chat communication and actions.</span>
@@ -1706,7 +1732,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * The LLM model name.</span>
 <span class="cm"> */</span>
-<span class="kr">type</span><span class="w"> </span><span class="nx">ChatModel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">Model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="kr">type</span><span class="w"> </span><span class="nx">ChatContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">DirectoryContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WebContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">RepoMapContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">CursorContext</span><span class="w"> </span><span class="o">|</span><span class="nx">McpResourceContext</span><span class="p">;</span>
 
@@ -1833,7 +1859,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="cm">/*</span>
 <span class="cm">     * The model used for this chat request.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatModel</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * What the server is doing after receing this prompt</span>
@@ -1869,7 +1895,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> * Different types of content that can be received from the LLM</span>
 <span class="cm"> */</span>
 <span class="kr">type</span><span class="w"> </span><span class="nx">ChatContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatTextContent</span><span class="w"> </span>
+<span class="w">    </span><span class="nx">ChatTextContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatURLContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatProgressContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatUsageContent</span>
@@ -2667,8 +2693,101 @@ Useful for server to provide to LLM information about errors/warnings about curr
 <span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="kt">Range</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
-<h3 id="edit">Edit (↩️)<a class="headerlink" href="#edit" title="Permanent link">#</a></h3>
-<p>Soon</p>
+<h3 id="rewrite">Rewrite (↩️)<a class="headerlink" href="#rewrite" title="Permanent link">#</a></h3>
+<p>A request sent from client to server, asking to rewrite a piece of code in editor with what LLM respond.
+The response is streamed via <code>rewrite/contentReceived</code> server notifications.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>rewrite/prompt</code></li>
+<li>params: <code>RewritePromptParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">RewritePromptParams</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The rewrite ID to be used in response and later notifications.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The text to be rewritten.</span>
+<span class="cm">     * This should be the content selected by user in their editor.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The user prompt to LLM change the text.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">prompt</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional path of the file.</span>
+<span class="cm">     * Useful for give context to LLM about the file path.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">path?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The range of the selected text.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="kt">Range</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em> <code>RewritePromptResponse | Error</code></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">RewritePromptResponse</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The status of this rewrite.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;prompting&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The model used by this rewrite request.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="rewrite-content-received">Rewrite Content Received (⬅️)<a class="headerlink" href="#rewrite-content-received" title="Permanent link">#</a></h3>
+<p>A server notification with a new content from the rewrite LLM request.</p>
+<p><em>Notification:</em> </p>
+<ul>
+<li>method: <code>rewrite/contentReceived</code></li>
+<li>params: <code>RewriteContentReceivedParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">RewriteContentReceivedParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The rewrite identifier this content belongs to</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">rewriteId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The content received</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">RewriteContent</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">RewriteStartedContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;started&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">RewriteReasoningContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;reasoning&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">RewriteTextContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;text&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">RewriteFinishedContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;finished&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kr">type</span><span class="w"> </span><span class="nx">RewriteContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>
+<span class="w">    </span><span class="nx">RewriteStartedContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">RewriteReasoningContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">RewriteTextContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">RewriteFinishedContent</span><span class="p">;</span>
+</code></pre></div>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
 <h3 id="config-updated">Config updated (⬅️)<a class="headerlink" href="#config-updated" title="Permanent link">#</a></h3>
 <p>A server notification with the new config server is considering (models, behaviors etc), usually related to config or auth changes.
@@ -2687,7 +2806,7 @@ Clients should update UI accordingly, if a field is missing/null, means it had n
 <span class="w">       </span><span class="cm">/**</span>
 <span class="cm">        * The models the user can use in chat.</span>
 <span class="cm">        */</span>
-<span class="w">        </span><span class="nx">models?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatModel</span><span class="p">[];</span>
+<span class="w">        </span><span class="nx">models?</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">[];</span>
 
 <span class="w">        </span><span class="cm">/**</span>
 <span class="cm">        * The chat behaviors the user can select.</span>
@@ -2701,7 +2820,7 @@ Clients should update UI accordingly, if a field is missing/null, means it had n
 <span class="cm">         * Server returns this when starting and only when makes sense to </span>
 <span class="cm">         * force update a model, like a config change.</span>
 <span class="cm">         */</span>
-<span class="w">        </span><span class="nx">selectModel?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatModel</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">selectModel?</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
 
 <span class="w">        </span><span class="cm">/**</span>
 <span class="cm">         * The behavior for client select in chat, if that is present</span>
@@ -2856,7 +2975,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 3, 2025 14:26:24 UTC">November 3, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 4, 2025 23:38:30 UTC">November 4, 2025</span>
   </span>
 
     
