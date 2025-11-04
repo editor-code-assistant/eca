@@ -20,7 +20,7 @@
                          :send-msg! send-msg!})
 
       (testing "should ask to choose a provider"
-        (is (= "Please type the name of your chosen provider and press Enter:\n- github-copilot\n- google\n"
+        (is (= "Choose a provider:\n- github-copilot\n- google\n"
                (last @msg-log)))))
 
     (testing "user is confused"
@@ -32,7 +32,7 @@
                          :send-msg! send-msg!})
 
       (testing "should ask to choose a provider and provide instructions"
-        (is (= "Sorry, \"/login github\" is not a valid provider.\nPlease type the name of your chosen provider and press Enter:\n- github-copilot\n- google\n"
+        (is (= "Choose a provider:\n- github-copilot\n- google\n"
                (last @msg-log)))
 
         (testing "state didn't change"

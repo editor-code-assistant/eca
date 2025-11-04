@@ -14,8 +14,6 @@
   (when windows?
     (second (re-find #"^([A-Za-z]).+" (System/getProperty "user.dir")))))
 
-
-
 (defn file-path [path]
   (cond-> path windows?
           (-> (string/replace-first #"^/" (str windows-drive-letter ":\\\\"))
@@ -31,6 +29,7 @@
 (defrecord TestMessenger [messages* diagnostics*]
   messenger/IMessenger
   (chat-content-received [_ data] (swap! messages* update :chat-content-received (fnil conj []) data))
+  (rewrite-content-received [_ data] (swap! messages* update :rewrite-content-received (fnil conj []) data))
   (config-updated [_ data] (swap! messages* update :config-updated (fnil conj []) data))
   (tool-server-updated [_ data] (swap! messages* update :tool-server-update (fnil conj []) data))
   (showMessage [_ data] (swap! messages* update :show-message (fnil conj []) data))
