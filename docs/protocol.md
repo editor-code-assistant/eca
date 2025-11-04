@@ -1476,6 +1476,10 @@ interface RewriteStartedContent {
     type: 'started';
 }
 
+interface RewriteReasoningContent {
+    type: 'reasoning';
+}
+
 interface RewriteTextContent {
     type: 'text';
     
@@ -1488,6 +1492,7 @@ interface RewriteFinishedContent {
 
 type RewriteContent = 
     RewriteStartedContent
+    | RewriteReasoningContent
     | RewriteTextContent
     | RewriteFinishedContent;
              

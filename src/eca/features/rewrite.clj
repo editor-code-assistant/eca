@@ -25,6 +25,7 @@
         [provider model] (string/split full-model #"/" 2)
         model-capabilities (get-in db [:models full-model])
         full-text (when path (llm-api/refine-file-context path nil))
+        start-time (System/currentTimeMillis)
         instructions (f.prompt/build-rewrite-instructions text path full-text range config)
         ctx {:db* db*
              :config config
@@ -48,11 +49,15 @@
         :provider-auth (get-in db [:auth provider])
         :on-first-response-received (fn [& _]
                                       (send-content! ctx {:type :started}))
+        :on-reason (fn [{:keys [status]}]
+                     (when (= :started status)
+                       (send-content! ctx {:type :reasoning})))
         :on-message-received (fn [{:keys [type] :as msg}]
                                (case type
                                  :text (send-content! ctx {:type :text
                                                            :text (:text msg)})
-                                 :finish (send-content! ctx {:type :finished})
+                                 :finish (send-content! ctx {:type :finished
+                                                             :total-time-ms (- (System/currentTimeMillis) start-time)})
                                  nil))}))
     {:status "prompting"
-     :model model}))
+     :model full-model}))
