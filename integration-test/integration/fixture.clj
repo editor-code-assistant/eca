@@ -18,8 +18,8 @@
                      :key "foo-key"
                      :keyEnv "FOO"}
    "google" {:url (str base-llm-mock-url "/google")
-                     :key "foo-key"
-                     :keyEnv "FOO"}})
+             :key "foo-key"
+             :keyEnv "FOO"}})
 
 (def default-init-options {:pureConfig true
                            :env "test"
@@ -53,3 +53,6 @@
 
 (defn chat-query-commands-request [params]
   [:chat/queryCommands params])
+
+(defn rewrite-prompt-request [params]
+  [:rewrite/prompt params])

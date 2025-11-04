@@ -43,7 +43,7 @@
   ;; Do a better escape considering more chars
   (cond-> (string/replace uri "::" "%3A%3A")
     windows?
-    (string/replace  #"/([a-zA-Z]):/" "/$1%3A/")))
+    (string/replace #"/([a-zA-Z]):/" "/$1%3A/")))
 
 (defn json-escape-path
   "Escapes the filesystem PATH string for safe use in JSON and returns the
@@ -66,7 +66,13 @@
 
 (defn match-content [chat-id role content]
   (is (match?
-        {:chatId chat-id
-         :role role
-         :content content}
-        (eca/client-awaits-server-notification :chat/contentReceived))))
+       {:chatId chat-id
+        :role role
+        :content content}
+       (eca/client-awaits-server-notification :chat/contentReceived))))
+
+(defn match-rewrite-content [rewrite-id content]
+  (is (match?
+       {:rewriteId rewrite-id
+        :content content}
+       (eca/client-awaits-server-notification :rewrite/contentReceived))))

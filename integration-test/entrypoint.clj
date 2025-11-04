@@ -14,7 +14,7 @@
     integration.chat.ollama-test
     integration.chat.custom-provider-test
     integration.chat.commands-test
-    ])
+    integration.rewrite.openai-test])
 
 (defn timeout [timeout-ms callback]
   (let [fut (future (callback))
