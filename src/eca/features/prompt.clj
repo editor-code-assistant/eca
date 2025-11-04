@@ -25,9 +25,6 @@
 (defn ^:private title-prompt-template* [] (slurp (io/resource "prompts/title.md")))
 (def ^:private title-prompt-template (memoize title-prompt-template*))
 
-(defn ^:private rewrite-prompt-template* [] (slurp (io/resource "prompts/rewrite.md")))
-(def ^:private rewrite-prompt-template (memoize rewrite-prompt-template*))
-
 (defn ^:private compact-prompt-template* [file-path]
   (if (fs/relative? file-path)
     (slurp (io/resource file-path))
@@ -106,22 +103,31 @@
      [(contexts-str refined-contexts repo-map*)])))
 
 (defn build-rewrite-instructions [text path full-text range config]
-  (replace-vars
-   (rewrite-prompt-template)
-   {:text text
-    :path (when path
-            (str "- File path: " path))
-    :rangeText (multi-str
-                 (str "- Start line: " (-> range :start :line))
-                 (str "- Start character: " (-> range :start :character))
-                 (str "- End line: " (-> range :end :line))
-                 (str "- End character: " (-> range :end :character)))
-    :fullText (when full-text
-                (multi-str
-                 "- Full file content"
-                 "```"
-                 full-text
-                 "```"))}))
+  (let [prompt-file (-> config :rewrite :systemPromptFile)
+        prompt-str (cond
+                     ;; Absolute path
+                     (and prompt-file (string/starts-with? prompt-file "/"))
+                     (slurp prompt-file)
+
+                     ;; Resource path
+                     :else
+                     (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" ""))))]
+    (replace-vars
+     prompt-str
+     {:text text
+      :path (when path
+              (str "- File path: " path))
+      :rangeText (multi-str
+                  (str "- Start line: " (-> range :start :line))
+                  (str "- Start character: " (-> range :start :character))
+                  (str "- End line: " (-> range :end :line))
+                  (str "- End character: " (-> range :end :character)))
+      :fullText (when full-text
+                  (multi-str
+                   "- Full file content"
+                   "```"
+                   full-text
+                   "```"))})))
 
 (defn init-prompt [db]
   (replace-vars

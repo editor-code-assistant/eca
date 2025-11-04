@@ -18,9 +18,9 @@
     :content content}))
 
 (defn prompt
-  [{:keys [id prompt text path range model]} db* config messenger metrics]
+  [{:keys [id prompt text path range]} db* config messenger metrics]
   (let [db @db*
-        full-model (or model
+        full-model (or (get-in config [:rewrite :model])
                        (llm-api/default-model db config))
         [provider model] (string/split full-model #"/" 2)
         model-capabilities (get-in db [:models full-model])

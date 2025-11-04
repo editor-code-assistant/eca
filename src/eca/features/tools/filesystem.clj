@@ -240,7 +240,7 @@
     (smart-edit/apply-smart-edit file-content original-content new-content path)))
 
 
-(defn ^:private edit-file [arguments {:keys [db]}]
+(defn ^:private edit-file [arguments {:keys [_db]}]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
       (let [path (get arguments "path")

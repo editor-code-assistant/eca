@@ -353,7 +353,7 @@ interface ChatPromptParams {
      * Different models may have different capabilities, response styles,
      * and performance characteristics.
      */
-    model?: ChatModel;
+    model?: Model;
 
     /**
      * The chat behavior used by server to handle chat communication and actions.
@@ -370,7 +370,7 @@ interface ChatPromptParams {
 /**
  * The LLM model name.
  */
-type ChatModel = string;
+type Model = string;
 
 type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext |McpResourceContext;
 
@@ -500,7 +500,7 @@ interface ChatPromptResponse {
     /*
      * The model used for this chat request.
      */
-    model: ChatModel;
+    model: Model;
     
     /**
      * What the server is doing after receing this prompt
@@ -540,7 +540,7 @@ interface ChatContentReceivedParams {
  * Different types of content that can be received from the LLM
  */
 type ChatContent = 
-    | ChatTextContent 
+    ChatTextContent 
     | ChatURLContent 
     | ChatProgressContent 
     | ChatUsageContent
@@ -1421,12 +1421,6 @@ interface RewritePromptParams {
     prompt: string;
 
     /**
-     * The model used for this rewrite.
-     * If null, server will use default model.
-     */
-    model?: ChatModel;
-
-    /**
      * Optional path of the file.
      * Useful for give context to LLM about the file path.
      */
@@ -1448,7 +1442,55 @@ interface RewritePromptResponse {
      * The status of this rewrite.
      */
     status: 'prompting';
+    
+    /**
+     * The model used by this rewrite request.
+     */
+    model: Model;
 }
+```
+
+### Rewrite Content Received (⬅️)
+
+A server notification with a new content from the rewrite LLM request.
+
+_Notification:_ 
+
+* method: `rewrite/contentReceived`
+* params: `RewriteContentReceivedParams` defined as follows:
+
+```typescript
+interface RewriteContentReceivedParams {
+    /**
+     * The rewrite identifier this content belongs to
+     */
+    rewriteId: string;
+
+    /**
+     * The content received
+     */
+    content: RewriteContent;
+}
+
+interface RewriteStartedContent {
+    type: 'started';
+}
+
+interface RewriteTextContent {
+    type: 'text';
+    
+    text: string;
+}
+
+interface RewriteFinishedContent {
+    type: 'finished';
+}
+
+type RewriteContent = 
+    RewriteStartedContent
+    | RewriteTextContent
+    | RewriteFinishedContent;
+             
 ```
 
 ## Configuration
@@ -1473,7 +1515,7 @@ interface ConfigUpdatedParams {
        /**
         * The models the user can use in chat.
         */
-        models?: ChatModel[];
+        models?: Model[];
 
         /**
         * The chat behaviors the user can select.
@@ -1487,7 +1529,7 @@ interface ConfigUpdatedParams {
          * Server returns this when starting and only when makes sense to 
          * force update a model, like a config change.
          */
-        selectModel?: ChatModel;
+        selectModel?: Model;
 
         /**
          * The behavior for client select in chat, if that is present

@@ -135,6 +135,12 @@ Hooks are actions that can run before or after an specific event, useful to noti
 
 For more details, check [hooks configuration](./configuration.md#hooks).
 
+## Rewrite
+
+Rewrite allow user to select part of the text and ask ECA to rewrite it using a configured model.
+
+![](./images/features/rewrite.gif)
+
 ##  Completion (alpha)
 
 Inline code completion
@@ -148,9 +154,3 @@ For mode details check [configuration](./configuration.md#completion).
 ECA has support for [OpenTelemetry](https://opentelemetry.io/)(otlp), if configured, server tasks, tool calls, and more will be metrified via otlp API.
 
 For more details check [its configuration](./configuration.md#opentelemetry-integration).
-
-
-## Edit 
-
-Soon
-

@@ -405,6 +405,21 @@ You can configure which model and system prompt ECA will use during its inline c
     }
     ```
 
+## Rewrite
+
+You can configure which model and system prompt ECA will use during its rewrite feature:
+
+=== "Example"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "rewrite": {
+        "model": "github-copilot/gpt-4.1",
+        "systemPromptFile": "/path/to/my-prompt.md"
+      }
+    }
+    ```
+
 ## Opentelemetry integration
 
 To configure, add your OTLP collector config via `:otlp` map following [otlp auto-configure settings](https://opentelemetry.io/docs/languages/java/configuration/#properties-general). Example:
@@ -516,6 +531,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             model?: string;
             systemPromptFile?: string;
         };
+        rewrite?: {
+            model?: string;
+            systemPromptFile?: string;
+        };
         otlp?: {[key: string]: string};
         netrcFile?: string;
     }
@@ -589,6 +608,9 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "completion": {
         "model": "openai/gpt-4.1",
         "systemPromptFile": "prompts/inline_completion.md"
+      },
+      "rewrite": {
+        "systemPromptFile": "prompts/rewrite.md"
       }
     }
     ```
