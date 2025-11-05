@@ -5,7 +5,8 @@
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]))
+   [eca.messenger :as messenger]
+   [eca.shared :refer [future*]]))
 
 (set! *warn-on-reflection* true)
 
@@ -37,7 +38,7 @@
             :on-renewing identity
             :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
            ctx)]
-    (future
+    (future* config
       (llm-api/sync-or-async-prompt!
        {:provider provider
         :model model
