@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix token renew when using rewrite feature.
+
 ## 0.77.0
 
 - Custom providers do not require the existense of `key` or `keyEnv`. #194

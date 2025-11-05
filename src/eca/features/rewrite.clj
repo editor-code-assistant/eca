@@ -35,7 +35,6 @@
              :rewrite-id id}
         _ (f.login/maybe-renew-auth-token!
            {:provider provider
-            :on-renewing identity
             :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
            ctx)]
     (future* config

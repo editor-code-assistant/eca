@@ -79,7 +79,8 @@
 (defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
   (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
     (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
-      (on-renewing)
+      (when on-renewing
+        (on-renewing))
       (renew-auth! provider ctx
                    {:on-error on-error}))))
 
