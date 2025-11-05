@@ -53,27 +53,32 @@
                     :output output
                     :error error})))
 
-(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
-  (swap! db* assoc-in [:chats chat-id :status] status)
-  (f.hooks/trigger-if-matches! :postRequest
-                               {:chat-id chat-id
-                                :prompt message}
-                               {:on-before-action (partial notify-before-hook-action! chat-ctx)
-                                :on-after-action (partial notify-after-hook-action! chat-ctx)}
-                               @db*
-                               config)
-  (send-content! chat-ctx :system
-                 {:type :progress
-                  :state :finished})
-  (when-not (get-in @db* [:chats chat-id :created-at])
-    (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis)))
-  (when on-finished-side-effect
-    (on-finished-side-effect))
-  (db/update-workspaces-cache! @db* metrics))
+(defn finish-chat-prompt!
+  ([status chat-ctx]
+   (finish-chat-prompt! status chat-ctx true))
+  ([status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx} success?]
+   (swap! db* assoc-in [:chats chat-id :status] status)
+   (f.hooks/trigger-if-matches! :postRequest
+                                {:chat-id chat-id
+                                 :prompt message}
+                                {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                 :on-after-action (partial notify-after-hook-action! chat-ctx)}
+                                @db*
+                                config)
+   (send-content! chat-ctx :system
+                  {:type :progress
+                   :state :finished})
+   (when-not (get-in @db* [:chats chat-id :created-at])
+     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis)))
+   ;; Always end any pending compact attempt
+   (swap! db* assoc-in [:chats chat-id :compacting?] false)
+   (when (and success? on-finished-side-effect)
+     (on-finished-side-effect))
+   (db/update-workspaces-cache! @db* metrics)))
 
 (defn ^:private assert-chat-not-stopped! [{:keys [chat-id db*] :as chat-ctx}]
   (when (identical? :stopping (get-in @db* [:chats chat-id :status]))
-    (finish-chat-prompt! :idle chat-ctx)
+    (finish-chat-prompt! :idle chat-ctx false)
     (logger/info logger-tag "Chat prompt stopped:" chat-id)
     (throw (ex-info "Chat prompt stopped" {:silent? true
                                            :chat-id chat-id}))))
@@ -618,7 +623,7 @@
                                                                  {:type :text
                                                                   :text (str "API limit reached. Tokens: " (json/generate-string (:tokens msg)))})
 
-                                                  (finish-chat-prompt! :idle chat-ctx))
+                                                  (finish-chat-prompt! :idle chat-ctx false))
                                  :finish (do
                                            (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
                                            (finish-chat-prompt! :idle chat-ctx))))
@@ -828,7 +833,7 @@
                                                      :text "Tell ECA what to do differently for the rejected tool(s)"})
                                      (add-to-history! {:role "user" :content [{:type :text
                                                                                :text "I rejected one or more tool calls with the following reason"}]})))
-                                 (finish-chat-prompt! :idle chat-ctx)
+                                 (finish-chat-prompt! :idle chat-ctx false)
                                  nil)
                                {:new-messages (get-in @db* [:chats chat-id :messages])})))
         :on-reason (fn [{:keys [status id text external-id]}]
@@ -859,7 +864,7 @@
                     (send-content! chat-ctx :system
                                    {:type :text
                                     :text (or message (str "Error: " (ex-message exception)))})
-                    (finish-chat-prompt! :idle chat-ctx))}))))
+                    (finish-chat-prompt! :idle chat-ctx false))}))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args]}
@@ -1082,7 +1087,7 @@
         (transition-tool-call! db* chat-ctx tool-call-id :stop-requested
                                {:reason {:code :user-prompt-stop
                                          :text "Tool call rejected because of user prompt stop"}}))
-      (finish-chat-prompt! :stopping chat-ctx))))
+      (finish-chat-prompt! :stopping chat-ctx false))))
 
 (defn delete-chat
   [{:keys [chat-id]} db* metrics]
