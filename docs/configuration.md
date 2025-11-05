@@ -407,7 +407,7 @@ You can configure which model and system prompt ECA will use during its inline c
 
 ## Rewrite
 
-You can configure which model and system prompt ECA will use during its rewrite feature:
+Configure the model and system prompt used for ECA's rewrite feature via the `rewrite` config. By default, ECA follows the same model selection as chat unless overwritten:
 
 === "Example"
 

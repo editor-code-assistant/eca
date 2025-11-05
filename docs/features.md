@@ -137,9 +137,11 @@ For more details, check [hooks configuration](./configuration.md#hooks).
 
 ## Rewrite
 
-Rewrite allow user to select part of the text and ask ECA to rewrite it using a configured model.
+Rewrite allows user to select part of the text and ask ECA to rewrite it.
 
 ![](./images/features/rewrite.gif)
+
+For rewrite configuration, check [configuration](./configuration.md#rewrite).
 
 ##  Completion (alpha)
 
