@@ -359,6 +359,7 @@ Examples:
       "hooks": {
         "notify-me": {
           "type": "postRequest",
+          "visible": false,
           "actions": [
             {
               "type": "shell",
@@ -370,6 +371,26 @@ Examples:
     } 
     ```
     
+=== "Ring bell sound when pending tool call approval"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "notify-me": {
+          "type": "preToolCall",
+          "visible": false,
+          "actions": [
+            {
+              "type": "shell",
+              "shell": "[[ $(jq '.approval == \"ask\"' <<< \"$1\") ]] && canberra-gtk-play -i complete"
+            }
+          ]
+        }
+      }
+    }
+    ```
+
+
 === "Block specific tool call checking hook arg"
 
     ```javascript title="~/.config/eca/config.json"
@@ -378,7 +399,6 @@ Examples:
         "check-my-tool": {
           "type": "preToolCall", 
           "matcher": "my-mcp__some-tool",
-          "visible": false,
           "actions": [
             {
               "type": "shell",

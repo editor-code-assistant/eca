@@ -685,7 +685,8 @@
                                                                     {:chat-id chat-id
                                                                      :tool-name name
                                                                      :server server-name
-                                                                     :arguments arguments}
+                                                                     :arguments arguments
+                                                                     :approval approval}
                                                                     {:on-before-action (partial notify-before-hook-action! chat-ctx)
                                                                      :on-after-action (fn [result]
                                                                                         (when (= 2 (:status result))

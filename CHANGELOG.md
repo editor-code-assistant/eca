@@ -4,6 +4,7 @@
 
 - Prefix tool name with server to LLM: <server>__<toolname>. #196
 - Remove `eca_` prefix from eca tools, we already pass server prefix (eca) after #196.
+- Add `approval` arg to preToolCall hook input.
 
 ## 0.77.1
 
