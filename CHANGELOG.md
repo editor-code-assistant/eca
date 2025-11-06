@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.77.1
+
 - Fix token renew when using rewrite feature.
 - Improve rewrite error handling.
 
