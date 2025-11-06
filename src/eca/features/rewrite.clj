@@ -35,7 +35,9 @@
              :rewrite-id id}
         _ (f.login/maybe-renew-auth-token!
            {:provider provider
-            :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
+            :on-error (fn [error-msg]
+                        (logger/error logger-tag (format "Auth token renew failed: %s" error-msg))
+                        (throw (ex-info error-msg {:error-response {:message error-msg}})))}
            ctx)]
     (future* config
       (llm-api/sync-or-async-prompt!

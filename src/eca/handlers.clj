@@ -162,7 +162,19 @@
   (metrics/task metrics :eca/completion-inline
     (f.completion/complete params db* config messenger metrics)))
 
+(defmacro handle-expected-errors
+  "Executes body, catching any ExceptionInfo with :error-response.
+  If caught, return {:error error-response}"
+  [& body]
+  `(try
+     ~@body
+     (catch clojure.lang.ExceptionInfo e#
+       (if-let [error-response# (:error-response (ex-data e#))]
+         {:error error-response#}
+         (throw e#)))))
+
 (defn rewrite-prompt
   [{:keys [db* config metrics messenger]} params]
   (metrics/task metrics :eca/rewrite-prompt
-    (f.rewrite/prompt params db* config messenger metrics)))
+    (handle-expected-errors
+      (f.rewrite/prompt params db* config messenger metrics))))
