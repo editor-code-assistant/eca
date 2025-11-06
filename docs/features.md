@@ -28,6 +28,8 @@ Behavior affect the prompt passed to LLM and the tools to include, ECA allow to 
 ECA leverage tools to give more power to the LLM, this is the best way to make LLMs have more context about your codebase and behave like an agent.
 It supports both MCP server tools + ECA native tools.
 
+When passing tools to LLM, ECA will always prefix the tool with the server name, like `eca__directory_tree` or `my-mcp__foo_bar`.
+
 !!! info "Approval / permissions"
 
     By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` behavior.

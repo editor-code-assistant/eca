@@ -560,11 +560,11 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "toolCall": {
         "approval": {
           "byDefault": "ask",
-          "allow": {"directory_tree": {},
-                    "read_file": {},
-                    "grep": {},
-                    "preview_file_change": {},
-                    "editor_diagnostics": {}},
+          "allow": {"eca__directory_tree": {},
+                    "eca__read_file": {},
+                    "eca__grep": {},
+                    "eca__preview_file_change": {},
+                    "eca__editor_diagnostics": {}},
           "ask": {},
           "deny": {}
         },
@@ -583,7 +583,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                   "disabledTools": ["preview_file_change"]},
         "plan": {"systemPromptFile": "prompts/plan_behavior.md",
                   "disabledTools": ["edit_file", "write_file", "move_file"],
-                  "toolCall": {"approval": {"deny": {"shell_command":
+                  "toolCall": {"approval": {"deny": {"eca__shell_command":
                                                      {"argsMatchers": {"command" [".*>.*",
                                                                                   ".*\\|\\s*(tee|dd|xargs).*",
                                                                                   ".*\\b(sed|awk|perl)\\s+.*-i.*",

@@ -84,13 +84,13 @@
                        :disabledTools ["preview_file_change"]}
               "plan" {:systemPromptFile "prompts/plan_behavior.md"
                       :disabledTools ["edit_file" "write_file" "move_file"]
-                      :toolCall {:approval {:allow {"shell_command"
+                      :toolCall {:approval {:allow {"eca__shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
-                                                    "preview_file_change" {}
-                                                    "grep" {}
-                                                    "read_file" {}
-                                                    "directory_tree" {}}
-                                            :deny {"shell_command"
+                                                    "eca__preview_file_change" {}
+                                                    "eca__grep" {}
+                                                    "eca__read_file" {}
+                                                    "eca__directory_tree" {}}
+                                            :deny {"eca__shell_command"
                                                    {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
                                                                               ".*>.*",
                                                                               ".*\\|\\s*(tee|dd|xargs).*",
@@ -101,7 +101,7 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
-   :hooks {} 
+   :hooks {}
    :rules []
    :commands []
    :disabledTools []
@@ -139,7 +139,6 @@
    :rewrite {:systemPromptFile "prompts/rewrite.md"}
    :netrcFile nil
    :env "prod"})
-   
 
 (def ^:private fallback-behavior "agent")
 
