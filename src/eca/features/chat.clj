@@ -374,7 +374,7 @@
     (when-let [resources (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :resources])]
       (when-not (empty? resources)
         (doseq [[resource-kwd resource] resources]
-          (f.tools/tool-call-destroy-resource! (:name event-data) resource-kwd resource))))
+          (f.tools/tool-call-destroy-resource! (:full-name event-data) resource-kwd resource))))
 
     ;; State management actions
     :init-tool-call-state
@@ -388,6 +388,7 @@
            ;; :resources (map) is updated by the :add-resources and remove-resources actions
            ;; NOTE: :future and :resources are forcibly removed from the state directly, NOT VIA ACTIONS.
            :name (:name event-data)
+           :full-name (:full-name event-data)
            :server (:server event-data)
            :arguments (:arguments event-data)
            :origin (:origin event-data)
@@ -629,6 +630,7 @@
                                 (assert-chat-not-stopped! chat-ctx)
                                 (transition-tool-call! db* chat-ctx id :tool-prepare
                                                        {:name (tool-full-name->name full-name all-tools)
+                                                        :full-name full-name
                                                         :server (:name (tool-full-name->server full-name all-tools))
                                                         :origin (tool-full-name->origin full-name all-tools)
                                                         :arguments-text arguments-text
@@ -809,8 +811,10 @@
                                                     :message (.getMessage t)
                                                     :cause (.getCause t)}))
                                    (finally (try
-                                              (transition-tool-call! db* chat-ctx tool-call-id :cleanup-finished
-                                                                     {:name name})
+                                              (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)]
+                                                (transition-tool-call! db* chat-ctx tool-call-id :cleanup-finished
+                                                                       {:name (:name tool-call-state)
+                                                                        :full-name (:full-name tool-call-state)}))
                                               (catch Throwable t
                                                 (logger/debug logger-tag "Ignoring an exception while finishing tool call"
                                                               {:tool-call-id tool-call-id

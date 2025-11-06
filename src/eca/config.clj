@@ -81,16 +81,16 @@
                          :urlEnv "OLLAMA_API_URL"}}
    :defaultBehavior "agent"
    :behavior {"agent" {:systemPromptFile "prompts/agent_behavior.md"
-                       :disabledTools ["eca_preview_file_change"]}
+                       :disabledTools ["preview_file_change"]}
               "plan" {:systemPromptFile "prompts/plan_behavior.md"
-                      :disabledTools ["eca_edit_file" "eca_write_file" "eca_move_file"]
-                      :toolCall {:approval {:allow {"eca_shell_command"
+                      :disabledTools ["edit_file" "write_file" "move_file"]
+                      :toolCall {:approval {:allow {"shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
-                                                    "eca_preview_file_change" {}
-                                                    "eca_grep" {}
-                                                    "eca_read_file" {}
-                                                    "eca_directory_tree" {}}
-                                            :deny {"eca_shell_command"
+                                                    "preview_file_change" {}
+                                                    "grep" {}
+                                                    "read_file" {}
+                                                    "directory_tree" {}}
+                                            :deny {"shell_command"
                                                    {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
                                                                               ".*>.*",
                                                                               ".*\\|\\s*(tee|dd|xargs).*",
@@ -106,12 +106,12 @@
    :commands []
    :disabledTools []
    :toolCall {:approval {:byDefault "ask"
-                         :allow {"eca_compact_chat" {}
-                                 "eca_preview_file_change" {}
-                                 "eca_read_file" {}
-                                 "eca_directory_tree" {}
-                                 "eca_grep" {}
-                                 "eca_editor_diagnostics" {}}
+                         :allow {"eca__compact_chat" {}
+                                 "eca__preview_file_change" {}
+                                 "eca__read_file" {}
+                                 "eca__directory_tree" {}
+                                 "eca__grep" {}
+                                 "eca__editor_diagnostics" {}}
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}

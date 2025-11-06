@@ -16,7 +16,7 @@
           :contents [{:type :text
                       :text "Path needs to be a file, not a directory."}]}
          (with-redefs [fs/directory? (constantly true)]
-           ((get-in f.tools.editor/definitions ["eca_editor_diagnostics" :handler])
+           ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
             {"path" (h/file-path "/foo/dir")}
             {:messenger (h/messenger)}))))))
 
@@ -27,7 +27,7 @@
          {:error false
           :contents [{:type :text
                       :text "No diagnostics found"}]}
-         ((get-in f.tools.editor/definitions ["eca_editor_diagnostics" :handler])
+         ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
           {}
           {:messenger (h/messenger)})))))
 
@@ -46,7 +46,7 @@
                       :text (format "%s:%s:%s: %s: [wrong-arity] %s"
                                      (h/file-path "/project/foo/src/app.clj")
                                      10 4 "error" "Wrong number of args")}]}
-         ((get-in f.tools.editor/definitions ["eca_editor_diagnostics" :handler])
+         ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
           {}
           {:messenger (h/messenger)})))))
 
@@ -64,7 +64,7 @@
                       :text (format "%s:%s:%s: %s: %s"
                                      (h/file-path "/project/foo/src/app.clj")
                                      3 1 "warning" "Unused var")}]}
-         ((get-in f.tools.editor/definitions ["eca_editor_diagnostics" :handler])
+         ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
           {}
           {:messenger (h/messenger)})))))
 
@@ -77,6 +77,6 @@
                       :text "Error getting editor diagnostics"}]}
          (with-redefs [messenger/editor-diagnostics (fn [_ _]
                                                       (throw (Exception. "boom")))]
-           ((get-in f.tools.editor/definitions ["eca_editor_diagnostics" :handler])
+           ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
             {}
             {:messenger (h/messenger)}))))))

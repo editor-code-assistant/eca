@@ -43,7 +43,7 @@
                                 (catch InterruptedException e
                                   (let [msg (or (.getMessage e) "Shell tool call was interrupted")]
                                     (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
-                                    (tools.util/tool-call-destroy-resource! "eca_shell_command" :process proc)
+                                    (tools.util/tool-call-destroy-resource! "eca__shell_command" :process proc)
                                     (state-transition-fn :resources-destroyed {:resources [:process]})
                                     {:exit 1 :err msg}))))
                          {:exit 1 :err "Tool call is :stopping, so shell rpocess not spawned"})
@@ -57,7 +57,7 @@
                          (let [state (call-state-fn)]
                            (when-let [resources (:resources state)]
                              (doseq [[res-kwd res] resources]
-                               (tools.util/tool-call-destroy-resource! "eca_shell_command" res-kwd res))
+                               (tools.util/tool-call-destroy-resource! "eca__shell_command" res-kwd res))
                              (when (#{:executing :stopping} (:status state))
                                (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
               err (some-> (:err result) string/trim)
@@ -95,8 +95,8 @@
       "Running shell command")))
 
 (def definitions
-  {"eca_shell_command"
-   {:description (tools.util/read-tool-description "eca_shell_command")
+  {"shell_command"
+   {:description (tools.util/read-tool-description "shell_command")
     :parameters {:type "object"
                  :properties {"command" {:type "string"
                                          :description "The shell command to execute."}
@@ -109,7 +109,7 @@
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])
     :summary-fn #'shell-command-summary}})
 
-(defmethod tools.util/tool-call-destroy-resource! :eca_shell_command [name resource-kwd resource]
+(defmethod tools.util/tool-call-destroy-resource! :eca__shell_command [name resource-kwd resource]
   (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
   (case resource-kwd
     :process (p/destroy-tree resource)

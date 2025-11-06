@@ -52,7 +52,7 @@
       (let [args {:path (h/project-path->canon-path "resources")}]
         (sse-send! ch {:message {:content "I will list files"}})
         (sse-send! ch {:message {:tool_calls [{:type "function"
-                                               :function {:name "eca__eca_directory_tree"
+                                               :function {:name "eca__directory_tree"
                                                           :arguments args}}]}})
         (sse-send! ch {:done_reason "stop"})
         (hk/close ch))

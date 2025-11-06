@@ -293,8 +293,8 @@
         (tools.util/single-text-content (format "Successfully moved %s to %s" source destination)))))
 
 (def definitions
-  {"eca_directory_tree"
-   {:description (tools.util/read-tool-description "eca_directory_tree")
+  {"directory_tree"
+   {:description (tools.util/read-tool-description "directory_tree")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "The absolute path to the directory."}
@@ -304,8 +304,8 @@
     :handler #'directory-tree
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn (constantly "Listing file tree")}
-   "eca_read_file"
-   {:description (tools.util/read-tool-description "eca_read_file")
+   "read_file"
+   {:description (tools.util/read-tool-description "read_file")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "The absolute path to the file to read."}
@@ -317,8 +317,8 @@
     :handler #'read-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'read-file-summary}
-   "eca_write_file"
-   {:description (tools.util/read-tool-description "eca_write_file")
+   "write_file"
+   {:description (tools.util/read-tool-description "write_file")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "The absolute path to the file to create or overwrite"}
@@ -328,8 +328,8 @@
     :handler #'write-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'write-file-summary}
-   "eca_edit_file"
-   {:description (tools.util/read-tool-description "eca_edit_file")
+   "edit_file"
+   {:description (tools.util/read-tool-description "edit_file")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "The absolute file path to do the replace."}
@@ -343,8 +343,8 @@
     :handler #'edit-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn (constantly "Editing file")}
-   "eca_preview_file_change"
-   {:description (tools.util/read-tool-description "eca_preview_file_change")
+   "preview_file_change"
+   {:description (tools.util/read-tool-description "preview_file_change")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "The absolute file path to preview changes for."}
@@ -358,8 +358,8 @@
     :handler #'preview-file-change
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn (constantly "Previewing change")}
-   "eca_move_file"
-   {:description (tools.util/read-tool-description "eca_move_file")
+   "move_file"
+   {:description (tools.util/read-tool-description "move_file")
     :parameters {:type "object"
                  :properties {"source" {:type "string"
                                         :description "The absolute origin file path to move."}
@@ -369,8 +369,8 @@
     :handler #'move-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"])
     :summary-fn (constantly "Moving file")}
-   "eca_grep"
-   {:description (tools.util/read-tool-description "eca_grep")
+   "grep"
+   {:description (tools.util/read-tool-description "grep")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "The absolute path to search in."}
@@ -385,7 +385,7 @@
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'grep-summary}})
 
-(defmethod tools.util/tool-call-details-before-invocation :eca_edit_file [_name arguments _server _ctx]
+(defmethod tools.util/tool-call-details-before-invocation :edit_file [_name arguments _server _ctx]
   (let [path (get arguments "path")
         original-content (get arguments "original_content")
         new-content (get arguments "new_content")
@@ -415,10 +415,10 @@
 
       :else nil)))
 
-(defmethod tools.util/tool-call-details-before-invocation :eca_preview_file_change [_name arguments server ctx]
-  (tools.util/tool-call-details-before-invocation :eca_edit_file arguments server ctx))
+(defmethod tools.util/tool-call-details-before-invocation :preview_file_change [_name arguments server ctx]
+  (tools.util/tool-call-details-before-invocation :edit_file arguments server ctx))
 
-(defmethod tools.util/tool-call-details-before-invocation :eca_write_file [_name arguments _server _ctx]
+(defmethod tools.util/tool-call-details-before-invocation :write_file [_name arguments _server _ctx]
   (let [path (get arguments "path")
         content (get arguments "content")]
     (when (and path content)

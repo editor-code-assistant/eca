@@ -127,7 +127,7 @@
         (sse-send! ch "response.reasoning_summary_text.delta"
                    {:type "response.reasoning_summary_text.delta"
                     :item_id "123"
-                    :delta " eca__eca_directory_tree"})
+                    :delta " eca__directory_tree"})
         (sse-send! ch "response.output_item.done"
                    {:type "response.output_item.done"
                     :item {:type "reasoning"
@@ -142,7 +142,7 @@
                     :item {:type "function_call"
                            :id "item-1"
                            :call_id "tool-1"
-                           :name "eca__eca_directory_tree"
+                           :name "eca__directory_tree"
                            :arguments ""}})
         ;; Stream arguments in two chunks
         (sse-send! ch "response.function_call_arguments.delta"
@@ -159,7 +159,7 @@
                     :response {:output [{:type "function_call"
                                          :id "item-1"
                                          :call_id "tool-1"
-                                         :name "eca__eca_directory_tree"
+                                         :name "eca__directory_tree"
                                          :arguments args-json}]
                                :usage {:input_tokens 5
                                        :output_tokens 30}

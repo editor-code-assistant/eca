@@ -214,27 +214,27 @@
         (match-content chat-id "assistant" {:type "toolCallPrepare"
                                             :origin "native"
                                             :id (m/pred string?)
-                                            :name "eca_directory_tree"
+                                            :name "directory_tree"
                                             :argumentsText ""
                                             :summary "Listing file tree"})
         (match-content chat-id "assistant" {:type "toolCallRun"
                                             :origin "native"
                                             :id (m/pred string?)
-                                            :name "eca_directory_tree"
+                                            :name "directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
                                             :manualApproval false
                                             :summary "Listing file tree"})
         (match-content chat-id "assistant" {:type "toolCallRunning"
                                             :origin "native"
                                             :id (m/pred string?)
-                                            :name "eca_directory_tree"
+                                            :name "directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
                                             :summary "Listing file tree"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
         (match-content chat-id "assistant" {:type "toolCalled"
                                             :origin "native"
                                             :id (m/pred string?)
-                                            :name "eca_directory_tree"
+                                            :name "directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
                                             :summary "Listing file tree"
                                             :totalTimeMs (m/pred number?)
@@ -252,7 +252,7 @@
                          {:role "assistant" :content "I will list files"}
                          {:role "assistant" :tool-calls [{:type "function"
                                                           :function {:id (m/pred string?)
-                                                                     :name "eca__eca_directory_tree"
+                                                                     :name "eca__directory_tree"
                                                                      :arguments {:path (h/project-path->canon-path "resources")}
                                                                      :summary "Listing file tree"
                                                                      :origin "native"}}]}
@@ -260,5 +260,5 @@
                                                      " file1.md\n"
                                                      " file2.md\n\n"
                                                      "0 directories, 2 files\n")}]
-              :tools (m/embeds [{:type "function" :function {:name "eca__eca_directory_tree"}}])}
+              :tools (m/embeds [{:type "function" :function {:name "eca__directory_tree"}}])}
              (llm.mocks/get-req-body :tool-calling-0)))))))

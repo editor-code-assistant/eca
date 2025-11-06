@@ -12,9 +12,9 @@
 
 (defmulti tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  (fn [name _arguments _server _ctx] (keyword name)))
+  (fn [full-name _arguments _server _ctx] (keyword full-name)))
 
-(defmethod tool-call-details-before-invocation :default [_name _arguments _server _ctx]
+(defmethod tool-call-details-before-invocation :default [_full-name _arguments _server _ctx]
   nil)
 
 (defmulti tool-call-details-after-invocation
@@ -45,7 +45,7 @@
 
 (defmulti tool-call-destroy-resource!
   "Destroy the tool call resource."
-  (fn [name _resource-kwd _resource] (keyword name)))
+  (fn [full-name _resource-kwd _resource] (keyword full-name)))
 
 (defmethod tool-call-destroy-resource! :default [_name _resource-kwd _resource]
   ;; By default, do nothing

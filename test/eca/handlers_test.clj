@@ -53,16 +53,16 @@
 
   (testing "Switching behavior updates tool status"
     (h/reset-components!)
-    (h/config! {:behavior {"plan" {:disabledTools ["eca_edit_file" "eca_write_file"]}}})
-    (with-redefs [f.tools/native-tools (constantly [{:name "eca_edit_file"
+    (h/config! {:behavior {"plan" {:disabledTools ["edit_file" "write_file"]}}})
+    (with-redefs [f.tools/native-tools (constantly [{:name "edit_file"
                                                      :server {:name "eca"}}
-                                                    {:name "eca_read_file"
+                                                    {:name "read_file"
                                                      :server {:name "eca"}}])]
       (handlers/chat-selected-behavior-changed (h/components)
                                                {:behavior "plan"})
-      (is (match? {:tool-server-update [{:tools [{:name "eca_edit_file"
+      (is (match? {:tool-server-update [{:tools [{:name "edit_file"
                                                   :disabled true}
-                                                 {:name "eca_read_file"
+                                                 {:name "read_file"
                                                   :disabled false}]}]}
                   (h/messages)))))
 

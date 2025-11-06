@@ -124,7 +124,7 @@
                                               :name "ECA"
                                               :status "running"
                                               :tools (->> (native-tools @db* config)
-                                                          (remove #(= "eca_compact_chat" (:name %)))
+                                                          (remove #(= "compact_chat" (:name %)))
                                                           (mapv #(select-keys % [:name :description :parameters]))
                                                           (mapv tool-status-fn))})
     (f.mcp/initialize-servers-async!
@@ -154,11 +154,11 @@
       (some #(= tool-name (str %)) manual-approval?)
       manual-approval?)))
 
-(defn ^:private approval-matches? [[server-or-full-tool-name config] tool-call-server tool-call-name args]
+(defn ^:private approval-matches? [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
   (let [args-matchers (:argsMatchers config)
         [server-name tool-name] (if (string/includes? server-or-full-tool-name "__")
                                   (string/split server-or-full-tool-name #"__" 2)
-                                  (if (string/starts-with? server-or-full-tool-name "eca_")
+                                  (if (some #(= server-or-full-tool-name (:name %)) native-tools)
                                     ["eca" server-or-full-tool-name]
                                     [server-or-full-tool-name nil]))]
     (cond
@@ -189,6 +189,7 @@
    Behavior parameter is required - pass nil for global-only approval rules."
   [all-tools tool-call-name args db config behavior]
   (let [remember-to-approve? (get-in db [:tool-calls tool-call-name :remember-to-approve?])
+        native-tools (filter #(= "eca" (:name (:server %))) all-tools)
         {:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
                                                             all-tools))
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
@@ -200,13 +201,13 @@
       remember-to-approve?
       :allow
 
-      (some #(approval-matches? % (:name server) tool-call-name args) deny)
+      (some #(approval-matches? % (:name server) tool-call-name args native-tools) deny)
       :deny
 
-      (some #(approval-matches? % (:name server) tool-call-name args) ask)
+      (some #(approval-matches? % (:name server) tool-call-name args native-tools) ask)
       :ask
 
-      (some #(approval-matches? % (:name server) tool-call-name args) allow)
+      (some #(approval-matches? % (:name server) tool-call-name args native-tools) allow)
       :allow
 
       (legacy-manual-approval? config tool-call-name)
@@ -253,8 +254,8 @@
 
 (defn tool-call-destroy-resource!
   "Destroy the resource in the tool call named `name`."
-  [name resource-kwd resource]
-  (tools.util/tool-call-destroy-resource! name resource-kwd resource))
+  [full-name resource-kwd resource]
+  (tools.util/tool-call-destroy-resource! full-name resource-kwd resource))
 
 (defn refresh-tool-servers!
   "Updates all tool servers (native and MCP) with new behavior status."

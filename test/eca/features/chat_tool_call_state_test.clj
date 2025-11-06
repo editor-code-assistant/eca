@@ -26,16 +26,18 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           resources {:a 1 :b 2}]
       (#'f.chat/execute-action! :init-tool-call-state db* chat-ctx tool-call-id {:name tool-name
+                                                                                 :full-name (str "eca__" tool-name)
                                                                                  :server "eca"
                                                                                  :arguments tool-arguments
                                                                                  :origin tool-origin})
-      (is (= (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)
-             {:name tool-name
-              :server "eca" 
+      (is (= {:name tool-name
+              :full-name (str "eca__" tool-name)
+              :server "eca"
               :arguments tool-arguments
               :origin tool-origin
               :decision-reason {:code :none
-                                :text "No reason"}})
+                                :text "No reason"}}
+             (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
           "Expected tool-call-state to be initialized.")
 
       (#'f.chat/execute-action! :add-resources db* chat-ctx tool-call-id {:resources resources})
@@ -44,8 +46,7 @@
 
       (#'f.chat/execute-action! :remove-resources db* chat-ctx tool-call-id {:resources (keys resources)})
       (is (= (:resources (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
-             {}))
-)))
+             {})))))
 
 ;;; State machine intent tests
 
@@ -546,8 +547,7 @@
                         result)
                 "Expected transition from :stopping to :cleanup with relevant actions"))))
 
-
-      ;; Test :cleanup -> :cleanup (should be no-op or error)
+;; Test :cleanup -> :cleanup (should be no-op or error)
       (testing ":cleanup -> :cleanup (should handle gracefully)"
         (let [approved?* (promise)]
           (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :tool-prepare
@@ -861,8 +861,7 @@
         (is (= :stopping (:status tool-state))
             "Expected tool call state to be in :stopping status")
         (is (= :cleanup (:status result))
-            "Expected tool call state to be :cleanup after :stop-requested"))
-      )))
+            "Expected tool call state to be :cleanup after :stop-requested")))))
 
 (deftest transition-tool-call-nonexistent-tool-call-operations-test
   ;; Test operations on nonexistent tool calls

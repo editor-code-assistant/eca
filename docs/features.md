@@ -40,25 +40,25 @@ ECA support built-in tools to avoid user extra installation and configuration, t
 
     Provides access to the filesystem for listing, reading, writing, editing and moving files. Operates primarily on workspace files; paths outside the workspace require approval.
 
-    - `eca_directory_tree`: list a directory as a tree (can be recursive).
-    - `eca_read_file`: read a file content.
-    - `eca_write_file`: write content to a new file.
-    - `eca_edit_file`: replace lines of a file with a new content.
-    - `eca_preview_edit_file`: Only used in plan mode, showing what changes will happen after user decides to execute the plan.
-    - `eca_move_file`: move/rename a file.
-    - `eca_grep`: ripgrep/grep for paths with specified content.
+    - `directory_tree`: list a directory as a tree (can be recursive).
+    - `read_file`: read a file content.
+    - `write_file`: write content to a new file.
+    - `edit_file`: replace lines of a file with a new content.
+    - `preview_edit_file`: Only used in plan mode, showing what changes will happen after user decides to execute the plan.
+    - `move_file`: move/rename a file.
+    - `grep`: ripgrep/grep for paths with specified content.
 
 === "Shell"
 
     Provides access to run shell commands, useful to run build tools, tests, and other common commands, supports exclude/include commands. 
 
-    - `eca_shell_command`: run shell command. Command exclusion can be configured using toolCall approval configuration with regex patterns.
+    - `shell_command`: run shell command. Command exclusion can be configured using toolCall approval configuration with regex patterns.
 
 === "Editor"
 
     Provides access to get information from editor workspaces.
 
-    - `eca_editor_diagnostics`: Ask client about the diagnostics (like LSP diagnostics).
+    - `editor_diagnostics`: Ask client about the diagnostics (like LSP diagnostics).
 
 !!! info "Custom Tools"
 

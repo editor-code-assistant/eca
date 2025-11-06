@@ -20,7 +20,7 @@ Usage notes:
   - The `command` argument is required.
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
   - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings).
-  - VERY IMPORTANT: You MUST avoid using search command `grep`. Instead use eca_grep to search. You MUST avoid read tools like `cat`, `head`, `tail`, and `ls`, and use eca_read_file or eca_directory_tree.
+  - VERY IMPORTANT: You MUST avoid using search command `grep`. Instead use eca__grep to search. You MUST avoid read tools like `cat`, `head`, `tail`, and `ls`, and use eca__read_file or eca__directory_tree.
   - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You my use `cd` if the User explicitly requests it.
     <good-example>
     pytest /foo/bar/tests

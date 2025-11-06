@@ -313,7 +313,7 @@ _Notification:_
             L--)S: Stream data
             S--)C: chat/contentReceived (assistant: text)
             S--)C: chat/contentReceived (toolCallPrepare: name + args)
-            L->>-S: Finish response:<br/>needs tool call<br/>'eca_directory_tree'
+            L->>-S: Finish response:<br/>needs tool call<br/>'eca__directory_tree'
             S->>C: chat/contentReceived (toolCallRun)<br/>Ask user if should call tool
             C--)S: chat/toolCallApprove
             S->>C: chat/contentReceived (toolCallRunning)
@@ -422,7 +422,7 @@ interface WebContext {
  * Clients should include this to chat by default but users may want exclude 
  * this context to reduce context size if needed.
  *
- * @deprecated No longer needed, replaced by eca_directory_tree tool.
+ * @deprecated No longer needed, replaced by eca__directory_tree tool.
  */
 interface RepoMapContext {
     type: 'repoMap'; 

@@ -46,8 +46,8 @@
                          :text "Error getting editor diagnostics"}]})))))
 
 (def definitions
-  {"eca_editor_diagnostics"
-   {:description (tools.util/read-tool-description "eca_editor_diagnostics")
+  {"editor_diagnostics"
+   {:description (tools.util/read-tool-description "editor_diagnostics")
     :parameters {:type "object"
                  :properties {"path" {:type "string"
                                       :description "Optional absolute path to a file to return diagnostics only for that file."}}

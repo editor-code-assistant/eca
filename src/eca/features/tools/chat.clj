@@ -15,7 +15,7 @@
     (tools.util/single-text-content "Compacted successfully!")))
 
 (def definitions
-  {"eca_compact_chat"
+  {"compact_chat"
    {:description "Compact / summarize a chat, cleaning chat history, emptying usage and presenting the summary to user"
     :parameters {:type "object"
                  :properties {"summary" {:type "string"

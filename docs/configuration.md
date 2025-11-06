@@ -145,7 +145,7 @@ Check some examples:
         "approval": {
           "byDefault": "allow",
           "ask": {
-            "eca_shell_command": {"argsMatchers": {"command": [".*rm.*",
+            "shell_command": {"argsMatchers": {"command": [".*rm.*",
                                                                ".*mv.*"]}}
           }
         }
@@ -161,7 +161,7 @@ Check some examples:
         "approval": {
           "byDefault": "allow",
           "deny": {
-            "eca_shell_command": {"argsMatchers": {"command": [".*rm.*",
+            "shell_command": {"argsMatchers": {"command": [".*rm.*",
                                                                ".*mv.*"]}}
           }
         }
@@ -175,7 +175,7 @@ __The `manualApproval` setting was deprecated and replaced by the `approval` one
 
 ### File Reading
 
-You can configure the maximum number of lines returned by the `eca_read_file` tool:
+You can configure the maximum number of lines returned by the `eca__read_file` tool:
 
 ```javascript title="~/.config/eca/config.json"
 {
@@ -560,11 +560,11 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "toolCall": {
         "approval": {
           "byDefault": "ask",
-          "allow": {"eca_directory_tree": {},
-                    "eca_read_file": {},
-                    "eca_grep": {},
-                    "eca_preview_file_change": {},
-                    "eca_editor_diagnostics": {}},
+          "allow": {"directory_tree": {},
+                    "read_file": {},
+                    "grep": {},
+                    "preview_file_change": {},
+                    "editor_diagnostics": {}},
           "ask": {},
           "deny": {}
         },
@@ -580,10 +580,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "mcpServers" : {},
       "behavior" {
         "agent": {"systemPromptFile": "prompts/agent_behavior.md",
-                  "disabledTools": ["eca_preview_file_change"]},
+                  "disabledTools": ["preview_file_change"]},
         "plan": {"systemPromptFile": "prompts/plan_behavior.md",
-                  "disabledTools": ["eca_edit_file", "eca_write_file", "eca_move_file"],
-                  "toolCall": {"approval": {"deny": {"eca_shell_command":
+                  "disabledTools": ["edit_file", "write_file", "move_file"],
+                  "toolCall": {"approval": {"deny": {"shell_command":
                                                      {"argsMatchers": {"command" [".*>.*",
                                                                                   ".*\\|\\s*(tee|dd|xargs).*",
                                                                                   ".*\\b(sed|awk|perl)\\s+.*-i.*",

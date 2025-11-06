@@ -19,7 +19,7 @@
           :contents [{:type :text
                       :text (format "working directory %s does not exist" (h/file-path "/baz"))}]}
          (with-redefs [fs/exists? (constantly false)]
-           ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+           ((get-in f.tools.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/baz")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -34,7 +34,7 @@
                       :text "Stderr:\nSome error"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 1 :err "Some error"}))]
-           ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+           ((get-in f.tools.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
              :call-state-fn call-state-fn
@@ -46,7 +46,7 @@
                       :text "Some text"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
-           ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+           ((get-in f.tools.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
              :call-state-fn call-state-fn
@@ -58,7 +58,7 @@
                       :text "Some text"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
-           ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+           ((get-in f.tools.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/project/foo/src")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -71,7 +71,7 @@
                       :text "Command timed out after 50 ms"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future (Thread/sleep 1000) {:exit 0 :err "ok"}))]
-           ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+           ((get-in f.tools.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "timeout" 50}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -91,7 +91,7 @@
                         :text "also ok"}]}
            (with-redefs [fs/exists? (constantly true)
                          p/process (constantly (reset! proc (future {:exit 0 :err "ok" :out "also ok"})))]
-             ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+             ((get-in f.tools.shell/definitions ["shell_command" :handler])
               {"command" "ls -lh"}
               {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
                :call-state-fn call-state-fn
@@ -102,7 +102,7 @@
           "Expected the resource in the call state to match the process"))))
 
 (deftest shell-require-approval-fn-test
-  (let [approval-fn (get-in f.tools.shell/definitions ["eca_shell_command" :require-approval-fn])
+  (let [approval-fn (get-in f.tools.shell/definitions ["shell_command" :require-approval-fn])
         db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
     (testing "returns nil when working_directory is not provided"
       (is (nil? (approval-fn nil {:db db})))
@@ -122,7 +122,7 @@
                                  :text "Some output"}]}
                     (with-redefs [fs/exists? (constantly true)
                                   p/process (constantly (future {:exit 0 :out "Some output"}))]
-                      ((get-in f.tools.shell/definitions ["eca_shell_command" :handler])
+                      ((get-in f.tools.shell/definitions ["shell_command" :handler])
                        {"command" command}
                        {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
                         :behavior "plan"
@@ -139,12 +139,12 @@
       "env")))
 
 (deftest plan-mode-approval-restrictions-test
-  (let [all-tools [{:name "eca_shell_command" :server {:name "eca"}}]
+  (let [all-tools [{:name "shell_command" :server {:name "eca"}}]
         config config/initial-config]
 
     (testing "dangerous commands blocked in plan mode via approval"
       (are [command] (= :deny
-                        (f.tools/approval all-tools "eca_shell_command"
+                        (f.tools/approval all-tools "shell_command"
                                           {"command" command} {} config "plan"))
         "echo 'test' > file.txt"
         "cat file.txt > output.txt"
@@ -163,7 +163,7 @@
 
     (testing "non-dangerous commands default to ask in plan mode"
       (are [command] (= :ask
-                        (f.tools/approval all-tools "eca_shell_command"
+                        (f.tools/approval all-tools "shell_command"
                                           {"command" command} {} config "plan"))
         "python --version"  ; not matching dangerous patterns, defaults to ask
         "node script.js"     ; not matching dangerous patterns, defaults to ask
@@ -171,7 +171,7 @@
 
     (testing "safe commands not denied in plan mode"
       (are [command] (not= :deny
-                           (f.tools/approval all-tools "eca_shell_command"
+                           (f.tools/approval all-tools "shell_command"
                                              {"command" command} {} config "plan"))
         "git status"
         "ls -la"
@@ -185,7 +185,7 @@
 
     (testing "same commands work fine in agent mode (not denied)"
       (are [command] (not= :deny
-                           (f.tools/approval all-tools "eca_shell_command"
+                           (f.tools/approval all-tools "shell_command"
                                              {"command" command} {} config "agent"))
         "echo 'test' > file.txt"
         "rm file.txt"
