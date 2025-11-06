@@ -16,8 +16,9 @@
 (defn ^:private prompt! [params mocks]
   (let [{:keys [chat-id] :as resp}
         (with-redefs [llm-api/sync-or-async-prompt! (:api-mock mocks)
-                      llm-api/sync-prompt! (constantly nil) 
+                      llm-api/sync-prompt! (constantly nil)
                       f.tools/call-tool! (:call-tool-mock mocks)
+                      f.tools/all-tools (:all-tools-mock mocks)
                       f.tools/approval (constantly :allow)]
           (h/config! {:env "test"})
           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
@@ -42,7 +43,8 @@
     (let [{:keys [chat-id]}
           (prompt!
            {:message "Hey!"}
-           {:api-mock
+           {:all-tools-mock (constantly [])
+            :api-mock
             (fn [{:keys [on-first-response-received
                          on-message-received]}]
               (on-first-response-received {:type :text :text "Hey"})
@@ -80,7 +82,8 @@
     (let [{:keys [chat-id]}
           (prompt!
            {:message "Hey!"}
-           {:api-mock
+           {:all-tools-mock (constantly [])
+            :api-mock
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
       (is (match?
@@ -108,7 +111,8 @@
     (let [res-1
           (prompt!
            {:message "Count with me: 1 mississippi"}
-           {:api-mock
+           {:all-tools-mock (constantly [])
+            :api-mock
             (fn [{:keys [on-first-response-received
                          on-message-received]}]
               (on-first-response-received {:type :text :text "2"})
@@ -147,7 +151,8 @@
             (prompt!
              {:message "3 mississippi"
               :chat-id chat-id-1}
-             {:api-mock
+             {:all-tools-mock (constantly [])
+              :api-mock
               (fn [{:keys [on-first-response-received
                            on-message-received]}]
                 (on-first-response-received {:type :text :text "4"})
@@ -190,7 +195,8 @@
     (let [{:keys [chat-id]}
           (prompt!
            {:message "Check @/path/to/file please"}
-           {:api-mock
+           {:all-tools-mock (constantly [])
+            :api-mock
             (fn [{:keys [on-first-response-received
                          on-message-received]}]
               (on-first-response-received {:type :text :text "On it..."})
@@ -227,7 +233,8 @@
     (let [{:keys [chat-id]}
           (prompt!
            {:message "List the files you are allowed to see"}
-           {:api-mock
+           {:all-tools-mock (constantly [{:name "list_allowed_directories" :full-name "eca__list_allowed_directories" :server {:name "eca"}}])
+            :api-mock
             (fn [{:keys [on-first-response-received
                          on-message-received
                          on-prepare-tool-call
@@ -235,8 +242,8 @@
               (on-first-response-received {:type :text :text "Ok,"})
               (on-message-received {:type :text :text "Ok,"})
               (on-message-received {:type :text :text " working on it"})
-              (on-prepare-tool-call {:id "call-1" :name "list_allowed_directories" :arguments-text ""})
-              (on-tools-called [{:id "call-1" :name "list_allowed_directories" :arguments {}}])
+              (on-prepare-tool-call {:id "call-1" :full-name "eca__list_allowed_directories" :arguments-text ""})
+              (on-tools-called [{:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}])
               (on-message-received {:type :text :text "I can see: \n"})
               (on-message-received {:type :text :text "/foo/bar"})
               (on-message-received {:type :finish}))
@@ -247,8 +254,8 @@
            {chat-id {:id chat-id
                      :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
-                                {:role "tool_call" :content {:id "call-1" :name "list_allowed_directories" :arguments {}}}
-                                {:role "tool_call_output" :content {:id "call-1" :name "list_allowed_directories" :arguments {}
+                                {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
+                                {:role "tool_call_output" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}
                                                                     :output {:error false
                                                                              :contents [{:text "Allowed directories: /foo/bar"
                                                                                          :type :text}]}}}
@@ -278,7 +285,10 @@
     (let [{:keys [chat-id]}
           (prompt!
            {:message "Run 3 read-only tool calls simultaneously."}
-           {:api-mock
+           {:all-tools-mock (constantly [{:name "ro_tool_1" :full-name "eca__ro_tool_1" :server {:name "eca"}}
+                                         {:name "ro_tool_2" :full-name "eca__ro_tool_2" :server {:name "eca"}}
+                                         {:name "ro_tool_3" :full-name "eca__ro_tool_3" :server {:name "eca"}}])
+            :api-mock
             (fn [{:keys [on-first-response-received
                          on-message-received
                          on-prepare-tool-call
@@ -286,12 +296,12 @@
               (on-first-response-received {:type :text :text "Ok,"})
               (on-message-received {:type :text :text "Ok,"})
               (on-message-received {:type :text :text " working on it"})
-              (on-prepare-tool-call {:id "call-1" :name "ro_tool_1" :arguments-text ""})
-              (on-prepare-tool-call {:id "call-2" :name "ro_tool_2" :arguments-text ""})
-              (on-prepare-tool-call {:id "call-3" :name "ro_tool_3" :arguments-text ""})
-              (on-tools-called [{:id "call-1" :name "ro_tool_1" :arguments {}}
-                                {:id "call-2" :name "ro_tool_2" :arguments {}}
-                                {:id "call-3" :name "ro_tool_3" :arguments {}}])
+              (on-prepare-tool-call {:id "call-1" :full-name "eca__ro_tool_1" :arguments-text ""})
+              (on-prepare-tool-call {:id "call-2" :full-name "eca__ro_tool_2" :arguments-text ""})
+              (on-prepare-tool-call {:id "call-3" :full-name "eca__ro_tool_3" :arguments-text ""})
+              (on-tools-called [{:id "call-1" :full-name "eca__ro_tool_1" :arguments {}}
+                                {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}}
+                                {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}])
               (on-message-received {:type :text :text "The tool calls returned: \n"})
               (on-message-received {:type :text :text "something"})
               (on-message-received {:type :finish}))
@@ -320,16 +330,16 @@
            {chat-id {:id chat-id
                      :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
-                                {:role "tool_call" :content {:id "call-3" :name "ro_tool_3" :arguments {}}}
-                                {:role "tool_call_output" :content {:id "call-3"  :name "ro_tool_3" :arguments {}
+                                {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
+                                {:role "tool_call_output" :content {:id "call-3"  :full-name "eca__ro_tool_3" :arguments {}
                                                                     :output {:error false
                                                                              :contents [{:type :text, :text "RO tool call 3 result"}]}}}
-                                {:role "tool_call" :content {:id "call-2" :name "ro_tool_2" :arguments {}}}
-                                {:role "tool_call_output" :content {:id "call-2" :name "ro_tool_2" :arguments {}
+                                {:role "tool_call" :content {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}}}
+                                {:role "tool_call_output" :content {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}
                                                                     :output {:error false
                                                                              :contents [{:type :text, :text "RO tool call 2 result"}]}}}
-                                {:role "tool_call" :content {:id "call-1" :name "ro_tool_1" :arguments {}}}
-                                {:role "tool_call_output" :content {:id "call-1" :name "ro_tool_1" :arguments {}
+                                {:role "tool_call" :content {:id "call-1" :full-name "eca__ro_tool_1" :arguments {}}}
+                                {:role "tool_call_output" :content {:id "call-1" :full-name "eca__ro_tool_1" :arguments {}
                                                                     :output {:error false
                                                                              :contents [{:type :text, :text "RO tool call 1 result"}]}}}
                                 {:role "assistant" :content [{:type :text, :text "The tool calls returned: \nsomething"}]}]}}
@@ -379,24 +389,27 @@
           {:keys [chat-id]}
           (prompt!
            {:message "Run 3 read-only tool calls simultaneously."}
-           {:api-mock
+           {:all-tools-mock (constantly [{:name "ro_tool_1" :full-name "eca__ro_tool_1" :server {:name "eca"}}
+                                         {:name "ro_tool_2" :full-name "eca__ro_tool_2" :server {:name "eca"}}
+                                         {:name "ro_tool_3" :full-name "eca__ro_tool_3" :server {:name "eca"}}])
+            :api-mock
             (fn [{:keys [on-first-response-received
                          on-prepare-tool-call
                          on-tools-called]}]
               (let [chat-id (first (keys (:chats (h/db))))]
                 (on-first-response-received {:type :text :text "Ok,"})
-                (on-prepare-tool-call {:id "call-1" :name "ro_tool_1" :arguments-text ""})
-                (on-prepare-tool-call {:id "call-2" :name "ro_tool_2" :arguments-text ""})
-                (on-prepare-tool-call {:id "call-3" :name "ro_tool_3" :arguments-text ""})
+                (on-prepare-tool-call {:id "call-1" :full-name "eca__ro_tool_1" :arguments-text ""})
+                (on-prepare-tool-call {:id "call-2" :full-name "eca__ro_tool_2" :arguments-text ""})
+                (on-prepare-tool-call {:id "call-3" :full-name "eca__ro_tool_3" :arguments-text ""})
                 (future (Thread/sleep 400)
                         (when (= :timeout (deref wait-for-tool3 10000 :timeout))
                           (println "tool-calls-with-prompt-stop-test: deref in prompt stop future timed out"))
                         (Thread/sleep 50)
                         (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/metrics))
                         (deliver wait-for-stop true))
-                (on-tools-called [{:id "call-1" :name "ro_tool_1" :arguments {}}
-                                  {:id "call-2" :name "ro_tool_2" :arguments {}}
-                                  {:id "call-3" :name "ro_tool_3" :arguments {}}])))
+                (on-tools-called [{:id "call-1" :full-name "eca__ro_tool_1" :arguments {}}
+                                  {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}}
+                                  {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}])))
             :call-tool-mock
             (fn [name & _others]
               ;; When this is called, we are already in a future
@@ -425,16 +438,16 @@
       (is (match? {chat-id
                    {:id chat-id
                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
-                               {:role "tool_call" :content {:id "call-3" :name "ro_tool_3" :arguments {}}}
-                               {:role "tool_call_output" :content {:id "call-3" :name "ro_tool_3" :arguments {}
+                               {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
+                               {:role "tool_call_output" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}
                                                                    :output {:error false
                                                                             :contents [{:type :text, :text "RO tool call 3 result"}]}}}
-                               {:role "tool_call" :content {:id "call-2" :name "ro_tool_2" :arguments {}}}
-                               {:role "tool_call_output" :content {:id "call-2" :name "ro_tool_2" :arguments {}
+                               {:role "tool_call" :content {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}}}
+                               {:role "tool_call_output" :content {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}
                                                                    :output {:error false
                                                                             :contents [{:type :text, :text "RO tool call 2 result"}]}}}
-                               {:role "tool_call" :content {:id "call-1" :name "ro_tool_1" :arguments {}}}
-                               {:role "tool_call_output" :content {:id "call-1" :name "ro_tool_1" :arguments {}
+                               {:role "tool_call" :content {:id "call-1" :full-name "eca__ro_tool_1" :arguments {}}}
+                               {:role "tool_call_output" :content {:id "call-1" :full-name "eca__ro_tool_1" :arguments {}
                                                                    :output {:error false
                                                                             :contents [{:type :text, :text "RO tool call 1 result"}]}}}]}}
                   (:chats (h/db))))

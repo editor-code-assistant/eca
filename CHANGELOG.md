@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prefix tool name with server to LLM: <server>__<toolname>. #196
+
 ## 0.77.1
 
 - Fix token renew when using rewrite feature.

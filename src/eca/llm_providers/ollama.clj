@@ -91,14 +91,17 @@
 (defn ^:private ->tools [tools]
   (mapv (fn [tool]
           {:type "function"
-           :function (select-keys tool [:name :description :parameters])})
+           :function (-> (select-keys tool [:description :parameters])
+                         (assoc :name (:full-name tool)))})
         tools))
 
 (defn ^:private normalize-messages [past-messages]
   (mapv (fn [{:keys [role content] :as msg}]
           (case role
             "tool_call" {:role "assistant" :tool-calls [{:type "function"
-                                                         :function content}]}
+                                                         :function (-> content
+                                                                       (assoc :name (:full-name content))
+                                                                       (dissoc :full-name))}]}
             "tool_call_output" {:role "tool" :content (llm-util/stringfy-tool-result content)}
             "reason" {:role "assistant" :content (:text content)}
             {:role (:role msg)
@@ -134,7 +137,7 @@
                              (let [function (:function (first (seq (:tool_calls message))))
                                    call-id (str (random-uuid))
                                    tool-call {:id call-id
-                                              :name (:name function)
+                                              :full-name (:name function)
                                               :arguments (:arguments function)}]
                                (on-prepare-tool-call (assoc tool-call :arguments-text ""))
                                (swap! tool-calls* assoc rid tool-call))

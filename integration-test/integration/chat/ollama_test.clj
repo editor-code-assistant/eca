@@ -252,7 +252,7 @@
                          {:role "assistant" :content "I will list files"}
                          {:role "assistant" :tool-calls [{:type "function"
                                                           :function {:id (m/pred string?)
-                                                                     :name "eca_directory_tree"
+                                                                     :name "eca__eca_directory_tree"
                                                                      :arguments {:path (h/project-path->canon-path "resources")}
                                                                      :summary "Listing file tree"
                                                                      :origin "native"}}]}
@@ -260,5 +260,5 @@
                                                      " file1.md\n"
                                                      " file2.md\n\n"
                                                      "0 directories, 2 files\n")}]
-              :tools (m/embeds [{:type "function" :function {:name "eca_directory_tree"}}])}
+              :tools (m/embeds [{:type "function" :function {:name "eca__eca_directory_tree"}}])}
              (llm.mocks/get-req-body :tool-calling-0)))))))

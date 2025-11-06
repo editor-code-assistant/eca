@@ -23,7 +23,7 @@
           {:role "assistant" :content "Ok!"}
           {:role "assistant" :content [{:type "tool_use"
                                         :id "call-1"
-                                        :name "list_allowed_directories"
+                                        :name "eca__list_allowed_directories"
                                         :input {}}]}
           {:role "user" :content [{:type "tool_result"
                                    :tool_use_id "call-1"
@@ -32,9 +32,9 @@
          (#'llm-providers.anthropic/normalize-messages
           [{:role "user" :content "List the files you are allowed"}
            {:role "assistant" :content "Ok!"}
-           {:role "tool_call" :content {:id "call-1" :name "list_allowed_directories" :arguments {}}}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
            {:role "tool_call_output" :content {:id "call-1"
-                                               :name "list_allowed_directories"
+                                               :full-name "eca__list_allowed_directories"
                                                :arguments {}
                                                :output {:contents [{:type :text
                                                                     :error false

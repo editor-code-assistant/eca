@@ -153,7 +153,7 @@
         (sse-send! ch "content_block_delta"
                    {:type "content_block_delta"
                     :index 0
-                    :delta {:type "thinking_delta" :thinking " eca_directory_tree"}})
+                    :delta {:type "thinking_delta" :thinking " eca__eca_directory_tree"}})
         (sse-send! ch "content_block_delta"
                    {:type "content_block_delta"
                     :index 0
@@ -169,7 +169,7 @@
                     :index 2
                     :content_block {:type "tool_use"
                                     :id "tool-1"
-                                    :name "eca_directory_tree"}})
+                                    :name "eca__eca_directory_tree"}})
         ;; Stream JSON args in two chunks
         (sse-send! ch "content_block_delta"
                    {:type "content_block_delta"

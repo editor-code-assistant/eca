@@ -70,9 +70,10 @@
               :db db
               :chat-id chat-id
               :config config})))
-     (concat
-      (mapv #(assoc % :origin :native) (native-tools db config))
-      (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db))))))
+     (->> (concat
+           (mapv #(assoc % :origin :native) (native-tools db config))
+           (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
+          (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))))))
 
 (defn call-tool! [^String name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
                   call-state-fn         ; thunk
@@ -224,8 +225,8 @@
       :else
       :ask)))
 
-(defn tool-call-summary [all-tools name args config]
-  (when-let [summary-fn (:summary-fn (first (filter #(= name (:name %))
+(defn tool-call-summary [all-tools full-name args config]
+  (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
                                                     all-tools)))]
     (try
       (summary-fn {:args args

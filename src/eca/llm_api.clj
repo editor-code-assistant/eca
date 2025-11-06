@@ -62,10 +62,6 @@
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
     model))
 
-(defn ^:private tool->llm-tool [tool]
-  (assoc (select-keys tool [:name :description :parameters])
-         :type "function"))
-
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
@@ -75,8 +71,7 @@
            past-messages tools provider-auth sync?]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
-        tools (when (:tools model-capabilities)
-                (mapv tool->llm-tool tools))
+        tools (when (:tools model-capabilities) tools)
         reason? (:reason? model-capabilities)
         supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)

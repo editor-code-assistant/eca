@@ -58,8 +58,9 @@
 (defn ^:private ->tools [tools web-search]
   (cond->
    (mapv (fn [tool]
-           (assoc (select-keys tool [:name :description])
-                  :input_schema (:parameters tool))) tools)
+           {:description (:description tool)
+            :input_schema (:parameters tool)
+            :name (:full-name tool)}) tools)
     web-search (conj {:type "web_search_20250305"
                       :name "web_search"
                       :max_uses 10
@@ -116,7 +117,7 @@
             "tool_call" {:role "assistant"
                          :content [{:type "tool_use"
                                     :id (:id content)
-                                    :name (:name content)
+                                    :name (:full-name content)
                                     :input (or (:arguments content) {})}]}
 
             "tool_call_output"
@@ -191,7 +192,7 @@
                                                                :id reason-id})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
                                       "tool_use" (do
-                                                   (on-prepare-tool-call {:name (-> data :content_block :name)
+                                                   (on-prepare-tool-call {:full-name (-> data :content_block :name)
                                                                           :id (-> data :content_block :id)
                                                                           :arguments-text ""})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
@@ -203,7 +204,7 @@
                                       "input_json_delta" (let [text (-> data :delta :partial_json)
                                                                _ (swap! content-block* update-in [(:index data) :input-json] str text)
                                                                content-block (get @content-block* (:index data))]
-                                                           (on-prepare-tool-call {:name (:name content-block)
+                                                           (on-prepare-tool-call {:full-name (:name content-block)
                                                                                   :id (:id content-block)
                                                                                   :arguments-text text}))
                                       "citations_delta" (case (-> data :delta :citation :type)
@@ -231,7 +232,7 @@
                                                                (fn [content-block]
                                                                  (when (= "tool_use" (:type content-block))
                                                                    {:id (:id content-block)
-                                                                    :name (:name content-block)
+                                                                    :full-name (:name content-block)
                                                                     :arguments (json/parse-string (:input-json content-block))}))
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]

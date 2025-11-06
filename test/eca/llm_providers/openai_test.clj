@@ -24,7 +24,7 @@
           {:role "assistant" :content [{:type "output_text" :text "Ok!"}]}
           {:type "function_call"
            :call_id "call-1"
-           :name "list_allowed_directories"
+           :name "eca__list_allowed_directories"
            :arguments "{}"}
           {:type "function_call_output"
            :call_id "call-1"
@@ -33,9 +33,9 @@
          (#'llm-providers.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "List the files you are allowed"}]}
            {:role "assistant" :content [{:type :text :text "Ok!"}]}
-           {:role "tool_call" :content {:id "call-1" :name "list_allowed_directories" :arguments {}}}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
            {:role "tool_call_output" :content {:id "call-1"
-                                               :name "list_allowed_directories"
+                                               :full-name "eca__list_allowed_directories"
                                                :arguments {}
                                                :output {:contents [{:type :text
                                                                     :error false

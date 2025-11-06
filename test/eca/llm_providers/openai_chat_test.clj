@@ -15,7 +15,7 @@
           {:role "assistant"
            :tool_calls [{:id "call-1"
                          :type "function"
-                         :function {:name "list_files"
+                         :function {:name "eca__list_files"
                                     :arguments "{}"}}]}
           {:role "tool"
            :tool_call_id "call-1"
@@ -24,9 +24,9 @@
          (#'llm-providers.openai-chat/normalize-messages
           [{:role "user" :content "List the files"}
            {:role "assistant" :content "I'll list the files for you"}
-           {:role "tool_call" :content {:id "call-1" :name "list_files" :arguments {}}}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__list_files" :arguments {}}}
            {:role "tool_call_output" :content {:id "call-1"
-                                               :name "list_files"
+                                               :full-name "eca__list_files"
                                                :arguments {}
                                                :output {:contents [{:type :text
                                                                     :error false
@@ -72,12 +72,12 @@
   (testing "Converts ECA tools to OpenAI format"
     (is (match?
          [{:type "function"
-           :function {:name "get_weather"
+           :function {:name "eca__get_weather"
                       :description "Get the weather"
                       :parameters {:type "object"
                                    :properties {:location {:type "string"}}}}}]
          (#'llm-providers.openai-chat/->tools
-          [{:name "get_weather"
+          [{:full-name "eca__get_weather"
             :description "Get the weather"
             :parameters {:type "object"
                          :properties {:location {:type "string"}}}
@@ -94,12 +94,12 @@
          {:type :tool-call
           :data {:id "call-123"
                  :type "function"
-                 :function {:name "get_weather"
+                 :function {:name "foo__get_weather"
                             :arguments "{\"location\":\"NYC\"}"}}}
          (#'llm-providers.openai-chat/transform-message
           {:role "tool_call"
            :content {:id "call-123"
-                     :name "get_weather"
+                     :full-name "foo__get_weather"
                      :arguments {:location "NYC"}}}
           true
           thinking-start-tag

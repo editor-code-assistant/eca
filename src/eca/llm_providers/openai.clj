@@ -79,7 +79,7 @@
   (keep (fn [{:keys [role content] :as msg}]
           (case role
             "tool_call" {:type "function_call"
-                         :name (:name content)
+                         :name (:full-name content)
                          :call_id (:id content)
                          :arguments (json/generate-string (:arguments content))}
             "tool_call_output"
@@ -114,12 +114,20 @@
                                            c))))))
         messages))
 
+(defn ^:private ->tools [tools]
+  (mapv (fn [tool]
+          {:type "function"
+           :name (:full-name tool)
+           :description (:description tool)
+           :parameters (:parameters tool)})
+        tools))
+
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search extra-payload auth-type]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
-        tools (cond-> tools
+        tools (cond-> (->tools tools)
                 web-search (conj {:type "web_search_preview"}))
         stream? (boolean callbacks)
         body (deep-merge
@@ -153,7 +161,7 @@
               ;; tools
               "response.function_call_arguments.delta" (let [call (get @tool-call-by-item-id* (:item_id data))]
                                                          (on-prepare-tool-call {:id (:id call)
-                                                                                :name (:name call)
+                                                                                :full-name (:full-name call)
                                                                                 :arguments-text (:delta data)}))
 
               "response.output_item.done"
@@ -191,9 +199,9 @@
                                       item-id (-> data :item :id)
                                       function-name (-> data :item :name)
                                       function-args (-> data :item :arguments)]
-                                  (swap! tool-call-by-item-id* assoc item-id {:name function-name :id call-id})
+                                  (swap! tool-call-by-item-id* assoc item-id {:full-name function-name :id call-id})
                                   (on-prepare-tool-call {:id call-id
-                                                         :name function-name
+                                                         :full-name function-name
                                                          :arguments-text function-args}))
                 nil)
 
@@ -205,13 +213,13 @@
                                          ;; Fallback case when the tool call was not prepared before when
                                          ;; some models/apis respond only with response.completed (skipping streaming).
                                          (when-not (get @tool-call-by-item-id* id)
-                                           (swap! tool-call-by-item-id* assoc id {:name name :id call_id})
+                                           (swap! tool-call-by-item-id* assoc id {:full-name name :id call_id})
                                            (on-prepare-tool-call {:id call_id
-                                                                  :name name
+                                                                  :full-name name
                                                                   :arguments-text arguments}))
                                          {:id call_id
                                           :item-id id
-                                          :name name
+                                          :full-name name
                                           :arguments (json/parse-string arguments)}))
                                      (:output response))]
                 (on-usage-updated (let [input-cache-read-tokens (-> response :usage :input_tokens_details :cached_tokens)]

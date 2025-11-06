@@ -21,16 +21,16 @@
          [{:role "user" :content "List the files you are allowed"}
           {:role "assistant" :content "Ok!"}
           {:role "assistant" :tool-calls [{:type "function"
-                                           :function {:name "list_allowed_directories"
+                                           :function {:name "eca__list_allowed_directories"
                                                       :arguments {}}}]}
           {:role "tool" :content "Allowed directories: /foo/bar\n"}
           {:role "assistant" :content "I see /foo/bar"}]
          (#'llm-providers.ollama/normalize-messages
           [{:role "user" :content "List the files you are allowed"}
            {:role "assistant" :content "Ok!"}
-           {:role "tool_call" :content {:id "call-1" :name "list_allowed_directories" :arguments {}}}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
            {:role "tool_call_output" :content {:id "call-1"
-                                               :name "list_allowed_directories"
+                                               :full-name "eca__list_allowed_directories"
                                                :arguments {}
                                                :output {:contents [{:type :text
                                                                     :error false

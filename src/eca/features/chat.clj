@@ -494,11 +494,14 @@
 
     {:status status :actions actions}))
 
-(defn ^:private tool-name->origin [name all-tools]
-  (:origin (first (filter #(= name (:name %)) all-tools))))
+(defn ^:private tool-full-name->origin [full-name all-tools]
+  (:origin (first (filter #(= full-name (:full-name %)) all-tools))))
 
-(defn ^:private tool-name->server [name all-tools]
-  (:server (first (filter #(= name (:name %)) all-tools))))
+(defn ^:private tool-full-name->server [full-name all-tools]
+  (:server (first (filter #(= full-name (:full-name %)) all-tools))))
+
+(defn ^:private tool-full-name->name [full-name all-tools]
+  (:name (first (filter #(= full-name (:full-name %)) all-tools))))
 
 (defn ^:private tokenize-args [^String s]
   (if (string/blank? s)
@@ -622,14 +625,14 @@
                                  :finish (do
                                            (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
                                            (finish-chat-prompt! :idle chat-ctx))))
-        :on-prepare-tool-call (fn [{:keys [id name arguments-text]}]
+        :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                 (assert-chat-not-stopped! chat-ctx)
                                 (transition-tool-call! db* chat-ctx id :tool-prepare
-                                                       {:name name
-                                                        :server (:name (tool-name->server name all-tools))
-                                                        :origin (tool-name->origin name all-tools)
+                                                       {:name (tool-full-name->name full-name all-tools)
+                                                        :server (:name (tool-full-name->server full-name all-tools))
+                                                        :origin (tool-full-name->origin full-name all-tools)
                                                         :arguments-text arguments-text
-                                                        :summary (f.tools/tool-call-summary all-tools name nil config)}))
+                                                        :summary (f.tools/tool-call-summary all-tools full-name nil config)}))
         :on-tools-called (fn [tool-calls]
                             ;; If there are multiple tool calls, they are allowed to execute concurrently.
                            (assert-chat-not-stopped! chat-ctx)
@@ -638,17 +641,18 @@
                              (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
                              (reset! received-msgs* ""))
                            (let [any-rejected-tool-call?* (atom nil)]
-                             (run! (fn do-tool-call [{:keys [id name arguments] :as tool-call}]
+                             (run! (fn do-tool-call [{:keys [id full-name arguments] :as tool-call}]
                                      (let [approved?* (promise) ; created here, stored in the state.
                                            db @db*
                                            hook-approved?* (atom true)
-                                           origin (tool-name->origin name all-tools)
-                                           server (tool-name->server name all-tools)
+                                           origin (tool-full-name->origin full-name all-tools)
+                                           name (tool-full-name->name full-name all-tools)
+                                           server (tool-full-name->server full-name all-tools)
                                            server-name (:name server)
                                            approval (f.tools/approval all-tools name arguments db config behavior)
                                            ask? (= :ask approval)
                                            details (f.tools/tool-call-details-before-invocation name arguments server db ask?)
-                                           summary (f.tools/tool-call-summary all-tools name arguments config)]
+                                           summary (f.tools/tool-call-summary all-tools full-name arguments config)]
                                         ;; assert: In :preparing or :stopping or :cleanup
                                         ;; Inform client the tool is about to run and store approval promise
                                        (when-not (#{:stopping :cleanup} (:status (get-tool-call-state db chat-id id)))

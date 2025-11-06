@@ -62,7 +62,8 @@
 (defn ^:private ->tools [tools]
   (mapv (fn [tool]
           {:type "function"
-           :function (select-keys tool [:name :description :parameters])})
+           :function (-> (select-keys tool [:description :parameters])
+                         (assoc :name (:full-name tool)))})
         tools))
 
 (defn ^:private response-body->result [body on-tools-called-wrapper]
@@ -70,7 +71,7 @@
                            (mapcat (comp :tool_calls :message))
                            (map (fn [tool-call]
                                   {:id (:id tool-call)
-                                   :name (:name (:function tool-call))
+                                   :full-name (:name (:function tool-call))
                                    :arguments (json/parse-string (:arguments (:function tool-call)))})))]
     {:usage (parse-usage (:usage body))
      :reason-id (str (random-uuid))
@@ -131,7 +132,7 @@
     "tool_call" {:type :tool-call ; Special marker for accumulation
                  :data {:id (:id content)
                         :type "function"
-                        :function {:name (:name content)
+                        :function {:name (:full-name content)
                                    :arguments (json/generate-string (:arguments content))}}}
     "tool_call_output" {:role "tool"
                         :tool_call_id (:id content)
@@ -204,7 +205,7 @@
   [tool-calls* on-tools-called-wrapper on-tools-called handle-response]
   (let [all-accumulated (vals @tool-calls*)
         completed-tools (->> all-accumulated
-                             (filter #(every? % [:id :name :arguments-text]))
+                             (filter #(every? % [:id :full-name :arguments-text]))
                              (map (fn [{:keys [arguments-text name] :as tool-call}]
                                     (try
                                       (assoc tool-call :arguments (json/parse-string arguments-text))
@@ -409,16 +410,18 @@
                                             ;; Create globally unique tool call ID for client
                                             unique-id (when id (str rid "-" id))]
                                         (when (and name unique-id)
-                                          (on-prepare-tool-call {:id unique-id :name name :arguments-text ""}))
+                                          (on-prepare-tool-call {:id unique-id
+                                                                 :full-name name
+                                                                 :arguments-text ""}))
                                         (swap! tool-calls* update tool-key
                                                (fn [existing]
                                                  (cond-> (or existing {:index index})
                                                    unique-id (assoc :id unique-id)
-                                                   name (assoc :name name)
+                                                   name (assoc :full-name name)
                                                    args (update :arguments-text (fnil str "") args))))
                                         (when-let [updated-tool-call (get @tool-calls* tool-key)]
                                           (when (and (:id updated-tool-call)
-                                                     (:name updated-tool-call)
+                                                     (:full-name updated-tool-call)
                                                      args)
                                             (on-prepare-tool-call (assoc updated-tool-call :arguments-text args)))))))
                                   ;; Process finish reason if present (but not tool_calls which is handled above)
