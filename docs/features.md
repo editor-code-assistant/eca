@@ -141,6 +141,10 @@ For more details, check [hooks configuration](./configuration.md#hooks).
 
 Rewrite allows user to select part of the text and ask ECA to rewrite it.
 
+This is useful for quick LLM instructions to apply to code where you don't need to over control context or prompt too much, 
+
+_Tip: weak models work great like `github-copilot/gpt-4.1`, if you prefer faster responses than accurate._
+
 ![](./images/features/rewrite.gif)
 
 For rewrite configuration, check [configuration](./configuration.md#rewrite).
