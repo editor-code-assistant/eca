@@ -1486,6 +1486,12 @@ interface RewriteTextContent {
     text: string;
 }
 
+interface RewriteErrorContent {
+    type: 'error';
+
+    message: string;
+}
+
 interface RewriteFinishedContent {
     type: 'finished';
 }
@@ -1494,6 +1500,7 @@ type RewriteContent =
     RewriteStartedContent
     | RewriteReasoningContent
     | RewriteTextContent
+    | RewriteErrorContent
     | RewriteFinishedContent;
              
 ```

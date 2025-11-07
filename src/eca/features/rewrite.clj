@@ -38,7 +38,9 @@
             :on-error (fn [error-msg]
                         (logger/error logger-tag (format "Auth token renew failed: %s" error-msg))
                         (throw (ex-info error-msg {:error-response {:message error-msg}})))}
-           ctx)]
+           ctx)
+        ;; get refreshed auth in case of token renew
+        provider-auth (get-in @db* [:auth provider])]
     (future* config
       (llm-api/sync-or-async-prompt!
        {:provider provider
@@ -48,7 +50,7 @@
         :config config
         :user-messages [{:role "user" :content [{:type :text :text prompt}]}]
         :past-messages []
-        :provider-auth (get-in db [:auth provider])
+        :provider-auth provider-auth
         :on-first-response-received (fn [& _]
                                       (send-content! ctx {:type :started}))
         :on-reason (fn [{:keys [status]}]
@@ -60,6 +62,9 @@
                                                            :text (:text msg)})
                                  :finish (send-content! ctx {:type :finished
                                                              :total-time-ms (- (System/currentTimeMillis) start-time)})
-                                 nil))}))
+                                 nil))
+        :on-error (fn [{:keys [message exception]}]
+                    (send-content! ctx {:type :error
+                                        :message (or message (str "Error: " (ex-message exception)))}))}))
     {:status "prompting"
      :model full-model}))
