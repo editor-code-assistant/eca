@@ -187,11 +187,10 @@
 (defn approval
   "Return the approval keyword for the specific tool call: ask, allow or deny.
    Behavior parameter is required - pass nil for global-only approval rules."
-  [all-tools tool-call-name args db config behavior]
-  (let [remember-to-approve? (get-in db [:tool-calls tool-call-name :remember-to-approve?])
-        native-tools (filter #(= "eca" (:name (:server %))) all-tools)
-        {:keys [server require-approval-fn]} (first (filter #(= tool-call-name (:name %))
-                                                            all-tools))
+  [all-tools tool args db config behavior]
+  (let [{:keys [server name require-approval-fn]} tool
+        remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
+        native-tools (filter #(= :native (:origin %)) all-tools)
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                     (get-in config [:behavior behavior :toolCall :approval]))]
     (cond
@@ -201,16 +200,16 @@
       remember-to-approve?
       :allow
 
-      (some #(approval-matches? % (:name server) tool-call-name args native-tools) deny)
+      (some #(approval-matches? % (:name server) name args native-tools) deny)
       :deny
 
-      (some #(approval-matches? % (:name server) tool-call-name args native-tools) ask)
+      (some #(approval-matches? % (:name server) name args native-tools) ask)
       :ask
 
-      (some #(approval-matches? % (:name server) tool-call-name args native-tools) allow)
+      (some #(approval-matches? % (:name server) name args native-tools) allow)
       :allow
 
-      (legacy-manual-approval? config tool-call-name)
+      (legacy-manual-approval? config name)
       :ask
 
       (= "ask" byDefault)

@@ -3,8 +3,6 @@
    [babashka.fs :as fs]
    [babashka.process :as p]
    [clojure.test :refer [are deftest is testing]]
-   [eca.config :as config]
-   [eca.features.tools :as f.tools]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -137,57 +135,3 @@
       "pwd"
       "date"
       "env")))
-
-(deftest plan-mode-approval-restrictions-test
-  (let [all-tools [{:name "shell_command" :server {:name "eca"}}]
-        config config/initial-config]
-
-    (testing "dangerous commands blocked in plan mode via approval"
-      (are [command] (= :deny
-                        (f.tools/approval all-tools "shell_command"
-                                          {"command" command} {} config "plan"))
-        "echo 'test' > file.txt"
-        "cat file.txt > output.txt"
-        "ls >> log.txt"
-        "rm file.txt"
-        "mv old.txt new.txt"
-        "cp file1.txt file2.txt"
-        "touch newfile.txt"
-        "mkdir newdir"
-        "sed -i 's/old/new/' file.txt"
-        "git add ."
-        "git commit -m 'test'"
-        "npm install package"
-        "python -c \"open('file.txt','w').write('test')\""
-        "bash -c 'echo test > file.txt'"))
-
-    (testing "non-dangerous commands default to ask in plan mode"
-      (are [command] (= :ask
-                        (f.tools/approval all-tools "shell_command"
-                                          {"command" command} {} config "plan"))
-        "python --version"  ; not matching dangerous patterns, defaults to ask
-        "node script.js"     ; not matching dangerous patterns, defaults to ask
-        "clojure -M:test"))  ; not matching dangerous patterns, defaults to ask
-
-    (testing "safe commands not denied in plan mode"
-      (are [command] (not= :deny
-                           (f.tools/approval all-tools "shell_command"
-                                             {"command" command} {} config "plan"))
-        "git status"
-        "ls -la"
-        "find . -name '*.clj'"
-        "grep 'test' file.txt"
-        "cat file.txt"
-        "head -10 file.txt"
-        "pwd"
-        "date"
-        "env"))
-
-    (testing "same commands work fine in agent mode (not denied)"
-      (are [command] (not= :deny
-                           (f.tools/approval all-tools "shell_command"
-                                             {"command" command} {} config "agent"))
-        "echo 'test' > file.txt"
-        "rm file.txt"
-        "git add ."
-        "python --version"))))

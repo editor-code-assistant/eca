@@ -495,14 +495,8 @@
 
     {:status status :actions actions}))
 
-(defn ^:private tool-full-name->origin [full-name all-tools]
-  (:origin (first (filter #(= full-name (:full-name %)) all-tools))))
-
-(defn ^:private tool-full-name->server [full-name all-tools]
-  (:server (first (filter #(= full-name (:full-name %)) all-tools))))
-
-(defn ^:private tool-full-name->name [full-name all-tools]
-  (:name (first (filter #(= full-name (:full-name %)) all-tools))))
+(defn ^:private tool-by-full-name [full-name all-tools]
+  (first (filter #(= full-name (:full-name %)) all-tools)))
 
 (defn ^:private tokenize-args [^String s]
   (if (string/blank? s)
@@ -628,13 +622,14 @@
                                            (finish-chat-prompt! :idle chat-ctx))))
         :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                 (assert-chat-not-stopped! chat-ctx)
-                                (transition-tool-call! db* chat-ctx id :tool-prepare
-                                                       {:name (tool-full-name->name full-name all-tools)
-                                                        :full-name full-name
-                                                        :server (:name (tool-full-name->server full-name all-tools))
-                                                        :origin (tool-full-name->origin full-name all-tools)
-                                                        :arguments-text arguments-text
-                                                        :summary (f.tools/tool-call-summary all-tools full-name nil config)}))
+                                (let [tool (tool-by-full-name full-name all-tools)]
+                                  (transition-tool-call! db* chat-ctx id :tool-prepare
+                                                         {:name (:name tool)
+                                                          :server (:name (:server tool))
+                                                          :full-name full-name
+                                                          :origin (:origin tool)
+                                                          :arguments-text arguments-text
+                                                          :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
         :on-tools-called (fn [tool-calls]
                             ;; If there are multiple tool calls, they are allowed to execute concurrently.
                            (assert-chat-not-stopped! chat-ctx)
@@ -646,12 +641,13 @@
                              (run! (fn do-tool-call [{:keys [id full-name arguments] :as tool-call}]
                                      (let [approved?* (promise) ; created here, stored in the state.
                                            db @db*
+                                           tool (tool-by-full-name full-name all-tools)
                                            hook-approved?* (atom true)
-                                           origin (tool-full-name->origin full-name all-tools)
-                                           name (tool-full-name->name full-name all-tools)
-                                           server (tool-full-name->server full-name all-tools)
+                                           origin (:origin tool)
+                                           name (:name tool)
+                                           server (:server tool)
                                            server-name (:name server)
-                                           approval (f.tools/approval all-tools name arguments db config behavior)
+                                           approval (f.tools/approval all-tools tool arguments db config behavior)
                                            ask? (= :ask approval)
                                            details (f.tools/tool-call-details-before-invocation name arguments server db ask?)
                                            summary (f.tools/tool-call-summary all-tools full-name arguments config)]

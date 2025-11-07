@@ -1,6 +1,6 @@
 (ns eca.features.tools-test
   (:require
-   [clojure.test :refer [deftest is testing]]
+   [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.tools :as f.tools]
    [eca.features.tools.filesystem :as f.tools.filesystem]
@@ -62,7 +62,7 @@
                      :parameters some?
                      :origin :native}])
          (with-redefs [f.tools.filesystem/definitions {"directory_tree" {:description "Only in {workspaceRoots}"
-                                                                             :parameters {}}}]
+                                                                         :parameters {}}}]
            (f.tools/all-tools "123" "agent" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
                               {}))))))
 
@@ -91,106 +91,163 @@
              (#'f.tools/get-disabled-tools config "plan"))))))
 
 (deftest approval-test
-  (let [all-tools [{:name "read" :server {:name "eca"}}
-                   {:name "write" :server {:name "eca"}}
-                   {:name "shell" :server {:name "eca"} :require-approval-fn (constantly true)}
-                   {:name "plan" :server {:name "eca"} :require-approval-fn (constantly false)}
-                   {:name "request" :server {:name "web"}}
-                   {:name "download" :server {:name "web"}}]]
+  (let [read-tool {:name "read" :server {:name "eca"} :origin :native}
+        write-tool {:name "write" :server {:name "eca"} :origin :native}
+        shell-tool {:name "shell" :server {:name "eca"} :origin :native :require-approval-fn (constantly true)}
+        plan-tool {:name "plan" :server {:name "eca"} :origin :native :require-approval-fn (constantly false)}
+        request-tool {:name "request" :server {:name "web"} :origin :mcp}
+        download-tool {:name "download" :server {:name "web"} :origin :mcp}
+        all-tools [read-tool write-tool shell-tool plan-tool request-tool download-tool]]
     (testing "tool has require-approval-fn which returns true"
-      (is (= :ask (f.tools/approval all-tools "shell" {} {} {} nil))))
+      (is (= :ask (f.tools/approval all-tools shell-tool {} {} {} nil))))
     (testing "tool has require-approval-fn which returns false we ignore it"
-      (is (= :ask (f.tools/approval all-tools "plan" {} {} {} nil))))
+      (is (= :ask (f.tools/approval all-tools plan-tool {} {} {} nil))))
     (testing "tool was remembered to approve by user"
-      (is (= :allow (f.tools/approval all-tools "plan" {} {:tool-calls {"plan" {:remember-to-approve? true}}} {} nil))))
+      (is (= :allow (f.tools/approval all-tools plan-tool {} {:tool-calls {"plan" {:remember-to-approve? true}}} {} nil))))
     (testing "if legacy-manual-approval present, considers it"
-      (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:manualApproval true}} nil))))
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {:toolCall {:manualApproval true}} nil))))
     (testing "if approval config is provided"
       (testing "when matches allow config"
-        (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web__request" {}}}}} nil)))
-        (is (= :allow (f.tools/approval all-tools "read" {} {} {:toolCall {:approval {:allow {"read" {}}}}} nil)))
-        (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil)))
-        (is (= :allow (f.tools/approval all-tools "read" {} {} {:toolCall {:approval {:allow {"eca" {}}}}} nil))))
+        (is (= :allow (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:allow {"web__request" {}}}}} nil)))
+        (is (= :allow (f.tools/approval all-tools read-tool {} {} {:toolCall {:approval {:allow {"read" {}}}}} nil)))
+        (is (= :allow (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil)))
+        (is (= :allow (f.tools/approval all-tools read-tool {} {} {:toolCall {:approval {:allow {"eca" {}}}}} nil))))
       (testing "when matches ask config"
-        (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:ask {"web__request" {}}}}} nil)))
-        (is (= :ask (f.tools/approval all-tools "read" {} {} {:toolCall {:approval {:ask {"read" {}}}}} nil)))
-        (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:ask {"web" {}}}}} nil))))
+        (is (= :ask (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:ask {"web__request" {}}}}} nil)))
+        (is (= :ask (f.tools/approval all-tools read-tool {} {} {:toolCall {:approval {:ask {"read" {}}}}} nil)))
+        (is (= :ask (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:ask {"web" {}}}}} nil))))
       (testing "when matches deny config"
-        (is (= :deny (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:deny {"web__request" {}}}}} nil)))
-        (is (= :deny (f.tools/approval all-tools "read" {} {} {:toolCall {:approval {:deny {"read" {}}}}} nil)))
-        (is (= :deny (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:deny {"web" {}}}}} nil))))
+        (is (= :deny (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:deny {"web__request" {}}}}} nil)))
+        (is (= :deny (f.tools/approval all-tools read-tool {} {} {:toolCall {:approval {:deny {"read" {}}}}} nil)))
+        (is (= :deny (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:deny {"web" {}}}}} nil))))
       (testing "when contains argsMatchers"
         (testing "has arg but not matches"
-          (is (= :ask (f.tools/approval all-tools "request" {"url" "http://bla.com"} {}
+          (is (= :ask (f.tools/approval all-tools request-tool {"url" "http://bla.com"} {}
                                         {:toolCall {:approval {:allow {"web__request" {:argsMatchers {"url" [".*foo.*"]}}}}}} nil))))
         (testing "has arg and matches for allow"
-          (is (= :allow (f.tools/approval all-tools "request" {"url" "http://foo.com"} {}
+          (is (= :allow (f.tools/approval all-tools request-tool {"url" "http://foo.com"} {}
                                           {:toolCall {:approval {:allow {"web__request" {:argsMatchers {"url" [".*foo.*"]}}}}}} nil)))
-          (is (= :allow (f.tools/approval all-tools "request" {"url" "foobar"} {}
+          (is (= :allow (f.tools/approval all-tools request-tool {"url" "foobar"} {}
                                           {:toolCall {:approval {:allow {"web__request" {:argsMatchers {"url" ["foo.*"]}}}}}} nil))))
         (testing "has arg and matches for deny"
-          (is (= :deny (f.tools/approval all-tools "request" {"url" "http://foo.com"} {}
+          (is (= :deny (f.tools/approval all-tools request-tool {"url" "http://foo.com"} {}
                                          {:toolCall {:approval {:deny {"web__request" {:argsMatchers {"url" [".*foo.*"]}}}}}} nil)))
-          (is (= :deny (f.tools/approval all-tools "request" {"url" "foobar"} {}
+          (is (= :deny (f.tools/approval all-tools request-tool {"url" "foobar"} {}
                                          {:toolCall {:approval {:deny {"web__request" {:argsMatchers {"url" ["foo.*"]}}}}}} nil))))
         (testing "has not that arg"
-          (is (= :ask (f.tools/approval all-tools "request" {"crazy-url" "http://foo.com"} {}
+          (is (= :ask (f.tools/approval all-tools request-tool {"crazy-url" "http://foo.com"} {}
                                         {:toolCall {:approval {:allow {"web__request" {:argsMatchers {"url" [".*foo.*"]}}}}}} nil))))))
     (testing "if no approval config matches"
       (testing "checks byDefault"
         (testing "when 'ask', return true"
-          (is (= :ask (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:byDefault "ask"}}} nil))))
+          (is (= :ask (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:byDefault "ask"}}} nil))))
         (testing "when 'allow', return false"
-          (is (= :allow (f.tools/approval all-tools "request" {} {} {:toolCall {:approval {:byDefault "allow"}}} nil)))))
+          (is (= :allow (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:byDefault "allow"}}} nil)))))
       (testing "fallback to manual approval"
-        (is (= :ask (f.tools/approval all-tools "request" {} {} {} nil)))))))
+        (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))))))
 
 (deftest behavior-specific-approval-test
-  (let [all-tools [{:name "shell_command" :full-name "eca__shell_command" :server {:name "eca"}}
-                   {:name "read_file" :full-name "eca__read_file" :server {:name "eca"}}]]
+  (let [shell-tool {:name "shell_command" :full-name "eca__shell_command" :server {:name "eca"} :origin :native}
+        read-tool {:name "read_file" :full-name "eca__read_file" :server {:name "eca"} :origin :native}
+        all-tools [shell-tool read-tool]]
     (testing "behavior-specific approval overrides global rules"
       (let [config {:toolCall {:approval {:byDefault "allow"}}
                     :behavior {"plan" {:toolCall {:approval {:deny {"shell_command" {:argsMatchers {"command" [".*rm.*"]}}}
                                                              :byDefault "ask"}}}}}]
         ;; Global config would allow shell commands (no behavior specified)
-        (is (= :allow (f.tools/approval all-tools "shell_command" {"command" "ls -la"} {} config nil)))
+        (is (= :allow (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config nil)))
         ;; But plan behavior denies rm commands
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "rm file.txt"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "rm file.txt"} {} config "plan")))
         ;; Plan behavior allows other shell commands with ask (behavior byDefault)
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "ls -la"} {} config "plan")))))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config "plan")))))
     (testing "behavior without toolCall approval uses global rules"
       (let [config {:toolCall {:approval {:allow {"read_file" {}}}}
                     :behavior {"custom" {}}}]
-        (is (= :allow (f.tools/approval all-tools "read_file" {} {} config "custom")))))
+        (is (= :allow (f.tools/approval all-tools read-tool {} {} config "custom")))))
     (testing "plan behavior shell restrictions work as configured"
       (let [config {:behavior {"plan" {:toolCall {:approval {:deny {"shell_command" {:argsMatchers {"command" [".*>.*" ".*rm.*"]}}}}}}}}]
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "cat file.txt > output.txt"} {} config "plan")))
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "rm -rf folder"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "cat file.txt > output.txt"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "plan")))
         ;; Safe commands should use byDefault (ask)
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "ls -la"} {} config "plan")))))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config "plan")))))
     (testing "agent behavior does NOT have plan restrictions"
       (let [config {:behavior {"plan" {:toolCall {:approval {:deny {"shell_command" {:argsMatchers {"command" [".*>.*" ".*rm.*"]}}}}}}}}]
         ;; Same dangerous commands that are denied in plan mode should be allowed in agent mode
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "rm -rf folder"} {} config "agent")))
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "cat file.txt > output.txt"} {} config "agent")))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "agent")))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "cat file.txt > output.txt"} {} config "agent")))
         ;; No behavior specified (nil) should also not have plan restrictions
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "rm file.txt"} {} config nil)))))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm file.txt"} {} config nil)))))
     (testing "regex patterns match dangerous commands correctly"
       (let [config config/initial-config]
         ;; Test output redirection patterns
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "echo test > file.txt"} {} config "plan")))
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "ls >> log.txt"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "echo test > file.txt"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "ls >> log.txt"} {} config "plan")))
         ;; Test pipe to dangerous commands
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "echo test | tee file.txt"} {} config "plan")))
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "find . | xargs rm"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "echo test | tee file.txt"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "find . | xargs rm"} {} config "plan")))
         ;; Test file operations
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "rm -rf folder"} {} config "plan")))
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "touch newfile.txt"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "touch newfile.txt"} {} config "plan")))
         ;; Test git operations
-        (is (= :deny (f.tools/approval all-tools "shell_command" {"command" "git add ."} {} config "plan")))
+        (is (= :deny (f.tools/approval all-tools shell-tool {"command" "git add ."} {} config "plan")))
         ;; Test safe commands that should NOT be denied
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "ls -la"} {} config "plan")))
-        (is (= :ask (f.tools/approval all-tools "shell_command" {"command" "git status"} {} config "plan")))))))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config "plan")))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status"} {} config "plan")))))))
+
+(deftest plan-mode-approval-restrictions-test
+  (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native}
+        all-tools [shell-tool]
+        config config/initial-config]
+
+    (testing "dangerous commands blocked in plan mode via approval"
+      (are [command] (= :deny
+                        (f.tools/approval all-tools shell-tool
+                                          {"command" command} {} config "plan"))
+        "echo 'test' > file.txt"
+        "cat file.txt > output.txt"
+        "ls >> log.txt"
+        "rm file.txt"
+        "mv old.txt new.txt"
+        "cp file1.txt file2.txt"
+        "touch newfile.txt"
+        "mkdir newdir"
+        "sed -i 's/old/new/' file.txt"
+        "git add ."
+        "git commit -m 'test'"
+        "npm install package"
+        "python -c \"open('file.txt','w').write('test')\""
+        "bash -c 'echo test > file.txt'"))
+
+    (testing "non-dangerous commands default to ask in plan mode"
+      (are [command] (= :ask
+                        (f.tools/approval all-tools shell-tool
+                                          {"command" command} {} config "plan"))
+        "python --version"  ; not matching dangerous patterns, defaults to ask
+        "node script.js"     ; not matching dangerous patterns, defaults to ask
+        "clojure -M:test"))  ; not matching dangerous patterns, defaults to ask
+
+    (testing "safe commands not denied in plan mode"
+      (are [command] (not= :deny
+                           (f.tools/approval all-tools shell-tool
+                                             {"command" command} {} config "plan"))
+        "git status"
+        "ls -la"
+        "find . -name '*.clj'"
+        "grep 'test' file.txt"
+        "cat file.txt"
+        "head -10 file.txt"
+        "pwd"
+        "date"
+        "env"))
+
+    (testing "same commands work fine in agent mode (not denied)"
+      (are [command] (not= :deny
+                           (f.tools/approval all-tools shell-tool
+                                             {"command" command} {} config "agent"))
+        "echo 'test' > file.txt"
+        "rm file.txt"
+        "git add ."
+        "python --version"))))
 
 (deftest call-tool!-test
   (testing "INVALID_ARGS for missing required param on native tool"
