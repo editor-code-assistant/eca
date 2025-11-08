@@ -122,6 +122,24 @@
             {"path" (h/file-path "/foo/qux") "line_offset" 2 "limit" 2}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}}))))))
 
+(deftest read-file-require-approval-fn-test
+  (let [require-approval-fn (get-in f.tools.filesystem/definitions ["read_file" :require-approval-fn])]
+    (testing "Approval required for files outside workspace"
+      (let [args {"path" (h/file-path "/outside/workspace/file.txt")}
+            db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
+        (is (true? (require-approval-fn args {:db db})))))
+    (testing "No approval required for files inside workspace"
+      (let [args {"path" (h/file-path "/project/foo/src/file.txt")}
+            db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
+        (is (not (require-approval-fn args {:db db})))))
+    (testing "No approval required for ECA shell output cache files"
+      (let [cache-path (str (System/getProperty "user.home") "/.cache/eca/abc123/shell-output/chat-1-tool-1.txt")
+            args {"path" cache-path}
+            db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
+        ;; ECA shell output cache files are outside workspace but should not require approval
+        (with-redefs [fs/canonicalize (fn [p] (fs/path p))]
+          (is (not (require-approval-fn args {:db db}))))))))
+
 (deftest write-file-test
   (testing "Approval required outside workspace"
     (let [require-approval-fn (get-in f.tools.filesystem/definitions ["write_file" :require-approval-fn])

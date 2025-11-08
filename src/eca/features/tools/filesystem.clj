@@ -311,6 +311,14 @@
                                   {:path source
                                    :content source-content}]))))
 
+(defn ^:private read-file-require-approval-fn
+  "Require-approval-fn for read_file that allows ECA shell output cache files
+   without requiring approval, since the original shell command was already approved."
+  [args {:keys [db]}]
+  (when-let [path (get args "path")]
+    (and (tools.util/path-outside-workspace? db path)
+         (not (tools.util/eca-shell-output-cache-file? path)))))
+
 (def definitions
   {"directory_tree"
    {:description (tools.util/read-tool-description "directory_tree")
@@ -334,7 +342,7 @@
                                        :description "Maximum lines to read (default: {{readFileMaxLines}})"}}
                  :required ["path"]}
     :handler #'read-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn #'read-file-require-approval-fn
     :summary-fn #'read-file-summary}
    "write_file"
    {:description (tools.util/read-tool-description "write_file")

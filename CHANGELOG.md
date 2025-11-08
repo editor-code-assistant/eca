@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Optimize large shell output by writing to cache file instead of inline when exceeding threshold (default: 1000 chars). Configurable via `toolCall.shellCommand.outputFileThreshold`.
+
 ## 0.93.2
 
 - Fix `/compact` removing chat history when prompt is stopped or some error happens. #142

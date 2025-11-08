@@ -127,7 +127,8 @@
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}
-              :shellCommand {:summaryMaxLength 25}}
+              :shellCommand {:summaryMaxLength 25
+                             :outputFileThreshold 1000}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}

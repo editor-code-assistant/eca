@@ -74,6 +74,27 @@
         roots (workspace-root-paths db)]
     (and p (not-any? #(fs/starts-with? p %) roots))))
 
+(defn eca-cache-base-dir
+  "Get the base ECA cache directory.
+   Returns: ~/.cache/eca/ (or $XDG_CACHE_HOME/eca/)"
+  []
+  (let [cache-home (or (System/getenv "XDG_CACHE_HOME")
+                       (io/file (System/getProperty "user.home") ".cache"))]
+    (io/file cache-home "eca")))
+
+(defn eca-shell-output-cache-file?
+  "Check if a path is within the ECA shell output cache directory.
+   This is used to auto-allow reading shell output files without additional approval,
+   since the shell command that generated them was already approved."
+  [path]
+  (when path
+    (try
+      (let [abs-path (str (fs/canonicalize path))
+            cache-base (str (eca-cache-base-dir))]
+        (and (fs/starts-with? abs-path cache-base)
+             (string/includes? abs-path "shell-output")))
+      (catch Exception _ false))))
+
 (defn require-approval-when-outside-workspace
   "Returns a function suitable for tool `:require-approval-fn` that triggers
    approval when any of the provided `path-keys` in args is outside the
