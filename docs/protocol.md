@@ -511,7 +511,7 @@ interface ChatPromptResponse {
 
 ### Chat Content Received (⬅️)
 
-A server notification with a new content from the LLM.
+A server notification with a new content returned from the LLM or server.
 
 _Notification:_ 
 
