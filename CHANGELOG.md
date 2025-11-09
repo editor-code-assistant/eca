@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix regression: completion broken after rewrite feature API changes.
+
 ## 0.78.0
 
 - Prefix tool name with server to LLM: <server>__<toolname>. #196

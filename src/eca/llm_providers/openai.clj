@@ -26,17 +26,22 @@
                         json/parse-string)]
     (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])))
 
+(defn ^:private response-body->result [body]
+  {:output-text (reduce
+                 #(str %1 (:text %2))
+                 ""
+                 (:content (last (:output body))))})
+
 (defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-stream]}]
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
               (str api-url (or url-relative-path responses-path)))
-        response* (atom nil)
         on-error (if on-stream
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" body)
-                     (reset! response* {:error error-data})))]
+                     {:error error-data}))]
     (llm-util/log-request logger-tag rid url body)
     @(http/post
       url
@@ -64,16 +69,11 @@
                   (on-stream event data)))
               (do
                 (llm-util/log-response logger-tag rid "response" body)
-                (reset! response*
-                        {:output-text (reduce
-                                       #(str %1 (:text %2))
-                                       ""
-                                       (:content (last (:output body))))}))))
+                (response-body->result body))))
           (catch Exception e
             (on-error {:exception e}))))
       (fn [e]
-        (on-error {:exception e})))
-    @response*))
+        (on-error {:exception e})))))
 
 (defn ^:private normalize-messages [messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]

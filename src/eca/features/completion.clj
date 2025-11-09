@@ -60,20 +60,23 @@
         {:keys [line character]} position
         input-code (insert-completion-tag doc-text position)
         instructions (f.prompt/inline-completion-prompt config)
-        {:keys [error result]} (deref (future
-                                        (llm-api/sync-prompt!
-                                         {:provider provider
-                                          :model model
-                                          :config config
-                                          :prompt input-code
-                                          :instructions instructions
-                                          :provider-auth provider-auth
-                                          :model-capabilities (assoc model-capabilities
-                                                                     :reason? false
-                                                                     :tools false
-                                                                     :web-search false)}))
-                                      30000 ;; TODO move to config
-                                      {:error {:message "Timeout waiting for completion"}})]
+        {:keys [error output-text]} (deref (future
+                                             (try
+                                               (llm-api/sync-prompt!
+                                                {:provider provider
+                                                 :model model
+                                                 :config config
+                                                 :prompt input-code
+                                                 :instructions instructions
+                                                 :provider-auth provider-auth
+                                                 :model-capabilities (assoc model-capabilities
+                                                                            :reason? false
+                                                                            :tools false
+                                                                            :web-search false)})
+                                               (catch Exception e
+                                                 {:error {:exception e}})))
+                                           30000 ;; TODO move to config
+                                           {:error {:message "Timeout waiting for completion"}})]
     (cond
       (:message error)
       {:error {:type :warning
@@ -85,12 +88,12 @@
         {:error {:type :warning
                  :message (:message (.getMessage ^Exception (:exception error)))}})
 
-      (not result)
+      (not output-text)
       {:error {:type :info
                :message "No suggestions found"}}
 
       :else
-      {:items [{:text (normalize-code-result result)
+      {:items [{:text (normalize-code-result output-text)
                 :doc-version doc-version
                 :range {:start {:line line :character character}
                         :end {:line line :character character}}}]})))
