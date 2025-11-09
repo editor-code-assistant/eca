@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.78.1
+
 - Fix regression: completion broken after rewrite feature API changes.
 
 ## 0.78.0
