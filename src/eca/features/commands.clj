@@ -145,6 +145,8 @@
                ""
                (str "Server cmd: " (.orElse (.commandLine (.info (ProcessHandle/current))) nil))
                ""
+               (str "Workspaces: " (shared/workspaces-as-str db))
+               ""
                (str "Default model: " model)
                ""
                (str "Login providers: " (reduce

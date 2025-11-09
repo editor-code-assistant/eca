@@ -132,7 +132,7 @@
 (defn init-prompt [db]
   (replace-vars
    (init-prompt-template)
-   {:workspaceFolders (string/join ", " (map (comp shared/uri->filename :uri) (:workspace-folders db)))}))
+   {:workspaceFolders (shared/workspaces-as-str db)}))
 
 (defn title-prompt []
   (title-prompt-template))

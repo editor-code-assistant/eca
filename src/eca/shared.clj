@@ -45,6 +45,9 @@
                                      string/lower-case))
              (string/replace ":" "%3A")))))
 
+(defn workspaces-as-str [db]
+  (string/join ", " (map (comp uri->filename :uri) (:workspace-folders db))))
+
 (defn update-last [coll f]
   (if (seq coll)
     (update coll (dec (count coll)) f)

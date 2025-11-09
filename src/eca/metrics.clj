@@ -1,6 +1,5 @@
 (ns eca.metrics
   (:require
-   [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -14,8 +13,7 @@
                   (fn [_]
                     {:client-name (:name (:client-info @db*))
                      :client-version (:version (:client-info @db*))
-                     :workspace-roots (string/join ", " (map (comp shared/uri->filename :uri)
-                                                             (:workspace-folders @db*)))})))
+                     :workspace-roots (shared/workspaces-as-str @db*)})))
 
 (defprotocol IMetrics
   (start! [this])

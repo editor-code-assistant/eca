@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add workspaces to `/doctor`
+
 ## 0.78.1
 
 - Fix regression: completion broken after rewrite feature API changes.
