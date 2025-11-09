@@ -1,7 +1,9 @@
 (ns eca.features.login-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [eca.features.login :as login]
-            [matcher-combinators.test :refer [match?]]))
+  (:require
+   [clojure.test :refer [deftest is testing]]
+   [eca.features.login :as login]
+   [hato.client :as http]
+   [matcher-combinators.test :refer [match?]]))
 
 (deftest test-login-step
   (let [msg-log (atom [])
@@ -42,16 +44,18 @@
                  @db*)))))
 
     (testing "valid input is provided"
-
-      (login/login-step {:provider nil
-                         :step :login/start
-                         :chat-id 0
-                         :input "github-copilot"
-                         :db* db*
-                         :send-msg! send-msg!})
+      (with-redefs [http/post (constantly {:body {:user_code "1234"
+                                                  :decide_code "5678"
+                                                  :verification_uri "https://mock.github.com/login/device"}})]
+        (login/login-step {:provider nil
+                           :step :login/start
+                           :chat-id 0
+                           :input "github-copilot"
+                           :db* db*
+                           :send-msg! send-msg!}))
 
       (testing "should proceed to the next step"
-        (is (re-find #"(?m)Open your browser at `https://github.com/login/device` and authenticate using the code: `.+`\nThen type anything in the chat and send it to continue the authentication."
+        (is (re-find #"(?m)Open your browser at `https://mock.github.com/login/device` and authenticate using the code: `.+`\nThen type anything in the chat and send it to continue the authentication."
                      (last @msg-log)))
 
         (testing "state is update to reflect in-progress login"
