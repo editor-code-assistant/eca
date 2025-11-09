@@ -1267,7 +1267,7 @@ _Response:_
 interface ChatDeleteResponse {}
 ```
 
-## Editor diagnostics (↪️)
+### Editor diagnostics (↪️)
 
 A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
 Useful for server to provide to LLM information about errors/warnings about current code.
