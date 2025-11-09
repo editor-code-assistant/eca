@@ -58,7 +58,7 @@ The protocol defines a set of lifecycle messages that manage the connection and 
     ```mermaid
     sequenceDiagram
         autonumber
-        participant C as Client / Editor
+        participant C as Editor (ECA client)
         participant S as ECA Server
         C->>+S: initialize (request)
         Note right of S: Save workspace-folders/capabilties
@@ -78,7 +78,7 @@ The protocol defines a set of lifecycle messages that manage the connection and 
     ```mermaid
     sequenceDiagram
         autonumber
-        participant C as Client / Editor
+        participant C as Editor (ECA client)
         participant S as ECA Server
         C->>+S: shutdown
         Note right of S: Finish MCP servers process
@@ -274,7 +274,7 @@ _Notification:_
     ```mermaid
     sequenceDiagram
         autonumber
-        participant C as Client / Editor
+        participant C as Editor (ECA client)
         participant S as ECA Server
         participant L as LLM
         C->>+S: chat/prompt
@@ -302,7 +302,7 @@ _Notification:_
     ```mermaid
     sequenceDiagram
         autonumber
-        participant C as Client / Editor
+        participant C as Editor (ECA client)
         participant S as ECA Server
         participant L as LLM
         C->>S: chat/prompt
