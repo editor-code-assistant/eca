@@ -147,14 +147,15 @@
   "Obfuscate all but first 3 and last 3 characters of a string, minimum 5 characters.
    If the string is 4 characters or less, obfuscate all characters.
    Replace the middle part with asterisks, but always at least 5 asterisks."
-  [s]
+  [s & {:keys [preserve-num]
+        :or {preserve-num 3}}]
   (when s
     (string/replace
      (if (<= (count s) 4)
        (apply str (repeat (count s) "*"))
-       (str (subs s 0 3)
+       (str (subs s 0 preserve-num)
             (apply str (repeat (- (count s) 4) "*"))
-            (subs s (- (count s) 3))))
+            (subs s (- (count s) preserve-num))))
      (string/join "" (repeat (- (count s) 4) "*")) "*****")))
 
 (defn normalize-model-name [model]

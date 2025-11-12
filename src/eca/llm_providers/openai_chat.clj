@@ -94,13 +94,14 @@
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" error-data)
-                     {:error error-data}))]
-    (llm-util/log-request logger-tag rid url body)
+                     {:error error-data}))
+        headers (merge {"Authorization" (str "Bearer " api-key)
+                        "Content-Type" "application/json"}
+                       extra-headers)]
+    (llm-util/log-request logger-tag rid url body headers)
     @(http/post
       url
-      {:headers (merge {"Authorization" (str "Bearer " api-key)
-                        "Content-Type" "application/json"}
-                       extra-headers)
+      {:headers headers
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true

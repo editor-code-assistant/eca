@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add workspaces to `/doctor`
+- Improve LLM request logs to include headers.
 
 ## 0.78.1
 

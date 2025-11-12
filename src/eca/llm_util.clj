@@ -4,7 +4,8 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
-   [eca.secrets :as secrets])
+   [eca.secrets :as secrets]
+   [eca.shared :as shared])
   (:import
    [java.io BufferedReader]
    [java.nio.charset StandardCharsets]
@@ -60,8 +61,11 @@
    ""
    (-> result :output :contents)))
 
-(defn log-request [tag rid url body]
-  (logger/debug tag (format "[%s] Sending body: '%s', url: '%s'" rid body url)))
+(defn log-request [tag rid url body headers]
+  (let [obfuscated-headers (-> headers
+                               (shared/update-some "Authorization" #(shared/obfuscate % {:preserve-num 8}))
+                               (shared/update-some "x-api-key" shared/obfuscate))]
+    (logger/debug tag (format "[%s] Sending body: '%s', headers: '%s', url: '%s'" rid body obfuscated-headers url))))
 
 (defn log-response [tag rid event data]
   (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))

@@ -37,21 +37,22 @@
         url (if oauth?
               codex-url
               (str api-url (or url-relative-path responses-path)))
-        on-error (if on-stream
-                   on-error
-                   (fn [error-data]
-                     (llm-util/log-response logger-tag rid "response-error" body)
-                     {:error error-data}))]
-    (llm-util/log-request logger-tag rid url body)
-    @(http/post
-      url
-      {:headers (assoc-some
+        headers (assoc-some
                  {"Authorization" (str "Bearer " api-key)
                   "Content-Type" "application/json"}
                  "chatgpt-account-id" (jtw-token->account-id api-key)
                  "OpenAI-Beta" (when oauth? "responses=experimental"),
                  "Originator" (when oauth? "codex_cli_rs")
                  "Session-ID" (when oauth? (str (random-uuid))))
+        on-error (if on-stream
+                   on-error
+                   (fn [error-data]
+                     (llm-util/log-response logger-tag rid "response-error" body)
+                     {:error error-data}))]
+    (llm-util/log-request logger-tag rid url body headers)
+    @(http/post
+      url
+      {:headers headers
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true

@@ -70,21 +70,22 @@
   (let [url (str api-url (or url-relative-path messages-path))
         reason-id (str (random-uuid))
         oauth? (= :auth/oauth auth-type)
+        headers (assoc-some
+                 {"anthropic-version" "2023-06-01"
+                  "Content-Type" "application/json"}
+                 "x-api-key" (when-not oauth? api-key)
+                 "Authorization" (when oauth? (str "Bearer " api-key))
+                 "anthropic-beta" (when oauth? "oauth-2025-04-20"))
         response* (atom nil)
         on-error (if on-stream
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" body)
                      (reset! response* error-data)))]
-    (llm-util/log-request logger-tag rid url body)
+    (llm-util/log-request logger-tag rid url body headers)
     @(http/post
       url
-      {:headers (assoc-some
-                 {"anthropic-version" "2023-06-01"
-                  "Content-Type" "application/json"}
-                 "x-api-key" (when-not oauth? api-key)
-                 "Authorization" (when oauth? (str "Bearer " api-key))
-                 "anthropic-beta" (when oauth? "oauth-2025-04-20"))
+      {:headers headers
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
