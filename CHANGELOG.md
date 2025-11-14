@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.78.4
+
 - Fix regression exceptions on specific corner cases with log obfuscation.
 
 ## 0.78.3
