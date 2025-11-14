@@ -101,3 +101,29 @@
     (is (= 1
            @(shared/future* {:env "prod"}
               1)))))
+
+(deftest obfuscate-test
+  (testing "nil and empty inputs"
+    (is (nil? (shared/obfuscate nil)))
+    (is (= "" (shared/obfuscate ""))))
+
+  (testing "length <= 4 is fully obfuscated"
+    (is (= "*" (shared/obfuscate "a")))
+    (is (= "**" (shared/obfuscate "ab")))
+    (is (= "****" (shared/obfuscate "abcd"))))
+
+    (testing "default preserve-num=3 with various lengths"
+      ;; length 5: middle forced to at least 5 stars, preserve shrinks to floor(len/2)
+      (is (= "ab*****de" (shared/obfuscate "abcde")))
+      ;; length 6: prefix 3, 5 stars, suffix 3 => 11 chars
+      (is (= "abc*****def" (shared/obfuscate "abcdef")))
+      ;; length 7: prefix 3, 5 stars, suffix 3 => 11 chars
+      (is (= "abc*****efg" (shared/obfuscate "abcdefg")))
+      ;; length 10: prefix 3, 5 stars, suffix 3 => 11 chars
+      (is (= "abc*****hij" (shared/obfuscate "abcdefghij"))))
+  
+    (testing "respect (bounded) preserve-num"
+      ;; preserve-num smaller than half the length
+      (is (= "a*****f" (shared/obfuscate "abcdef" :preserve-num 1)))
+      ;; preserve-num larger than half the length is capped
+      (is (= "abc*****def" (shared/obfuscate "abcdef" :preserve-num 10)))))
