@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix regression exceptions on specific corner cases with log obfuscation.
+
 ## 0.78.3
 
 - Add `openai/gpt-5.1` to default models.

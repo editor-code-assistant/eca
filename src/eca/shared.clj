@@ -144,19 +144,30 @@
                    m)))
 
 (defn obfuscate
-  "Obfuscate all but first 3 and last 3 characters of a string, minimum 5 characters.
+  "Obfuscate all but first `preserve-num` and last `preserve-num` characters of a string.
    If the string is 4 characters or less, obfuscate all characters.
    Replace the middle part with asterisks, but always at least 5 asterisks."
   [s & {:keys [preserve-num]
         :or {preserve-num 3}}]
   (when s
-    (string/replace
-     (if (<= (count s) 4)
-       (apply str (repeat (count s) "*"))
-       (str (subs s 0 preserve-num)
-            (apply str (repeat (- (count s) 4) "*"))
-            (subs s (- (count s) preserve-num))))
-     (string/join "" (repeat (- (count s) 4) "*")) "*****")))
+    (let [s   (str s)
+          len (count s)]
+      (cond
+        (zero? len)
+        s
+
+        (<= len 4)
+        (apply str (repeat len "*"))
+
+        :else
+        (let [raw-preserve (max 0 preserve-num)
+              max-preserve (quot len 2)
+              p            (min raw-preserve max-preserve)
+              middle-len   (max 5 (- len (* 2 p)))
+              stars        (apply str (repeat middle-len "*"))]
+          (str (subs s 0 p)
+               stars
+               (subs s (- len p))))))))
 
 (defn normalize-model-name [model]
   (let [model-s (if (keyword? model)
