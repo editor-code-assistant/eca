@@ -39,7 +39,8 @@
                          :key nil
                          :keyEnv "OPENAI_API_KEY"
                          :requiresAuth? true
-                         :models {"gpt-5-codex" {}
+                         :models {"gpt-5.1" {}
+                                  "gpt-5-codex" {}
                                   "gpt-5" {}
                                   "gpt-5-mini" {}
                                   "gpt-5-nano" {}

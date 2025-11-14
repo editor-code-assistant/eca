@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `openai/gpt-5.1` to default models.
+
 ## 0.78.2
 
 - Add workspaces to `/doctor`

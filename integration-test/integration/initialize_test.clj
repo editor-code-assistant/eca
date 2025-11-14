@@ -33,6 +33,7 @@
                 "openai/gpt-5-codex"
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
+                "openai/gpt-5.1"
                 "openai/o3"
                 "openai/o4-mini"]]
     (testing "initialize request with default config"
@@ -99,6 +100,7 @@
                 "openai/gpt-5-codex"
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
+                "openai/gpt-5.1"
                 "openai/o3"
                 "openai/o4-mini"]]
     (testing "initialize request with custom providers"
