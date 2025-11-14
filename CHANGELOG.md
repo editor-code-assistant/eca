@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.78.3
+
 - Add `openai/gpt-5.1` to default models.
 
 ## 0.78.2
