@@ -39,25 +39,27 @@
    s
    vars))
 
-(defn ^:private eca-chat-prompt [behavior config]
+(defn ^:private eca-chat-prompt [behavior config db]
   (let [behavior-config (get-in config [:behavior behavior])
         ;; Use systemPromptFile from behavior config, or fall back to built-in
         prompt-file (or (:systemPromptFile behavior-config)
                         ;; For built-in behaviors without explicit config
                         (when (#{"agent" "plan"} behavior)
                           (str "prompts/" behavior "_behavior.md")))]
-    (cond
-      ;; Custom behavior with absolute path
-      (and prompt-file (string/starts-with? prompt-file "/"))
-      (slurp prompt-file)
+    (replace-vars
+      (cond
+        ;; Custom behavior with absolute path
+        (and prompt-file (string/starts-with? prompt-file "/"))
+        (slurp prompt-file)
 
-      ;; Built-in or resource path
-      prompt-file
-      (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" "")))
+        ;; Built-in or resource path
+        prompt-file
+        (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" "")))
 
-      ;; Fallback for unknown behavior
-      :else
-      (load-builtin-prompt "agent_behavior.md"))))
+        ;; Fallback for unknown behavior
+        :else
+        (load-builtin-prompt "agent_behavior.md"))
+      {:workspaceRoots (shared/workspaces-as-str db)})))
 
 (defn contexts-str [refined-contexts repo-map*]
   (multi-str
@@ -87,9 +89,9 @@
     refined-contexts)
    "</contexts>"))
 
-(defn build-chat-instructions [refined-contexts rules repo-map* behavior config]
+(defn build-chat-instructions [refined-contexts rules repo-map* behavior config db]
   (multi-str
-   (eca-chat-prompt behavior config)
+   (eca-chat-prompt behavior config db)
    (when (seq rules)
      ["<rules description=\"Rules defined by user\">\n"
       (reduce

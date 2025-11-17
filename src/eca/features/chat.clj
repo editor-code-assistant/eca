@@ -973,7 +973,8 @@
                                                        rules
                                                        repo-map*
                                                        selected-behavior
-                                                       config)
+                                                       config
+                                                       db)
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
         expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)
