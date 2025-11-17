@@ -29,20 +29,8 @@
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
-     ;; Deprecated
-     ;; For backward compatibility,
-     ;; we now return chat config via `config/updated` notification.
-      (models/sync-models! db* config (fn [_]))
-      (let [db @db*]
-        {:models (sort (keys (:models db)))
-         :chat-behaviors (distinct (keys (:behavior config)))
-         :chat-default-model (f.chat/default-model db config)
-         :chat-default-behavior (config/validate-behavior-name
-                                 (or (:defaultBehavior (:chat config)) ;;legacy
-                                     (:defaultBehavior config))
-                                 config)
-         :chat-welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
-                                   (:welcomeMessage config))}))))
+      {:chat-welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
+                                 (:welcomeMessage config))})))
 
 (defn initialized [{:keys [db* messenger config metrics]}]
   (metrics/task metrics :eca/initialized

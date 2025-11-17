@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix absolute paths being interpreted as commands. #199
+- Remove non used sync models code during initialize. #100
 
 ## 0.78.4
 
