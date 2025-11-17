@@ -13,16 +13,18 @@
 (deftest simple-text
   (eca/start-process!)
 
-  (is (match?
-       {:chatDefaultModel "ollama/qwen3"
-        :models (m/embeds ["ollama/qwen3"])}
-       (eca/request! (fixture/initialize-request {:initializationOptions (h/deep-merge fixture/default-init-options
-                                                                                       {:providers {"anthropic" {:key nil}
-                                                                                                    "openai" {:key nil}
-                                                                                                    "github-copilot" {:key nil}
-                                                                                                    "ollama" {:url (str fixture/base-llm-mock-url "/ollama")}}})
-                                                  :capabilities {:codeAssistant {:chat {}}}}))))
+  (eca/request! (fixture/initialize-request {:initializationOptions (h/deep-merge fixture/default-init-options
+                                                                                  {:providers {"anthropic" {:key nil}
+                                                                                               "openai" {:key nil}
+                                                                                               "github-copilot" {:key nil}
+                                                                                               "ollama" {:url (str fixture/base-llm-mock-url "/ollama")}}})
+                                             :capabilities {:codeAssistant {:chat {}}}}))
   (eca/notify! (fixture/initialized-notification))
+  (testing "the default model is local"
+    (is (match?
+         {:chat {:models (m/embeds ["ollama/qwen3"])
+                 :selectModel "ollama/qwen3"}}
+         (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We send a simple hello message"
       (llm.mocks/set-case! :simple-text-0)
@@ -105,16 +107,18 @@
 (deftest reasoning-text
   (eca/start-process!)
 
-  (is (match?
-       {:chatDefaultModel "ollama/qwen3"
-        :models (m/embeds ["ollama/qwen3"])}
-       (eca/request! (fixture/initialize-request {:initializationOptions (h/deep-merge fixture/default-init-options
-                                                                                       {:providers {"anthropic" {:key nil}
-                                                                                                    "openai" {:key nil}
-                                                                                                    "github-copilot" {:key nil}
-                                                                                                    "ollama" {:url (str fixture/base-llm-mock-url "/ollama")}}})
-                                                  :capabilities {:codeAssistant {:chat {}}}}))))
+  (eca/request! (fixture/initialize-request {:initializationOptions (h/deep-merge fixture/default-init-options
+                                                                                  {:providers {"anthropic" {:key nil}
+                                                                                               "openai" {:key nil}
+                                                                                               "github-copilot" {:key nil}
+                                                                                               "ollama" {:url (str fixture/base-llm-mock-url "/ollama")}}})
+                                             :capabilities {:codeAssistant {:chat {}}}}))
   (eca/notify! (fixture/initialized-notification))
+  (testing "the default model is local"
+    (is (match?
+         {:chat {:models (m/embeds ["ollama/qwen3"])
+                 :selectModel "ollama/qwen3"}}
+         (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We send a hello message"
       (llm.mocks/set-case! :reasoning-0)
@@ -182,16 +186,18 @@
 (deftest tool-calling
   (eca/start-process!)
 
-  (is (match?
-       {:chatDefaultModel "ollama/qwen3"
-        :models (m/embeds ["ollama/qwen3"])}
-       (eca/request! (fixture/initialize-request {:initializationOptions (h/deep-merge fixture/default-init-options
-                                                                                       {:providers {"anthropic" {:key nil}
-                                                                                                    "openai" {:key nil}
-                                                                                                    "github-copilot" {:key nil}
-                                                                                                    "ollama" {:url (str fixture/base-llm-mock-url "/ollama")}}})
-                                                  :capabilities {:codeAssistant {:chat {}}}}))))
+  (eca/request! (fixture/initialize-request {:initializationOptions (h/deep-merge fixture/default-init-options
+                                                                                  {:providers {"anthropic" {:key nil}
+                                                                                               "openai" {:key nil}
+                                                                                               "github-copilot" {:key nil}
+                                                                                               "ollama" {:url (str fixture/base-llm-mock-url "/ollama")}}})
+                                             :capabilities {:codeAssistant {:chat {}}}}))
   (eca/notify! (fixture/initialized-notification))
+  (testing "the default model is local"
+    (is (match?
+         {:chat {:models (m/embeds ["ollama/qwen3"])
+                 :selectModel "ollama/qwen3"}}
+         (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We ask what files LLM see"
       (llm.mocks/set-case! :tool-calling-0)
