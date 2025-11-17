@@ -14,23 +14,26 @@
 (deftest simple-text
   (eca/start-process!)
 
+  (eca/request! (fixture/initialize-request
+                 {:initializationOptions
+                  (merge fixture/default-init-options
+                         {:defaultModel "my-provider/foo1"
+                          :providers
+                          {"myProvider"
+                           {:api "openai-responses"
+                            :url (str "http://localhost:" llm-mock.server/port "/openai")
+                            :key "foobar"
+                            :models {"foo0" {}
+                                     "foo1" {}}}}})
+                  :capabilities {:codeAssistant {:chat {}}}}))
+
+  (eca/notify! (fixture/initialized-notification))
   (testing "We use the default model from custom provider"
     (is (match?
-         {:models (m/embeds ["my-provider/foo1"])
-          :chatDefaultModel "my-provider/foo1"}
-         (eca/request! (fixture/initialize-request
-                        {:initializationOptions
-                         (merge fixture/default-init-options
-                                {:defaultModel "my-provider/foo1"
-                                 :providers
-                                 {"myProvider"
-                                  {:api "openai-responses"
-                                   :url (str "http://localhost:" llm-mock.server/port "/openai")
-                                   :key "foobar"
-                                   :models {"foo0" {}
-                                            "foo1" {}}}}})
-                         :capabilities {:codeAssistant {:chat {}}}})))))
-  (eca/notify! (fixture/initialized-notification))
+         {:chat {:models (m/embeds ["my-provider/foo1"])
+                 :selectModel "my-provider/foo1"}}
+         (eca/client-awaits-server-notification :config/updated))))
+
   (let [chat-id* (atom nil)]
     (testing "We send a simple hello message"
       (llm.mocks/set-case! :simple-text-0)
@@ -127,23 +130,25 @@
 (deftest openai-chat-simple-text
   (eca/start-process!)
 
+  (eca/request! (fixture/initialize-request
+                 {:initializationOptions
+                  (merge fixture/default-init-options
+                         {:defaultModel "my-provider/deepseekcoder"
+                          :providers
+                          {"myProvider"
+                           {:api "openai-chat"
+                            :url (str "http://localhost:" llm-mock.server/port "/openai-chat")
+                            :key "foobar"
+                            :models {"deepseekchat" {}
+                                     "deepseekcoder" {}}}}})
+                  :capabilities {:codeAssistant {:chat {}}}}))
+
+  (eca/notify! (fixture/initialized-notification))
   (testing "We use the default model from custom provider"
     (is (match?
-         {:models (m/embeds ["my-provider/deepseekcoder"])
-          :chatDefaultModel "my-provider/deepseekcoder"}
-         (eca/request! (fixture/initialize-request
-                        {:initializationOptions
-                         (merge fixture/default-init-options
-                                {:defaultModel "my-provider/deepseekcoder"
-                                 :providers
-                                 {"myProvider"
-                                  {:api "openai-chat"
-                                   :url (str "http://localhost:" llm-mock.server/port "/openai-chat")
-                                   :key "foobar"
-                                   :models {"deepseekchat" {}
-                                            "deepseekcoder" {}}}}})
-                         :capabilities {:codeAssistant {:chat {}}}})))))
-  (eca/notify! (fixture/initialized-notification))
+         {:chat {:models (m/embeds ["my-provider/deepseekcoder"])
+                 :selectModel "my-provider/deepseekcoder"}}
+         (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We send a simple hello message"
       (llm.mocks/set-case! :simple-text-0)
