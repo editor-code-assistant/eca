@@ -505,22 +505,26 @@
          (map (fn [[_ quoted unquoted]] (or quoted unquoted)))
          (vec))))
 
-(defn ^:private message->decision [message]
-  (let [slash? (string/starts-with? message "/")]
-    (if slash?
-      (let [command (subs message 1)
-            tokens (let [toks (tokenize-args command)] (if (seq toks) toks [""]))
-            first-token (first tokens)
-            args (vec (rest tokens))]
-        (if (and first-token (string/includes? first-token ":"))
-          (let [[server prompt] (string/split first-token #":" 2)]
-            {:type :mcp-prompt
-             :server server
-             :prompt prompt
-             :args args})
-          {:type :eca-command
-           :command first-token
-           :args args}))
+(defn ^:private message->decision [message db config]
+  (let [all-command-names (->> (f.commands/all-commands db config)
+                               (map :name)
+                               set)
+        slash? (string/starts-with? message "/")
+        possible-command (when slash? (subs message 1))
+        [command-name & args] (when possible-command
+                                (let [toks (tokenize-args possible-command)] (if (seq toks) toks [""])))
+        args (vec args)
+        command? (contains? all-command-names command-name)]
+    (if command?
+      (if (and command-name (string/includes? command-name ":"))
+        (let [[server prompt] (string/split command-name #":" 2)]
+          {:type :mcp-prompt
+           :server server
+           :prompt prompt
+           :args args})
+        {:type :eca-command
+         :command command-name
+         :args args})
       {:type :prompt-message
        :message message})))
 
@@ -991,7 +995,7 @@
                   :metrics metrics
                   :config config
                   :messenger messenger}
-        decision (message->decision message)
+        decision (message->decision message db config)
         hook-outputs* (atom [])
         _ (f.hooks/trigger-if-matches! :preRequest
                                        {:chat-id chat-id

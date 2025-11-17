@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix absolute paths being interpreted as commands. #199
+
 ## 0.78.4
 
 - Fix regression exceptions on specific corner cases with log obfuscation.

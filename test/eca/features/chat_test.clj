@@ -500,31 +500,37 @@
   (testing "plain prompt message"
     (is (= {:type :prompt-message
             :message "Hello world"}
-           (#'f.chat/message->decision "Hello world"))))
+           (#'f.chat/message->decision "Hello world" {} {}))))
+  (testing "message starting with a absolute path"
+    (is (= {:type :prompt-message
+            :message "/path/to/file check this out"}
+           (#'f.chat/message->decision "/path/to/file check this out" {} {}))))
   (testing "ECA command without args"
     (is (= {:type :eca-command
-            :command "help"
+            :command "doctor"
             :args []}
-           (#'f.chat/message->decision "/help"))))
+           (#'f.chat/message->decision "/doctor" {} {}))))
   (testing "ECA command with args"
     (is (= {:type :eca-command
-            :command "search"
+            :command "login"
             :args ["foo" "bar"]}
-           (#'f.chat/message->decision "/search foo bar"))))
+           (#'f.chat/message->decision "/login foo bar" {} {}))))
   (testing "ECA command with args with spaces in quotes"
     (is (= {:type :eca-command
-            :command "search"
+            :command "login"
             :args ["foo bar" "baz" "qux bla blow"]}
-           (#'f.chat/message->decision "/search \"foo bar\" baz \"qux bla blow\""))))
-  (testing "MCP prompt without args"
-    (is (= {:type :mcp-prompt
-            :server "server"
-            :prompt "prompt"
-            :args []}
-           (#'f.chat/message->decision "/server:prompt"))))
-  (testing "MCP prompt with args"
-    (is (= {:type :mcp-prompt
-            :server "server"
-            :prompt "prompt"
-            :args ["arg1" "arg2"]}
-           (#'f.chat/message->decision "/server:prompt arg1 arg2")))))
+           (#'f.chat/message->decision "/login \"foo bar\" baz \"qux bla blow\"" {} {}))))
+  (with-redefs [f.mcp/all-prompts (constantly [{:name "prompt"
+                                                :server "server"}])]
+    (testing "MCP prompt without args"
+      (is (= {:type :mcp-prompt
+              :server "server"
+              :prompt "prompt"
+              :args []}
+             (#'f.chat/message->decision "/server:prompt" {} {}))))
+    (testing "MCP prompt with args"
+      (is (= {:type :mcp-prompt
+              :server "server"
+              :prompt "prompt"
+              :args ["arg1" "arg2"]}
+             (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
