@@ -1,27 +1,29 @@
 ECA Agent Guide (AGENTS.md)
 
 - Build (requires Clojure CLI + Babashka):
-  - All-in-one debug CLI (JVM, with nREPL): bb debug-cli
-  - Production CLI (JVM): bb prod-cli   |  Production JAR: bb prod-jar
-  - Native image (requires GRAALVM_HOME): bb native-cli
-- Test (Kaocha via :test alias):
-  - Run all unit tests: bb test  (equivalent: clojure -M:test)
-  - Run a single namespace: clojure -M:test --focus eca.main-test
-  - Run a single test var: clojure -M:test --focus eca.main-test/parse-opts-test
-  - Integration tests (needs ./eca or eca.exe present): bb integration-test
+  - All-in-one debug CLI (JVM, nREPL): `bb debug-cli`
+  - Production CLI (JVM): `bb prod-cli`  |  Production JAR: `bb prod-jar`
+  - Native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
+- Test (Kaocha via `:test` alias):
+  - Run all unit tests: `bb test`  (same as `clojure -M:test`)
+  - Run a single test namespace: `clojure -M:test --focus eca.main-test`
+  - Run a single test var: `clojure -M:test --focus eca.main-test/parse-opts-test`
+  - Integration tests (requires built `./eca` or `eca.exe`): `bb integration-test`
 - Lint/format:
-  - Lint: clj-kondo --lint src test dev integration-test
-  - Formatting is not enforced; follow idiomatic Clojure (use cljfmt if desired).
-- Namespace and imports:
-  - One file per `ns`; set! *warn-on-reflection* true.
-  - Group requires: stdlib, third‑party, then eca.*; sort within groups.
-  - Prefer :as aliases; avoid :refer except in tests (clojure.test only what you use).
-- Naming/types:
-  - kebab-case for fns/vars, snake/camel only for external data keys; namespaces `eca.<area>[.<subarea>]`.
+  - Lint: `clj-kondo --lint src test dev integration-test`
+  - Formatting not enforced; follow idiomatic Clojure (`cljfmt` optional).
+- Namespaces/imports:
+  - One file per `ns`; always `(set! *warn-on-reflection* true)` near top.
+  - Group `:require` as: Clojure stdlib, third‑party, then `eca.*`; sort within groups.
+  - Prefer `:as` aliases; avoid `:refer` except in tests (`clojure.test` and what you use).
+- Naming/types/data:
+  - kebab-case for fns/vars, `eca.<area>[.<subarea>]` for namespaces.
+  - Use snake/camel case only when mirroring external data keys.
   - Prefer immutable maps/vectors/sets; use namespaced keywords for domain data.
-  - Add type hints only to silence reflection where needed.
-- Errors/logging:
-  - Use ex-info with data for exceptional paths; return {:result-code ...} maps from CLI flows.
-  - Never println for app logs; use eca.logger (levels: error/warn/info/debug).
+  - Add type hints only to remove reflection where it shows up.
+- Errors/logging/flows:
+  - Use `ex-info` with data for exceptional paths; return `{:result-code ...}` maps from CLI flows.
+  - Never `println` for app logs; use `eca.logger/error|warn|info|debug` (stderr-based).
 - Tests:
-  - Use clojure.test + matcher-combinators; keep tests deterministic; place helpers under test/eca/test_helper.clj.
+  - Use `clojure.test` + `nubank/matcher-combinators`; keep tests deterministic.
+  - Put shared test helpers under `test/eca/test_helper.clj`.
