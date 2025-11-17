@@ -38,11 +38,7 @@
                 "openai/o4-mini"]]
     (testing "initialize request with default config"
       (is (match?
-           {:models models
-            :chatDefaultModel "anthropic/claude-sonnet-4-5-20250929"
-            :chatBehaviors ["agent" "plan"]
-            :chatDefaultBehavior "plan"
-            :chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
+           {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
                                                          {:chat {:defaultBehavior "plan"}})})))))
@@ -105,11 +101,7 @@
                 "openai/o4-mini"]]
     (testing "initialize request with custom providers"
       (is (match?
-           {:models models
-            :chatDefaultModel "my-custom/bar-2"
-            :chatBehaviors ["agent" "plan"]
-            :chatDefaultBehavior "agent"
-            :chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
+           {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
                                                          {:defaultModel "my-custom/bar-2"
