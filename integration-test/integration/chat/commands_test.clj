@@ -69,8 +69,17 @@
                                                                 {:command "bash"
                                                                  :args ["-c" (str "cd " h/mcp-server-sample-path " && clojure -M:server")]})}})}))
   (eca/notify! (fixture/initialized-notification))
-
-  (Thread/sleep 10000) ;; wait MCP server start TODO Improve this
+  (testing "ECA tools"
+    (is (match? {:type "native"}
+                (eca/client-awaits-server-notification :tool/serverUpdated))))
+  (testing "Mcp starting"
+    (is (match? {:type "mcp"
+                 :name "mcpServerSample"}
+                (eca/client-awaits-server-notification :tool/serverUpdated))))
+  (testing "Mcp started"
+    (is (match? {:type "mcp"
+                 :name "mcpServerSample"}
+                (eca/client-awaits-server-notification :tool/serverUpdated))))
 
   (testing "MCP prompts available when querying commands"
     (let [resp (eca/request! (fixture/chat-query-commands-request
