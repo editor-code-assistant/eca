@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.79.1
+
 - Improve system prompt to add project env context.
 
 ## 0.79.0
