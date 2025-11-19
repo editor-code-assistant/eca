@@ -1,4 +1,4 @@
-# Project Environment Context
+## Project Environment Context
 
 Workspaces: {workspaceRoots}
 

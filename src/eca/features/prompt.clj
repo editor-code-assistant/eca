@@ -61,27 +61,28 @@
 
 (defn contexts-str [refined-contexts repo-map*]
   (multi-str
-   "<contexts description=\"User-Provided Snippet. This content is current and accurate. Treat this as sufficient context for answering the query.\">"
+   "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"
+   ""
    (reduce
-    (fn [context-str {:keys [type path position content lines-range uri]}]
+    (fn [context-str {:keys [type path position content lines-range uri] :as a}]
       (str context-str (case type
                          :file (if lines-range
-                                 (format "<file line-start=%s line-end=%s path=\"%s\">%s</file>\n"
+                                 (format "<file line-start=%s line-end=%s path=\"%s\">%s</file>\n\n"
                                          (:start lines-range)
                                          (:end lines-range)
                                          path
                                          content)
-                                 (format "<file path=\"%s\">%s</file>\n" path content))
+                                 (format "<file path=\"%s\">%s</file>\n\n" path content))
                          :agents-file (multi-str
                                        (format "<agents-file description=\"Instructions following AGENTS.md spec.\" path=\"%s\">" path)
                                        content
-                                       "</agents-file>\n")
-                         :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n" @repo-map*)
-                         :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n"
+                                       "</agents-file>\n\n")
+                         :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n\n" @repo-map*)
+                         :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n\n"
                                          path
                                          (str (:line (:start position)) ":" (:character (:start position)))
                                          (str (:line (:end position)) ":" (:character (:end position))))
-                         :mcpResource (format "<resource uri=\"%s\">%s</resource>\n" uri content)
+                         :mcpResource (format "<resource uri=\"%s\">%s</resource>\n\n" uri content)
                          "")))
     ""
     refined-contexts)
@@ -91,7 +92,9 @@
   (multi-str
    (eca-chat-prompt behavior config)
    (when (seq rules)
-     ["<rules description=\"Rules defined by user\">\n"
+     ["## Rules"
+      ""
+      "<rules description=\"Rules defined by user\">\n"
       (reduce
        (fn [rule-str {:keys [name content]}]
          (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
@@ -100,7 +103,9 @@
       "</rules>"])
    ""
    (when (seq refined-contexts)
-     [(contexts-str refined-contexts repo-map*)])
+     ["## Contexts"
+      ""
+      (contexts-str refined-contexts repo-map*)])
    ""
    (replace-vars
     (load-builtin-prompt "additional_system_info.md")
