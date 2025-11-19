@@ -39,27 +39,25 @@
    s
    vars))
 
-(defn ^:private eca-chat-prompt [behavior config db]
+(defn ^:private eca-chat-prompt [behavior config]
   (let [behavior-config (get-in config [:behavior behavior])
         ;; Use systemPromptFile from behavior config, or fall back to built-in
         prompt-file (or (:systemPromptFile behavior-config)
                         ;; For built-in behaviors without explicit config
                         (when (#{"agent" "plan"} behavior)
                           (str "prompts/" behavior "_behavior.md")))]
-    (replace-vars
-      (cond
-        ;; Custom behavior with absolute path
-        (and prompt-file (string/starts-with? prompt-file "/"))
-        (slurp prompt-file)
+    (cond
+      ;; Custom behavior with absolute path
+      (and prompt-file (string/starts-with? prompt-file "/"))
+      (slurp prompt-file)
 
-        ;; Built-in or resource path
-        prompt-file
-        (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" "")))
+      ;; Built-in or resource path
+      prompt-file
+      (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" "")))
 
-        ;; Fallback for unknown behavior
-        :else
-        (load-builtin-prompt "agent_behavior.md"))
-      {:workspaceRoots (shared/workspaces-as-str db)})))
+      ;; Fallback for unknown behavior
+      :else
+      (load-builtin-prompt "agent_behavior.md"))))
 
 (defn contexts-str [refined-contexts repo-map*]
   (multi-str
@@ -91,7 +89,7 @@
 
 (defn build-chat-instructions [refined-contexts rules repo-map* behavior config db]
   (multi-str
-   (eca-chat-prompt behavior config db)
+   (eca-chat-prompt behavior config)
    (when (seq rules)
      ["<rules description=\"Rules defined by user\">\n"
       (reduce
@@ -102,7 +100,11 @@
       "</rules>"])
    ""
    (when (seq refined-contexts)
-     [(contexts-str refined-contexts repo-map*)])))
+     [(contexts-str refined-contexts repo-map*)])
+   ""
+   (replace-vars
+    (load-builtin-prompt "additional_system_info.md")
+    {:workspaceRoots (shared/workspaces-as-str db)})))
 
 (defn build-rewrite-instructions [text path full-text range config]
   (let [prompt-file (-> config :rewrite :systemPromptFile)

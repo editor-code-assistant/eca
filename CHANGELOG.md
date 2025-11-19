@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve system prompt to add project env context.
+
 ## 0.79.0
 
 - Fix absolute paths being interpreted as commands. #199
