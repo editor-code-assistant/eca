@@ -721,6 +721,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat rollback (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-cleared" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat cleared (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-delete" class="md-nav__link">
     <span class="md-ellipsis">
       Chat delete (↩️)
@@ -1208,6 +1226,24 @@
   <a href="#chat-stop-prompt" class="md-nav__link">
     <span class="md-ellipsis">
       Chat stop prompt (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-rollback" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat rollback (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-cleared" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat cleared (⬅️)
     </span>
   </a>
   
@@ -1902,8 +1938,15 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">/**</span>
 <span class="cm"> * Simple text message from the LLM</span>
 <span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatTextContent</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatTextContent</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">BaseChatContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;text&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The unique identifier of this content.</span>
+<span class="cm">     * Mostly used to rollback messages.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The text content</span>
 <span class="cm">     */</span>
@@ -2539,6 +2582,51 @@ This will stop LLM loops or ignore subsequent LLM responses so other prompts can
 <span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="chat-rollback">Chat rollback (↩️)<a class="headerlink" href="#chat-rollback" title="Permanent link">#</a></h3>
+<p>A client request to rollback chat messages to before a specific user sent message using <code>contentId</code>.
+Clients should show an option close to user sent messages in chat to rollback, calling this method.
+Server will then remove the messages from its memory after that contentId and produce <code>chat/cleared</code> followed 
+with <code>chat/contentReceived</code> with the kept messages.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>chat/rollback</code></li>
+<li>params: <code>ChatRollbackParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatRollbackParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The message content id.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatRollbackResponse</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
+<h3 id="chat-cleared">Chat cleared (⬅️)<a class="headerlink" href="#chat-cleared" title="Permanent link">#</a></h3>
+<p>A server notification to clear a chat UI, currently supporting removing only messages of the chat.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>chat/cleared</code></li>
+<li>params: <code>ChatClearedParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatClearedParams</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether to clear the messages of a chat.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">messages</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="chat-delete">Chat delete (↩️)<a class="headerlink" href="#chat-delete" title="Permanent link">#</a></h3>
 <p>A client request to delete a existing chat, removing all previous messages and used tokens/costs from memory, good for reduce context or start a new clean chat.
 After response, clients should reset chat UI to a clean state.</p>
@@ -2554,6 +2642,9 @@ After response, clients should reset chat UI to a clean state.</p>
 <span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatDeleteResponse</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
 <h3 id="chat-selected-behavior-changed">Chat selected behavior changed (➡️)<a class="headerlink" href="#chat-selected-behavior-changed" title="Permanent link">#</a></h3>
 <p>A client notification for server telling the user selected a different behavior in chat.</p>
 <p><em>Notification:</em></p>
@@ -2567,9 +2658,6 @@ After response, clients should reset chat UI to a clean state.</p>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">behavior</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatBehavior</span><span class="p">;</span>
 <span class="p">}</span>
-</code></pre></div>
-<p><em>Response:</em></p>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatDeleteResponse</span><span class="w"> </span><span class="p">{}</span>
 </code></pre></div>
 <h3 id="editor-diagnostics">Editor diagnostics (↪️)<a class="headerlink" href="#editor-diagnostics" title="Permanent link">#</a></h3>
 <p>A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
@@ -2970,7 +3058,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 19, 2025 16:33:37 UTC">November 19, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 24, 2025 22:05:44 UTC">November 24, 2025</span>
   </span>
 
     
