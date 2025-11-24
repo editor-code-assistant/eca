@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.80.0
+
 - Add support to rollback messages via `chat/rollback` and `chat/clear` messages. #42
 
 ## 0.79.1
