@@ -68,6 +68,9 @@
 (defmethod jsonrpc.server/receive-request "chat/delete" [_ components params]
   (handlers/chat-delete (with-config components) params))
 
+(defmethod jsonrpc.server/receive-request "chat/rollback" [_ components params]
+  (handlers/chat-rollback (with-config components) params))
+
 (defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
   (handlers/mcp-stop-server (with-config components) params))
 
@@ -112,6 +115,9 @@
   (chat-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/contentReceived" content)))
+  (chat-cleared [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/cleared" params)))
   (rewrite-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))

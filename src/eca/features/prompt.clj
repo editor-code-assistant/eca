@@ -64,7 +64,7 @@
    "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"
    ""
    (reduce
-    (fn [context-str {:keys [type path position content lines-range uri] :as a}]
+    (fn [context-str {:keys [type path position content lines-range uri]}]
       (str context-str (case type
                          :file (if lines-range
                                  (format "<file line-start=%s line-end=%s path=\"%s\">%s</file>\n\n"

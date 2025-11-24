@@ -94,7 +94,9 @@
                                  [{:type "summary_text"
                                    :text (:text content)}])
                       :encrypted_content (:external-id content)}
-            (update msg :content (fn [c]
+            (-> msg
+                (dissoc :content-id)
+                (update :content (fn [c]
                                    (if (string? c)
                                      c
                                      (keep #(case (name (:type %))
@@ -112,7 +114,7 @@
                                                                     (:base64 %))})
 
                                               %)
-                                           c))))))
+                                           c)))))))
         messages))
 
 (defn ^:private ->tools [tools]

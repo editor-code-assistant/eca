@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add support to rollback messages via `chat/rollback` and `chat/clear` messages. #42
+
 ## 0.79.1
 
 - Improve system prompt to add project env context.

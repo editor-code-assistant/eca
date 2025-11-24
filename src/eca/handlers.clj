@@ -116,6 +116,10 @@
     (f.chat/delete-chat params db* metrics)
     {}))
 
+(defn chat-rollback [{:keys [db* metrics messenger]} params]
+  (metrics/task metrics :eca/chat-rollback
+    (f.chat/rollback-chat params db* messenger)))
+
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server
     (f.tools/stop-server! (:name params) db* messenger config metrics)))
@@ -165,4 +169,4 @@
   [{:keys [db* config metrics messenger]} params]
   (metrics/task metrics :eca/rewrite-prompt
     (handle-expected-errors
-      (f.rewrite/prompt params db* config messenger metrics))))
+     (f.rewrite/prompt params db* config messenger metrics))))

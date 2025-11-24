@@ -95,7 +95,7 @@
                          (assoc :name (:full-name tool)))})
         tools))
 
-(defn ^:private normalize-messages [past-messages]
+(defn ^:private normalize-messages [messages]
   (mapv (fn [{:keys [role content] :as msg}]
           (case role
             "tool_call" {:role "assistant" :tool-calls [{:type "function"
@@ -111,7 +111,7 @@
              ;; TODO add image supprt
              ;; :images []
              }))
-        past-messages))
+        messages))
 
 (defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called

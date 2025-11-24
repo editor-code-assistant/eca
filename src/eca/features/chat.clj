@@ -24,6 +24,9 @@
 
 (def ^:private logger-tag "[CHAT]")
 
+(defn ^:private new-content-id []
+  (str (random-uuid)))
+
 (defn default-model [db config]
   (llm-api/default-model db config))
 
@@ -600,7 +603,7 @@
         :on-first-response-received (fn [& _]
                                       (assert-chat-not-stopped! chat-ctx)
                                       (doseq [message user-messages]
-                                        (add-to-history! message))
+                                        (add-to-history! (assoc message :content-id (:user-content-id chat-ctx))))
                                       (send-content! chat-ctx :system {:type :progress
                                                                        :state :running
                                                                        :text "Generating"}))
@@ -622,7 +625,8 @@
 
                                                   (finish-chat-prompt! :idle chat-ctx))
                                  :finish (do
-                                           (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
+                                           (add-to-history! {:role "assistant"
+                                                             :content [{:type :text :text @received-msgs*}]})
                                            (finish-chat-prompt! :idle chat-ctx))))
         :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                 (assert-chat-not-stopped! chat-ctx)
@@ -919,24 +923,29 @@
                :id (:id message-content)
                :total-time-ms (:total-time-ms message-content)}]))
 
+(defn ^:private send-chat-contents! [messages chat-ctx]
+  (doseq [message messages]
+    (doseq [chat-content (message-content->chat-content (:role message) (:content message))]
+      (send-content! chat-ctx
+                     (:role message)
+                     chat-content))))
+
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
   (let [{:keys [type on-finished-side-effect] :as result} (f.commands/handle-command! command args chat-ctx)]
     (case type
       :chat-messages (do
                        (doseq [[chat-id {:keys [messages title]}] (:chats result)]
-                         (doseq [message messages]
-                           (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
-                             (doseq [chat-content (message-content->chat-content (:role message) (:content message))]
-                               (send-content! new-chat-ctx
-                                              (:role message)
-                                              chat-content))
-                             (when title
-                               (send-content! new-chat-ctx :system (assoc-some
-                                                                    {:type :metadata}
-                                                                    :title title))))))
+                         (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
+                           (send-chat-contents! messages new-chat-ctx)
+                           (when title
+                             (send-content! new-chat-ctx :system (assoc-some
+                                                                  {:type :metadata}
+                                                                  :title title)))))
                        (finish-chat-prompt! :idle chat-ctx))
       :new-chat-status (finish-chat-prompt! (:status result) chat-ctx)
-      :send-prompt (prompt-messages! [{:role "user" :content (:prompt result)}] (assoc chat-ctx :on-finished-side-effect on-finished-side-effect))
+      :send-prompt (prompt-messages! [{:role "user"
+                                       :content (:prompt result)}]
+                                     (assoc chat-ctx :on-finished-side-effect on-finished-side-effect))
       nil)))
 
 (defn prompt
@@ -995,6 +1004,7 @@
                   :db* db*
                   :metrics metrics
                   :config config
+                  :user-content-id (new-content-id)
                   :messenger messenger}
         decision (message->decision message db config)
         hook-outputs* (atom [])
@@ -1014,6 +1024,7 @@
                         user-messages)]
     (swap! db* assoc-in [:chats chat-id :status] :running)
     (send-content! chat-ctx :user {:type :text
+                                   :content-id (:user-content-id chat-ctx)
                                    :text (str message "\n")})
     (case (:type decision)
       :mcp-prompt (send-mcp-prompt! decision chat-ctx)
@@ -1098,3 +1109,20 @@
   [{:keys [chat-id]} db* metrics]
   (swap! db* update :chats dissoc chat-id)
   (db/update-workspaces-cache! @db* metrics))
+
+(defn rollback-chat
+  "Remove messages from chat in db until content-id matches.
+   Then notify to clear chat and then the kept messages."
+  [{:keys [chat-id content-id]} db* messenger]
+  (let [all-messages (get-in @db* [:chats chat-id :messages])
+        new-messages (vec (take-while #(not= (:content-id %) content-id) all-messages))]
+    (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+    (messenger/chat-cleared
+     messenger
+     {:chat-id chat-id
+      :messages true})
+    (send-chat-contents!
+     new-messages
+     {:chat-id chat-id
+      :messenger messenger})
+    {}))

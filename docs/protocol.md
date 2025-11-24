@@ -555,12 +555,19 @@ type ChatContent =
     | ChatToolCalledContent
     | ChatToolCallRejectedContent
     | ChatMetadataContent;
-
+    
 /**
  * Simple text message from the LLM
  */
-interface ChatTextContent {
+interface ChatTextContent extends BaseChatContent {
     type: 'text';
+    
+    /**
+     * The unique identifier of this content.
+     * Mostly used to rollback messages.
+     */
+    contentId: string;
+
     /**
      * The text content
      */
@@ -1224,6 +1231,62 @@ interface ChatPromptStopParams {
 }
 ```
 
+### Chat rollback (↩️)
+
+A client request to rollback chat messages to before a specific user sent message using `contentId`.
+Clients should show an option close to user sent messages in chat to rollback, calling this method.
+Server will then remove the messages from its memory after that contentId and produce `chat/cleared` followed 
+with `chat/contentReceived` with the kept messages.
+
+_Request:_ 
+
+* method: `chat/rollback`
+* params: `ChatRollbackParams` defined as follows:
+
+```typescript
+interface ChatRollbackParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+    
+    /**
+     * The message content id.
+     */
+    contentId: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatRollbackResponse {}
+```
+
+### Chat cleared (⬅️)
+
+A server notification to clear a chat UI, currently supporting removing only messages of the chat.
+
+_Request:_ 
+
+* method: `chat/cleared`
+* params: `ChatClearedParams` defined as follows:
+
+```typescript
+interface ChatClearedParams {
+
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * Whether to clear the messages of a chat.
+     */
+    messages: boolean;
+}
+```
+
 ### Chat delete (↩️)
 
 A client request to delete a existing chat, removing all previous messages and used tokens/costs from memory, good for reduce context or start a new clean chat.
@@ -1243,6 +1306,12 @@ interface ChatDeleteParams {
 }
 ```
 
+_Response:_
+
+```typescript
+interface ChatDeleteResponse {}
+```
+
 ### Chat selected behavior changed (➡️)
 
 A client notification for server telling the user selected a different behavior in chat.
@@ -1259,12 +1328,6 @@ interface ChatSelectedBehaviorChanged {
      */
     behavior: ChatBehavior;
 }
-```
-
-_Response:_
-
-```typescript
-interface ChatDeleteResponse {}
 ```
 
 ### Editor diagnostics (↪️)

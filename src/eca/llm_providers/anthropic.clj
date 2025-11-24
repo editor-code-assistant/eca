@@ -131,24 +131,26 @@
              :content [{:type "thinking"
                         :signature (:external-id content)
                         :thinking (:text content)}]}
-            (update msg :content (fn [c]
+            (-> msg
+                (dissoc :content-id)
+                (update :content (fn [c]
                                    (if (string? c)
                                      (string/trim c)
                                      (vec
-                                      (keep #(case (name (:type %))
+                                       (keep #(case (name (:type %))
 
-                                               "text"
-                                               (update % :text string/trim)
+                                                "text"
+                                                (update % :text string/trim)
 
-                                               "image"
-                                               (when supports-image?
-                                                 {:type "image"
-                                                  :source {:data (:base64 %)
-                                                           :media_type (:media-type %)
-                                                           :type "base64"}})
+                                                "image"
+                                                (when supports-image?
+                                                  {:type "image"
+                                                   :source {:data (:base64 %)
+                                                            :media_type (:media-type %)
+                                                            :type "base64"}})
 
-                                               %)
-                                            c)))))))
+                                                %)
+                                            c))))))))
         past-messages))
 
 (defn ^:private add-cache-to-last-message [messages]
