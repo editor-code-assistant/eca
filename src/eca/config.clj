@@ -64,7 +64,9 @@
                                  :requiresAuth? true
                                  :models {"claude-haiku-4.5" {}
                                           "claude-opus-4.1" {}
+                                          "claude-opus-4.5" {}
                                           "claude-sonnet-4.5" {}
+                                          "gpt-5.1" {}
                                           "gpt-5" {}
                                           "gpt-5-mini" {}
                                           "gpt-4.1" {}
