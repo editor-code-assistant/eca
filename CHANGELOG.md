@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.80.2
+
 - Update anthropic default models to include opus-4.5
 - Update anthropic default models to use alias names.
 
