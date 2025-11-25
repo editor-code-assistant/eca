@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.80.1
 - Add new models to GitHub config (Gpt 5.1 and Opus 4.5).
 
 ## 0.80.0
