@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix binary for macos amd64. #217
+
 ## 0.80.3
 
 - Fix release
