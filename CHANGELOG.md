@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix release
+
 ## 0.80.2
 
 - Update anthropic default models to include opus-4.5
