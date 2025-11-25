@@ -52,11 +52,10 @@
                             :key nil
                             :keyEnv "ANTHROPIC_API_KEY"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4-5-20250929" {}
-                                     "claude-sonnet-4-20250514" {}
-                                     "claude-opus-4-1-20250805" {}
-                                     "claude-opus-4-20250514" {}
-                                     "claude-haiku-4-5-20251001" {}}}
+                            :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5-20250929"}
+                                     "claude-opus-4.5" {:modelName "claude-opus-4-5-20251101"}
+                                     "claude-opus-4.1" {:modelName "claude-opus-4-1-20250805"}
+                                     "claude-haiku-4.5" {:modelName "claude-haiku-4-5-20251001"}}}
                "github-copilot" {:api "openai-chat"
                                  :url "https://api.githubcopilot.com"
                                  :key nil ;; not supported, requires login auth

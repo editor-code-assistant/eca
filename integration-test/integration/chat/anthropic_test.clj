@@ -19,13 +19,13 @@
     (testing "We send a simple hello message"
       (llm.mocks/set-case! :simple-text-0)
       (let [resp (eca/request! (fixture/chat-prompt-request
-                                {:model "anthropic/claude-sonnet-4-20250514"
+                                {:model "anthropic/claude-sonnet-4.5"
                                  :message "Tell me a joke!"}))
             chat-id (reset! chat-id* (:chatId resp))]
 
         (is (match?
              {:chatId (m/pred string?)
-              :model "anthropic/claude-sonnet-4-20250514"
+              :model "anthropic/claude-sonnet-4.5"
               :status "prompting"}
              resp))
 
@@ -49,13 +49,13 @@
       (llm.mocks/set-case! :simple-text-1)
       (let [resp (eca/request! (fixture/chat-prompt-request
                                 {:chat-id @chat-id*
-                                 :model "anthropic/claude-sonnet-4-20250514"
+                                 :model "anthropic/claude-sonnet-4.5"
                                  :message "Who's there?"}))
             chat-id @chat-id*]
 
         (is (match?
              {:chatId (m/pred string?)
-              :model "anthropic/claude-sonnet-4-20250514"
+              :model "anthropic/claude-sonnet-4.5"
               :status "prompting"}
              resp))
 
@@ -78,13 +78,13 @@
       (llm.mocks/set-case! :simple-text-2)
       (let [resp (eca/request! (fixture/chat-prompt-request
                                 {:chat-id @chat-id*
-                                 :model "anthropic/claude-sonnet-4-20250514"
+                                 :model "anthropic/claude-sonnet-4.5"
                                  :message "What foo?"}))
             chat-id @chat-id*]
 
         (is (match?
              {:chatId (m/pred string?)
-              :model "anthropic/claude-sonnet-4-20250514"
+              :model "anthropic/claude-sonnet-4.5"
               :status "prompting"}
              resp))
 
@@ -117,13 +117,13 @@
     (testing "We send a hello message"
       (llm.mocks/set-case! :reasoning-0)
       (let [resp (eca/request! (fixture/chat-prompt-request
-                                {:model "anthropic/claude-sonnet-4-20250514"
+                                {:model "anthropic/claude-sonnet-4.5"
                                  :message "hello!"}))
             chat-id (reset! chat-id* (:chatId resp))]
 
         (is (match?
              {:chatId (m/pred string?)
-              :model "anthropic/claude-sonnet-4-20250514"
+              :model "anthropic/claude-sonnet-4.5"
               :status "prompting"}
              resp))
 
@@ -151,13 +151,13 @@
       (llm.mocks/set-case! :reasoning-1)
       (let [resp (eca/request! (fixture/chat-prompt-request
                                 {:chat-id @chat-id*
-                                 :model "anthropic/claude-sonnet-4-20250514"
+                                 :model "anthropic/claude-sonnet-4.5"
                                  :message "how are you?"}))
             chat-id @chat-id*]
 
         (is (match?
              {:chatId (m/pred string?)
-              :model "anthropic/claude-sonnet-4-20250514"
+              :model "anthropic/claude-sonnet-4.5"
               :status "prompting"}
              resp))
 
@@ -195,13 +195,13 @@
     (testing "We ask what files LLM see"
       (llm.mocks/set-case! :tool-calling-0)
       (let [resp (eca/request! (fixture/chat-prompt-request
-                                {:model "anthropic/claude-sonnet-4-20250514"
+                                {:model "anthropic/claude-sonnet-4.5"
                                  :message "What files you see?"}))
             chat-id (reset! chat-id* (:chatId resp))]
 
         (is (match?
              {:chatId (m/pred string?)
-              :model "anthropic/claude-sonnet-4-20250514"
+              :model "anthropic/claude-sonnet-4.5"
               :status "prompting"}
              resp))
 

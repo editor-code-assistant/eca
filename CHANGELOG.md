@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+- Update anthropic default models to include opus-4.5
+- Update anthropic default models to use alias names.
+
 ## 0.80.1
+
 - Add new models to GitHub config (Gpt 5.1 and Opus 4.5).
 
 ## 0.80.0
