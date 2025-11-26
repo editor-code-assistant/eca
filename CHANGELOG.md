@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.82.1
+
 - Fix custom tools output to return stderr when tool error. #219
 
 ## 0.82.0
