@@ -17,6 +17,75 @@
 
 (def version 5)
 
+(def ^:private _db-spec
+  "Used for documentation only"
+  {:client-info {:name :string
+                 :version :string}
+   :workspace-folders [{:name :string :uri :string}]
+   :client-capabilities {:code-assistant {:editor {:diagnostics :boolean}}}
+   :config-hash :string
+   :providers-config-hash :string
+   :last-config-notified ::any-map
+   :stopping :boolean
+   :models {"<model-name>" {:web-search :boolean
+                            :tools :boolean
+                            :reason? :boolean
+                            :image-input? :boolean
+                            :max-output-tokens :number
+                            :model-name :string ;; real model name used for requests
+                            :limit {:context :number :output :number}
+                            :input-token-cost (or :number nil)
+                            :output-token-cost (or :number nil)
+                            :input-cache-read-token-cost (or :number nil)
+                            :input-cache-creation-token-cost (or :number nil)}}
+   :mcp-clients {"<client-id>" {:client :McpSyncClient
+                                :status (or :starting :running :failed :stopping :stopped)
+                                :version :string
+                                :tools [{:name :string
+                                         :description :string
+                                         :parameters ::any-map}]
+                                :prompts [{:name :string
+                                           :description :string
+                                           :arguments [{:name :string
+                                                        :description :string
+                                                        :required :boolean}]}]
+                                :resources [{:uri :string
+                                             :name :string
+                                             :description :string
+                                             :mime-type :string}]}}
+   :chats {"<chat-id>" {:id :string
+                        :title (or :string nil)
+                        :status (or :idle :running :stopping :login)
+                        :created-at :number
+                        :login-provider :string
+                        :messages [::chat-message]
+                        :tool-calls {"<tool-call-id>"
+                                     {:status (or :initial :preparing :check-approval :waiting-approval
+                                                  :execution-approved :executing :rejected :cleanup
+                                                  :completed :stopping)
+                                      :name :string
+                                      :full-name :string
+                                      :server :string
+                                      :origin (or :native :mcp)
+                                      :arguments ::any-map
+                                      :decision-reason {:code :keyword :text :string}
+                                      :approved?* :promise
+                                      :future-cleanup-complete?* :promise
+                                      :start-time :long
+                                      :future :future
+                                      :resources :map}}}}
+   :auth {"<provider-name>" {:step (or :login/start :login/waiting-login-method
+                                       :login/waiting-provider-code :login/waiting-api-key
+                                       :login/waiting-user-confirmation :login/done :login/renew-token)
+                             :type (or :auth/token :auth/oauth nil)
+                             :mode (or :manual :console :max nil)
+                             :api-key :string
+                             :access-token :string
+                             :refresh-token :string
+                             :expires-at :long
+                             :verifier :string
+                             :device-code :string}}})
+
 (defonce initial-db
   {:client-info {}
    :workspace-folders []
@@ -28,7 +97,7 @@
    :models {}
    :mcp-clients {}
 
-   ;; cacheable, bump cache when changing
+   ;; cacheable, bump db `version` when changing any below
    :chats {}
    :auth {"anthropic" {}
           "azure" {}
@@ -79,23 +148,23 @@
 (defn ^:private read-cache [cache-file metrics]
   (try
     (metrics/task metrics :db/read-cache
-     (if (fs/exists? cache-file)
-       (let [cache (with-open [is (io/input-stream cache-file)]
-                     (transit/read (transit/reader is :json)))]
-         (when (= version (:version cache))
-           cache))
-       (logger/info logger-tag (str "No existing DB cache found for " cache-file))))
+      (if (fs/exists? cache-file)
+        (let [cache (with-open [is (io/input-stream cache-file)]
+                      (transit/read (transit/reader is :json)))]
+          (when (= version (:version cache))
+            cache))
+        (logger/info logger-tag (str "No existing DB cache found for " cache-file))))
     (catch Throwable e
       (logger/error logger-tag "Could not load global cache from DB" e))))
 
 (defn ^:private upsert-cache! [cache cache-file metrics]
   (try
     (metrics/task metrics :db/upsert-cache
-     (io/make-parents cache-file)
+      (io/make-parents cache-file)
       ;; https://github.com/cognitect/transit-clj/issues/43
-     (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream cache-file))]
-       (let [writer (transit/writer os :json)]
-         (transit/write writer cache))))
+      (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream cache-file))]
+        (let [writer (transit/writer os :json)]
+          (transit/write writer cache))))
     (catch Throwable e
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
@@ -123,9 +192,9 @@
       (update :chats (fn [chats]
                        (into {}
                              (comp
-                               (filter #(seq (:messages (second %))))
-                               (map (fn [[k v]]
-                                      [k (dissoc v :tool-calls)])))
+                              (filter #(seq (:messages (second %))))
+                              (map (fn [[k v]]
+                                     [k (dissoc v :tool-calls)])))
                              chats)))))
 
 (defn ^:private normalize-db-for-global-write [db]
