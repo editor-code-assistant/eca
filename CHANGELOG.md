@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.81.0
+
 - Support rollback file changes done by `write_file`, `edit_file` and `move_file`. #218
 - Improve rollback to keep consistent UI before the rollback, fixing tool names and user messages.
 
