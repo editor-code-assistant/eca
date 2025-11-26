@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.82.0
+
 - Support nested folder for rules and commands. #220
 
 ## 0.81.0
