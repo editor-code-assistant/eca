@@ -36,18 +36,17 @@
           err (some-> (:err result) string/trim)
           out (some-> (:out result) string/trim)]
       (logger/debug logger-tag "custom tool executed:" result)
-      (if (zero? exit)
-        (tools.util/single-text-content out)
-        {:error true
-         :contents (remove nil?
-                           (concat [{:type :text
-                                     :text (str "Exit code " exit)}]
-                                   (when-not (string/blank? err)
-                                     [{:type :text
-                                       :text (str "Stderr:\n" err)}])
-                                   (when-not (string/blank? out)
-                                     [{:type :text
-                                       :text (str "Stdout:\n" out)}])))}))))
+      {:error (not= 0 exit)
+       :contents (remove nil?
+                         (concat [(when (not= 0 exit)
+                                    {:type :text
+                                     :text (str "Exit code " exit)})]
+                                 (when-not (string/blank? err)
+                                   [{:type :text
+                                     :text (str "Stderr:\n" err)}])
+                                 (when-not (string/blank? out)
+                                   [{:type :text
+                                     :text (str "Stdout:\n" out)}])))})))
 
 (defn ^:private custom-tool->tool-def
   "Transforms a single custom tool from the config map into a full tool definition."

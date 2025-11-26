@@ -21,7 +21,7 @@
                 custom-tool-def (get custom-defs "file-search")]
             (is (some? custom-tool-def) "The custom tool should be loaded.")
             (let [result ((:handler custom-tool-def) {"directory" "/tmp" "pattern" "*.clj"} {})]
-              (is (= {:contents [{:text "mocked-output", :type :text}], :error false} result) "The tool should return the mocked shell output.")))))))
+              (is (= {:contents [{:text "Stdout:\nmocked-output", :type :text}], :error false} result) "The tool should return the mocked shell output.")))))))
 
   (testing "when multiple tools are configured"
     (let [mock-custom-tools {"git-status"
@@ -42,8 +42,8 @@
               echo-handler (get-in custom-defs ["echo-message" :handler])]
           (is (some? git-status-handler) "Git status tool should be loaded.")
           (is (some? echo-handler) "Echo message tool should be loaded.")
-          (is (= {:contents [{:text "On branch main", :type :text}], :error false} (git-status-handler {} {})))
-          (is (= {:contents [{:text "Hello World", :type :text}], :error false} (echo-handler {"message" "Hello World"} {})))))))
+          (is (= {:contents [{:text "Stdout:\nOn branch main", :type :text}], :error false} (git-status-handler {} {})))
+          (is (= {:contents [{:text "Stdout:\nHello World", :type :text}], :error false} (echo-handler {"message" "Hello World"} {})))))))
 
   (testing "when the custom tools config is empty or missing"
     (testing "with an empty map"

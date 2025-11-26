@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix custom tools output to return stderr when tool error. #219
+
 ## 0.82.0
 
 - Support nested folder for rules and commands. #220
