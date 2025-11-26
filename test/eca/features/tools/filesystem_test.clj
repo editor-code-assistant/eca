@@ -240,7 +240,9 @@
   (testing "Replace first occurrence only"
     (let [file-content* (atom {})]
       (is (match?
-           {:error false
+           {:rollback-changes [{:content "a b a c"
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
             :contents [{:type :text
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
@@ -259,7 +261,9 @@
   (testing "Replace all occurrences"
     (let [file-content* (atom {})]
       (is (match?
-           {:error false
+           {:rollback-changes [{:content "foo bar foo baz foo"
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
             :contents [{:type :text
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
@@ -281,7 +285,9 @@
           file-content "line1\nline2\nline3"
           search-content "line1\r\nline2\r\nline3"]
       (is (match?
-           {:error false
+           {:rollback-changes [{:content file-content
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
             :contents [{:type :text
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
@@ -302,7 +308,9 @@
           file-content "line1\nline2\nline3"
           search-content "line1  \nline2   \nline3"]
       (is (match?
-           {:error false
+           {:rollback-changes [{:content file-content
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
             :contents [{:type :text
                         :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
            (with-redefs [fs/exists? (constantly true)
@@ -325,7 +333,9 @@
           changed "a z a c"
           path (h/file-path "/project/foo/my-file.txt")]
       (is (match?
-           {:error false
+           {:rollback-changes [{:content initial
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
             :contents [{:type :text
                         :text (format "Successfully replaced content in %s." path)}]}
            (with-redefs [fs/exists? (constantly true)
@@ -392,13 +402,18 @@
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}})))))
   (testing "Move successfully"
     (is (match?
-         {:error false
+         {:rollback-changes [{:content nil
+                              :path (h/file-path "/foo/bar/other_file.clj")}
+                             {:content "some content"
+                              :path (h/file-path "/foo/bar/some_file.clj")}]
+          :error false
           :contents [{:type :text
                       :text (format "Successfully moved %s to %s"
                                     (h/file-path "/foo/bar/some_file.clj")
                                     (h/file-path "/foo/bar/other_file.clj"))}]}
          (with-redefs [fs/exists? (fn [path] (not (string/includes? path "other_file.clj")))
-                       fs/move (constantly true)]
+                       fs/move (constantly true)
+                       slurp (constantly "some content")]
            ((get-in f.tools.filesystem/definitions ["move_file" :handler])
             {"source" (h/file-path "/foo/bar/some_file.clj")
              "destination" (h/file-path "/foo/bar/other_file.clj")}

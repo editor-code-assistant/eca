@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Support rollback file changes done by `write_file`, `edit_file` and `move_file`. #218
+- Improve rollback to keep consistent UI before the rollback, fixing tool names and user messages.
+
 ## 0.80.4
 
 - Fix binary for macos amd64. #217

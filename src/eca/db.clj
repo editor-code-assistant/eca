@@ -58,11 +58,14 @@
                         :status (or :idle :running :stopping :login)
                         :created-at :number
                         :login-provider :string
-                        :messages [::chat-message]
+                        :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason")
+                                    :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
+                                    :content-id :string}]
                         :tool-calls {"<tool-call-id>"
                                      {:status (or :initial :preparing :check-approval :waiting-approval
                                                   :execution-approved :executing :rejected :cleanup
                                                   :completed :stopping)
+                                      
                                       :name :string
                                       :full-name :string
                                       :server :string
@@ -73,7 +76,9 @@
                                       :future-cleanup-complete?* :promise
                                       :start-time :long
                                       :future :future
-                                      :resources :map}}}}
+                                      :resources ::any-map
+                                      :rollback-changes [{:path :string
+                                                          :content (or :string nil)}]}}}}
    :auth {"<provider-name>" {:step (or :login/start :login/waiting-login-method
                                        :login/waiting-provider-code :login/waiting-api-key
                                        :login/waiting-user-confirmation :login/done :login/renew-token)

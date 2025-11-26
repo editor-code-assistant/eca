@@ -102,7 +102,11 @@
                            (f.mcp/call-tool! name arguments {:db db}))))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
-        result)
+        (if-let [r (:rollback-changes result)]
+          (do
+            (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
+            (dissoc result :rollback-changes))
+          result))
       (catch Exception e
         (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" name (.getMessage e) (with-out-str (.printStackTrace e))))
         (metrics/count-up! "tool-called" {:name name :error true} metrics)

@@ -96,10 +96,13 @@
 
 (defn ^:private write-file [arguments _]
   (let [path (get arguments "path")
-        content (get arguments "content")]
+        content (get arguments "content")
+        old-content (try (slurp path) (catch Exception _ nil))]
     (fs/create-dirs (fs/parent (fs/path path)))
     (spit path content)
-    (tools.util/single-text-content (format "Successfully wrote to %s" path))))
+    (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
+           :rollback-changes [{:path path
+                               :content old-content}])))
 
 (defn ^:private write-file-summary [{:keys [args]}]
   (if-let [path (get args "path")]
@@ -239,7 +242,6 @@
     (text-match/apply-content-change-to-string file-content original-content new-content all? path)
     (smart-edit/apply-smart-edit file-content original-content new-content path)))
 
-
 (defn ^:private edit-file [arguments {:keys [_db]}]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
@@ -251,12 +253,14 @@
             result (apply-file-edit-strategy initial-content original-content new-content all? path)
             write! (fn [res]
                      (spit path (:new-full-content res))
-                     (handle-file-change-result res path (format "Successfully replaced content in %s." path)))]
+                     (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                         (assoc :rollback-changes [{:path path
+                                                    :content initial-content}])))]
         (if (:new-full-content result)
           (let [current-content (slurp path)]
             (if (= current-content (:original-full-content result))
               (write! result)
-              ;; Optimistic retry once against latest content
+                         ;; Optimistic retry once against latest content
               (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
                 (if (:new-full-content retry)
                   (write! retry)
@@ -288,9 +292,14 @@
   (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
                                                ["destination" (complement fs/exists?) "Path $destination already exists"]])
       (let [source (get arguments "source")
-            destination (get arguments "destination")]
+            destination (get arguments "destination")
+            source-content (slurp source)]
         (fs/move source destination {:replace-existing false})
-        (tools.util/single-text-content (format "Successfully moved %s to %s" source destination)))))
+        (assoc (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
+               :rollback-changes [{:path destination
+                                   :content nil}
+                                  {:path source
+                                   :content source-content}]))))
 
 (def definitions
   {"directory_tree"

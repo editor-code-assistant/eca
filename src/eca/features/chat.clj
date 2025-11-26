@@ -1,6 +1,7 @@
 (ns eca.features.chat
   (:require
    [cheshire.core :as json]
+   [clojure.java.io :as io]
    [clojure.set :as set]
    [clojure.string :as string]
    [eca.config :as config]
@@ -721,12 +722,14 @@
                                                            total-time-ms (- (System/currentTimeMillis) start-time)]
                                                        (add-to-history! {:role "tool_call"
                                                                          :content (assoc tool-call
+                                                                                         :name name
                                                                                          :details details
                                                                                          :summary summary
                                                                                          :origin origin
                                                                                          :server server-name)})
                                                        (add-to-history! {:role "tool_call_output"
                                                                          :content (assoc tool-call
+                                                                                         :name name
                                                                                          :error (:error result)
                                                                                          :output result
                                                                                          :total-time-ms total-time-ms
@@ -886,49 +889,59 @@
                       :text error-message})
       (prompt-messages! messages chat-ctx))))
 
-(defn ^:private message-content->chat-content [role message-content]
+(defn ^:private message-content->chat-content [role message-content content-id]
   (case role
     ("user"
      "system"
-     "assistant") [(reduce
-                    (fn [m content]
-                      (case (:type content)
-                        :text (assoc m
-                                     :type :text
-                                     :text (str (:text m) "\n" (:text content)))
-                        m))
-                    {}
-                    message-content)]
-    "tool_call" [{:type :toolCallPrepare
-                  :origin (:origin message-content)
-                  :name (:name message-content)
-                  :server (:server message-content)
-                  :arguments-text ""
-                  :id (:id message-content)}]
-    "tool_call_output" [{:type :toolCalled
-                         :origin (:origin message-content)
-                         :name (:name message-content)
-                         :server (:server message-content)
-                         :arguments (:arguments message-content)
-                         :total-time-ms (:total-time-ms message-content)
-                         :error (:error message-content)
+     "assistant") [{:role role
+                    :content (reduce
+                              (fn [m content]
+                                (case (:type content)
+                                  :text (assoc m
+                                               :type :text
+                                               :text (str (:text m) "\n" (:text content)))
+                                  m))
+                              (assoc-some {} :content-id content-id)
+                              message-content)}]
+    "tool_call" [{:role :assistant
+                  :content {:type :toolCallPrepare
+                            :origin (:origin message-content)
+                            :name (:name message-content)
+                            :server (:server message-content)
+                            :summary (:summary message-content)
+                            :details (:details message-content)
+                            :arguments-text ""
+                            :id (:id message-content)}}]
+    "tool_call_output" [{:role :assistant
+                         :content {:type :toolCalled
+                                   :origin (:origin message-content)
+                                   :name (:name message-content)
+                                   :server (:server message-content)
+                                   :arguments (:arguments message-content)
+                                   :total-time-ms (:total-time-ms message-content)
+                                   :summary (:summary message-content)
+                                   :details (:details message-content)
+                                   :error (:error message-content)
+                                   :id (:id message-content)
+                                   :outputs (:contents (:output message-content))}}]
+    "reason" [{:role :assistant
+               :content {:type :reasonStarted
+                         :id (:id message-content)}}
+              {:role :assistant
+               :content {:type :reasonText
                          :id (:id message-content)
-                         :outputs (:contents (:output message-content))}]
-    "reason" [{:type :reasonStarted
-               :id (:id message-content)}
-              {:type :reasonText
-               :id (:id message-content)
-               :text (:text message-content)}
-              {:type :reasonFinished
-               :id (:id message-content)
-               :total-time-ms (:total-time-ms message-content)}]))
+                         :text (:text message-content)}}
+              {:role :assistant
+               :content {:type :reasonFinished
+                         :id (:id message-content)
+                         :total-time-ms (:total-time-ms message-content)}}]))
 
 (defn ^:private send-chat-contents! [messages chat-ctx]
   (doseq [message messages]
-    (doseq [chat-content (message-content->chat-content (:role message) (:content message))]
+    (doseq [{:keys [role content]} (message-content->chat-content (:role message) (:content message) (:content-id message))]
       (send-content! chat-ctx
-                     (:role message)
-                     chat-content))))
+                     role
+                     content))))
 
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
   (let [{:keys [type on-finished-side-effect] :as result} (f.commands/handle-command! command args chat-ctx)]
@@ -1115,7 +1128,19 @@
    Then notify to clear chat and then the kept messages."
   [{:keys [chat-id content-id]} db* messenger]
   (let [all-messages (get-in @db* [:chats chat-id :messages])
-        new-messages (vec (take-while #(not= (:content-id %) content-id) all-messages))]
+        tool-calls (get-in @db* [:chats chat-id :tool-calls])
+        new-messages (vec (take-while #(not= (:content-id %) content-id) all-messages))
+        removed-messages (vec (drop-while #(not= (:content-id %) content-id) all-messages))
+        rollback-changes (->> removed-messages
+                              (filter #(= "tool_call_output" (:role %)))
+                              (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
+                              flatten
+                              reverse)]
+    (doseq [{:keys [path content]} rollback-changes]
+      (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
+      (if content
+        (spit path content)
+        (io/delete-file path true)))
     (swap! db* assoc-in [:chats chat-id :messages] new-messages)
     (messenger/chat-cleared
      messenger

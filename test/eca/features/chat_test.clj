@@ -534,3 +534,71 @@
               :prompt "prompt"
               :args ["arg1" "arg2"]}
              (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
+
+(deftest rollback-chat-test
+  (testing "Rollback chat removes messages after content-id"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Count with me: 1"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received
+                         on-message-received]}]
+              (on-first-response-received {:type :text :text "2"})
+              (on-message-received {:type :text :text "2"})
+              (on-message-received {:type :finish}))})
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])
+          _ (is (some? first-content-id) "first-content-id should exist")]
+      ;; Verify initial state
+      (is (match?
+           {chat-id {:id chat-id
+                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                                {:role "assistant" :content [{:type :text :text "2"}]}]}}
+           (:chats (h/db))))
+
+      ;; Add second message
+      (h/reset-messenger!)
+      (prompt!
+       {:message "3"
+        :chat-id chat-id}
+       {:all-tools-mock (constantly [])
+        :api-mock
+        (fn [{:keys [on-first-response-received
+                     on-message-received]}]
+          (on-first-response-received {:type :text :text "4"})
+          (on-message-received {:type :text :text "4"})
+          (on-message-received {:type :finish}))})
+      (let [second-content-id (get-in (h/db) [:chats chat-id :messages 2 :content-id])]
+
+        ;; Verify we now have 4 messages
+        (is (match?
+             {chat-id {:id chat-id
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                                  {:role "assistant" :content [{:type :text :text "2"}]}
+                                  {:role "user" :content [{:type :text :text "3"}] :content-id second-content-id}
+                                  {:role "assistant" :content [{:type :text :text "4"}]}]}}
+             (:chats (h/db))))
+
+        ;; Rollback to second message (keep first 2 messages, remove last 2)
+        (h/reset-messenger!)
+        (is (= {} (f.chat/rollback-chat {:chat-id chat-id :content-id second-content-id} (h/db*) (h/messenger))))
+
+        ;; Verify messages after content-id are removed (keeps messages before content-id)
+        (is (match?
+             {chat-id {:id chat-id
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                                  {:role "assistant" :content [{:type :text :text "2"}]}]}}
+             (:chats (h/db))))
+
+        ;; Verify messenger received chat-clear and then messages
+        (is (match?
+             {:chat-clear [{:chat-id chat-id :messages true}]
+              :chat-content-received
+              [{:chat-id chat-id
+                :content {:type :text :text "\nCount with me: 1" :content-id first-content-id}
+                :role "user"}
+               {:chat-id chat-id
+                :content {:type :text :text "\n2"}
+                :role "assistant"}]}
+             (h/messages)))))))
