@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support nested folder for rules and commands. #220
+
 ## 0.81.0
 
 - Support rollback file changes done by `write_file`, `edit_file` and `move_file`. #218

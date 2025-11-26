@@ -27,7 +27,7 @@
     (with-redefs [fs/absolute? (constantly false)
                   fs/exists? #(contains? #{(h/file-path "/my/project/.eca/rules")
                                            (h/file-path "/my/project/.foo/cool-rule.md")} (str %))
-                  fs/list-dir (constantly [])
+                  fs/glob (constantly [])
                   fs/canonicalize identity
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "MY_RULE_CONTENT")]
@@ -42,7 +42,7 @@
 
   (testing "local file rules"
     (with-redefs [fs/exists? #(= (h/file-path "/my/project/.eca/rules") (str %))
-                  fs/list-dir (constantly [(fs/path "cool.md")])
+                  fs/glob (constantly [(fs/path "cool.md")])
                   fs/canonicalize identity
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "MY_RULE_CONTENT")]
@@ -56,7 +56,7 @@
   (testing "global file rules"
     (with-redefs [config/get-env (constantly (h/file-path "/home/someuser/.config"))
                   fs/exists? #(= (h/file-path "/home/someuser/.config/eca/rules") (str %))
-                  fs/list-dir (constantly [(fs/path "cool.md")])
+                  fs/glob (constantly [(fs/path "cool.md")])
                   fs/canonicalize identity
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "MY_RULE_CONTENT")]

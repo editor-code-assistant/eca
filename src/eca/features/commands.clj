@@ -27,24 +27,26 @@
                             (io/file (config/get-property "user.home") ".config"))
         commands-dir (io/file xdg-config-home "eca" "commands")]
     (when (fs/exists? commands-dir)
-      (map (fn [file]
-             {:name (normalize-command-name file)
-              :path (str (fs/canonicalize file))
-              :type :user-global-file
-              :content (slurp (fs/file file))})
-           (fs/list-dir commands-dir)))))
+      (keep (fn [file]
+              (when-not (fs/directory? file)
+                {:name (normalize-command-name file)
+                 :path (str (fs/canonicalize file))
+                 :type :user-global-file
+                 :content (slurp (fs/file file))}))
+            (fs/glob commands-dir "**" {:follow-links true})))))
 
 (defn ^:private local-file-commands [roots]
   (->> roots
        (mapcat (fn [{:keys [uri]}]
                  (let [commands-dir (fs/file (shared/uri->filename uri) ".eca" "commands")]
                    (when (fs/exists? commands-dir)
-                     (fs/list-dir commands-dir)))))
-       (map (fn [file]
-              {:name (normalize-command-name file)
-               :path (str (fs/canonicalize file))
-               :type :user-local-file
-               :content (slurp (fs/file file))}))))
+                     (fs/glob commands-dir "**" {:follow-links true})))))
+       (keep (fn [file]
+               (when-not (fs/directory? file)
+                 {:name (normalize-command-name file)
+                  :path (str (fs/canonicalize file))
+                  :type :user-local-file
+                  :content (slurp (fs/file file))})))))
 
 (defn ^:private config-commands [config roots]
   (->> (get config :commands)

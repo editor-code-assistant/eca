@@ -12,24 +12,26 @@
                             (io/file (config/get-property "user.home") ".config"))
         rules-dir (io/file xdg-config-home "eca" "rules")]
     (when (fs/exists? rules-dir)
-      (map (fn [file]
-             {:name (fs/file-name file)
-              :path (str (fs/canonicalize file))
-              :type :user-global-file
-              :content (slurp (fs/file file))})
-           (fs/list-dir rules-dir)))))
+      (keep (fn [file]
+              (when-not (fs/directory? file)
+                {:name (fs/file-name file)
+                 :path (str (fs/canonicalize file))
+                 :type :user-global-file
+                 :content (slurp (fs/file file))}))
+            (fs/glob rules-dir "**" {:follow-links true})))))
 
 (defn ^:private local-file-rules [roots]
   (->> roots
        (mapcat (fn [{:keys [uri]}]
                  (let [rules-dir (fs/file (shared/uri->filename uri) ".eca" "rules")]
                    (when (fs/exists? rules-dir)
-                     (fs/list-dir rules-dir)))))
-       (map (fn [file]
-              {:name (fs/file-name file)
-               :path (str (fs/canonicalize file))
-               :type :user-local-file
-               :content (slurp (fs/file file))}))))
+                     (fs/glob rules-dir "**" {:follow-links true})))))
+       (keep (fn [file]
+               (when-not (fs/directory? file)
+                 {:name (fs/file-name file)
+                  :path (str (fs/canonicalize file))
+                  :type :user-local-file
+                  :content (slurp (fs/file file))})))))
 
 (defn ^:private config-rules [config roots]
   (->> (get config :rules)
