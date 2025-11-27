@@ -64,8 +64,7 @@ Schema:
 | Option                        | Type   | Description                                                                                                  | Required |
 |-------------------------------|--------|--------------------------------------------------------------------------------------------------------------|----------|
 | `api`                         | string | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
-| `urlEnv`                      | string | Environment variable name containing the API URL                                                             | No*      |
-| `url`                         | string | Direct API URL (use instead of `urlEnv`)                                                                     | No*      |
+| `url`                         | string | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
 | `keyEnv`                      | string | Environment variable name containing the API key                                                             | No*      |
 | `keyRc`                       | string | Lookup specification to read the API key from Unix RC [credential files](#credential-file-authentication)    | No*      |
 | `key`                         | string | Direct API key (use instead of `keyEnv`)                                                                     | No*      |

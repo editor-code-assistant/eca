@@ -40,7 +40,7 @@
 
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
-                         :url "https://api.openai.com"
+                         :url "${env:OPENAI_API_URL:https://api.openai.com}"
                          :key nil
                          :keyEnv "OPENAI_API_KEY"
                          :requiresAuth? true
@@ -53,7 +53,7 @@
                                   "o4-mini" {}
                                   "o3" {}}}
                "anthropic" {:api "anthropic"
-                            :url "https://api.anthropic.com"
+                            :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key nil
                             :keyEnv "ANTHROPIC_API_KEY"
                             :requiresAuth? true
@@ -62,7 +62,7 @@
                                      "claude-opus-4.1" {:modelName "claude-opus-4-1-20250805"}
                                      "claude-haiku-4.5" {:modelName "claude-haiku-4-5-20251001"}}}
                "github-copilot" {:api "openai-chat"
-                                 :url "https://api.githubcopilot.com"
+                                 :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
                                  :keyEnv nil ;; not supported, requires login auth
                                  :requiresAuth? true
@@ -78,7 +78,7 @@
                                           "grok-code-fast-1" {}
                                           "gemini-2.5-pro" {}}}
                "google" {:api "openai-chat"
-                         :url "https://generativelanguage.googleapis.com/v1beta/openai"
+                         :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
                          :key nil
                          :keyEnv "GOOGLE_API_KEY"
                          :requiresAuth? true

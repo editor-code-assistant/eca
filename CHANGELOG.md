@@ -6,6 +6,7 @@
 - Support default env values in `${env:MY_ENV:default-value}`.
 - Deprecate configs: 
   - `systemPromptFile` in favor of `systemPrompt` using `${file:...}` or `${classpath:...}`
+  - `urlEnv` in favor of `url` using `${env:...}`
 
 ## 0.83.0
 

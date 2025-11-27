@@ -5,7 +5,8 @@
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.secrets :as secrets]
-   [eca.shared :as shared])
+   [eca.shared :as shared]
+   [camel-snake-kebab.core :as csk])
   (:import
    [java.io BufferedReader]
    [java.nio.charset StandardCharsets]
@@ -112,4 +113,6 @@
 
 (defn provider-api-url [provider config]
   (or (get-in config [:providers (name provider) :url])
-      (some-> (get-in config [:providers (name provider) :urlEnv]) config/get-env)))
+      (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_URL"))
+      (some-> (get-in config [:providers (name provider) :urlEnv]) config/get-env) ;; legacy
+      ))
