@@ -8,12 +8,14 @@
 
   When `:config-file` from cli option is passed, it uses that instead of searching default locations."
   (:require
+   [babashka.fs :as fs]
    [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
    [cheshire.factory :as json.factory]
    [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [clojure.walk :as walk]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.shared :as shared :refer [multi-str]])
@@ -157,6 +159,35 @@
 (defn get-env [env] (System/getenv env))
 (defn get-property [property] (System/getProperty property))
 
+(defn ^:private parse-dynamic-string
+  "Given a string and a current working directory, look for patterns replacing its content:
+  - `${env:SOME-ENV}`: Replace with a env
+  - `${file:/some/path}`: Replace with a file content checking from cwd if relative"
+  [s cwd]
+  (some-> s
+          (string/replace #"\$\{env:([^}]+)\}"
+                          (fn [[_match env-var]]
+                            (or (get-env env-var) "")))
+          (string/replace #"\$\{file:([^}]+)\}"
+                          (fn [[_match file-path]]
+                            (try
+                              (slurp (str (if (fs/absolute? file-path)
+                                            file-path
+                                            (fs/path cwd file-path))))
+                              (catch Exception _
+                                (logger/warn logger-tag "File not found when parsing string:" s)
+                                ""))))))
+
+(defn ^:private parse-dynamic-string-values
+  "walk through config parsing dynamic string contents if value is a string."
+  [config cwd]
+  (walk/postwalk
+   (fn [x]
+     (if (string? x)
+       (parse-dynamic-string x cwd)
+       x))
+   config))
+
 (def ^:private ttl-cache-config-ms 5000)
 
 (defn ^:private safe-read-json-string [raw-string config-dyn-var]
@@ -194,7 +225,8 @@
 (defn ^:private config-from-global-file* []
   (let [config-file (global-config-file)]
     (when (.exists config-file)
-      (safe-read-json-string (slurp config-file) (var *global-config-error*)))))
+      (some-> (safe-read-json-string (slurp config-file) (var *global-config-error*))
+              (parse-dynamic-string-values (global-config-dir))))))
 
 (def ^:private config-from-global-file (memoize/ttl config-from-global-file* :ttl/threshold ttl-cache-config-ms))
 
@@ -203,9 +235,11 @@
    (fn [final-config {:keys [uri]}]
      (merge
       final-config
-      (let [config-file (io/file (shared/uri->filename uri) ".eca" "config.json")]
+      (let [config-dir (io/file (shared/uri->filename uri) ".eca")
+            config-file (io/file config-dir "config.json")]
         (when (.exists config-file)
-          (safe-read-json-string (slurp config-file) (var *local-config-error*))))))
+          (some-> (safe-read-json-string (slurp config-file) (var *local-config-error*))
+                  (parse-dynamic-string-values config-dir))))))
    {}
    roots))
 
@@ -235,7 +269,7 @@
   [normalization-rules m]
   (let [kc-paths (set (:kebab-case normalization-rules))
         str-paths (set (:stringfy normalization-rules))
-        ; match a current path against a rule path with :ANY wildcard
+                                        ; match a current path against a rule path with :ANY wildcard
         matches-path? (fn [rule-path cur-path]
                         (and (= (count rule-path) (count cur-path))
                              (every? true?

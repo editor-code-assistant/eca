@@ -45,6 +45,13 @@ There are multiples ways to configure ECA:
     ```bash
     ECA_CONFIG='{"myConfig": "my_value"}' eca server
     ```
+    
+!!! info "Dynamic string contents"
+
+    It's possible to retrieve content of any configs with a string value using the `${key:value}` approach, being `key`:
+
+    - `file`: `${file:/path/to/my-file}` or `${file:../rel-path/to/my-file}` to get a file content
+    - `env`: `${env:MY_ENV}` to get a system env value
 
 ## Providers / Models
 
@@ -231,7 +238,7 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
     {
       "customTools": {
         "file-search": {
-          "description": "Finds files within a directory that match a specific name pattern.",
+          "description": "${file:tools/my-tool.md}",
           "command": "find {{directory}} -name {{pattern}}",
           "schema": {
             "properties": {
@@ -373,6 +380,10 @@ Examples:
     
 === "Ring bell sound when pending tool call approval"
 
+    ```javascript title="~/.config/eca/hooks/my-hook.sh"
+    [[ $(jq '.approval == "ask"' <<< "$1") ]] && canberra-gtk-play -i complete
+    ```
+
     ```javascript title="~/.config/eca/config.json"
     {
       "hooks": {
@@ -382,7 +393,7 @@ Examples:
           "actions": [
             {
               "type": "shell",
-              "shell": "[[ $(jq '.approval == \"ask\"' <<< \"$1\") ]] && canberra-gtk-play -i complete"
+              "shell": "${file:hooks/my-hook.sh}"
             }
           ]
         }

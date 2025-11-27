@@ -2,7 +2,6 @@
   (:require
    [babashka.process :as p]
    [clojure.string :as string]
-   [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 

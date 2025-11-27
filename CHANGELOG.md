@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support dynamic string parse (`${file:/path/to/something}` and `${env:MY_ENV}`) in all configs with string values. #200
+
 ## 0.82.1
 
 - Fix custom tools output to return stderr when tool error. #219

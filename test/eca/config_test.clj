@@ -1,5 +1,6 @@
 (ns eca.config-test
   (:require
+   [babashka.fs :as fs]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.logger :as logger]
@@ -184,3 +185,82 @@
                                            :b [:bar]}
                                           {:c 3
                                            :b []})))))
+
+(deftest parse-dynamic-string-test
+  (testing "returns nil for nil input"
+    (is (nil? (#'config/parse-dynamic-string nil "/tmp"))))
+
+  (testing "returns string unchanged when no patterns"
+    (is (= "hello world" (#'config/parse-dynamic-string "hello world" "/tmp"))))
+
+  (testing "replaces environment variable patterns"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (case env-var
+                                     "TEST_VAR" "test-value"
+                                     "ANOTHER_VAR" "another-value"
+                                     nil))]
+      (is (= "test-value" (#'config/parse-dynamic-string "${env:TEST_VAR}" "/tmp")))
+      (is (= "prefix test-value suffix" (#'config/parse-dynamic-string "prefix ${env:TEST_VAR} suffix" "/tmp")))
+      (is (= "test-value and another-value" (#'config/parse-dynamic-string "${env:TEST_VAR} and ${env:ANOTHER_VAR}" "/tmp")))))
+
+  (testing "replaces undefined env var with empty string"
+    (with-redefs [config/get-env (constantly nil)]
+      (is (= "" (#'config/parse-dynamic-string "${env:UNDEFINED_VAR}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${env:UNDEFINED_VAR} suffix" "/tmp")))))
+
+  (testing "replaces file pattern with file content - absolute path"
+    (with-redefs [fs/absolute? (fn [path] (= path "/absolute/file.txt"))
+                  slurp (fn [path]
+                          (if (= (str path) "/absolute/file.txt")
+                            "test file content"
+                            (throw (ex-info "File not found" {}))))]
+      (is (= "test file content" (#'config/parse-dynamic-string "${file:/absolute/file.txt}" "/tmp")))))
+
+  (testing "replaces file pattern with file content - relative path"
+    (with-redefs [fs/absolute? (fn [_] false)
+                  fs/path (fn [cwd file-path] (str cwd "/" file-path))
+                  slurp (fn [path]
+                          (if (= path "/tmp/test.txt")
+                            "relative file content"
+                            (throw (ex-info "File not found" {}))))]
+      (is (= "relative file content" (#'config/parse-dynamic-string "${file:test.txt}" "/tmp")))))
+
+  (testing "replaces file pattern with empty string when file not found"
+    (with-redefs [logger/warn (fn [& _] nil)
+                  fs/absolute? (fn [_] true)
+                  slurp (fn [_] (throw (ex-info "File not found" {})))]
+      (is (= "" (#'config/parse-dynamic-string "${file:/nonexistent/file.txt}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${file:/nonexistent/file.txt} suffix" "/tmp")))))
+
+  (testing "handles multiple file patterns"
+    (with-redefs [fs/absolute? (fn [_] true)
+                  slurp (fn [path]
+                          (case (str path)
+                            "/file1.txt" "content1"
+                            "/file2.txt" "content2"
+                            (throw (ex-info "File not found" {}))))]
+      (is (= "content1 and content2"
+             (#'config/parse-dynamic-string "${file:/file1.txt} and ${file:/file2.txt}" "/tmp")))))
+
+  (testing "handles mixed env and file patterns"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (when (= env-var "TEST_VAR") "env-value"))
+                  fs/absolute? (fn [_] true)
+                  slurp (fn [path]
+                          (if (= (str path) "/file.txt")
+                            "file-value"
+                            (throw (ex-info "File not found" {}))))]
+      (is (= "env-value and file-value"
+             (#'config/parse-dynamic-string "${env:TEST_VAR} and ${file:/file.txt}" "/tmp")))))
+
+  (testing "handles patterns within longer strings"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (when (= env-var "API_KEY") "secret123"))]
+      (is (= "Bearer secret123" (#'config/parse-dynamic-string "Bearer ${env:API_KEY}" "/tmp")))))
+
+  (testing "handles empty string input"
+    (is (= "" (#'config/parse-dynamic-string "" "/tmp"))))
+
+  (testing "preserves content with escaped-like patterns that don't match"
+    (is (= "${notenv:VAR}" (#'config/parse-dynamic-string "${notenv:VAR}" "/tmp")))
+    (is (= "${env:}" (#'config/parse-dynamic-string "${env:}" "/tmp")))))
