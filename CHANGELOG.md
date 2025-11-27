@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.83.0
+
 - Support dynamic string parse (`${file:/path/to/something}` and `${env:MY_ENV}`) in all configs with string values. #200
 
 ## 0.82.1
