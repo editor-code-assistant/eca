@@ -133,7 +133,7 @@
                               "Add more contexts in `@`"
                               ""
                               "")
-   :compactPromptFile "prompts/compact.md"
+   :compactPrompt "${classpath:prompts/compact.md}"
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}

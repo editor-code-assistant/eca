@@ -12,6 +12,7 @@
   - `urlEnv` in favor of `url` using `${env:...}`
   - `keyEnv` in favor of `key` using `${env:...}`
   - `keyRc` in favor of `key` using `${netrc:...}`
+  - `compactPromptFile` in favor of `compactPrompt` using `${classpath:...}`
 
 ## 0.83.0
 

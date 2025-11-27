@@ -152,7 +152,9 @@
 
 (defn compact-prompt [additional-input config]
   (replace-vars
-   (compact-prompt-template (:compactPromptFile config))
+    (or (:compactPrompt config)
+        ;; legacy
+        (compact-prompt-template (:compactPromptFile config)))
    {:additionalUserInput (if additional-input
                            (format "You MUST respect this user input in the summarization: %s." additional-input)
                            "")}))
