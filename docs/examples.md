@@ -72,7 +72,7 @@ If you think your config is relevant to be shared for other people, [open a pull
     </return>
     ```
 
-??? info "Custom tool: clj-nrepl-eval (Michael Whitford)"
+??? info "Custom tool: clj-nrepl-eval (@michaelwhitford)"
 
     ```javascript title="config.json"
     {
