@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.84.1
+
 - Fix `${netrc:...} ` to consider `:netrcFile` config.
 
 ## 0.84.0
