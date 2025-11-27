@@ -175,7 +175,7 @@
           (string/replace #"\$\{netrc:([^}]+)\}"
                           (fn [[_match key-rc]]
                             (try
-                              (or (secrets/get-credential key-rc (:netrcFile config)) "")
+                              (or (secrets/get-credential key-rc (get config "netrcFile")) "")
                               (catch Exception e
                                 (logger/warn logger-tag "Error reading netrc credential:" (.getMessage e))
                                 ""))))))

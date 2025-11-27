@@ -342,6 +342,12 @@
                                            (when (= key-rc "api.openai.com")
                                              "secret-password-123"))]
       (is (= "secret-password-123" (#'config/parse-dynamic-string "${netrc:api.openai.com}" "/tmp" {})))))
+(testing "replaces netrc pattern with credential password with a custom netrcFile"
+    (with-redefs [secrets/get-credential (fn [key-rc netrc-file]
+                                           (when (and (= key-rc "api.openai.com")
+                                                      (= netrc-file "/tmp/my-file"))
+                                             "secret-password-123"))]
+      (is (= "secret-password-123" (#'config/parse-dynamic-string "${netrc:api.openai.com}" "/tmp" {"netrcFile" "/tmp/my-file"})))))
 
   (testing "replaces netrc pattern with empty string when credential not found"
     (with-redefs [secrets/get-credential (constantly nil)]
