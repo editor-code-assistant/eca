@@ -65,9 +65,7 @@ Schema:
 |-------------------------------|--------|--------------------------------------------------------------------------------------------------------------|----------|
 | `api`                         | string | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
 | `url`                         | string | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
-| `keyEnv`                      | string | Environment variable name containing the API key                                                             | No*      |
-| `keyRc`                       | string | Lookup specification to read the API key from Unix RC [credential files](#credential-file-authentication)    | No*      |
-| `key`                         | string | Direct API key (use instead of `keyEnv`)                                                                     | No*      |
+| `key`                         | string | API key (with support for `${env:MY_KEY}` or `{netrc:api.my-provider.com}`                                   | No*      |
 | `completionUrlRelativePath`   | string | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
 | `thinkTagStart`               | string | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
 | `thinkTagEnd`                 | string | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
@@ -86,8 +84,8 @@ Examples:
       "providers": {
         "my-company": {
           "api": "openai-chat",
-          "urlEnv": "MY_COMPANY_API_URL", // or "url"
-          "keyEnv": "MY_COMPANY_API_KEY", // or "key"
+          "url": "${env:MY_COMPANY_API_URL}",
+          "key": "${env:MY_COMPANY_API_KEY}",
           "models": {
             "gpt-5": {},
             "deepseek-r1": {}
@@ -180,7 +178,7 @@ Further reading on credential file formats:
 - [GNU Inetutils .netrc documentation](https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html)
 
 Notes:
-- Authentication priority (short): `key` > `keyRc files` > `keyEnv` > OAuth.
+- Authentication priority (short): `key` (with dynamic string pase support) > OAuth.
 - All providers with API key auth can use credential files.
 
 ## Providers examples
@@ -215,8 +213,8 @@ Notes:
       "providers": {
         "litellm": {
           "api": "openai-responses",
-          "url": "https://litellm.my-company.com", // or "urlEnv"
-          "key": "your-api-key", // or "keyEnv"
+          "url": "https://litellm.my-company.com",
+          "key": "your-api-key",
           "models": {
             "gpt-5": {},
             "deepseek-r1": {}
@@ -243,8 +241,8 @@ Notes:
       "providers": {
         "openrouter": {
           "api": "openai-chat",
-          "url": "https://openrouter.ai/api/v1", // or "urlEnv"
-          "key": "your-api-key", // or "keyEnv"
+          "url": "https://openrouter.ai/api/v1",
+          "key": "your-api-key",
           "models": {
             "anthropic/claude-3.5-sonnet": {},
             "openai/gpt-4-turbo": {},
@@ -272,8 +270,8 @@ Notes:
       "providers": {
         "deepseek": {
           "api": "openai-chat",
-          "url": "https://api.deepseek.com", // or "urlEnv"
-          "key": "your-api-key", // or "keyEnv"
+          "url": "https://api.deepseek.com",
+          "key": "your-api-key",
           "models": {
             "deepseek-chat": {},
             "deepseek-coder": {},
@@ -300,8 +298,8 @@ Notes:
       "providers": {
         "azure": {
           "api": "openai-responses",
-          "url": "https://your-resource-name.openai.azure.com", // or "urlEnv"
-          "key": "your-api-key", // or "keyEnv"
+          "url": "https://your-resource-name.openai.azure.com",
+          "key": "your-api-key",
           "completionUrlRelativePath": "/openai/responses?api-version=2025-04-01-preview",
           "models": {
             "gpt-5": {}
@@ -327,7 +325,7 @@ Notes:
         "z-ai": {
           "api": "anthropic",
           "url": "https://api.z.ai/api/anthropic",
-          "key": "your-api-key", // or "keyEnv"
+          "key": "your-api-key",
           "models": {
             "GLM-4.5": {},
             "GLM-4.5-Air": {}

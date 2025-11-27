@@ -2,6 +2,7 @@
   (:require
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.secrets :as secrets]
    [matcher-combinators.test :refer [match?]])
@@ -64,7 +65,8 @@
         (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-test-from-netrc\n")
 
         ;; Mock credential-file-paths to return our test file
-        (with-redefs [secrets/credential-file-paths (constantly [temp-path])]
+        (with-redefs [secrets/credential-file-paths (constantly [temp-path])
+                      config/get-env (constantly nil)]
           (let [config {:providers
                         {"openai" {:url "https://api.openai.com"
                                    :keyRc "api.openai.com"}}}
@@ -79,12 +81,13 @@
         ;; Create a test netrc file
         (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-test-from-custom-netrc\n")
 
-        (let [config {:providers
-                      {"openai" {:url "https://api.openai.com"
-                                 :keyRc "api.openai.com"}}
-                      :netrcFile temp-path}
-              result (llm-util/provider-api-key "openai" nil config)]
-          (is (= [:auth/token "sk-test-from-custom-netrc"] result)))
+        (with-redefs [config/get-env (constantly nil)]
+          (let [config {:providers
+                        {"openai" {:url "https://api.openai.com"
+                                   :keyRc "api.openai.com"}}
+                        :netrcFile temp-path}
+                result (llm-util/provider-api-key "openai" nil config)]
+            (is (= [:auth/token "sk-test-from-custom-netrc"] result))))
         (finally
           (.delete temp-file))))))
 
@@ -96,7 +99,8 @@
         ;; Create a test netrc file
         (spit temp-path "machine api.openai.com\nlogin apikey\npassword sk-test-from-netrc\n")
 
-        (with-redefs [secrets/credential-file-paths (constantly [temp-path])]
+        (with-redefs [secrets/credential-file-paths (constantly [temp-path])
+                      config/get-env (constantly nil)]
           ;; Test 1: explicit key takes precedence over keyRc
           (let [config {:providers
                         {"openai" {:key "sk-explicit-key"
@@ -145,8 +149,9 @@
 
 (deftest provider-api-key-missing-credential-test
   (testing "provider-api-key returns nil when credential not found"
-    (let [config {:providers
-                  {"openai" {:keyRc "api.openai.com"}}
-                  :netrcFile "/nonexistent/file"}
-          result (llm-util/provider-api-key "openai" nil config)]
-      (is (nil? result)))))
+    (with-redefs [config/get-env (constantly nil)]
+      (let [config {:providers
+                    {"openai" {:keyRc "api.openai.com"}}
+                    :netrcFile "/nonexistent/file"}
+            result (llm-util/provider-api-key "openai" nil config)]
+        (is (nil? result))))))

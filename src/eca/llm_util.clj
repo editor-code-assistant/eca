@@ -1,12 +1,12 @@
 (ns eca.llm-util
   (:require
+   [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.secrets :as secrets]
-   [eca.shared :as shared]
-   [camel-snake-kebab.core :as csk])
+   [eca.shared :as shared])
   (:import
    [java.io BufferedReader]
    [java.nio.charset StandardCharsets]
@@ -100,10 +100,13 @@
      :challenge (-> verifier str->sha256 ->base64 ->base64url (string/replace "=" ""))}))
 
 (defn provider-api-key [provider provider-auth config]
-  (or (when-let [key (get-in config [:providers (name provider) :key])]
+  (or (when-let [key (not-empty (get-in config [:providers (name provider) :key]))]
         [:auth/token key])
       (when-let [key (:api-key provider-auth)]
         [:auth/oauth key])
+      (when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
+        [:auth/token key])
+      ;; legacy
       (when-let [key (some-> (get-in config [:providers (name provider) :keyRc])
                              (secrets/get-credential (:netrcFile config)))]
         [:auth/token key])
@@ -112,7 +115,7 @@
         [:auth/token key])))
 
 (defn provider-api-url [provider config]
-  (or (get-in config [:providers (name provider) :url])
+  (or (not-empty (get-in config [:providers (name provider) :url]))
       (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_URL"))
       (some-> (get-in config [:providers (name provider) :urlEnv]) config/get-env) ;; legacy
       ))

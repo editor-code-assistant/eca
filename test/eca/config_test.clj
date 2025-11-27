@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.logger :as logger]
+   [eca.secrets :as secrets]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -301,9 +302,8 @@
 
   (testing "preserves content with escaped-like patterns that don't match"
     (is (= "${notenv:VAR}" (#'config/parse-dynamic-string "${notenv:VAR}" "/tmp")))
-    (is (= "${env:}" (#'config/parse-dynamic-string "${env:}" "/tmp")))))
+    (is (= "${env:}" (#'config/parse-dynamic-string "${env:}" "/tmp"))))
 
-(deftest parse-dynamic-string-classpath-test
   (testing "replaces classpath pattern with resource content"
     ;; ECA_VERSION is a real resource file
     (let [version-content (#'config/parse-dynamic-string "${classpath:ECA_VERSION}" "/tmp")]
@@ -324,22 +324,6 @@
       (is (= "content1 and content2"
              (#'config/parse-dynamic-string "${classpath:resource1.txt} and ${classpath:resource2.txt}" "/tmp")))))
 
-  (testing "handles mixed env, file, and classpath patterns"
-    (with-redefs [config/get-env (fn [env-var]
-                                   (when (= env-var "TEST_VAR") "env-value"))
-                  fs/absolute? (fn [_] true)
-                  slurp (fn [path]
-                          (cond
-                            (string? path)
-                            (if (= path "/file.txt")
-                              "file-value"
-                              (throw (ex-info "File not found" {})))
-                            :else "classpath-value"))
-                  io/resource (fn [_] (java.io.ByteArrayInputStream. (.getBytes "classpath-value" "UTF-8")))
-                  logger/warn (fn [& _] nil)]
-      (is (= "env-value and file-value and classpath-value"
-             (#'config/parse-dynamic-string "${env:TEST_VAR} and ${file:/file.txt} and ${classpath:resource.txt}" "/tmp")))))
-
   (testing "handles classpath patterns within longer strings"
     (with-redefs [io/resource (fn [path]
                                 (when (= path "config/prompt.md")
@@ -351,4 +335,75 @@
     (with-redefs [logger/warn (fn [& _] nil)
                   io/resource (constantly nil)]
       (is (= "" (#'config/parse-dynamic-string "${classpath:error/resource.txt}" "/tmp")))
-      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${classpath:error/resource.txt} suffix" "/tmp"))))))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${classpath:error/resource.txt} suffix" "/tmp")))))
+
+  (testing "replaces netrc pattern with credential password"
+    (with-redefs [secrets/get-credential (fn [key-rc]
+                                           (when (= key-rc "api.openai.com")
+                                             "secret-password-123"))]
+      (is (= "secret-password-123" (#'config/parse-dynamic-string "${netrc:api.openai.com}" "/tmp")))))
+
+  (testing "replaces netrc pattern with empty string when credential not found"
+    (with-redefs [secrets/get-credential (constantly nil)]
+      (is (= "" (#'config/parse-dynamic-string "${netrc:nonexistent.com}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${netrc:nonexistent.com} suffix" "/tmp")))))
+
+  (testing "handles netrc pattern with login and port"
+    (with-redefs [secrets/get-credential (fn [key-rc]
+                                           (case key-rc
+                                             "user@api.example.com" "password1"
+                                             "api.example.com:8080" "password2"
+                                             "user@api.example.com:443" "password3"
+                                             nil))]
+      (is (= "password1" (#'config/parse-dynamic-string "${netrc:user@api.example.com}" "/tmp")))
+      (is (= "password2" (#'config/parse-dynamic-string "${netrc:api.example.com:8080}" "/tmp")))
+      (is (= "password3" (#'config/parse-dynamic-string "${netrc:user@api.example.com:443}" "/tmp")))))
+
+  (testing "handles multiple netrc patterns"
+    (with-redefs [secrets/get-credential (fn [key-rc]
+                                           (case key-rc
+                                             "api1.example.com" "password1"
+                                             "api2.example.com" "password2"
+                                             nil))]
+      (is (= "password1 and password2"
+             (#'config/parse-dynamic-string "${netrc:api1.example.com} and ${netrc:api2.example.com}" "/tmp")))))
+
+  (testing "handles mixed env, file, classpath, and netrc patterns"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (when (= env-var "TEST_VAR") "env-value"))
+                  fs/absolute? (fn [_] true)
+                  slurp (fn [path]
+                          (cond
+                            (string? path)
+                            (if (= path "/file.txt")
+                              "file-value"
+                              (throw (ex-info "File not found" {})))
+                            :else "classpath-value"))
+                  io/resource (fn [_] (java.io.ByteArrayInputStream. (.getBytes "classpath-value" "UTF-8")))
+                  secrets/get-credential (fn [key-rc]
+                                           (when (= key-rc "api.example.com")
+                                             "netrc-password"))
+                  logger/warn (fn [& _] nil)]
+      (is (= "env-value and file-value and classpath-value and netrc-password"
+             (#'config/parse-dynamic-string "${env:TEST_VAR} and ${file:/file.txt} and ${classpath:resource.txt} and ${netrc:api.example.com}" "/tmp")))))
+
+  (testing "handles netrc pattern within longer strings"
+    (with-redefs [secrets/get-credential (fn [key-rc]
+                                           (when (= key-rc "api.openai.com")
+                                             "sk-abc123"))]
+      (is (= "Bearer sk-abc123" (#'config/parse-dynamic-string "Bearer ${netrc:api.openai.com}" "/tmp")))))
+
+  (testing "handles exception when reading netrc credential fails"
+    (with-redefs [logger/warn (fn [& _] nil)
+                  secrets/get-credential (fn [_] (throw (ex-info "Netrc error" {})))]
+      (is (= "" (#'config/parse-dynamic-string "${netrc:api.example.com}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${netrc:api.example.com} suffix" "/tmp")))))
+
+  (testing "handles netrc pattern with special characters in key-rc"
+    (with-redefs [secrets/get-credential (fn [key-rc]
+                                           (case key-rc
+                                             "api-gateway.example-corp.com" "password1"
+                                             "api_service.example.com" "password2"
+                                             nil))]
+      (is (= "password1" (#'config/parse-dynamic-string "${netrc:api-gateway.example-corp.com}" "/tmp")))
+      (is (= "password2" (#'config/parse-dynamic-string "${netrc:api_service.example.com}" "/tmp"))))))

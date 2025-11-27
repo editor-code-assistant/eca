@@ -9,17 +9,13 @@
 
 (def default-providers
   {"openai" {:url (str base-llm-mock-url "/openai")
-             :key "foo-key"
-             :keyEnv "FOO"}
+             :key "${env:FOO:foo-key}"}
    "anthropic" {:url (str base-llm-mock-url "/anthropic")
-                :key "foo-key"
-                :keyEnv "FOO"}
+                :key "${env:FOO:foo-key}"}
    "github-copilot" {:url (str base-llm-mock-url "/github-copilot")
-                     :key "foo-key"
-                     :keyEnv "FOO"}
+                     :key "${env:FOO:foo-key}"}
    "google" {:url (str base-llm-mock-url "/google")
-             :key "foo-key"
-             :keyEnv "FOO"}})
+             :key "${env:FOO:foo-key}"}})
 
 (def default-init-options {:pureConfig true
                            :env "test"

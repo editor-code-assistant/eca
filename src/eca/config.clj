@@ -18,6 +18,7 @@
    [clojure.walk :as walk]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
    [java.io File]))
@@ -41,8 +42,7 @@
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
-                         :key nil
-                         :keyEnv "OPENAI_API_KEY"
+                         :key "${env:OPENAI_API_KEY}"
                          :requiresAuth? true
                          :models {"gpt-5.1" {}
                                   "gpt-5-codex" {}
@@ -54,8 +54,7 @@
                                   "o3" {}}}
                "anthropic" {:api "anthropic"
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
-                            :key nil
-                            :keyEnv "ANTHROPIC_API_KEY"
+                            :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
                             :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5-20250929"}
                                      "claude-opus-4.5" {:modelName "claude-opus-4-5-20251101"}
@@ -64,7 +63,6 @@
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
-                                 :keyEnv nil ;; not supported, requires login auth
                                  :requiresAuth? true
                                  :models {"claude-haiku-4.5" {}
                                           "claude-opus-4.1" {}
@@ -79,8 +77,7 @@
                                           "gemini-2.5-pro" {}}}
                "google" {:api "openai-chat"
                          :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
-                         :key nil
-                         :keyEnv "GOOGLE_API_KEY"
+                         :key "${env:GOOGLE_API_KEY}"
                          :requiresAuth? true
                          :models {"gemini-2.0-flash" {}
                                   "gemini-2.5-pro" {}}}
@@ -150,7 +147,8 @@
   "Given a string and a current working directory, look for patterns replacing its content:
   - `${env:SOME-ENV:default-value}`: Replace with a env falling back to a optional default value
   - `${file:/some/path}`: Replace with a file content checking from cwd if relative
-  - `${classpath:path/to/file}`: Replace with a file content found checking classpath"
+  - `${classpath:path/to/file}`: Replace with a file content found checking classpath
+  - `${netrc:api.provider.com}`: Replace with the content from Unix net RC [credential files](https://eca.dev/models/#credential-file-authentication)"
   [s cwd]
   (some-> s
           (string/replace #"\$\{env:([^:}]+)(?::([^}]*))?\}"
@@ -173,6 +171,13 @@
                               (slurp (io/resource resource-path))
                               (catch Exception e
                                 (logger/warn logger-tag "Error reading classpath resource:" (.getMessage e))
+                                ""))))
+          (string/replace #"\$\{netrc:([^}]+)\}"
+                          (fn [[_match key-rc]]
+                            (try
+                              (or (secrets/get-credential key-rc) "")
+                              (catch Exception e
+                                (logger/warn logger-tag "Error reading netrc credential:" (.getMessage e))
                                 ""))))))
 
 (defn ^:private parse-dynamic-string-values
@@ -213,7 +218,8 @@
 
 (defn ^:private config-from-envvar* []
   (some-> (System/getenv "ECA_CONFIG")
-          (safe-read-json-string (var *env-var-config-error*))))
+          (safe-read-json-string (var *env-var-config-error*))
+          (parse-dynamic-string-values (io/file "."))))
 
 (def ^:private config-from-envvar (memoize config-from-envvar*))
 
@@ -221,7 +227,8 @@
   (when-some [path @custom-config-file-path*]
     (let [config-file (io/file path)]
       (when (.exists config-file)
-        (safe-read-json-string (slurp config-file) (var *custom-config-error*))))))
+        (some-> (safe-read-json-string (slurp config-file) (var *custom-config-error*))
+                (parse-dynamic-string-values (fs/file (fs/parent config-file))))))))
 
 (def ^:private config-from-custom (memoize config-from-custom*))
 

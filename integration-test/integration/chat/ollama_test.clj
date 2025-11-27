@@ -22,8 +22,7 @@
   (eca/notify! (fixture/initialized-notification))
   (testing "the default model is local"
     (is (match?
-         {:chat {:models (m/embeds ["ollama/qwen3"])
-                 :selectModel "ollama/qwen3"}}
+         {:chat {:models (m/embeds ["ollama/qwen3"])}}
          (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We send a simple hello message"
@@ -116,8 +115,7 @@
   (eca/notify! (fixture/initialized-notification))
   (testing "the default model is local"
     (is (match?
-         {:chat {:models (m/embeds ["ollama/qwen3"])
-                 :selectModel "ollama/qwen3"}}
+         {:chat {:models (m/embeds ["ollama/qwen3"])}}
          (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We send a hello message"
@@ -195,8 +193,7 @@
   (eca/notify! (fixture/initialized-notification))
   (testing "the default model is local"
     (is (match?
-         {:chat {:models (m/embeds ["ollama/qwen3"])
-                 :selectModel "ollama/qwen3"}}
+         {:chat {:models (m/embeds ["ollama/qwen3"])}}
          (eca/client-awaits-server-notification :config/updated))))
   (let [chat-id* (atom nil)]
     (testing "We ask what files LLM see"
