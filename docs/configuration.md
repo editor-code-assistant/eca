@@ -475,9 +475,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         providers?: {[key: string]: {
             api?: 'openai-responses' | 'openai-chat' | 'anthropic';
             url?: string;
-            urlEnv?: string;
             key?: string; // when provider supports api key.
-            keyEnv?: string;
             keyRc?: string; // credential file lookup in format [login@]machine[:port]
             completionUrlRelativePath?: string;
             thinkTagStart?: string;

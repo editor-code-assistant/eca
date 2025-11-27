@@ -209,6 +209,43 @@
       (is (= "" (#'config/parse-dynamic-string "${env:UNDEFINED_VAR}" "/tmp")))
       (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${env:UNDEFINED_VAR} suffix" "/tmp")))))
 
+  (testing "replaces undefined env var with default value"
+    (with-redefs [config/get-env (constantly nil)]
+      (is (= "default-value" (#'config/parse-dynamic-string "${env:UNDEFINED_VAR:default-value}" "/tmp")))
+      (is (= "http://localhost:11434" (#'config/parse-dynamic-string "${env:OLLAMA_API_URL:http://localhost:11434}" "/tmp")))
+      (is (= "prefix default-value suffix" (#'config/parse-dynamic-string "prefix ${env:UNDEFINED_VAR:default-value} suffix" "/tmp")))))
+
+  (testing "uses env var value when set, ignoring default"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (case env-var
+                                     "TEST_VAR" "actual-value"
+                                     "OLLAMA_API_URL" "http://custom:8080"
+                                     nil))]
+      (is (= "actual-value" (#'config/parse-dynamic-string "${env:TEST_VAR:default-value}" "/tmp")))
+      (is (= "http://custom:8080" (#'config/parse-dynamic-string "${env:OLLAMA_API_URL:http://localhost:11434}" "/tmp")))))
+
+  (testing "handles default values with special characters"
+    (with-redefs [config/get-env (constantly nil)]
+      (is (= "http://localhost:11434/api" (#'config/parse-dynamic-string "${env:API_URL:http://localhost:11434/api}" "/tmp")))
+      (is (= "value-with-dashes" (#'config/parse-dynamic-string "${env:VAR:value-with-dashes}" "/tmp")))
+      (is (= "value_with_underscores" (#'config/parse-dynamic-string "${env:VAR:value_with_underscores}" "/tmp")))
+      (is (= "/path/to/file" (#'config/parse-dynamic-string "${env:VAR:/path/to/file}" "/tmp")))))
+
+  (testing "handles empty default value"
+    (with-redefs [config/get-env (constantly nil)]
+      (is (= "" (#'config/parse-dynamic-string "${env:UNDEFINED_VAR:}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${env:UNDEFINED_VAR:} suffix" "/tmp")))))
+
+  (testing "handles multiple env vars with mixed default values"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (case env-var
+                                     "DEFINED_VAR" "defined"
+                                     nil))]
+      (is (= "defined and default-value"
+             (#'config/parse-dynamic-string "${env:DEFINED_VAR:fallback1} and ${env:UNDEFINED_VAR:default-value}" "/tmp")))
+      (is (= "defined and "
+             (#'config/parse-dynamic-string "${env:DEFINED_VAR} and ${env:UNDEFINED_VAR}" "/tmp")))))
+
   (testing "replaces file pattern with file content - absolute path"
     (with-redefs [fs/absolute? (fn [path] (= path "/absolute/file.txt"))
                   slurp (fn [path]

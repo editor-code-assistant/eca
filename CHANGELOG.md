@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support `${classapath:path/to/eca/classpath/file}` in dynamic string parse.
+- Support default env values in `${env:MY_ENV:default-value}`.
 - Deprecate configs: 
   - `systemPromptFile` in favor of `systemPrompt` using `${file:...}` or `${classpath:...}`
 

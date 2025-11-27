@@ -84,8 +84,7 @@
                          :requiresAuth? true
                          :models {"gemini-2.0-flash" {}
                                   "gemini-2.5-pro" {}}}
-               "ollama" {:url "http://localhost:11434"
-                         :urlEnv "OLLAMA_API_URL"}}
+               "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultBehavior "agent"
    :behavior {"agent" {:systemPrompt "${classpath:prompts/agent_behavior.md}"
                        :disabledTools ["preview_file_change"]}
@@ -149,14 +148,14 @@
 
 (defn ^:private parse-dynamic-string
   "Given a string and a current working directory, look for patterns replacing its content:
-  - `${env:SOME-ENV}`: Replace with a env
+  - `${env:SOME-ENV:default-value}`: Replace with a env falling back to a optional default value
   - `${file:/some/path}`: Replace with a file content checking from cwd if relative
   - `${classpath:path/to/file}`: Replace with a file content found checking classpath"
   [s cwd]
   (some-> s
-          (string/replace #"\$\{env:([^}]+)\}"
-                          (fn [[_match env-var]]
-                            (or (get-env env-var) "")))
+          (string/replace #"\$\{env:([^:}]+)(?::([^}]*))?\}"
+                          (fn [[_match env-var default-value]]
+                            (or (get-env env-var) default-value "")))
           (string/replace #"\$\{file:([^}]+)\}"
                           (fn [[_match file-path]]
                             (try
