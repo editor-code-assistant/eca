@@ -1056,6 +1056,14 @@
 </div>
 </div>
 </div>
+<div class="admonition info">
+<p class="admonition-title">Dynamic string contents</p>
+<p>It's possible to retrieve content of any configs with a string value using the <code>${key:value}</code> approach, being <code>key</code>:</p>
+<ul>
+<li><code>file</code>: <code>${file:/path/to/my-file}</code> or <code>${file:../rel-path/to/my-file}</code> to get a file content</li>
+<li><code>env</code>: <code>${env:MY_ENV}</code> to get a system env value</li>
+</ul>
+</div>
 <h2 id="providers-models">Providers / Models<a class="headerlink" href="#providers-models" title="Permanent link">#</a></h2>
 <p>For providers and models configuration check the <a href="../models/#custom-providers">dedicated models section</a>.</p>
 <h2 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">#</a></h2>
@@ -1215,7 +1223,7 @@
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;customTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;file-search&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Finds files within a directory that match a specific name pattern.&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${file:tools/my-tool.md}&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;command&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;find {{directory}} -name {{pattern}}&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;schema&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="s2">&quot;properties&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1336,6 +1344,8 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/hooks/my-hook.sh</span><pre><span></span><code><span class="p">[[</span><span class="w"> </span><span class="nx">$</span><span class="p">(</span><span class="nx">jq</span><span class="w"> </span><span class="s1">&#39;.approval == &quot;ask&quot;&#39;</span><span class="w"> </span><span class="o">&lt;&lt;&lt;</span><span class="w"> </span><span class="s2">&quot;$1&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">]]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canberra</span><span class="o">-</span><span class="nx">gtk</span><span class="o">-</span><span class="nx">play</span><span class="w"> </span><span class="o">-</span><span class="nx">i</span><span class="w"> </span><span class="nx">complete</span>
+</code></pre></div>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;notify-me&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1344,7 +1354,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span>
 <span class="w">          </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;[[ $(jq &#39;.approval == \&quot;ask\&quot;&#39; &lt;&lt;&lt; \&quot;$1\&quot;) ]] &amp;&amp; canberra-gtk-play -i complete&quot;</span>
+<span class="w">          </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${file:hooks/my-hook.sh}&quot;</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">]</span>
 <span class="w">    </span><span class="p">}</span>
@@ -1611,7 +1621,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 26, 2025 21:19:25 UTC">November 26, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 27, 2025 13:57:37 UTC">November 27, 2025</span>
   </span>
 
     
