@@ -149,7 +149,7 @@
   - `${file:/some/path}`: Replace with a file content checking from cwd if relative
   - `${classpath:path/to/file}`: Replace with a file content found checking classpath
   - `${netrc:api.provider.com}`: Replace with the content from Unix net RC [credential files](https://eca.dev/models/#credential-file-authentication)"
-  [s cwd]
+  [s cwd config]
   (some-> s
           (string/replace #"\$\{env:([^:}]+)(?::([^}]*))?\}"
                           (fn [[_match env-var default-value]]
@@ -175,7 +175,7 @@
           (string/replace #"\$\{netrc:([^}]+)\}"
                           (fn [[_match key-rc]]
                             (try
-                              (or (secrets/get-credential key-rc) "")
+                              (or (secrets/get-credential key-rc (:netrcFile config)) "")
                               (catch Exception e
                                 (logger/warn logger-tag "Error reading netrc credential:" (.getMessage e))
                                 ""))))))
@@ -184,11 +184,11 @@
   "walk through config parsing dynamic string contents if value is a string."
   [config cwd]
   (walk/postwalk
-   (fn [x]
-     (if (string? x)
-       (parse-dynamic-string x cwd)
-       x))
-   config))
+    (fn [x]
+      (if (string? x)
+        (parse-dynamic-string x cwd config)
+        x))
+    config))
 
 (def initial-config (memoize #(parse-dynamic-string-values initial-config* nil)))
 

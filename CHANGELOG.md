@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `${netrc:...} ` to consider `:netrcFile` config.
+
 ## 0.84.0
 
 - Improve `/compact` UI in chat after running, cleaning chat and showing the new summary.
