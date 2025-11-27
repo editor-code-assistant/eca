@@ -28,7 +28,7 @@
                                             :models {"gpt-5" {:a 1}
                                                      "gpt-5-mini" {}}
                                             :url string?}}}
-             (config/all @db*)))))))
+             (#'config/all* @db*)))))))
 
 (deftest chat-selected-behavior-changed-test
   (testing "Switching to behavior with defaultModel updates model"

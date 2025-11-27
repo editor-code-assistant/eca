@@ -184,13 +184,14 @@
   "walk through config parsing dynamic string contents if value is a string."
   [config cwd]
   (walk/postwalk
-    (fn [x]
-      (if (string? x)
-        (parse-dynamic-string x cwd config)
-        x))
-    config))
+   (fn [x]
+     (if (string? x)
+       (parse-dynamic-string x cwd config)
+       x))
+   config))
 
-(def initial-config (memoize #(parse-dynamic-string-values initial-config* nil)))
+(defn initial-config []
+  (parse-dynamic-string-values initial-config* (io/file ".")))
 
 (def ^:private fallback-behavior "agent")
 
@@ -216,12 +217,10 @@
       (alter-var-root config-dyn-var (constantly true))
       (logger/warn logger-tag "Error parsing config json:" (.getMessage e)))))
 
-(defn ^:private config-from-envvar* []
+(defn ^:private config-from-envvar []
   (some-> (System/getenv "ECA_CONFIG")
           (safe-read-json-string (var *env-var-config-error*))
           (parse-dynamic-string-values (io/file "."))))
-
-(def ^:private config-from-envvar (memoize config-from-envvar*))
 
 (defn ^:private config-from-custom* []
   (when-some [path @custom-config-file-path*]
@@ -240,15 +239,13 @@
 (defn global-config-file ^File []
   (io/file (global-config-dir) "config.json"))
 
-(defn ^:private config-from-global-file* []
+(defn ^:private config-from-global-file []
   (let [config-file (global-config-file)]
     (when (.exists config-file)
       (some-> (safe-read-json-string (slurp config-file) (var *global-config-error*))
               (parse-dynamic-string-values (global-config-dir))))))
 
-(def ^:private config-from-global-file (memoize/ttl config-from-global-file* :ttl/threshold ttl-cache-config-ms))
-
-(defn ^:private config-from-local-file* [roots]
+(defn ^:private config-from-local-file [roots]
   (reduce
    (fn [final-config {:keys [uri]}]
      (merge
@@ -260,8 +257,6 @@
                   (parse-dynamic-string-values config-dir))))))
    {}
    roots))
-
-(def ^:private config-from-local-file (memoize/ttl config-from-local-file* :ttl/threshold ttl-cache-config-ms))
 
 (def initialization-config* (atom {}))
 
@@ -324,7 +319,7 @@
                           :else m*))]
     (normalize-map [] m)))
 
-(def ^:private eca-config-normalization-rules
+(def ^:private normalization-rules
   {:kebab-case
    [[:providers]]
    :stringfy
@@ -349,22 +344,23 @@
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
     [:otlp]]})
 
-(defn ^:private config-from-custom-or-default-location [pure-config? db]
-  (if-some [config-from-custom (config-from-custom)]
-    (when-not pure-config? config-from-custom)
-    (deep-merge
-     (when-not pure-config? (config-from-global-file))
-     (when-not pure-config? (config-from-local-file (:workspace-folders db))))))
-
-(defn all [db]
+(defn ^:private all* [db]
   (let [initialization-config @initialization-config*
-        pure-config? (:pureConfig initialization-config)]
-    (deep-merge (initial-config)
-                (normalize-fields
-                 eca-config-normalization-rules
-                 (deep-merge initialization-config
-                             (when-not pure-config? (config-from-envvar))
-                             (config-from-custom-or-default-location pure-config? db))))))
+        pure-config? (:pureConfig initialization-config)
+        merge-config (fn [c1 c2]
+                       (deep-merge c1 (normalize-fields normalization-rules c2)))]
+    (as-> {} $
+      (merge-config $ (initial-config))
+      (merge-config $ initialization-config)
+      (merge-config $ (when-not pure-config?
+                        (config-from-envvar)))
+      (if-let [custom-config (config-from-custom)]
+        (merge-config $ (when-not pure-config? custom-config))
+        (-> $
+            (merge-config (when-not pure-config? (config-from-global-file)))
+            (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))))
+
+(def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
 
 (defn validation-error []
   (cond
@@ -440,9 +436,9 @@
 
 (defn update-global-config! [config]
   (let [global-config-file (global-config-file)
-        current-config (normalize-fields eca-config-normalization-rules (config-from-global-file))
+        current-config (normalize-fields normalization-rules (config-from-global-file))
         new-config (deep-merge current-config
-                               (normalize-fields eca-config-normalization-rules config))
+                               (normalize-fields normalization-rules config))
         new-config-json (json/generate-string new-config {:pretty true})]
     (io/make-parents global-config-file)
     (spit global-config-file new-config-json)))

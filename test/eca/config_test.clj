@@ -18,7 +18,7 @@
          {:pureConfig true
           :providers {"github-copilot" {:key nil
                                         :models {"gpt-5" {}}}}}
-         (config/all {}))))
+         (#'config/all* {}))))
   (testing "deep merging initializationOptions with initial config"
     (reset! config/initialization-config* {:pureConfig true
                                            :providers {"githubCopilot" {:key "123"}}})
@@ -26,7 +26,7 @@
          {:pureConfig true
           :providers {"github-copilot" {:key "123"
                                         :models {"gpt-5" {}}}}}
-         (config/all {}))))
+         (#'config/all* {}))))
   (testing "providers and models are updated correctly"
     (reset! config/initialization-config* {:pureConfig true
                                            :providers {"customProvider" {:key "123"
@@ -37,7 +37,7 @@
           :providers {"custom-provider" {:key "123"
                                          :models {"gpt-5" {}}}
                       "openrouter" {:models {"openai/o4-mini" {}}}}}
-         (config/all {})))))
+         (#'config/all* {})))))
 
 (deftest deep-merge-test
   (testing "basic merge"
