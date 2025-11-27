@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improve `/compact` UI in chat after running, cleaning chat and showing the new summary.
 - Better config values dynamic string parse:
     - Support `${classapath:path/to/eca/classpath/file}` in dynamic string parse.
     - Support `${netrc:api.foo.com}` in dynamic string parse to parse keys. #200
