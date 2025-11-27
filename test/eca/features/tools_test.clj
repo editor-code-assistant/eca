@@ -178,7 +178,7 @@
         ;; No behavior specified (nil) should also not have plan restrictions
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm file.txt"} {} config nil)))))
     (testing "regex patterns match dangerous commands correctly"
-      (let [config config/initial-config]
+      (let [config (config/initial-config)]
         ;; Test output redirection patterns
         (is (= :deny (f.tools/approval all-tools shell-tool {"command" "echo test > file.txt"} {} config "plan")))
         (is (= :deny (f.tools/approval all-tools shell-tool {"command" "ls >> log.txt"} {} config "plan")))
@@ -197,7 +197,7 @@
 (deftest plan-mode-approval-restrictions-test
   (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native}
         all-tools [shell-tool]
-        config config/initial-config]
+        config (config/initial-config)]
 
     (testing "dangerous commands blocked in plan mode via approval"
       (are [command] (= :deny

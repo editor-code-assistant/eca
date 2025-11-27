@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Support `${classapath:path/to/eca/classpath/file}` in dynamic string parse.
+- Deprecate configs: 
+  - `systemPromptFile` in favor of `systemPrompt` using `${file:...}` or `${classpath:...}`
+
 ## 0.83.0
 
 - Support dynamic string parse (`${file:/path/to/something}` and `${env:MY_ENV}`) in all configs with string values. #200

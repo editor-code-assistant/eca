@@ -41,19 +41,19 @@
 
 (defn ^:private eca-chat-prompt [behavior config]
   (let [behavior-config (get-in config [:behavior behavior])
-        ;; Use systemPromptFile from behavior config, or fall back to built-in
-        prompt-file (or (:systemPromptFile behavior-config)
-                        ;; For built-in behaviors without explicit config
-                        (when (#{"agent" "plan"} behavior)
-                          (str "prompts/" behavior "_behavior.md")))]
+        prompt (:systemPrompt behavior-config)
+        legacy-prompt-file (:systemPromptFile behavior-config)]
     (cond
-      ;; Custom behavior with absolute path
-      (and prompt-file (string/starts-with? prompt-file "/"))
-      (slurp prompt-file)
+      prompt
+      prompt
+
+      ;; behavior with absolute path
+      (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
+      (slurp legacy-prompt-file)
 
       ;; Built-in or resource path
-      prompt-file
-      (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" "")))
+      legacy-prompt-file
+      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" "")))
 
       ;; Fallback for unknown behavior
       :else
@@ -112,15 +112,19 @@
     {:workspaceRoots (shared/workspaces-as-str db)})))
 
 (defn build-rewrite-instructions [text path full-text range config]
-  (let [prompt-file (-> config :rewrite :systemPromptFile)
+  (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
+        prompt (-> config :rewrite :systemPrompt)
         prompt-str (cond
+                     prompt
+                     prompt
+
                      ;; Absolute path
-                     (and prompt-file (string/starts-with? prompt-file "/"))
-                     (slurp prompt-file)
+                     (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
+                     (slurp legacy-prompt-file)
 
                      ;; Resource path
                      :else
-                     (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" ""))))]
+                     (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))]
     (replace-vars
      prompt-str
      {:text text
@@ -154,15 +158,19 @@
                            "")}))
 
 (defn inline-completion-prompt [config]
-  (let [prompt-file (get-in config [:completion :systemPromptFile])]
+  (let [legacy-prompt-file (get-in config [:completion :systemPromptFile])
+        prompt (get-in config [:completion :systemPrompt])]
     (cond
+      prompt
+      prompt
+
       ;; Absolute path
-      (and prompt-file (string/starts-with? prompt-file "/"))
-      (slurp prompt-file)
+      (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
+      (slurp legacy-prompt-file)
 
       ;; Resource path
       :else
-      (load-builtin-prompt (some-> prompt-file (string/replace-first #"prompts/" ""))))))
+      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))))
 
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))

@@ -35,7 +35,10 @@
 
 (def custom-config-file-path* (atom nil))
 
-(def initial-config
+(defn get-env [env] (System/getenv env))
+(defn get-property [property] (System/getProperty property))
+
+(def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
                          :url "https://api.openai.com"
                          :key nil
@@ -84,9 +87,9 @@
                "ollama" {:url "http://localhost:11434"
                          :urlEnv "OLLAMA_API_URL"}}
    :defaultBehavior "agent"
-   :behavior {"agent" {:systemPromptFile "prompts/agent_behavior.md"
+   :behavior {"agent" {:systemPrompt "${classpath:prompts/agent_behavior.md}"
                        :disabledTools ["preview_file_change"]}
-              "plan" {:systemPromptFile "prompts/plan_behavior.md"
+              "plan" {:systemPrompt "${classpath:prompts/plan_behavior.md}"
                       :disabledTools ["edit_file" "write_file" "move_file"]
                       :toolCall {:approval {:allow {"eca__shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
@@ -139,10 +142,51 @@
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"
-                :systemPromptFile "prompts/inline_completion.md"}
-   :rewrite {:systemPromptFile "prompts/rewrite.md"}
+                :systemPrompt "${classpath:prompts/inline_completion.md}"}
+   :rewrite {:systemPrompt "${classpath:prompts/rewrite.md}"}
    :netrcFile nil
    :env "prod"})
+
+(defn ^:private parse-dynamic-string
+  "Given a string and a current working directory, look for patterns replacing its content:
+  - `${env:SOME-ENV}`: Replace with a env
+  - `${file:/some/path}`: Replace with a file content checking from cwd if relative
+  - `${classpath:path/to/file}`: Replace with a file content found checking classpath"
+  [s cwd]
+  (some-> s
+          (string/replace #"\$\{env:([^}]+)\}"
+                          (fn [[_match env-var]]
+                            (or (get-env env-var) "")))
+          (string/replace #"\$\{file:([^}]+)\}"
+                          (fn [[_match file-path]]
+                            (try
+                              (slurp (str (if (fs/absolute? file-path)
+                                            file-path
+                                            (if cwd
+                                              (fs/path cwd file-path)
+                                              (fs/path file-path)))))
+                              (catch Exception _
+                                (logger/warn logger-tag "File not found when parsing string:" s)
+                                ""))))
+          (string/replace #"\$\{classpath:([^}]+)\}"
+                          (fn [[_match resource-path]]
+                            (try
+                              (slurp (io/resource resource-path))
+                              (catch Exception e
+                                (logger/warn logger-tag "Error reading classpath resource:" (.getMessage e))
+                                ""))))))
+
+(defn ^:private parse-dynamic-string-values
+  "walk through config parsing dynamic string contents if value is a string."
+  [config cwd]
+  (walk/postwalk
+   (fn [x]
+     (if (string? x)
+       (parse-dynamic-string x cwd)
+       x))
+   config))
+
+(def initial-config (memoize #(parse-dynamic-string-values initial-config* nil)))
 
 (def ^:private fallback-behavior "agent")
 
@@ -155,38 +199,6 @@
     (do (logger/warn logger-tag (format "Unknown behavior '%s' specified, falling back to '%s'"
                                         behavior fallback-behavior))
         fallback-behavior)))
-
-(defn get-env [env] (System/getenv env))
-(defn get-property [property] (System/getProperty property))
-
-(defn ^:private parse-dynamic-string
-  "Given a string and a current working directory, look for patterns replacing its content:
-  - `${env:SOME-ENV}`: Replace with a env
-  - `${file:/some/path}`: Replace with a file content checking from cwd if relative"
-  [s cwd]
-  (some-> s
-          (string/replace #"\$\{env:([^}]+)\}"
-                          (fn [[_match env-var]]
-                            (or (get-env env-var) "")))
-          (string/replace #"\$\{file:([^}]+)\}"
-                          (fn [[_match file-path]]
-                            (try
-                              (slurp (str (if (fs/absolute? file-path)
-                                            file-path
-                                            (fs/path cwd file-path))))
-                              (catch Exception _
-                                (logger/warn logger-tag "File not found when parsing string:" s)
-                                ""))))))
-
-(defn ^:private parse-dynamic-string-values
-  "walk through config parsing dynamic string contents if value is a string."
-  [config cwd]
-  (walk/postwalk
-   (fn [x]
-     (if (string? x)
-       (parse-dynamic-string x cwd)
-       x))
-   config))
 
 (def ^:private ttl-cache-config-ms 5000)
 
@@ -341,7 +353,7 @@
 (defn all [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)]
-    (deep-merge initial-config
+    (deep-merge (initial-config)
                 (normalize-fields
                  eca-config-normalization-rules
                  (deep-merge initialization-config

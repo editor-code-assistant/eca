@@ -1,6 +1,7 @@
 (ns eca.config-test
   (:require
    [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.logger :as logger]
@@ -264,3 +265,53 @@
   (testing "preserves content with escaped-like patterns that don't match"
     (is (= "${notenv:VAR}" (#'config/parse-dynamic-string "${notenv:VAR}" "/tmp")))
     (is (= "${env:}" (#'config/parse-dynamic-string "${env:}" "/tmp")))))
+
+(deftest parse-dynamic-string-classpath-test
+  (testing "replaces classpath pattern with resource content"
+    ;; ECA_VERSION is a real resource file
+    (let [version-content (#'config/parse-dynamic-string "${classpath:ECA_VERSION}" "/tmp")]
+      (is (string? version-content))
+      (is (seq version-content))))
+
+  (testing "replaces classpath pattern with empty string when resource not found"
+    (with-redefs [logger/warn (fn [& _] nil)]
+      (is (= "" (#'config/parse-dynamic-string "${classpath:nonexistent/resource.txt}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${classpath:nonexistent/resource.txt} suffix" "/tmp")))))
+
+  (testing "handles multiple classpath patterns"
+    (with-redefs [io/resource (fn [path]
+                                (case path
+                                  "resource1.txt" (java.io.ByteArrayInputStream. (.getBytes "content1" "UTF-8"))
+                                  "resource2.txt" (java.io.ByteArrayInputStream. (.getBytes "content2" "UTF-8"))
+                                  nil))]
+      (is (= "content1 and content2"
+             (#'config/parse-dynamic-string "${classpath:resource1.txt} and ${classpath:resource2.txt}" "/tmp")))))
+
+  (testing "handles mixed env, file, and classpath patterns"
+    (with-redefs [config/get-env (fn [env-var]
+                                   (when (= env-var "TEST_VAR") "env-value"))
+                  fs/absolute? (fn [_] true)
+                  slurp (fn [path]
+                          (cond
+                            (string? path)
+                            (if (= path "/file.txt")
+                              "file-value"
+                              (throw (ex-info "File not found" {})))
+                            :else "classpath-value"))
+                  io/resource (fn [_] (java.io.ByteArrayInputStream. (.getBytes "classpath-value" "UTF-8")))
+                  logger/warn (fn [& _] nil)]
+      (is (= "env-value and file-value and classpath-value"
+             (#'config/parse-dynamic-string "${env:TEST_VAR} and ${file:/file.txt} and ${classpath:resource.txt}" "/tmp")))))
+
+  (testing "handles classpath patterns within longer strings"
+    (with-redefs [io/resource (fn [path]
+                                (when (= path "config/prompt.md")
+                                  (java.io.ByteArrayInputStream. (.getBytes "# System Prompt\nYou are helpful." "UTF-8"))))]
+      (is (= "# System Prompt\nYou are helpful."
+             (#'config/parse-dynamic-string "${classpath:config/prompt.md}" "/tmp")))))
+
+  (testing "handles exception when reading classpath resource throws NullPointerException"
+    (with-redefs [logger/warn (fn [& _] nil)
+                  io/resource (constantly nil)]
+      (is (= "" (#'config/parse-dynamic-string "${classpath:error/resource.txt}" "/tmp")))
+      (is (= "prefix  suffix" (#'config/parse-dynamic-string "prefix ${classpath:error/resource.txt} suffix" "/tmp"))))))

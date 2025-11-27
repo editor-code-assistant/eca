@@ -52,6 +52,7 @@ There are multiples ways to configure ECA:
 
     - `file`: `${file:/path/to/my-file}` or `${file:../rel-path/to/my-file}` to get a file content
     - `env`: `${env:MY_ENV}` to get a system env value
+    - `classpath`: `${classpath:path/to/eca/file}` to get a file content from [ECA's classpath](https://github.com/editor-code-assistant/eca/tree/master/resources)
 
 ## Providers / Models
 
@@ -332,7 +333,7 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
     {
       "behavior": {
         "my-behavior": {
-          "systemPromptFile": "/path/to/my-behavior-prompt.md"
+          "systemPrompt": "${file:/path/to/my-behavior-prompt.md}"
         }
       }
     }
@@ -431,7 +432,7 @@ You can configure which model and system prompt ECA will use during its inline c
     {
       "completion": {
         "model": "github-copilot/gpt-4.1",
-        "systemPromptFile": "/path/to/my-prompt.md"
+        "systemPrompt": "${file:/path/to/my-prompt.md}"
       }
     }
     ```
@@ -446,7 +447,7 @@ Configure the model and system prompt used for ECA's rewrite feature via the `re
     {
       "rewrite": {
         "model": "github-copilot/gpt-4.1",
-        "systemPromptFile": "/path/to/my-prompt.md"
+        "systemPrompt": "${file:/path/to/my-prompt.md}"
       }
     }
     ```
@@ -500,7 +501,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         rules?: [{path: string;}];
         commands?: [{path: string;}];
         behavior?: {[key: string]: {
-            systemPromptFile?: string;
+            systemPrompt?: string;
             defaultModel?: string;
             disabledTools?: string[];
             toolCall?: {
@@ -560,11 +561,11 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         };
         completion?: {
             model?: string;
-            systemPromptFile?: string;
+            systemPrompt?: string;
         };
         rewrite?: {
             model?: string;
-            systemPromptFile?: string;
+            systemPrompt?: string;
         };
         otlp?: {[key: string]: string};
         netrcFile?: string;
@@ -610,9 +611,9 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
       "behavior" {
-        "agent": {"systemPromptFile": "prompts/agent_behavior.md",
+        "agent": {"systemPrompt": "${classpath:prompts/agent_behavior.md}",
                   "disabledTools": ["preview_file_change"]},
-        "plan": {"systemPromptFile": "prompts/plan_behavior.md",
+        "plan": {"systemPrompt": "${classpath:prompts/plan_behavior.md}",
                   "disabledTools": ["edit_file", "write_file", "move_file"],
                   "toolCall": {"approval": {"deny": {"eca__shell_command":
                                                      {"argsMatchers": {"command" [".*>.*",
@@ -638,10 +639,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       },
       "completion": {
         "model": "openai/gpt-4.1",
-        "systemPromptFile": "prompts/inline_completion.md"
+        "systemPrompt": "${classpath:prompts/inline_completion.md}"
       },
       "rewrite": {
-        "systemPromptFile": "prompts/rewrite.md"
+        "systemPrompt": "${classpath:prompts/rewrite.md}"
       }
     }
     ```
