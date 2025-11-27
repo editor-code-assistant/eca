@@ -4,7 +4,7 @@
 
 - Better config values dynamic string parse:
     - Support `${classapath:path/to/eca/classpath/file}` in dynamic string parse.
-    - Support `${netrc:api.foo.com}` in dynamic string parse to parse keys.
+    - Support `${netrc:api.foo.com}` in dynamic string parse to parse keys. #200
     - Support default env values in `${env:MY_ENV:default-value}`.
     - Support for ECA_CONFIG and custom config file.
 - Deprecate configs:
