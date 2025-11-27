@@ -2,6 +2,8 @@
 
 Check all available configs and its default values [here](#all-configs).
 
+Also, check [Examples](./examples.md) which contains examples of users ECA configs.
+
 ## Ways to configure
 
 There are multiples ways to configure ECA:
