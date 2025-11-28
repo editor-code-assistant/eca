@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix custom tools to support argument numbers.
+
 ## 0.84.2
 
 - Fix `${netrc:...} ` to consider `:netrcFile` config properly.

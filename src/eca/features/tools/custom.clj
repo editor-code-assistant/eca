@@ -16,7 +16,7 @@
   (fn [args {:keys [db]}]
     (let [resolved-command (reduce
                             (fn [s [arg-name arg-value]]
-                              (string/replace s (str "{{" arg-name "}}") arg-value))
+                              (string/replace s (str "{{" arg-name "}}") (str arg-value)))
                             command
                             args)
           work-dir (some-> (:workspace-folders db)
