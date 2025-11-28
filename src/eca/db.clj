@@ -2,9 +2,8 @@
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
-   [clojure.string :as string]
    [cognitect.transit :as transit]
-   [eca.config :as config :refer [get-env get-property]]
+   [eca.cache :as cache]
    [eca.logger :as logger]
    [eca.metrics :as metrics]
    [eca.shared :as shared])
@@ -123,32 +122,11 @@
         (proxy-super flush)
         (proxy-super close)))))
 
-(defn ^:private global-cache-dir []
-  (let [cache-home (or (get-env "XDG_CACHE_HOME")
-                       (io/file (get-property "user.home") ".cache"))]
-    (io/file cache-home "eca")))
-
-(defn ^:private workspaces-hash
-  "Return an 8-char base64 (URL-safe, no padding) key for the given
-   workspace set."
-  [workspaces]
-  (let [paths (->> workspaces
-                   (map #(str (fs/absolutize (fs/file (shared/uri->filename (:uri %))))))
-                   (distinct)
-                   (sort))
-        joined (string/join ":" paths)
-        md (java.security.MessageDigest/getInstance "SHA-256")
-        digest (.digest (doto md (.update (.getBytes joined "UTF-8"))))
-        encoder (-> (java.util.Base64/getUrlEncoder)
-                    (.withoutPadding))
-        key (.encodeToString encoder digest)]
-    (subs key 0 (min 8 (count key)))))
+(defn ^:private transit-global-db-file []
+  (io/file (cache/global-dir) "db.transit.json"))
 
 (defn ^:private transit-global-by-workspaces-db-file [workspaces]
-  (io/file (global-cache-dir) (workspaces-hash workspaces)  "db.transit.json"))
-
-(defn ^:private transit-global-db-file []
-  (io/file (global-cache-dir) "db.transit.json"))
+  (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename))
 
 (defn ^:private read-cache [cache-file metrics]
   (try
