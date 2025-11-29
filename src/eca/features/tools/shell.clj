@@ -15,6 +15,40 @@
 (def ^:private default-timeout 60000)
 (def ^:private max-timeout (* 60000 10))
 
+(defn start-shell-process!
+  "Start a shell process, returning the process object for deref/management.
+
+   Options:
+   - :cwd      Working directory (required)
+   - :script   Inline script string (mutually exclusive with :file)
+   - :file     Script file path (mutually exclusive with :script)
+   - :input    String to pass as stdin (optional)
+
+   Returns: babashka.process process object (deref-able)"
+  [{:keys [cwd script file input]}]
+  {:pre [(some? cwd)
+         (or (some? script) (some? file))
+         (not (and script file))]}
+  (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")
+        cmd (cond
+              (and win? file)
+              ["powershell.exe" "-ExecutionPolicy" "Bypass" "-File" file]
+
+              (and win? script)
+              ["powershell.exe" "-NoProfile" "-Command" script]
+
+              file
+              ["bash" file]
+
+              :else
+              ["bash" "-c" script])]
+    (p/process (cond-> {:cmd cmd
+                        :dir cwd
+                        :out :string
+                        :err :string
+                        :continue true}
+                 input (assoc :in input)))))
+
 (defn ^:private shell-command [arguments {:keys [db tool-call-id call-state-fn state-transition-fn]}]
   (let [command-args (get arguments "command")
         user-work-dir (get arguments "working_directory")
@@ -30,11 +64,8 @@
               _ (logger/debug logger-tag "Running command:" command-args)
               result (try
                        (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                       (p/process {:dir work-dir
-                                                   :out :string
-                                                   :err :string
-                                                   :timeout timeout
-                                                   :continue true} "bash -c" command-args))]
+                                       (start-shell-process! {:cwd work-dir
+                                                              :script command-args}))]
                          (do
                            (state-transition-fn :resources-created {:resources {:process proc}})
                            (try (deref proc

@@ -4,6 +4,7 @@
    [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.completion :as f.completion]
+   [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
@@ -73,10 +74,27 @@
                                 error)}}))
     (config/listen-for-changes! db*))
   (future
-    (f.tools/init-servers! db* messenger config metrics)))
+    (f.tools/init-servers! db* messenger config metrics))
+  ;; Trigger sessionStart hook after initialization
+  (f.hooks/trigger-if-matches! :sessionStart
+                               (f.hooks/base-hook-data @db*)
+                               {}
+                               @db*
+                               config))
 
-(defn shutdown [{:keys [db* metrics]}]
+(defn shutdown [{:keys [db* config metrics]}]
   (metrics/task metrics :eca/shutdown
+    ;; 1. Save cache BEFORE hook so db-cache-path contains current state
+    (db/update-workspaces-cache! @db* metrics)
+
+    ;; 2. Trigger sessionEnd hook
+    (f.hooks/trigger-if-matches! :sessionEnd
+                                 (f.hooks/base-hook-data @db*)
+                                 {}
+                                 @db*
+                                 config)
+
+    ;; 3. Then shutdown
     (f.mcp/shutdown! db*)
     (swap! db* assoc :stopping true)
     nil))
@@ -111,9 +129,9 @@
   (metrics/task metrics :eca/chat-prompt-stop
     (f.chat/prompt-stop params db* messenger metrics)))
 
-(defn chat-delete [{:keys [db* metrics]} params]
+(defn chat-delete [{:keys [db* config metrics]} params]
   (metrics/task metrics :eca/chat-delete
-    (f.chat/delete-chat params db* metrics)
+    (f.chat/delete-chat params db* config metrics)
     {}))
 
 (defn chat-rollback [{:keys [db* metrics messenger]} params]

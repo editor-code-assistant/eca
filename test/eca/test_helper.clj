@@ -60,7 +60,10 @@
 
 (defn reset-components! []
   (reset! config/initialization-config* {})
-  (reset! components* (make-components)))
+  (reset! components* (make-components))
+  ;; Set default workspace folder for tests
+  (swap! (db*) assoc :workspace-folders [{:uri (shared/filename->uri (System/getProperty "user.dir"))}]))
+
 (defn reset-components-before-test []
   (use-fixtures :each (fn [f] (reset-components!) (f))))
 (defn reset-messenger! [] (swap! components* assoc :messenger (:messenger (make-components))))

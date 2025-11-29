@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
+   [eca.features.hooks :as f.hooks]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -487,14 +488,15 @@
                     f.prompt/get-prompt! (fn [_ args-map _]
                                            (reset! prompt-args args-map)
                                            {:messages [{:role :user :content "test"}]})
-                    f.chat/prompt-messages! (fn [messages ctx] (reset! invoked? [messages ctx]))]
+                    f.chat/prompt-messages! (fn [messages source-type ctx]
+                                              (reset! invoked? [messages source-type ctx]))]
         (#'f.chat/send-mcp-prompt! {:prompt "awesome-prompt" :args [42 "yo"]} test-chat-ctx)
         (is (match?
              @prompt-args
              {"foo" 42 "bar" "yo"}))
         (is (match?
              @invoked?
-             [[{:role :user :content "test"}] test-chat-ctx]))))))
+             [[{:role :user :content "test"}] :mcp-prompt test-chat-ctx]))))))
 
 (deftest message->decision-test
   (testing "plain prompt message"
@@ -602,3 +604,169 @@
                 :content {:type :text :text "\n2"}
                 :role "assistant"}]}
              (h/messages)))))))
+
+(deftest decide-tool-call-action-test
+  (testing "config-based approval - allow"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config)
+          behavior :default
+          chat-id "test-chat"]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+          (is (match? {:decision :allow
+                       :arguments {:foo "bar"}
+                       :approval-override nil
+                       :hook-rejected? false
+                       :arguments-modified? false
+                       :reason {:code :user-config-allow
+                                :text string?}}
+                      plan))))))
+
+  (testing "config-based approval - ask"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config)
+          behavior :default
+          chat-id "test-chat"]
+      (with-redefs [f.tools/approval (constantly :ask)
+                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+          (is (match? {:decision :ask
+                       :arguments {:foo "bar"}
+                       :approval-override nil
+                       :hook-rejected? false
+                       :arguments-modified? false}
+                      plan))))))
+
+  (testing "config-based approval - deny"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config)
+          behavior :default
+          chat-id "test-chat"]
+      (with-redefs [f.tools/approval (constantly :deny)
+                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+          (is (match? {:decision :deny
+                       :arguments {:foo "bar"}
+                       :approval-override nil
+                       :hook-rejected? false
+                       :arguments-modified? false
+                       :reason {:code :user-config-deny
+                                :text string?}}
+                      plan))))))
+
+  (testing "hook approval override - allow to ask"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+                                              :actions [{:type "shell" :command "echo 'approval override'"}]}}})
+          behavior :default
+          chat-id "test-chat"
+          hook-call-count (atom 0)]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
+                                                  (when (= event :preToolCall)
+                                                    (swap! hook-call-count inc)
+                                                    (when-let [on-after (:on-after-action callbacks)]
+                                                      (on-after {:parsed {:approval "ask"}
+                                                                 :exit 0}))))]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+          (is (= 1 @hook-call-count))
+          (is (match? {:decision :ask
+                       :arguments {:foo "bar"}
+                       :approval-override "ask"
+                       :hook-rejected? false
+                       :arguments-modified? false}
+                      plan))))))
+
+  (testing "hook rejection via exit code 2"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+                                              :actions [{:type "shell" :command "exit 2"}]}}})
+          behavior :default
+          chat-id "test-chat"]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
+                                                  (when (= event :preToolCall)
+                                                    (when-let [on-after (:on-after-action callbacks)]
+                                                      (on-after {:parsed {:additionalContext "Hook rejected"}
+                                                                 :exit 2
+                                                                 :raw-error "Command failed"}))))]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+          (is (match? {:decision :deny
+                       :arguments {:foo "bar"}
+                       :approval-override nil
+                       :hook-rejected? true
+                       :arguments-modified? false
+                       :reason {:code :hook-rejected
+                                :text "Hook rejected"}
+                       :hook-continue true
+                       :hook-stop-reason nil}
+                      plan))))))
+
+  (testing "hook modifies arguments"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+                                              :actions [{:type "shell" :command "echo 'modify args'"}]}}})
+          behavior :default
+          chat-id "test-chat"]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
+                                                  (when (= event :preToolCall)
+                                                    (when-let [on-after (:on-after-action callbacks)]
+                                                      (on-after {:parsed {:updatedInput {:baz "qux"}}
+                                                                 :exit 0}))))]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+          (is (match? {:decision :allow
+                       :arguments {:foo "bar" :baz "qux"}
+                       :approval-override nil
+                       :hook-rejected? false
+                       :arguments-modified? true}
+                      plan)))))))

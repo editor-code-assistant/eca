@@ -16,7 +16,7 @@
           fake-repo-map (delay "TREE")
           behavior "agent"
           config {}
-          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config (h/db))]
+          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config nil (h/db))]
       (is (string/includes? result "You are ECA"))
       (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))
@@ -38,15 +38,15 @@
           fake-repo-map (delay "TREE")
           behavior "plan"
           config {}
-          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config (h/db))]
+          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config nil (h/db))]
       (is (string/includes? result "You are ECA"))
       (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))
       (is (string/includes? result "<rule name=\"rule2\">Second rule</rule>"))
-            (is (string/includes? result "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"))
-            (is (string/includes? result "<file path=\"foo.clj\">(ns foo)</file>"))
-            (is (string/includes? result "<file line-start=1 line-end=1 path=\"bar.clj\">(def a 1)</file>"))
-            (is (string/includes? result "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >TREE</repoMap>"))
-            (is (string/includes? result "<resource uri=\"custom://my-resource\">some-cool-content</resource>"))
-            (is (string/includes? result "</contexts>"))
-            (is (string? result)))))
+      (is (string/includes? result "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"))
+      (is (string/includes? result "<file path=\"foo.clj\">(ns foo)</file>"))
+      (is (string/includes? result "<file line-start=1 line-end=1 path=\"bar.clj\">(def a 1)</file>"))
+      (is (string/includes? result "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >TREE</repoMap>"))
+      (is (string/includes? result "<resource uri=\"custom://my-resource\">some-cool-content</resource>"))
+      (is (string/includes? result "</contexts>"))
+      (is (string? result)))))

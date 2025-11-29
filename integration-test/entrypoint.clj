@@ -3,10 +3,12 @@
    [babashka.process :refer [shell]]
    [clojure.test :as t]
    [integration.eca :as eca]
+   [integration.chat.hooks-test]
    [llm-mock.server :as llm-mock.server]))
 
 (def namespaces
   '[integration.initialize-test
+    integration.chat.hooks-test
     integration.chat.openai-test
     integration.chat.anthropic-test
     integration.chat.github-copilot-test
