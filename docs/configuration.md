@@ -341,29 +341,66 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
       }
     }
     ```
-    
+
 ## Hooks
 
-Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.
+Hooks are shell actions that run before or after specific events, useful for notifications, injecting context, modifying inputs, or blocking tool calls.
 
-Allowed hook types:
+### Hook Types
 
-- `preRequest`: Run before prompt is sent to LLM, if a hook output is provided, append to user prompt.
-- `postRequest`: Run after prompt is finished, when chat come back to idle state.
-- `preToolCall`: Run before a tool is called, if a hook exit with status `2`, reject the tool call.
-- `postToolCall`: Run after a tool was called.
+| Type | When | Can Modify |
+|------|------|------------|
+| `sessionStart` | Server initialized | - |
+| `sessionEnd` | Server shutting down | - |
+| `chatStart` | New chat or resumed chat | Can inject `additionalContext` |
+| `chatEnd` | Chat deleted | - |
+| `preRequest` | Before prompt sent to LLM | Can rewrite prompt, inject context, stop request |
+| `postRequest` | After prompt finished | - |
+| `preToolCall` | Before tool execution | Can modify args, override approval, reject |
+| `postToolCall` | After tool execution | Can inject context for next LLM turn |
 
-__Input__: Hooks will receive input as json with information from that event, like tool name, args or user prompt.
+### Hook Options
 
-__Output__: All hook actions allow printing output (stdout) and errors (stderr) which will be shown in chat.
+- **`matcher`**: Regex for `server__tool-name`, only for `*ToolCall` hooks.
+- **`visible`**: Show hook execution in chat (default: `true`).
+- **`runOnError`**: For `postToolCall`, run even if tool errored (default: `false`).
 
-__Matcher__: Specify whether to apply this hook checking a regex applying to `mcp__tool-name`, applicable only for `*ToolCall` hooks.
+### Execution Details
 
-__Visible__: whether to show or not this hook in chat when executing, defaults to true.
+- **Order**: Alphabetical by key. Prompt rewrites chain; argument updates merge (last wins).
+- **Conflict**: Any rejection (`deny` or exit `2`) blocks the call immediately.
+- **Timeout**: Actions time out after 30s unless `"timeout": ms` is set.
 
-Examples:
+### Input / Output
 
-=== "Notify after prompt finish"
+Hooks receive JSON via stdin with event data (top-level keys `snake_case`, nested data preserves case). Common fields:
+
+- All hooks: `hook_name`, `hook_type`, `workspaces`, `db_cache_path`
+- Chat hooks add: `chat_id`, `behavior`
+- Tool hooks add: `tool_name`, `server`, `tool_input`, `approval` (pre) or `tool_response`, `error` (post)
+- `chatStart` adds: `resumed` (boolean)
+
+Hooks can output JSON to control behavior:
+
+```javascript
+{
+  "additionalContext": "Extra context for LLM",  // injected as XML block
+  "replacedPrompt": "New prompt text",           // preRequest only
+  "updatedInput": {"key": "value"},              // preToolCall: merge into tool args
+  "approval": "allow" | "ask" | "deny",          // preToolCall: override approval
+  "continue": false,                             // stop processing (with optional stopReason)
+  "stopReason": "Why stopped",
+  "suppressOutput": true                         // hide hook output from chat
+}
+```
+
+Plain text output (non-JSON) is treated as `additionalContext`.
+
+To reject a tool call, either output `{"approval": "deny"}` or exit with code `2`.
+
+### Examples
+
+=== "Notify after prompt"
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -371,21 +408,16 @@ Examples:
         "notify-me": {
           "type": "postRequest",
           "visible": false,
-          "actions": [
-            {
-              "type": "shell",
-              "shell": "notify-send \"Hey, prompt finished!\""
-            }
-          ]
+          "actions": [{"type": "shell", "shell": "notify-send 'Prompt finished!'"}]
         }
       }
-    } 
+    }
     ```
-    
+
 === "Ring bell sound when pending tool call approval"
 
     ```javascript title="~/.config/eca/hooks/my-hook.sh"
-    [[ $(jq '.approval == "ask"' <<< "$1") ]] && canberra-gtk-play -i complete
+    jq -e '.approval == "ask"' > /dev/null && canberra-gtk-play -i complete
     ```
 
     ```javascript title="~/.config/eca/config.json"
@@ -397,7 +429,7 @@ Examples:
           "actions": [
             {
               "type": "shell",
-              "shell": "${file:hooks/my-hook.sh}"
+              "file": "hooks/my-hook.sh"
             }
           ]
         }
@@ -405,26 +437,85 @@ Examples:
     }
     ```
 
-
-=== "Block specific tool call checking hook arg"
+=== "Inject context on chat start"
 
     ```javascript title="~/.config/eca/config.json"
     {
       "hooks": {
-        "check-my-tool": {
-          "type": "preToolCall", 
-          "matcher": "my-mcp__some-tool",
-          "actions": [
-            {
-              "type": "shell",
-              "shell": "tool=$(jq '.\"tool-name\"' <<< \"$1\"); echo \"We should not run the $tool tool bro!\" >&2 && exit 2"
-            }
-          ]
+        "load-context": {
+          "type": "chatStart",
+          "actions": [{
+            "type": "shell",
+            "shell": "echo '{\"additionalContext\": \"Today is '$(date +%Y-%m-%d)'\"}'"
+          }]
         }
       }
     }
     ```
-    
+
+=== "Rewrite prompt"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "add-prefix": {
+          "type": "preRequest",
+          "actions": [{
+            "type": "shell",
+            "shell": "jq -c '{replacedPrompt: (\"[IMPORTANT] \" + .prompt)}'"
+          }]
+        }
+      }
+    }
+    ```
+
+=== "Block tool with JSON response"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "block-rm": {
+          "type": "preToolCall",
+          "matcher": "eca__shell_command",
+          "actions": [{
+            "type": "shell",
+            "shell": "if jq -e '.tool_input.command | test(\"rm -rf\")' > /dev/null; then echo '{\"approval\":\"deny\",\"additionalContext\":\"Dangerous command blocked\"}'; fi"
+          }]
+        }
+      }
+    }
+    ```
+
+=== "Modify tool arguments"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "force-recursive": {
+          "type": "preToolCall",
+          "matcher": "eca__directory_tree",
+          "actions": [{
+            "type": "shell",
+            "shell": "echo '{\"updatedInput\": {\"max_depth\": 3}}'"
+          }]
+        }
+      }
+    }
+    ```
+
+=== "Use external script file"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "my-hook": {
+          "type": "preToolCall",
+          "actions": [{"type": "shell", "file": "~/.config/eca/hooks/check-tool.sh"}]
+        }
+      }
+    }
+    ```
+
 ## Completion
 
 You can configure which model and system prompt ECA will use during its inline completion:
@@ -490,12 +581,16 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }};
         defaultModel?: string;
         hooks?: {[key: string]: {
-                type: 'preToolCall' | 'postToolCall' | 'preRequest' | 'postRequest';
-                matcher: string;
+                type: 'sessionStart' | 'sessionEnd' | 'chatStart' | 'chatEnd' |
+                      'preRequest' | 'postRequest' | 'preToolCall' | 'postToolCall';
+                matcher?: string; // regex for server__tool-name, only *ToolCall hooks
                 visible?: boolean;
+                runOnError?: boolean; // postToolCall only
                 actions: {
                     type: 'shell';
-                    shell: string;
+                    shell?: string; // inline script
+                    file?: string;  // path to script file
+                    timeout?: number; // ms, default 30000
                 }[];
             };
         };
