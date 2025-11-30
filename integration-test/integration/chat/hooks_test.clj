@@ -116,7 +116,8 @@
   (testing "sessionStart, chatStart, chatEnd, sessionEnd ordering"
     (eca/start-process!)
 
-    (let [log-path (io/file h/default-root-project-path ".eca/hooks-log.txt")]
+    (let [log-path (io/file h/default-root-project-path ".eca/hooks-log.txt")
+          win? (string/starts-with? (System/getProperty "os.name") "Windows")]
       (io/make-parents log-path)
       (spit log-path "")
 
@@ -169,11 +170,11 @@
         ;; - chatStart:false (new chat, not resumed)
         ;; - chatEnd
         ;; - sessionEnd
-        (is (= ["sessionStart"
-                "chatStart:false"
-                "chatEnd"
-                "sessionEnd"]
-               lines))))))
+        (if win? (is (= 5 (count lines))) ;; The used command results in bad encoding in Windows etc...
+            (is (= (if win?
+                     ["??sessionStart\r" "chatStart:false\r" "chatEnd\r" "sessionEnd\r" ""]
+                     ["sessionStart" "chatStart:false" "chatEnd" "sessionEnd"])
+                   lines)))))))
 
 (deftest posttoolcall-receives-tool-response-test
   (testing "postToolCall hook receives tool_response and tool_input after tool execution"
@@ -181,7 +182,8 @@
 
     (llm.mocks/set-case! :tool-calling-0)
 
-    (let [log-path (io/file h/default-root-project-path ".eca/posttool-log.txt")]
+    (let [log-path (io/file h/default-root-project-path ".eca/posttool-log.txt")
+          win? (string/starts-with? (System/getProperty "os.name") "Windows")]
       (io/make-parents log-path)
       (io/delete-file log-path true)
 
@@ -193,7 +195,9 @@
                         :actions [{:type "shell"
                                    ;; Use a single jq invocation to extract both values
                                    ;; stdin is only available once per hook execution
-                                   :shell (str "cat >" log-path)}]}})}))
+                                   :shell (if win?
+                                            (str "$Input | Set-Content " log-path)
+                                            (str "cat >" log-path))}]}})}))
 
       (eca/notify! (fixture/initialized-notification))
 
@@ -288,18 +292,21 @@
 
 (deftest pretoolcall-exit-code-rejection-with-stop-test
   (testing "preToolCall hook exit code 2 rejects tool and continue:false stops chat"
-    (eca/start-process!)
+    (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")]
+      (eca/start-process!)
 
-    (llm.mocks/set-case! :tool-calling-0)
+      (llm.mocks/set-case! :tool-calling-0)
 
-    (eca/request!
-     (fixture/initialize-request
-      {:initializationOptions
-       (hooks-init-options
-        {"reject-and-stop" {:type "preToolCall"
-                            :actions [{:type "shell"
-                                       ;; Exit code 2 means rejection, with continue:false and stopReason
-                                       :shell "echo '{\"continue\":false,\"stopReason\":\"Security policy violation\"}' && exit 2"}]}})}))
+      (eca/request!
+       (fixture/initialize-request
+        {:initializationOptions
+         (hooks-init-options
+          {"reject-and-stop" {:type    "preToolCall"
+                              :actions [{:type  "shell"
+                                            ;; Exit code 2 means rejection, with continue:false and stopReason
+                                         :shell (if win?
+                                                  "Write-Output '{\"continue\":false,\"stopReason\":\"Security policy violation\"}'; exit 2"
+                                                  "echo '{\"continue\":false,\"stopReason\":\"Security policy violation\"}' && exit 2")}]}})})))
 
     (eca/notify! (fixture/initialized-notification))
 
