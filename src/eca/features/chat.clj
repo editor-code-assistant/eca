@@ -834,18 +834,18 @@
                                                                        :on-after-hook-action  (partial notify-after-hook-action! chat-ctx)})
                       {:keys [decision arguments hook-rejected? reason hook-continue
                               hook-stop-reason arguments-modified?]} decision-plan
-                      _                                              (when arguments-modified?
-                                                                       (send-content! chat-ctx :system {:type :hookActionFinished
-                                                                                                        :action-type "shell"
-                                                                                                        :id (str (random-uuid))
-                                                                                                        :name "input-modification"
-                                                                                                        :status 0
-                                                                                                        :output "Hook modified tool arguments"}))
-                      _                                              (swap! db* assoc-in [:chats chat-id :tool-calls id :arguments] arguments)
-                      tool-call                                      (assoc tool-call :arguments arguments)
-                      ask?                                           (= :ask decision)
-                      details                                        (f.tools/tool-call-details-before-invocation name arguments server @db* ask?)
-                      summary                                        (f.tools/tool-call-summary all-tools full-name arguments config)]
+                      _ (when arguments-modified?
+                          (send-content! chat-ctx :system {:type :hookActionFinished
+                                                           :action-type "shell"
+                                                           :id (str (random-uuid))
+                                                           :name "input-modification"
+                                                           :status 0
+                                                           :output "Hook modified tool arguments"}))
+                      _ (swap! db* assoc-in [:chats chat-id :tool-calls id :arguments] arguments)
+                      tool-call (assoc tool-call :arguments arguments)
+                      ask? (= :ask decision)
+                      details (f.tools/tool-call-details-before-invocation name arguments server @db* ask?)
+                      summary (f.tools/tool-call-summary all-tools full-name arguments config)]
                   (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                     (transition-tool-call! db* chat-ctx id :tool-run {:approved?* approved?*
                                                                       :future-cleanup-complete?* (promise)
@@ -858,73 +858,76 @@
                                                                       :summary summary}))
                   (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state @db* chat-id id)))
                     (case decision
-                      :ask   (transition-tool-call! db* chat-ctx id :approval-ask {:progress-text "Waiting for tool call approval"})
+                      :ask (transition-tool-call! db* chat-ctx id :approval-ask {:progress-text "Waiting for tool call approval"})
                       :allow (transition-tool-call! db* chat-ctx id :approval-allow {:reason reason})
-                      :deny  (transition-tool-call! db* chat-ctx id :approval-deny {:reason reason})
+                      :deny (transition-tool-call! db* chat-ctx id :approval-deny {:reason reason})
                       (logger/warn logger-tag "Unknown value of approval" {:approval decision :tool-call-id id})))
                   (if (and @approved?* (not hook-rejected?))
                     (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                       (assert-chat-not-stopped! chat-ctx)
-                      (let [delayed-future (delay (future (let [result (f.tools/call-tool! name
-                                                                                           arguments
-                                                                                           chat-id
-                                                                                           id
-                                                                                           behavior
-                                                                                           db*
-                                                                                           config
-                                                                                           messenger
-                                                                                           metrics
-                                                                                           (partial get-tool-call-state @db* chat-id id)
-                                                                                           (partial transition-tool-call! db* chat-ctx id))
-                                                                details              (f.tools/tool-call-details-after-invocation name arguments details result)
-                                                                {:keys [start-time]} (get-tool-call-state @db* chat-id id)
-                                                                total-time-ms        (- (System/currentTimeMillis) start-time)]
-                                                            (add-to-history! {:role "tool_call"
-                                                                              :content (assoc tool-call
-                                                                                              :name name
-                                                                                              :details details
-                                                                                              :summary summary
-                                                                                              :origin origin
-                                                                                              :server server-name)})
-                                                            (add-to-history! {:role "tool_call_output"
-                                                                              :content (assoc tool-call
-                                                                                              :name name
-                                                                                              :error (:error result)
-                                                                                              :output result
-                                                                                              :total-time-ms total-time-ms
-                                                                                              :details details
-                                                                                              :summary summary
-                                                                                              :origin origin
-                                                                                              :server server-name)})
-                                                            (let [state (get-tool-call-state @db* chat-id id) status (:status state)]
-                                                              (case status
-                                                                :executing (transition-tool-call! db*
-                                                                                                  chat-ctx
-                                                                                                  id
-                                                                                                  :execution-end {:origin origin
-                                                                                                                  :name name
-                                                                                                                  :server server-name
-                                                                                                                  :arguments arguments
-                                                                                                                  :error (:error result)
-                                                                                                                  :outputs (:contents result)
-                                                                                                                  :total-time-ms total-time-ms
-                                                                                                                  :progress-text "Generating"
-                                                                                                                  :details details
-                                                                                                                  :summary summary})
-                                                                :stopping (transition-tool-call! db*
-                                                                                                 chat-ctx
-                                                                                                 id
-                                                                                                 :stop-attempted {:origin origin
-                                                                                                                  :name name
-                                                                                                                  :server server-name
-                                                                                                                  :arguments arguments
-                                                                                                                  :error (:error result)
-                                                                                                                  :outputs (:contents result)
-                                                                                                                  :total-time-ms total-time-ms
-                                                                                                                  :reason :user-stop :details
-                                                                                                                  details
-                                                                                                                  :summary summary})
-                                                                (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
+                      (let [delayed-future
+                            (delay
+                              (future
+                                (let [result (f.tools/call-tool! name
+                                                                 arguments
+                                                                 chat-id
+                                                                 id
+                                                                 behavior
+                                                                 db*
+                                                                 config
+                                                                 messenger
+                                                                 metrics
+                                                                 (partial get-tool-call-state @db* chat-id id)
+                                                                 (partial transition-tool-call! db* chat-ctx id))
+                                      details (f.tools/tool-call-details-after-invocation name arguments details result)
+                                      {:keys [start-time]} (get-tool-call-state @db* chat-id id)
+                                      total-time-ms (- (System/currentTimeMillis) start-time)]
+                                  (add-to-history! {:role "tool_call"
+                                                    :content (assoc tool-call
+                                                                    :name name
+                                                                    :details details
+                                                                    :summary summary
+                                                                    :origin origin
+                                                                    :server server-name)})
+                                  (add-to-history! {:role "tool_call_output"
+                                                    :content (assoc tool-call
+                                                                    :name name
+                                                                    :error (:error result)
+                                                                    :output result
+                                                                    :total-time-ms total-time-ms
+                                                                    :details details
+                                                                    :summary summary
+                                                                    :origin origin
+                                                                    :server server-name)})
+                                  (let [state (get-tool-call-state @db* chat-id id) status (:status state)]
+                                    (case status
+                                      :executing (transition-tool-call! db*
+                                                                        chat-ctx
+                                                                        id
+                                                                        :execution-end {:origin origin
+                                                                                        :name name
+                                                                                        :server server-name
+                                                                                        :arguments arguments
+                                                                                        :error (:error result)
+                                                                                        :outputs (:contents result)
+                                                                                        :total-time-ms total-time-ms
+                                                                                        :progress-text "Generating"
+                                                                                        :details details
+                                                                                        :summary summary})
+                                      :stopping (transition-tool-call! db*
+                                                                       chat-ctx
+                                                                       id
+                                                                       :stop-attempted {:origin origin
+                                                                                        :name name
+                                                                                        :server server-name
+                                                                                        :arguments arguments
+                                                                                        :error (:error result)
+                                                                                        :outputs (:contents result)
+                                                                                        :total-time-ms total-time-ms
+                                                                                        :reason :user-stop :details
+                                                                                        details
+                                                                                        :summary summary})
+                                      (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
                         (transition-tool-call! db*
                                                chat-ctx
                                                id
@@ -968,16 +971,24 @@
                  (catch Throwable t
                    (logger/debug logger-tag
                                  "Ignoring a Throwable while deref'ing a tool call future"
-                                 {:tool-call-id tool-call-id :ex-data (ex-data t) :message (.getMessage t) :cause (.getCause t)}))
+                                 {:tool-call-id tool-call-id
+                                  :ex-data (ex-data t)
+                                  :message (.getMessage t)
+                                  :cause (.getCause t)}))
                  (finally (try (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)]
-                                 (transition-tool-call! db*
-                                                        chat-ctx
-                                                        tool-call-id
-                                                        :cleanup-finished (merge {:name (:name tool-call-state)
-                                                                                  :full-name (:full-name tool-call-state)}
-                                                                                 (select-keys tool-call-state [:outputs :error :total-time-ms]))))
+                                 (transition-tool-call!
+                                  db*
+                                  chat-ctx
+                                  tool-call-id
+                                  :cleanup-finished (merge {:name (:name tool-call-state)
+                                                            :full-name (:full-name tool-call-state)}
+                                                           (select-keys tool-call-state [:outputs :error :total-time-ms]))))
                                (catch Throwable t
-                                 (logger/debug logger-tag "Ignoring an exception while finishing tool call" {:tool-call-id tool-call-id :ex-data (ex-data t) :message (.getMessage t) :cause (.getCause t)})))))))
+                                 (logger/debug logger-tag "Ignoring an exception while finishing tool call"
+                                               {:tool-call-id tool-call-id
+                                                :ex-data (ex-data t)
+                                                :message (.getMessage t)
+                                                :cause (.getCause t)})))))))
         (if-let [rejection-info @rejected-tool-call-info*]
           (let [reason-code
                 (if (map? rejection-info) (:code rejection-info) rejection-info)
@@ -987,11 +998,15 @@
                 (when (map? rejection-info) (:hook-stop-reason rejection-info))]
             (if (= :hook-rejected reason-code)
               (if (false? hook-continue)
-                (do (send-content! chat-ctx :system {:type :text :text (or hook-stop-reason "Tool rejected by hook")}) (finish-chat-prompt! :idle chat-ctx) nil)
+                (do (send-content! chat-ctx :system {:type :text
+                                                     :text (or hook-stop-reason "Tool rejected by hook")})
+                    (finish-chat-prompt! :idle chat-ctx) nil)
                 {:new-messages (get-in @db* [:chats chat-id :messages])})
               (do (send-content! chat-ctx :system {:type :text
                                                    :text "Tell ECA what to do differently for the rejected tool(s)"})
-                  (add-to-history! {:role "user" :content [{:type :text :text "I rejected one or more tool calls with the following reason"}]})
+                  (add-to-history! {:role "user"
+                                    :content [{:type :text
+                                               :text "I rejected one or more tool calls with the following reason"}]})
                   (finish-chat-prompt! :idle chat-ctx)
                   nil)))
           {:new-messages (get-in @db* [:chats chat-id :messages])})))))
@@ -1003,68 +1018,69 @@
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
    {:keys [db* config chat-id behavior full-model instructions metrics message] :as chat-ctx}]
-  (let [original-text   (or message (-> user-messages first :content first :text))
+  (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
-        run-hooks?      (#{:prompt-message :eca-command :mcp-prompt} source-type)
-        user-messages   (if run-hooks?
-                          (let [{:keys [final-prompt additional-contexts stop?]}
-                                (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
-                            (cond
-                              stop? (do (finish-chat-prompt! :idle chat-ctx) nil)
-                              :else (let [last-user-idx (or (find-last-user-msg-idx user-messages)
-                                                            (dec (count user-messages)))
-                                          rewritten     (if (and modify-allowed?
-                                                                 last-user-idx
-                                                                 final-prompt)
-                                                          (assoc-in user-messages [last-user-idx :content 0 :text] final-prompt)
-                                                          user-messages)
-                                          with-contexts (if (seq additional-contexts)
-                                                          (reduce (fn [msgs {:keys [hook-name content]}]
-                                                                    (update-in msgs [last-user-idx :content]
-                                                                               #(conj (vec %)
-                                                                                      {:type :text
-                                                                                       :text (wrap-additional-context hook-name content)})))
-                                                                  rewritten
-                                                                  additional-contexts)
-                                                          rewritten)]
-                                      with-contexts)))
-                          user-messages)]
+        run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
+        user-messages (if run-hooks?
+                        (let [{:keys [final-prompt additional-contexts stop?]}
+                              (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
+                          (cond
+                            stop? (do (finish-chat-prompt! :idle chat-ctx) nil)
+                            :else (let [last-user-idx (or (find-last-user-msg-idx user-messages)
+                                                          (dec (count user-messages)))
+                                        rewritten     (if (and modify-allowed?
+                                                               last-user-idx
+                                                               final-prompt)
+                                                        (assoc-in user-messages [last-user-idx :content 0 :text] final-prompt)
+                                                        user-messages)
+                                        with-contexts (if (seq additional-contexts)
+                                                        (reduce (fn [msgs {:keys [hook-name content]}]
+                                                                  (update-in msgs [last-user-idx :content]
+                                                                             #(conj (vec %)
+                                                                                    {:type :text
+                                                                                     :text (wrap-additional-context hook-name content)})))
+                                                                rewritten
+                                                                additional-contexts)
+                                                        rewritten)]
+                                    with-contexts)))
+                        user-messages)]
     (when user-messages
       (swap! db* assoc-in [:chats chat-id :status] :running)
       (let [[provider model]   (string/split full-model #"/" 2)
-            _                  (f.login/maybe-renew-auth-token!
-                                {:provider    provider
-                                 :on-renewing (fn []
-                                                (send-content! chat-ctx :system {:type  :progress
-                                                                                 :state :running
-                                                                                 :text  "Renewing auth token"}))
-                                 :on-error    (fn [error-msg]
-                                                (send-content! chat-ctx :system {:type :text :text error-msg})
-                                                (finish-chat-prompt! :idle chat-ctx)
-                                                (throw (ex-info "Auth token renew failed" {})))}
-                                chat-ctx)
-            db                 @db*
-            past-messages      (get-in db [:chats chat-id :messages] [])
+            _  (f.login/maybe-renew-auth-token!
+                {:provider provider
+                 :on-renewing (fn []
+                                (send-content! chat-ctx :system {:type  :progress
+                                                                 :state :running
+                                                                 :text  "Renewing auth token"}))
+                 :on-error (fn [error-msg]
+                             (send-content! chat-ctx :system {:type :text :text error-msg})
+                             (finish-chat-prompt! :idle chat-ctx)
+                             (throw (ex-info "Auth token renew failed" {})))}
+                chat-ctx)
+            db @db*
+            past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
-            provider-auth      (get-in @db* [:auth provider])
-            all-tools          (f.tools/all-tools chat-id behavior @db* config)
-            received-msgs*     (atom "")
-            reasonings*        (atom {})
-            add-to-history!    (fn [msg]
-                                 (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
-            on-usage-updated   (fn [usage]
-                                 (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
-                                   (send-content! chat-ctx :system (merge {:type :usage} usage))))]
+            provider-auth (get-in @db* [:auth provider])
+            all-tools (f.tools/all-tools chat-id behavior @db* config)
+            received-msgs* (atom "")
+            reasonings* (atom {})
+            add-to-history! (fn [msg]
+                              (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+            on-usage-updated (fn [usage]
+                               (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
+                                 (send-content! chat-ctx :system (merge {:type :usage} usage))))]
         (when-not (get-in db [:chats chat-id :title])
           (future* config
             (when-let [{:keys [output-text]} (llm-api/sync-prompt!
-                                              {:provider           provider
-                                               :model              model
-                                               :model-capabilities (assoc model-capabilities :reason? false :tools false :web-search false)
-                                               :instructions       (f.prompt/title-prompt)
-                                               :user-messages      user-messages
-                                               :config             config
-                                               :provider-auth      provider-auth})]
+                                              {:provider provider
+                                               :model model
+                                               :model-capabilities
+                                               (assoc model-capabilities :reason? false :tools false :web-search false)
+                                               :instructions (f.prompt/title-prompt)
+                                               :user-messages user-messages
+                                               :config config
+                                               :provider-auth provider-auth})]
               (when output-text
                 (let [title (subs output-text 0 (min (count output-text) 30))]
                   (swap! db* assoc-in [:chats chat-id :title] title)
@@ -1074,21 +1090,23 @@
         (send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (future* config
           (llm-api/sync-or-async-prompt!
-           {:model                      model
-            :provider                   provider
-            :model-capabilities         model-capabilities
-            :user-messages              user-messages
-            :instructions               instructions
-            :past-messages              past-messages
-            :config                     config
-            :tools                      all-tools
-            :provider-auth              provider-auth
+           {:model model
+            :provider provider
+            :model-capabilities model-capabilities
+            :user-messages user-messages
+            :instructions  instructions
+            :past-messages  past-messages
+            :config  config
+            :tools all-tools
+            :provider-auth provider-auth
             :on-first-response-received (fn [& _]
                                           (assert-chat-not-stopped! chat-ctx)
                                           (doseq [message user-messages]
                                             (add-to-history!
                                              (assoc message :content-id (:user-content-id chat-ctx))))
-                                          (send-content! chat-ctx :system {:type :progress :state :running :text "Generating"}))
+                                          (send-content! chat-ctx :system {:type :progress
+                                                                           :state :running
+                                                                           :text "Generating"}))
             :on-usage-updated on-usage-updated
             :on-message-received (fn [{:keys [type] :as msg}]
                                    (assert-chat-not-stopped! chat-ctx)
@@ -1096,9 +1114,14 @@
                                      :text (do (swap! received-msgs* str (:text msg))
                                                (send-content! chat-ctx :assistant {:type :text :text (:text msg)}))
                                      :url (send-content! chat-ctx :assistant {:type :url :title (:title msg) :url (:url msg)})
-                                     :limit-reached (do (send-content! chat-ctx :system {:type :text :text (str "API limit reached. Tokens: " (json/generate-string (:tokens msg)))})
+                                     :limit-reached (do (send-content!
+                                                         chat-ctx
+                                                         :system
+                                                         {:type :text
+                                                          :text (str "API limit reached. Tokens: "
+                                                                     (json/generate-string (:tokens msg)))})
                                                         (finish-chat-prompt! :idle chat-ctx))
-                                     :finish (do (add-to-history! {:role    "assistant"
+                                     :finish (do (add-to-history! {:role "assistant"
                                                                    :content [{:type :text :text @received-msgs*}]})
                                                  (finish-chat-prompt! :idle chat-ctx))))
             :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
@@ -1115,9 +1138,17 @@
             :on-reason (fn [{:keys [status id text external-id]}]
                          (assert-chat-not-stopped! chat-ctx)
                          (case status
-                           :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis)) (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
-                           :thinking (do (swap! reasonings* update-in [id :text] str text) (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
-                           :finished (let [total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))] (add-to-history! {:role "reason" :content {:id id :external-id external-id :total-time-ms total-time-ms :text (get-in @reasonings* [id :text])}}) (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id}))
+                           :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
+                                         (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
+                           :thinking (do (swap! reasonings* update-in [id :text] str text)
+                                         (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
+                           :finished (let [total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))]
+                                       (add-to-history! {:role "reason"
+                                                         :content {:id id
+                                                                   :external-id external-id
+                                                                   :total-time-ms total-time-ms
+                                                                   :text (get-in @reasonings* [id :text])}})
+                                       (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id}))
                            nil))
             :on-error (fn [{:keys [message exception]}]
                         (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
