@@ -276,6 +276,8 @@ You can configure in multiple different ways:
     ```markdown title=".eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
+    
+    ECA will make available a `/check-performance` command after creating that file.
 
 === "Global custom commands"
 
@@ -284,6 +286,8 @@ You can configure in multiple different ways:
     ```markdown title="~/.config/eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
+    
+    ECA will make available a `/check-performance` command after creating that file.
 
 === "Config"
 
@@ -294,6 +298,8 @@ You can configure in multiple different ways:
       "commands": [{"path": "my-custom-prompt.md"}]
     }
     ```
+    
+    ECA will make available a `/my-custom-prompt` command after creating that file.
 
 ## Rules
 
