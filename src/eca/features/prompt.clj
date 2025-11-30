@@ -35,7 +35,7 @@
 (defn ^:private replace-vars [s vars]
   (reduce
    (fn [p [k v]]
-     (string/replace p (str "{" (name k) "}") (str v)))
+     (string/replace p (str "{{" (name k) "}}") (str v)))
    s
    vars))
 

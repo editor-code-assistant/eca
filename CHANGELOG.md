@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix custom tools to support argument numbers.
+- Improve read_file summary to mention offset being read.
 
 ## 0.84.2
 

@@ -3,6 +3,7 @@
    eca native tools and MCP servers."
   (:require
    [clojure.string :as string]
+   [clojure.walk :as walk]
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
@@ -38,14 +39,29 @@
     (fn [tool]
       (assoc-some tool :disabled (contains? disabled-tools (:name tool))))))
 
+(defn ^:private replace-string-values-with-vars
+  "walk through config parsing dynamic string contents if value is a string."
+  [m vars]
+  (walk/postwalk
+   (fn [x]
+     (if (string? x)
+       (reduce
+        (fn [s [k v]]
+          (string/replace s (str "{{" (name k) "}}") (str v)))
+        x
+        vars)
+       x))
+   m))
+
 (defn ^:private native-definitions [db config]
   (into
    {}
    (map (fn [[name tool]]
           [name (-> tool
                     (assoc :name name)
-                    (update :description #(-> %
-                                              (string/replace #"\{workspaceRoots\}" (constantly (tools.util/workspace-roots-strs db))))))]))
+                    (replace-string-values-with-vars
+                      {:workspaceRoots (tools.util/workspace-roots-strs db)
+                       :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
    (merge {}
           f.tools.filesystem/definitions
           f.tools.shell/definitions
