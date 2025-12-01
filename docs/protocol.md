@@ -559,14 +559,15 @@ type ChatContent =
 /**
  * Simple text message from the LLM
  */
-interface ChatTextContent extends BaseChatContent {
+interface ChatTextContent {
     type: 'text';
     
     /**
      * The unique identifier of this content.
      * Mostly used to rollback messages.
+     * Current, only user messages contain this.
      */
-    contentId: string;
+    contentId?: string;
 
     /**
      * The text content

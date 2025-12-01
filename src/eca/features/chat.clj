@@ -1443,7 +1443,7 @@
   (let [include (if (seq include)
                   (set include)
                   ;; backwards compatibility
-                  ["messages" "tools"])
+                  #{"messages" "tools"})
         all-messages (get-in @db* [:chats chat-id :messages])
         tool-calls (get-in @db* [:chats chat-id :tool-calls])
         new-messages (when (contains? include "messages")
