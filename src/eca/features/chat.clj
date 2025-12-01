@@ -1440,7 +1440,10 @@
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."
   [{:keys [chat-id content-id include]} db* messenger]
-  (let [include (set include)
+  (let [include (if (seq include)
+                  (set include)
+                  ;; backwards compatibility
+                  ["messages" "tools"])
         all-messages (get-in @db* [:chats chat-id :messages])
         tool-calls (get-in @db* [:chats chat-id :tool-calls])
         new-messages (when (contains? include "messages")
