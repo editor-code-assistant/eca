@@ -613,6 +613,57 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hook-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hook Types
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hook-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hook Options
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execution Details
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      Input / Output
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1035,6 +1086,57 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#hook-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hook Types
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hook-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hook Options
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execution Details
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      Input / Output
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1387,20 +1489,94 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 </div>
 </div>
 <h2 id="hooks">Hooks<a class="headerlink" href="#hooks" title="Permanent link">#</a></h2>
-<p>Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.</p>
-<p>Allowed hook types:</p>
+<p>Hooks are shell actions that run before or after specific events, useful for notifications, injecting context, modifying inputs, or blocking tool calls.</p>
+<h3 id="hook-types">Hook Types<a class="headerlink" href="#hook-types" title="Permanent link">#</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>When</th>
+<th>Can Modify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sessionStart</code></td>
+<td>Server initialized</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>sessionEnd</code></td>
+<td>Server shutting down</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>chatStart</code></td>
+<td>New chat or resumed chat</td>
+<td>Can inject <code>additionalContext</code></td>
+</tr>
+<tr>
+<td><code>chatEnd</code></td>
+<td>Chat deleted</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>preRequest</code></td>
+<td>Before prompt sent to LLM</td>
+<td>Can rewrite prompt, inject context, stop request</td>
+</tr>
+<tr>
+<td><code>postRequest</code></td>
+<td>After prompt finished</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>preToolCall</code></td>
+<td>Before tool execution</td>
+<td>Can modify args, override approval, reject</td>
+</tr>
+<tr>
+<td><code>postToolCall</code></td>
+<td>After tool execution</td>
+<td>Can inject context for next LLM turn</td>
+</tr>
+</tbody>
+</table>
+<h3 id="hook-options">Hook Options<a class="headerlink" href="#hook-options" title="Permanent link">#</a></h3>
 <ul>
-<li><code>preRequest</code>: Run before prompt is sent to LLM, if a hook output is provided, append to user prompt.</li>
-<li><code>postRequest</code>: Run after prompt is finished, when chat come back to idle state.</li>
-<li><code>preToolCall</code>: Run before a tool is called, if a hook exit with status <code>2</code>, reject the tool call.</li>
-<li><code>postToolCall</code>: Run after a tool was called.</li>
+<li><strong><code>matcher</code></strong>: Regex for <code>server__tool-name</code>, only for <code>*ToolCall</code> hooks.</li>
+<li><strong><code>visible</code></strong>: Show hook execution in chat (default: <code>true</code>).</li>
+<li><strong><code>runOnError</code></strong>: For <code>postToolCall</code>, run even if tool errored (default: <code>false</code>).</li>
 </ul>
-<p><strong>Input</strong>: Hooks will receive input as json with information from that event, like tool name, args or user prompt.</p>
-<p><strong>Output</strong>: All hook actions allow printing output (stdout) and errors (stderr) which will be shown in chat.</p>
-<p><strong>Matcher</strong>: Specify whether to apply this hook checking a regex applying to <code>mcp__tool-name</code>, applicable only for <code>*ToolCall</code> hooks.</p>
-<p><strong>Visible</strong>: whether to show or not this hook in chat when executing, defaults to true.</p>
-<p>Examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="8:3"><input checked="checked" id="notify-after-prompt-finish" name="__tabbed_8" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_8" type="radio" /><input id="block-specific-tool-call-checking-hook-arg" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt-finish">Notify after prompt finish</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="block-specific-tool-call-checking-hook-arg">Block specific tool call checking hook arg</label></div>
+<h3 id="execution-details">Execution Details<a class="headerlink" href="#execution-details" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Order</strong>: Alphabetical by key. Prompt rewrites chain; argument updates merge (last wins).</li>
+<li><strong>Conflict</strong>: Any rejection (<code>deny</code> or exit <code>2</code>) blocks the call immediately.</li>
+<li><strong>Timeout</strong>: Actions time out after 30s unless <code>"timeout": ms</code> is set.</li>
+</ul>
+<h3 id="input-output">Input / Output<a class="headerlink" href="#input-output" title="Permanent link">#</a></h3>
+<p>Hooks receive JSON via stdin with event data (top-level keys <code>snake_case</code>, nested data preserves case). Common fields:</p>
+<ul>
+<li>All hooks: <code>hook_name</code>, <code>hook_type</code>, <code>workspaces</code>, <code>db_cache_path</code></li>
+<li>Chat hooks add: <code>chat_id</code>, <code>behavior</code></li>
+<li>Tool hooks add: <code>tool_name</code>, <code>server</code>, <code>tool_input</code>, <code>approval</code> (pre) or <code>tool_response</code>, <code>error</code> (post)</li>
+<li><code>chatStart</code> adds: <code>resumed</code> (boolean)</li>
+</ul>
+<p>Hooks can output JSON to control behavior:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;additionalContext&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Extra context for LLM&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1">// injected as XML block</span>
+<span class="w">  </span><span class="s2">&quot;replacedPrompt&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;New prompt text&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// preRequest only</span>
+<span class="w">  </span><span class="s2">&quot;updatedInput&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;value&quot;</span><span class="p">},</span><span class="w">              </span><span class="c1">// preToolCall: merge into tool args</span>
+<span class="w">  </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;ask&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;deny&quot;</span><span class="p">,</span><span class="w">          </span><span class="c1">// preToolCall: override approval</span>
+<span class="w">  </span><span class="s2">&quot;continue&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">                             </span><span class="c1">// stop processing (with optional stopReason)</span>
+<span class="w">  </span><span class="s2">&quot;stopReason&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Why stopped&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">&quot;suppressOutput&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="w">                         </span><span class="c1">// hide hook output from chat</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Plain text output (non-JSON) is treated as <code>additionalContext</code>.</p>
+<p>To reject a tool call, either output <code>{"approval": "deny"}</code> or exit with code <code>2</code>.</p>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h3>
+<div class="tabbed-set tabbed-alternate" data-tabs="8:7"><input checked="checked" id="notify-after-prompt" name="__tabbed_8" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_8" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_8" type="radio" /><input id="rewrite-prompt" name="__tabbed_8" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_8" type="radio" /><input id="modify-tool-arguments" name="__tabbed_8" type="radio" /><input id="use-external-script-file" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="use-external-script-file">Use external script file</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1408,19 +1584,14 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="w">    </span><span class="s2">&quot;notify-me&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;postRequest&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;visible&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">        </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;notify-send \&quot;Hey, prompt finished!\&quot;&quot;</span>
-<span class="w">        </span><span class="p">}</span>
-<span class="w">      </span><span class="p">]</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;notify-send &#39;Prompt finished!&#39;&quot;</span><span class="p">}]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
-<span class="p">}</span><span class="w"> </span>
+<span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><span class="filename">~/.config/eca/hooks/my-hook.sh</span><pre><span></span><code><span class="p">[[</span><span class="w"> </span><span class="nx">$</span><span class="p">(</span><span class="nx">jq</span><span class="w"> </span><span class="s1">&#39;.approval == &quot;ask&quot;&#39;</span><span class="w"> </span><span class="o">&lt;&lt;&lt;</span><span class="w"> </span><span class="s2">&quot;$1&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">]]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">canberra</span><span class="o">-</span><span class="nx">gtk</span><span class="o">-</span><span class="nx">play</span><span class="w"> </span><span class="o">-</span><span class="nx">i</span><span class="w"> </span><span class="nx">complete</span>
+<div class="highlight"><span class="filename">~/.config/eca/hooks/my-hook.sh</span><pre><span></span><code><span class="nx">jq</span><span class="w"> </span><span class="o">-</span><span class="nx">e</span><span class="w"> </span><span class="s1">&#39;.approval == &quot;ask&quot;&#39;</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="err">/dev/null &amp;&amp; canberra-gtk-play -i complete</span>
 </code></pre></div>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1430,7 +1601,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span>
 <span class="w">          </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${file:hooks/my-hook.sh}&quot;</span>
+<span class="w">          </span><span class="s2">&quot;file&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;hooks/my-hook.sh&quot;</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">]</span>
 <span class="w">    </span><span class="p">}</span>
@@ -1441,15 +1612,67 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;check-my-tool&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;preToolCall&quot;</span><span class="p">,</span><span class="w"> </span>
-<span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-mcp__some-tool&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">        </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;tool=$(jq &#39;.\&quot;tool-name\&quot;&#39; &lt;&lt;&lt; \&quot;$1\&quot;); echo \&quot;We should not run the $tool tool bro!\&quot; &gt;&amp;2 &amp;&amp; exit 2&quot;</span>
-<span class="w">        </span><span class="p">}</span>
-<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="s2">&quot;load-context&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;chatStart&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;echo &#39;{\&quot;additionalContext\&quot;: \&quot;Today is &#39;$(date +%Y-%m-%d)&#39;\&quot;}&#39;&quot;</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;add-prefix&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;preRequest&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;jq -c &#39;{replacedPrompt: (\&quot;[IMPORTANT] \&quot; + .prompt)}&#39;&quot;</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;block-rm&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;preToolCall&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca__shell_command&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;if jq -e &#39;.tool_input.command | test(\&quot;rm -rf\&quot;)&#39; &gt; /dev/null; then echo &#39;{\&quot;approval\&quot;:\&quot;deny\&quot;,\&quot;additionalContext\&quot;:\&quot;Dangerous command blocked\&quot;}&#39;; fi&quot;</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;force-recursive&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;preToolCall&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca__directory_tree&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;echo &#39;{\&quot;updatedInput\&quot;: {\&quot;max_depth\&quot;: 3}}&#39;&quot;</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;my-hook&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;preToolCall&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;file&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;~/.config/eca/hooks/check-tool.sh&quot;</span><span class="p">}]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1517,12 +1740,16 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="w">    </span><span class="p">}};</span>
 <span class="w">    </span><span class="nx">defaultModel?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">    </span><span class="nx">hooks</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;preToolCall&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;postToolCall&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;preRequest&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;postRequest&#39;</span><span class="p">;</span>
-<span class="w">            </span><span class="nx">matcher</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">            </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;sessionStart&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;sessionEnd&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;chatStart&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;chatEnd&#39;</span><span class="w"> </span><span class="o">|</span>
+<span class="w">                  </span><span class="s1">&#39;preRequest&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;postRequest&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;preToolCall&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;postToolCall&#39;</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">matcher?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// regex for server__tool-name, only *ToolCall hooks</span>
 <span class="w">            </span><span class="nx">visible?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">runOnError?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w"> </span><span class="c1">// postToolCall only</span>
 <span class="w">            </span><span class="nx">actions</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">                </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;shell&#39;</span><span class="p">;</span>
-<span class="w">                </span><span class="nx">shell</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">                </span><span class="nx">shell?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// inline script</span>
+<span class="w">                </span><span class="nx">file?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">  </span><span class="c1">// path to script file</span>
+<span class="w">                </span><span class="nx">timeout?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="c1">// ms, default 30000</span>
 <span class="w">            </span><span class="p">}[];</span>
 <span class="w">        </span><span class="p">};</span>
 <span class="w">    </span><span class="p">};</span>
@@ -1695,7 +1922,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 30, 2025 18:36:25 UTC">November 30, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 1, 2025 13:51:55 UTC">December 1, 2025</span>
   </span>
 
     
