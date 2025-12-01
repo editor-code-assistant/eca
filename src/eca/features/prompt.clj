@@ -59,7 +59,7 @@
       :else
       (load-builtin-prompt "agent_behavior.md"))))
 
-(defn contexts-str [refined-contexts repo-map*]
+(defn contexts-str [refined-contexts repo-map* startup-ctx]
   (multi-str
    "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"
    ""
@@ -86,9 +86,12 @@
                          "")))
     ""
     refined-contexts)
+   ;; TODO - should be refined contexts?
+   (when startup-ctx
+     (str "\n<additionalContext from=\"chatStart\">\n" startup-ctx "\n</additionalContext>\n\n"))
    "</contexts>"))
 
-(defn build-chat-instructions [refined-contexts rules repo-map* behavior config db]
+(defn build-chat-instructions [refined-contexts rules repo-map* behavior config chat-id db]
   (multi-str
    (eca-chat-prompt behavior config)
    (when (seq rules)
@@ -105,7 +108,7 @@
    (when (seq refined-contexts)
      ["## Contexts"
       ""
-      (contexts-str refined-contexts repo-map*)])
+      (contexts-str refined-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
    ""
    (replace-vars
     (load-builtin-prompt "additional_system_info.md")

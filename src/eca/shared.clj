@@ -4,7 +4,8 @@
    [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
-   [clojure.walk :as walk])
+   [clojure.walk :as walk]
+   [eca.cache :as cache])
   (:import
    [java.net URI]
    [java.nio.file Paths]
@@ -143,6 +144,12 @@
                        x))
                    m)))
 
+(defn map->snake-cased-map
+  "Converts top-level keyword keys to snake_case strings.
+ Used for hook script inputs to follow shell/bash conventions."
+  [m]
+  (update-keys m #(if (keyword %) (csk/->snake_case %) %)))
+
 (defn obfuscate
   "Obfuscate all but first `preserve-num` and last `preserve-num` characters of a string.
    If the string is 4 characters or less, obfuscate all characters.
@@ -214,3 +221,16 @@
                              (deliver p# e#)))))]
        (.start t#)
        p#)))
+
+(defn get-workspaces
+  "Returns a vector of all workspace folder paths.
+   Returns nil if no workspace folders are configured."
+  [db]
+  (when-let [folders (seq (:workspace-folders db))]
+    (mapv (comp uri->filename :uri) folders)))
+
+(defn db-cache-path
+  "Returns the absolute path to the workspace-specific DB cache file as a string.
+   Used by hooks to access the cached database."
+  [db]
+  (str (cache/workspace-cache-file (:workspace-folders db) "db.transit.json" uri->filename)))
