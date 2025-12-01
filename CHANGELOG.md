@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.85.1
+
 - Fix backwards compatibility for chat rollback.
 
 ## 0.85.0
