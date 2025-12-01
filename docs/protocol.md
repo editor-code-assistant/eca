@@ -1254,7 +1254,14 @@ interface ChatRollbackParams {
      * The message content id.
      */
     contentId: string;
+    
+    /**
+     * The types of rollbacks to include, allowing to rollback one or more types.
+     */
+    include: ChatRollbackInclude[];
 }
+
+type ChatRollbackInclude = 'messages' | 'tools';
 ```
 
 _Response:_

@@ -584,7 +584,10 @@
 
         ;; Rollback to second message (keep first 2 messages, remove last 2)
         (h/reset-messenger!)
-        (is (= {} (f.chat/rollback-chat {:chat-id chat-id :content-id second-content-id} (h/db*) (h/messenger))))
+        (is (= {} (f.chat/rollback-chat
+                    {:chat-id chat-id
+                     :include ["messages" "tools"]
+                     :content-id second-content-id} (h/db*) (h/messenger))))
 
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?

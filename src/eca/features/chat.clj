@@ -1439,11 +1439,14 @@
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."
-  [{:keys [chat-id content-id]} db* messenger]
-  (let [all-messages (get-in @db* [:chats chat-id :messages])
+  [{:keys [chat-id content-id include]} db* messenger]
+  (let [include (set include)
+        all-messages (get-in @db* [:chats chat-id :messages])
         tool-calls (get-in @db* [:chats chat-id :tool-calls])
-        new-messages (vec (take-while #(not= (:content-id %) content-id) all-messages))
-        removed-messages (vec (drop-while #(not= (:content-id %) content-id) all-messages))
+        new-messages (when (contains? include "messages")
+                       (vec (take-while #(not= (:content-id %) content-id) all-messages)))
+        removed-messages (when (contains? include "tools")
+                           (vec (drop-while #(not= (:content-id %) content-id) all-messages)))
         rollback-changes (->> removed-messages
                               (filter #(= "tool_call_output" (:role %)))
                               (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
@@ -1454,13 +1457,14 @@
       (if content
         (spit path content)
         (io/delete-file path true)))
-    (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-    (messenger/chat-cleared
-     messenger
-     {:chat-id chat-id
-      :messages true})
-    (send-chat-contents!
-     new-messages
-     {:chat-id chat-id
-      :messenger messenger})
+    (when new-messages
+      (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+      (messenger/chat-cleared
+       messenger
+       {:chat-id chat-id
+        :messages true})
+      (send-chat-contents!
+       new-messages
+       {:chat-id chat-id
+        :messenger messenger}))
     {}))
