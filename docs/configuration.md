@@ -267,6 +267,8 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
 Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the prompt during command call.
 
+You can configure in multiple different ways:
+
 === "Local custom commands"
 
     A `.eca/commands` folder from the workspace root containing `.md` files with the custom prompt.
@@ -274,6 +276,8 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
     ```markdown title=".eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
+    
+    ECA will make available a `/check-performance` command after creating that file.
 
 === "Global custom commands"
 
@@ -282,6 +286,8 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
     ```markdown title="~/.config/eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
+    
+    ECA will make available a `/check-performance` command after creating that file.
 
 === "Config"
 
@@ -292,6 +298,8 @@ Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the 
       "commands": [{"path": "my-custom-prompt.md"}]
     }
     ```
+    
+    ECA will make available a `/my-custom-prompt` command after creating that file.
 
 ## Rules
 

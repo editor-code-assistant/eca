@@ -85,7 +85,8 @@
                        fs/directory? (constantly false)]
            ((get-in f.tools.filesystem/definitions ["read_file" :handler])
             {"path" (h/file-path "/foo/qux")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}
+             :config {:toolCall {:readFile {:maxLines 2000}}}})))))
   (testing "with line_offset"
     (is (match?
          {:error false
@@ -96,7 +97,8 @@
                        fs/readable? (constantly true)]
            ((get-in f.tools.filesystem/definitions ["read_file" :handler])
             {"path" (h/file-path "/foo/qux") "line_offset" 2}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}
+             :config {:toolCall {:readFile {:maxLines 2000}}}})))))
   (testing "with limit"
     (is (match?
          {:error false

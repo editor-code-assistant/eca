@@ -1,6 +1,6 @@
 ## Project Environment Context
 
-Workspaces: {workspaceRoots}
+Workspaces: {{workspaceRoots}}
 
 **Path Resolution & Context:**
 *Workspaces:* Directories containing code or data relevant to this session.

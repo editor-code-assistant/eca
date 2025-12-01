@@ -4,6 +4,7 @@
 - Enhanced hooks documentation with new types (sessionStart, sessionEnd, chatStart, chatEnd), JSON input/output schemas, execution options (timeout)
 
 - Fix custom tools to support argument numbers.
+- Improve read_file summary to mention offset being read.
 
 ## 0.84.2
 

@@ -70,7 +70,7 @@
                                                        ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
       (let [line-offset (or (get arguments "line_offset") 0)
             limit (->> [(get arguments "limit")
-                        (get-in config [:toolCall :readFile :maxLines] 2000)]
+                        (get-in config [:toolCall :readFile :maxLines])]
                        (filter number?)
                        (apply min))
             full-content-lines (string/split-lines (slurp (fs/file (fs/canonicalize (get arguments "path")))))
@@ -89,9 +89,19 @@
                                                " parameter to read more content.")
                                           content)))))
 
-(defn ^:private read-file-summary [{:keys [args]}]
+(defn ^:private read-file-summary [{:keys [args config]}]
   (if-let [path (get args "path")]
-    (str "Reading file " (fs/file-name (fs/file path)))
+    (let [line-offset (get args "line_offset" 0)
+          limit (get args "limit" (get-in config [:toolCall :readFile :maxLines]))
+          sub-read (or line-offset limit)]
+      (format "Reading file %s %s"
+              (fs/file-name (fs/file path))
+              (str
+                (when sub-read
+                  (format "(%s-%s)"
+                          line-offset
+                          limit))
+                )))
     "Reading file"))
 
 (defn ^:private write-file [arguments _]
@@ -321,7 +331,7 @@
                               "line_offset" {:type "integer"
                                              :description "Line to start reading from (default: 0)"}
                               "limit" {:type "integer"
-                                       :description "Maximum lines to read (default: configured in tools.readFile.maxLines, defaults to 2000)"}}
+                                       :description "Maximum lines to read (default: {{readFileMaxLines}})"}}
                  :required ["path"]}
     :handler #'read-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
