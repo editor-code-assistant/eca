@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix backwards compatibility for chat rollback.
+
 ## 0.85.0
 - Enhanced hooks documentation with new types (sessionStart, sessionEnd, chatStart, chatEnd), JSON input/output schemas, execution options (timeout)
 
