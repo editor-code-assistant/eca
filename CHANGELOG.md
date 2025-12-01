@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.85.0
 - Enhanced hooks documentation with new types (sessionStart, sessionEnd, chatStart, chatEnd), JSON input/output schemas, execution options (timeout)
 
 - Fix custom tools to support argument numbers.
