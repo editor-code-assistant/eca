@@ -78,8 +78,9 @@
      :tools-to-call tools-to-call
      :call-tools-fn (fn [on-tools-called]
                       (on-tools-called-wrapper tools-to-call on-tools-called nil))
+     ;; Support both :reasoning (OpenAI) and :reasoning_content (DeepSeek)
      :reason-text (->> (:choices body)
-                       (map (comp :reasoning :message))
+                       (map (comp #(or (:reasoning %) (:reasoning_content %)) :message))
                        (string/join "\n")
                        not-empty)
      :output-text (->> (:choices body)
@@ -140,44 +141,94 @@
                         :content (llm-util/stringfy-tool-result content)}
     "user" {:role "user"
             :content (extract-content content supports-image?)}
-    "reason" {:role "assistant"
-              :content [{:type "text"
-                         :text (str think-tag-start (:text content) think-tag-end)}]}
+    "reason" (if-let [reasoning-content (:external-id content)]
+               ;; DeepSeek-style: reasoning_content must be passed back to API
+               ;; Emit as assistant message with reasoning_content field
+               {:role "assistant"
+                :content ""
+                :reasoning_content reasoning-content}
+               ;; Fallback: wrap in thinking tags for models that use text-based reasoning
+               {:role "assistant"
+                :content [{:type "text"
+                           :text (str think-tag-start (:text content) think-tag-end)}]})
     "assistant" {:role "assistant"
                  :content (extract-content content supports-image?)}
     "system" {:role "system"
               :content (extract-content content supports-image?)}
     nil))
 
-(defn ^:private accumulate-tool-calls
-  "Handle tool call accumulation according to OpenAI API requirements.
-   Tool calls must be grouped into assistant messages."
+(defn ^:private accumulate-assistant-parts
+  "Combines tool_calls and reasoning_content into single assistant messages.
+
+   Tool calls must be grouped into assistant messages. For DeepSeek-style APIs,
+   reasoning_content must be on the SAME assistant message as tool_calls or content.
+
+   This handles the pattern where ECA stores:
+   1. {:role \"reason\" ...} -> {:role \"assistant\" :reasoning_content \"...\"}
+   2. {:role \"tool_call\" ...} -> accumulated into tool_calls
+   3. {:role \"assistant\" ...} -> standard text response
+
+   And combines them into:
+   {:role \"assistant\" :reasoning_content \"...\" :tool_calls [...]}
+   OR
+   {:role \"assistant\" :reasoning_content \"...\" :content \"...\"}"
   [transformed-messages]
-  (let [{:keys [messages tool-calls]}
+  (let [flush-pending (fn [{:keys [tool-calls pending-reasoning] :as acc}]
+                        (cond
+                          (seq tool-calls)
+                          (-> acc
+                              (update :messages conj
+                                      (cond-> {:role "assistant" :tool_calls tool-calls}
+                                        pending-reasoning (assoc :reasoning_content pending-reasoning)))
+                              (assoc :tool-calls [])
+                              (assoc :pending-reasoning nil))
+
+                          pending-reasoning
+                          (-> acc
+                              (update :messages conj {:role "assistant" :content "" :reasoning_content pending-reasoning})
+                              (assoc :pending-reasoning nil))
+
+                          :else acc))
+
+        {:keys [messages tool-calls pending-reasoning]}
         (reduce (fn [acc msg]
-                  (if (= :tool-call (:type msg))
+                  (cond
+                    (= :tool-call (:type msg))
                     (update acc :tool-calls conj (:data msg))
-                    (let [acc-with-flushed
-                          (if (seq (:tool-calls acc))
-                            (-> acc
-                                (update :messages conj {:role "assistant"
-                                                        :tool_calls (:tool-calls acc)})
-                                (assoc :tool-calls []))
-                            acc)]
-                      (update acc-with-flushed :messages conj msg))))
-                {:messages [] :tool-calls []}
+
+                    (:reasoning_content msg)
+                    (assoc acc :pending-reasoning (:reasoning_content msg))
+
+                    ;; If it's an assistant text message, we might want to merge reasoning
+                    (= "assistant" (:role msg))
+                    (if (seq (:tool-calls acc))
+                      ;; We have tools waiting. Flush tools + reasoning first.
+                      (-> acc
+                          flush-pending
+                          (update :messages conj msg))
+                      ;; No tools, just potential reasoning. Merge it!
+                      (-> acc
+                          (update :messages conj (cond-> msg
+                                                   (:pending-reasoning acc)
+                                                   (assoc :reasoning_content (:pending-reasoning acc))))
+                          (assoc :pending-reasoning nil)))
+
+                    :else
+                    (-> acc
+                        flush-pending
+                        (update :messages conj msg))))
+                {:messages [] :tool-calls [] :pending-reasoning nil}
                 transformed-messages)]
-    ;; Flush any remaining tool calls
-    (if (seq tool-calls)
-      (conj messages {:role "assistant" :tool_calls tool-calls})
-      messages)))
+    ;; Final flush
+    (:messages (flush-pending {:messages messages :tool-calls tool-calls :pending-reasoning pending-reasoning}))))
 
 (defn ^:private valid-message?
   "Check if a message should be included in the final output."
-  [{:keys [role content tool_calls] :as msg}]
+  [{:keys [role content tool_calls reasoning_content] :as msg}]
   (and msg
        (or (= role "tool") ; Never remove tool messages
            (seq tool_calls) ; Keep messages with tool calls
+           (seq reasoning_content) ; Keep messages with reasoning_content (DeepSeek)
            (and (string? content)
                 (not (string/blank? content)))
            (sequential? content))))
@@ -189,6 +240,7 @@
    - Flushes accumulated tool_calls into a single assistant message (OpenAI API requirement)
    - Converts tool_call role to tool_calls array in assistant message
    - Converts tool_call_output role to tool role with tool_call_id
+   - Converts reason role to assistant message with reasoning_content (DeepSeek API requirement)
    - Extracts content from various message content formats
 
    The OpenAI Chat Completions API requires that tool_calls must be present in an
@@ -199,7 +251,7 @@
   (->> messages
        (map #(transform-message % supports-image? think-tag-start think-tag-end))
        (remove nil?)
-       accumulate-tool-calls
+       accumulate-assistant-parts
        (filter valid-message?)))
 
 (defn ^:private execute-accumulated-tools!
@@ -228,9 +280,10 @@
    - Maintains a rolling buffer across chunks to handle tags that may be split across chunks
    - Outside thinking: emit user text up to <think> and keep a small tail to detect split tags
    - Inside thinking: emit reasoning up to </think> and keep a small tail to detect split tags
-   - When a tag boundary is found, open/close the reasoning block accordingly"
-  [text content-buffer* reasoning-type* current-reason-id*
-   reasoning-started* think-tag-start think-tag-end on-message-received on-reason]
+   - When a tag boundary is found, open/close the reasoning block accordingly
+
+   Uses a combined reasoning-state* atom with keys: :id, :type, :content, :buffer"
+  [text reasoning-state* think-tag-start think-tag-end on-message-received on-reason]
   (let [start-len (count think-tag-start)
         end-len (count think-tag-end)
         ;; Keep a small tail to detect tags split across chunk boundaries.
@@ -239,52 +292,52 @@
         emit-text! (fn [^String s]
                      (when (pos? (count s))
                        (on-message-received {:type :text :text s})))
-        emit-think! (fn [^String s]
+        emit-think! (fn [^String s id]
                       (when (pos? (count s))
-                        (on-reason {:status :thinking :id @current-reason-id* :text s})))
-        start-think! (fn []
-                       (when-not @reasoning-started*
-                         (let [new-id (str (random-uuid))]
-                           (reset! current-reason-id* new-id)
-                           (reset! reasoning-started* true)
-                           (reset! reasoning-type* :tag)
-                           (on-reason {:status :started :id new-id}))))
-        finish-think! (fn []
-                        (when @reasoning-started*
-                          (on-reason {:status :finished :id @current-reason-id*})
-                          (reset! reasoning-started* false)
-                          (reset! reasoning-type* nil)))]
+                        (on-reason {:status :thinking :id id :text s})))]
     (when (seq text)
-      (swap! content-buffer* str text)
+      ;; Add new text to buffer
+      (swap! reasoning-state* update :buffer str text)
       (loop []
-        (let [^String buf @content-buffer*]
-          (if (= @reasoning-type* :tag)
+        (let [state @reasoning-state*
+              ^String buf (:buffer state)
+              current-type (:type state)
+              current-id (:id state)]
+          (if (= current-type :tag)
             ;; Inside a thinking block; look for end tag
             (let [idx (.indexOf buf ^String think-tag-end)]
               (if (>= idx 0)
                 (let [before (.substring buf 0 idx)
                       after (.substring buf (+ idx end-len))]
-                  (emit-think! before)
-                  (reset! content-buffer* after)
-                  (finish-think!)
+                  (emit-think! before current-id)
+                  (swap! reasoning-state* assoc :buffer after)
+                  ;; Finish thinking block
+                  (when on-reason
+                    (on-reason {:status :finished :id current-id}))
+                  (swap! reasoning-state* assoc :type nil :id nil)
                   (recur))
                 (let [emit-len (max 0 (- (count buf) end-tail))]
                   (when (pos? emit-len)
-                    (emit-think! (.substring buf 0 emit-len))
-                    (reset! content-buffer* (.substring buf emit-len))))))
+                    (emit-think! (.substring buf 0 emit-len) current-id)
+                    (swap! reasoning-state* assoc :buffer (.substring buf emit-len))))))
             ;; Outside a thinking block; look for start tag
             (let [idx (.indexOf buf ^String think-tag-start)]
               (if (>= idx 0)
                 (let [before (.substring buf 0 idx)
                       after (.substring buf (+ idx start-len))]
                   (emit-text! before)
-                  (start-think!)
-                  (reset! content-buffer* after)
-                  (recur))
+                  ;; Start thinking block
+                  (let [new-id (str (random-uuid))]
+                    (swap! reasoning-state* assoc
+                           :id new-id
+                           :type :tag
+                           :buffer after)
+                    (on-reason {:status :started :id new-id})
+                    (recur)))
                 (let [emit-len (max 0 (- (count buf) start-tail))]
                   (when (pos? emit-len)
                     (emit-text! (.substring buf 0 emit-len))
-                    (reset! content-buffer* (.substring buf emit-len))))))))))))
+                    (swap! reasoning-state* assoc :buffer (.substring buf emit-len))))))))))))
 
 (defn chat-completion!
   "Primary entry point for OpenAI chat completions with streaming support.
@@ -321,13 +374,39 @@
         ;; tool calls that share the same index but have different IDs.
         tool-calls* (atom {})
 
-        ;; Reasoning state tracking - generate new ID for each thinking block
-        current-reason-id* (atom nil)
-        reasoning-started* (atom false)
-        ;; Track the source of reasoning: :delta (reasoning field) or :tag (thinking tags)
-        reasoning-type* (atom nil)
-        ;; Incremental parser buffer for content to detect thinking tags across chunks
-        content-buffer* (atom "")
+        ;; Combined reasoning state tracking
+        ;; Tracks: id, type (:tag, :delta, or nil), content (accumulated reasoning), buffer (text buffer)
+        reasoning-state* (atom {:id nil
+                                :type nil
+                                :content ""
+                                :buffer ""})
+        flush-content-buffer (fn []
+                               (let [state @reasoning-state*
+                                     buf (:buffer state)]
+                                 (when (pos? (count buf))
+                                   (if (= (:type state) :tag)
+                                     (on-reason {:status :thinking :id (:id state) :text buf})
+                                     (on-message-received {:type :text :text buf}))
+                                   (swap! reasoning-state* assoc :buffer ""))))
+        finish-reasoning (fn []
+                           (let [state @reasoning-state*]
+                             (when (:type state)
+                               (let [accumulated-reasoning (when (= (:type state) :delta)
+                                                             (not-empty (:content state)))]
+                                 (on-reason (cond-> {:status :finished :id (:id state)}
+                                              accumulated-reasoning (assoc :external-id accumulated-reasoning))))
+                               (reset! reasoning-state* {:id nil :type nil :content "" :buffer ""}))))
+        wrapped-on-error (fn [error-data]
+                           (finish-reasoning)
+                           (when on-error (on-error error-data)))
+        start-delta-reasoning (fn []
+                                (let [new-reason-id (str (random-uuid))]
+                                  (swap! reasoning-state* assoc
+                                         :id new-reason-id
+                                         :type :delta
+                                         :content ""
+                                         :buffer "")
+                                  (on-reason {:status :started :id new-reason-id})))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
                                   (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
                                     (let [new-messages-list (vec (concat
@@ -343,22 +422,15 @@
                                         :api-url api-url
                                         :api-key api-key
                                         :url-relative-path url-relative-path
-                                        :on-error on-error
+                                        :on-error wrapped-on-error
                                         :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* new-rid)))}))))
+
         handle-response (fn handle-response [event data tool-calls* rid]
                           (if (= event "stream-end")
                             (do
                               ;; Flush any leftover buffered content and finish reasoning if needed
-                              (let [buf @content-buffer*]
-                                (when (pos? (count buf))
-                                  (if (= @reasoning-type* :tag)
-                                    (on-reason {:status :thinking :id @current-reason-id* :text buf})
-                                    (on-message-received {:type :text :text buf}))
-                                  (reset! content-buffer* "")))
-                              (when @reasoning-started*
-                                (on-reason {:status :finished :id @current-reason-id*})
-                                (reset! reasoning-started* false)
-                                (reset! reasoning-type* nil))
+                              (flush-content-buffer)
+                              (finish-reasoning)
                               (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
                             (when (seq (:choices data))
                               (doseq [choice (:choices data)]
@@ -366,43 +438,36 @@
                                       finish-reason (:finish_reason choice)]
                                   ;; Process content if present (with thinking blocks support)
                                   (when-let [ct (:content delta)]
-                                    (process-text-think-aware ct content-buffer* reasoning-type* current-reason-id* reasoning-started*
-                                                              think-tag-start think-tag-end on-message-received on-reason))
+                                    (process-text-think-aware ct reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
 
                                   ;; Process reasoning if present (o1 models and compatible providers)
                                   (when-let [reasoning-text (or (:reasoning delta)
                                                                 (:reasoning_content delta))]
-                                    (when-not @reasoning-started*
-                                        ;; Generate new reason-id for each thinking block
-                                      (let [new-reason-id (str (random-uuid))]
-                                        (reset! current-reason-id* new-reason-id)
-                                        (reset! reasoning-started* true)
-                                        (reset! reasoning-type* :delta)
-                                        (on-reason {:status :started :id new-reason-id})))
-                                    (on-reason {:status :thinking
-                                                :id @current-reason-id*
-                                                :text reasoning-text}))
+                                    (let [state @reasoning-state*]
+                                      (when-not (= (:type state) :delta)
+                                        (start-delta-reasoning))
+                                      ;; Accumulate reasoning content for APIs that require it back (e.g., DeepSeek)
+                                      (swap! reasoning-state* update :content str reasoning-text)
+                                      (on-reason {:status :thinking
+                                                  :id (:id state)
+                                                  :text reasoning-text})))
 
                                   ;; Check if reasoning just stopped (delta-based)
-                                  (when (and (= @reasoning-type* :delta)
-                                             @reasoning-started*
-                                             (nil? (:reasoning delta))
-                                             (nil? (:reasoning_content delta))
-                                             (:content delta)
-                                             on-reason)
-                                    (on-reason {:status :finished :id @current-reason-id*})
-                                    (reset! reasoning-started* false)
-                                    (reset! reasoning-type* nil))
+                                  (let [state @reasoning-state*]
+                                    (when (and (= (:type state) :delta)
+                                               (nil? (:reasoning delta))
+                                               (nil? (:reasoning_content delta))
+                                               on-reason)
+                                      ;; Pass accumulated reasoning_content as external-id for DeepSeek compatibility
+                                      (let [accumulated-reasoning (not-empty (:content state))]
+                                        (on-reason (cond-> {:status :finished :id (:id state)}
+                                                     accumulated-reasoning (assoc :external-id accumulated-reasoning))))
+                                      (reset! reasoning-state* {:id nil :type nil :content "" :buffer ""})))
 
                                   ;; Process tool calls if present
                                   (when (:tool_calls delta)
                                     ;; Flush any leftover buffered content before finishing
-                                    (let [buf @content-buffer*]
-                                      (when (pos? (count buf))
-                                        (if (= @reasoning-type* :tag)
-                                          (on-reason {:status :thinking :id @current-reason-id* :text buf})
-                                          (on-message-received {:type :text :text buf}))
-                                        (reset! content-buffer* "")))
+                                    (flush-content-buffer)
                                     (doseq [tool-call (:tool_calls delta)]
                                       (let [{:keys [index id function]} tool-call
                                             {name :name args :arguments} function
@@ -428,17 +493,9 @@
                                   ;; Process finish reason if present (but not tool_calls which is handled above)
                                   (when finish-reason
                                     ;; Flush any leftover buffered content before finishing
-                                    (let [buf @content-buffer*]
-                                      (when (pos? (count buf))
-                                        (if (= @reasoning-type* :tag)
-                                          (on-reason {:status :thinking :id @current-reason-id* :text buf})
-                                          (on-message-received {:type :text :text buf}))
-                                        (reset! content-buffer* "")))
+                                    (flush-content-buffer)
                                     ;; Handle reasoning completion
-                                    (when @reasoning-started*
-                                      (on-reason {:status :finished :id @current-reason-id*})
-                                      (reset! reasoning-started* false)
-                                      (reset! reasoning-type* nil))
+                                    (finish-reasoning)
                                     ;; Handle regular finish
                                     (when (not= finish-reason "tool_calls")
                                       (on-message-received {:type :finish :finish-reason finish-reason})))))))
@@ -454,6 +511,6 @@
       :url-relative-path url-relative-path
       :tool-calls* tool-calls*
       :on-tools-called-wrapper on-tools-called-wrapper
-      :on-error on-error
+      :on-error wrapped-on-error
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls* rid)))})))

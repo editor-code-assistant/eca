@@ -126,7 +126,7 @@
           thinking-start-tag
           thinking-end-tag)))))
 
-(deftest accumulate-tool-calls-test
+(deftest accumulate-assistant-parts-test
   (testing "Multiple sequential tool calls get grouped"
     (is (match?
          [{:role "user" :content "What's the weather?"}
@@ -134,7 +134,7 @@
            :tool_calls [{:id "call-1" :function {:name "get_weather"}}
                         {:id "call-2" :function {:name "get_location"}}]}
           {:role "user" :content "Thanks"}]
-         (#'llm-providers.openai-chat/accumulate-tool-calls
+         (#'llm-providers.openai-chat/accumulate-assistant-parts
           [{:role "user" :content "What's the weather?"}
            {:type :tool-call :data {:id "call-1" :function {:name "get_weather"}}}
            {:type :tool-call :data {:id "call-2" :function {:name "get_location"}}}
@@ -144,10 +144,44 @@
     (is (match?
          [{:role "user" :content "Test"}
           {:role "assistant"
-           :tool_calls [{:id "call-1" :function {:name "test_tool"}}]}]
-         (#'llm-providers.openai-chat/accumulate-tool-calls
+           :tool_calls [{:id "call-1" :function {:name "test_tool"}}]}
+          {:role "assistant" :content "I called the tool."}]
+         (#'llm-providers.openai-chat/accumulate-assistant-parts
           [{:role "user" :content "Test"}
-           {:type :tool-call :data {:id "call-1" :function {:name "test_tool"}}}])))))
+           {:type :tool-call :data {:id "call-1" :function {:name "test_tool"}}}
+           {:role "assistant" :content "I called the tool."}]))))
+
+  (testing "DeepSeek: Reasoning content merges with tool calls"
+    (is (match?
+         [{:role "user" :content "Calc"}
+          {:role "assistant"
+           :reasoning_content "Thinking about math..."
+           :tool_calls [{:id "call-1" :function {:name "calculator"}}]}]
+         (#'llm-providers.openai-chat/accumulate-assistant-parts
+          [{:role "user" :content "Calc"}
+           {:role "assistant" :reasoning_content "Thinking about math..."}
+           {:type :tool-call :data {:id "call-1" :function {:name "calculator"}}}]))))
+
+  (testing "DeepSeek: Reasoning content merges with text content"
+    (is (match?
+         [{:role "user" :content "Hi"}
+          {:role "assistant"
+           :reasoning_content "Thinking about greeting..."
+           :content "Hello!"}]
+         (#'llm-providers.openai-chat/accumulate-assistant-parts
+          [{:role "user" :content "Hi"}
+           {:role "assistant" :reasoning_content "Thinking about greeting..."}
+           {:role "assistant" :content "Hello!"}]))))
+
+  (testing "DeepSeek: Dangling reasoning content becomes standalone message"
+    (is (match?
+         [{:role "user" :content "Why?"}
+          {:role "assistant"
+           :content ""
+           :reasoning_content "Thinking..."}]
+         (#'llm-providers.openai-chat/accumulate-assistant-parts
+          [{:role "user" :content "Why?"}
+           {:role "assistant" :reasoning_content "Thinking..."}])))))
 
 (deftest valid-message-test
   (testing "Tool messages are always kept"
@@ -167,19 +201,13 @@
          {:role "user" :content "Hello world"}))))
 
 (defn process-text-think-aware [texts]
-  (let [content-buffer* (atom "")
-        reasoning-type* (atom nil)
-        reasoning-started* (atom false)
-        current-reason-id* (atom nil)
+  (let [reasoning-state* (atom {:id nil :type nil :content "" :buffer ""})
         callbacks-called* (atom [])]
     (doseq [text texts]
       (with-redefs [random-uuid (constantly "123")]
         (#'llm-providers.openai-chat/process-text-think-aware
          text
-         content-buffer*
-         reasoning-type*
-         current-reason-id*
-         reasoning-started*
+         reasoning-state*
          thinking-start-tag
          thinking-end-tag
          (fn [{:keys [text]}]
@@ -190,7 +218,7 @@
                          status)]
              (swap! callbacks-called* conj [:reason value id]))))))
     {:callbacks-called @callbacks-called*
-     :content-buffer @content-buffer*}))
+     :content-buffer (:buffer @reasoning-state*)}))
 
 (deftest process-text-think-aware-test
   (testing "complete tag by chunk"
@@ -255,4 +283,18 @@
            [:text "re"]]}
          (process-text-think-aware
           ["<" "thi" "nk>H" "um.." ".</" "thi" "nk>H"
-           "ello " "the" "re " "mat" "e!"])))))
+           "ello " "the" "re " "mat" "e!"]))))
+  (testing "buffer never grows beyond tag length for long text without tags"
+    (let [long-text (apply str (repeat 1000 "x"))
+          result (process-text-think-aware [long-text])
+          buffer-size (count (:content-buffer result))]
+      ;; Buffer should be at most start-tail characters (length of "<think>" - 1 = 6)
+      ;; Actually, we keep start-tail (max(0, dec start-len)) = max(0, 6-1) = 5
+      ;; But we also need to account for the fact that we might keep partial tag
+      (is (<= buffer-size 6) 
+          (str "Buffer should be bounded by tag length, but was " buffer-size))
+      ;; Most text should have been emitted
+      (let [text-calls (filter #(= :text (first %)) (:callbacks-called result))
+            total-emitted (apply str (map second text-calls))]
+        (is (<= (- (count long-text) 6) (count total-emitted) (count long-text))
+            "Should emit almost all text, keeping only a small buffer")))))
