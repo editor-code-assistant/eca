@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fix deepseek reasoning with openai-chat API #228
 
 ## 0.85.1
 
