@@ -335,3 +335,25 @@ Notes:
       }
     }
     ```
+    
+=== "LM Studio"
+    
+    This config works with LM studio:
+    
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "lmstudio": {
+            "api": "openai-chat",
+            "url": "http://localhost:1234",
+            "completionUrlRelativePath": "/v1/chat/completions",
+            "httpClient": {
+                "version": "http-1.1"
+            },
+            "models": {
+                "your-model": {}
+            }
+        }
+      }
+    }
+    ```
