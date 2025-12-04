@@ -84,7 +84,7 @@
                                          :models {"gpt-5" {}}}
                       "openrouter" {:models {"openai/o4-mini" {}}}}}
          (#'config/normalize-fields
-          {:stringfy
+          {:stringfy-key
            [[:providers]
             [:providers :ANY :models]]}
           {"pureConfig" true
@@ -98,15 +98,33 @@
                                          :models {"gpt-5" {}}}
                       "open-router" {:models {"openAi/o4-mini" {}}}}}
          (#'config/normalize-fields
-          {:stringfy
+          {:stringfy-key
            [[:providers]
             [:providers :ANY :models]]
-           :kebab-case
+           :kebab-case-key
            [[:providers]]}
           {"pureConfig" true
            "providers" {"customProvider" {"key" "123"
                                           "models" {"gpt-5" {}}}
-                        "open-router" {"models" {"openAi/o4-mini" {}}}}})))))
+                        "open-router" {"models" {"openAi/o4-mini" {}}}}}))))
+  (testing "keywordize-vals"
+    (is (match?
+         {:pureConfig true
+          :providers {"custom-provider" {:key "123"
+                                         :models {"gpt-5" {}}
+                                         :httpClient {:version :http1.1}}}}
+         (#'config/normalize-fields
+          {:stringfy-key
+           [[:providers]
+            [:providers :ANY :models]]
+           :kebab-case-key
+           [[:providers]]
+           :keywordize-val
+           [[:providers :ANY :httpClient]]}
+          {"pureConfig" true
+           "providers" {"customProvider" {"key" "123"
+                                          "models" {"gpt-5" {}}
+                                          "httpClient" {"version" "http1.1"}}}})))))
 
 (deftest validate-behavior-test
   (testing "valid behavior returns as-is"

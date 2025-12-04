@@ -66,7 +66,7 @@
                       :max_uses 10
                       :cache_control {:type "ephemeral"}})))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream]}]
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client]}]
   (let [url (str api-url (or url-relative-path messages-path))
         reason-id (str (random-uuid))
         oauth? (= :auth/oauth auth-type)
@@ -89,6 +89,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
+       :http-client http-client
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try
@@ -168,7 +169,7 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload supports-image?]}
+           tools web-search extra-payload supports-image? http-client]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
   (let [messages (concat (normalize-messages past-messages supports-image?)
                          (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
@@ -247,6 +248,7 @@
                                                      :body (assoc body :messages messages)
                                                      :api-url api-url
                                                      :api-key api-key
+                                                     :http-client http-client
                                                      :auth-type auth-type
                                                      :url-relative-path url-relative-path
                                                      :content-block* (atom nil)
@@ -265,6 +267,7 @@
       :body body
       :api-url api-url
       :api-key api-key
+      :http-client http-client
       :auth-type auth-type
       :url-relative-path url-relative-path
       :content-block* (atom nil)

@@ -32,7 +32,7 @@
                  ""
                  (:content (last (:output body))))})
 
-(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-stream]}]
+(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-stream http-client]}]
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
@@ -56,6 +56,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
+       :http-client http-client
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try
@@ -126,7 +127,7 @@
         tools))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                                max-output-tokens past-messages tools web-search extra-payload auth-type]}
+                                max-output-tokens past-messages tools web-search extra-payload auth-type http-client]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
@@ -239,6 +240,7 @@
                       :api-url api-url
                       :url-relative-path url-relative-path
                       :api-key api-key
+                      :http-client http-client
                       :auth-type auth-type
                       :on-error on-error
                       :on-stream handle-stream})
@@ -259,6 +261,7 @@
       :api-url api-url
       :url-relative-path url-relative-path
       :api-key api-key
+      :http-client http-client
       :auth-type auth-type
       :on-error on-error
       :on-stream on-stream-fn})))

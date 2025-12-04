@@ -69,6 +69,7 @@ Schema:
 | `completionUrlRelativePath`   | string | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
 | `thinkTagStart`               | string | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
 | `thinkTagEnd`                 | string | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
+| `httpClient`                  | map    | Allow customize the http-client for this provider requests, like changing http version                       | No       |
 | `models`                      | map    | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload` | map    | Extra payload sent in body to LLM                                                                            | No       |
 | `models <model> modelName`    | string | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |

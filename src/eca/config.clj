@@ -277,12 +277,13 @@
 (defn ^:private normalize-fields
   "Converts a deep nested map where keys are strings to keywords.
    normalization-rules follow the nest order, :ANY means any field name.
-    :kebab-case means convert field names to kebab-case.
-    :stringfy means convert field names to strings."
+    :kebab-case-key means convert field names to kebab-case.
+    :stringfy-key means convert field names to strings."
   [normalization-rules m]
-  (let [kc-paths (set (:kebab-case normalization-rules))
-        str-paths (set (:stringfy normalization-rules))
-                                        ; match a current path against a rule path with :ANY wildcard
+  (let [kc-paths (set (:kebab-case-key normalization-rules))
+        str-paths (set (:stringfy-key normalization-rules))
+        keywordize-paths (set (:keywordize-val normalization-rules))
+        ; match a current path against a rule path with :ANY wildcard
         matches-path? (fn [rule-path cur-path]
                         (and (= (count rule-path) (count cur-path))
                              (every? true?
@@ -295,21 +296,26 @@
         normalize-map (fn normalize-map [cur-path m*]
                         (cond
                           (map? m*)
-                          (let [apply-kebab? (applies? kc-paths cur-path)
-                                apply-string? (applies? str-paths cur-path)]
+                          (let [apply-kebab-key? (applies? kc-paths cur-path)
+                                apply-string-key? (applies? str-paths cur-path)
+                                apply-keywordize-val? (applies? keywordize-paths cur-path)
+                                ]
                             (into {}
                                   (map (fn [[k v]]
                                          (let [base-name (cond
                                                            (keyword? k) (name k)
                                                            (string? k) k
                                                            :else (str k))
-                                               kebabed (if apply-kebab?
+                                               kebabed (if apply-kebab-key?
                                                          (csk/->kebab-case base-name)
                                                          base-name)
-                                               new-k (if apply-string?
+                                               new-k (if apply-string-key?
                                                        kebabed
                                                        (keyword kebabed))
-                                               new-v (normalize-map (conj cur-path new-k) v)]
+                                               new-v (if apply-keywordize-val?
+                                                       (keyword v)
+                                                       v)
+                                               new-v (normalize-map (conj cur-path new-k) new-v)]
                                            [new-k new-v])))
                                   m*))
 
@@ -320,9 +326,11 @@
     (normalize-map [] m)))
 
 (def ^:private normalization-rules
-  {:kebab-case
+  {:kebab-case-key
    [[:providers]]
-   :stringfy
+   :keywordize-val
+   [[:providers :ANY :httpClient]]
+   :stringfy-key
    [[:behavior]
     [:providers]
     [:providers :ANY :models]

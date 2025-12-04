@@ -190,7 +190,8 @@
                             (on-error {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
               url-relative-path (:completionUrlRelativePath provider-config)
               think-tag-start (:thinkTagStart provider-config)
-              think-tag-end (:thinkTagEnd provider-config)]
+              think-tag-end (:thinkTagEnd provider-config)
+              http-client (:httpClient provider-config)]
           (provider-fn
            {:model real-model
             :instructions instructions
@@ -205,6 +206,7 @@
             :url-relative-path url-relative-path
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
+            :http-client http-client
             :api-url api-url
             :api-key api-key}
            callbacks))

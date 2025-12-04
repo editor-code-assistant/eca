@@ -88,7 +88,7 @@
                        not-empty)}))
 
 (defn ^:private base-chat-request!
-  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-tools-called-wrapper]}]
+  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-tools-called-wrapper http-client]}]
   (let [url (str api-url (or url-relative-path chat-completions-path))
         on-error (if on-stream
                    on-error
@@ -105,6 +105,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
+       :http-client http-client
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try
@@ -294,7 +295,7 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end]}
+           think-tag-start think-tag-end http-client]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
@@ -340,6 +341,7 @@
                                         :body (assoc body :messages new-messages-list)
                                         :on-tools-called-wrapper on-tools-called-wrapper
                                         :extra-headers extra-headers
+                                        :http-client http-client
                                         :api-url api-url
                                         :api-key api-key
                                         :url-relative-path url-relative-path
@@ -451,6 +453,7 @@
       :extra-headers extra-headers
       :api-url api-url
       :api-key api-key
+      :http-client http-client
       :url-relative-path url-relative-path
       :tool-calls* tool-calls*
       :on-tools-called-wrapper on-tools-called-wrapper
