@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve agent behavior prompt to mention usage of editor_diagnostics tool.
+
 ## 0.85.3
 
 - Support `openai/gpt-5.2` and `github-copilot/gpt-5.2` by default.

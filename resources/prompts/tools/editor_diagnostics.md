@@ -1,5 +1,2 @@
-Return editor diagnostics for a file or the current workspaces.
-
-Usage:
-- Optional: `path` absolute file path to scope diagnostics.
-- Uses editor/LSP diagnostics; read-only.
+Return the editor diagnostics (including LSP ones) for a file path or all workspaces.
+Useful to check for errors/warnings after a batch of file edits/changes.
