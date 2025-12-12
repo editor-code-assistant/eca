@@ -3543,6 +3543,16 @@
       "hash": "sha256-9ENCyj8EhkOiKYhWHvalDkaVd8oNZwegK2XuTsAQ9hU="
     },
     {
+      "mvn-path": "selmer/selmer/1.12.69/selmer-1.12.69.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-Mzu8rVJzAdt890bUXaof88vml1GpVJG4Ry9IJbZfWKc="
+    },
+    {
+      "mvn-path": "selmer/selmer/1.12.69/selmer-1.12.69.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-tSVfjdACaqTY3xcZrpFEkc7pfk5ufJakmj5zGpj3JsI="
+    },
+    {
       "mvn-path": "slingshot/slingshot/0.12.2/slingshot-0.12.2.jar",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-porCK/LqPNVM4023D9aYRNYx71SfZFDCeMMOb3nfY/M="
