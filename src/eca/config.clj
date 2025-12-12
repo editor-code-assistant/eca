@@ -44,7 +44,8 @@
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
                          :key "${env:OPENAI_API_KEY}"
                          :requiresAuth? true
-                         :models {"gpt-5.1" {}
+                         :models {"gpt-5.2" {}
+                                  "gpt-5.1" {}
                                   "gpt-5-codex" {}
                                   "gpt-5" {}
                                   "gpt-5-mini" {}
@@ -68,6 +69,7 @@
                                           "claude-opus-4.1" {}
                                           "claude-opus-4.5" {}
                                           "claude-sonnet-4.5" {}
+                                          "gpt-5.2" {}
                                           "gpt-5.1" {}
                                           "gpt-5" {}
                                           "gpt-5-mini" {}

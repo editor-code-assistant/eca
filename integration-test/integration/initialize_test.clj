@@ -26,6 +26,7 @@
                 "github-copilot/gpt-5"
                 "github-copilot/gpt-5-mini"
                 "github-copilot/gpt-5.1"
+                "github-copilot/gpt-5.2"
                 "github-copilot/grok-code-fast-1"
                 "google/gemini-2.0-flash"
                 "google/gemini-2.5-pro"
@@ -35,6 +36,7 @@
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/gpt-5.1"
+                "openai/gpt-5.2"
                 "openai/o3"
                 "openai/o4-mini"]]
     (testing "initialize request with default config"
@@ -88,6 +90,7 @@
                 "github-copilot/gpt-5"
                 "github-copilot/gpt-5-mini"
                 "github-copilot/gpt-5.1"
+                "github-copilot/gpt-5.2"
                 "github-copilot/grok-code-fast-1"
                 "google/gemini-2.0-flash"
                 "google/gemini-2.5-pro"
@@ -99,6 +102,7 @@
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/gpt-5.1"
+                "openai/gpt-5.2"
                 "openai/o3"
                 "openai/o4-mini"]]
     (testing "initialize request with custom providers"

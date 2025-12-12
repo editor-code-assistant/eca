@@ -27,6 +27,8 @@
 
 (def ^:private models-with-web-search-support
   #{"openai/gpt-4.1"
+    "openai/gpt-5.2"
+    "openai/gpt-5.1"
     "openai/gpt-5"
     "openai/gpt-5-mini"
     "openai/gpt-5-nano"

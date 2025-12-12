@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support `openai/gpt-5.2` and `github-copilot/gpt-5.2` by default.
+
 ## 0.85.2
 
 - Support `providers <provider> httpClient version` config, allowing to use http-1.1 for some providers like lmstudio. #229
