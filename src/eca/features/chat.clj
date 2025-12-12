@@ -1017,7 +1017,7 @@
    Run preRequest hooks before any heavy lifting.
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
-   {:keys [db* config chat-id behavior full-model instructions metrics message] :as chat-ctx}]
+   {:keys [db* config chat-id full-model instructions metrics message] :as chat-ctx}]
   (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
@@ -1062,7 +1062,7 @@
             past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
-            all-tools (f.tools/all-tools chat-id behavior @db* config)
+            all-tools (:all-tools chat-ctx)
             received-msgs* (atom "")
             reasonings* (atom {})
             add-to-history! (fn [msg]
@@ -1306,12 +1306,14 @@
                           (f.context/agents-file-contexts db)
                           (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
+        all-tools (f.tools/all-tools chat-id behavior @db* config)
         instructions (f.prompt/build-chat-instructions refined-contexts
                                                        rules
                                                        repo-map*
                                                        selected-behavior
                                                        config
                                                        chat-id
+                                                       all-tools
                                                        db)
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
@@ -1330,6 +1332,7 @@
                   :instructions instructions
                   :user-messages user-messages
                   :full-model full-model
+                  :all-tools all-tools
                   :db* db*
                   :metrics metrics
                   :config config

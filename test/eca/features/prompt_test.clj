@@ -16,7 +16,7 @@
           fake-repo-map (delay "TREE")
           behavior "agent"
           config {}
-          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config nil (h/db))]
+          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config nil [] (h/db))]
       (is (string/includes? result "You are ECA"))
       (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))
@@ -38,7 +38,7 @@
           fake-repo-map (delay "TREE")
           behavior "plan"
           config {}
-          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config nil (h/db))]
+          result (prompt/build-chat-instructions refined-contexts rules fake-repo-map behavior config nil [] (h/db))]
       (is (string/includes? result "You are ECA"))
       (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))

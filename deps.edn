@@ -5,6 +5,7 @@
         com.github.clojure-lsp/jsonrpc4clj {:mvn/version "1.0.2"}
         io.modelcontextprotocol.sdk/mcp {:mvn/version "0.15.0"}
         borkdude/dynaload {:mvn/version "0.3.5"}
+        selmer/selmer {:mvn/version "1.12.69"}
         babashka/fs {:mvn/version "0.5.26"}
         babashka/process {:mvn/version "0.6.23"}
         br.dev.zz/parc {:git/url "https://github.com/souenzzo/parc"

@@ -15,7 +15,8 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :refer [assoc-some]])
+   [eca.shared :refer [assoc-some]]
+   [selmer.parser :as selmer])
   (:import
    [java.util Map]))
 
@@ -45,11 +46,7 @@
   (walk/postwalk
    (fn [x]
      (if (string? x)
-       (reduce
-        (fn [s [k v]]
-          (string/replace s (str "{{" (name k) "}}") (str v)))
-        x
-        vars)
+       (selmer/render x vars)
        x))
    m))
 
@@ -60,8 +57,8 @@
           [name (-> tool
                     (assoc :name name)
                     (replace-string-values-with-vars
-                      {:workspaceRoots (tools.util/workspace-roots-strs db)
-                       :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
+                     {:workspaceRoots (tools.util/workspace-roots-strs db)
+                      :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
    (merge {}
           f.tools.filesystem/definitions
           f.tools.shell/definitions

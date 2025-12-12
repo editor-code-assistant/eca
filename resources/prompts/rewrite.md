@@ -6,18 +6,18 @@ Given the following text in USER editor, replace it following the USER request.
 
 ## General Context
 
-{path}
-{fullText}
+{{path}}
+{{fullText}}
 
 ## User text
 
 ```
-{text}
+{{text}}
 ```
 
 ## User selection range
 
-{rangeText}
+{{rangeText}}
 
 ## Core Principle
 

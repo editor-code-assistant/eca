@@ -13,7 +13,7 @@ However, if the session is primarily a general conversation and not technical, f
   - Summarize the chat in a way that allows any LLM to continue the conversation based on the summary.
 
 Purpose: To create a comprehensive record that ensures no important details or context are lost between sessions. This process prioritizes thoroughness over brevity to retain all critical information..
-{additionalUserInput}
+{{additionalUserInput}}
 
 ## Response
 

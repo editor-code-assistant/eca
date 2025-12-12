@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
+   [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -27,7 +28,8 @@
         model-capabilities (get-in db [:models full-model])
         full-text (when path (llm-api/refine-file-context path nil))
         start-time (System/currentTimeMillis)
-        instructions (f.prompt/build-rewrite-instructions text path full-text range config)
+        all-tools (f.tools/all-tools nil nil @db* config)
+        instructions (f.prompt/build-rewrite-instructions text path full-text range all-tools config db)
         ctx {:db* db*
              :config config
              :messenger messenger

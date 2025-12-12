@@ -5,7 +5,8 @@
    [clojure.string :as string]
    [eca.features.tools.mcp :as f.mcp]
    [eca.logger :as logger]
-   [eca.shared :refer [multi-str] :as shared])
+   [eca.shared :refer [multi-str] :as shared]
+   [selmer.parser :as selmer])
   (:import
    [java.util Map]))
 
@@ -31,13 +32,6 @@
     (slurp (io/file file-path))))
 
 (def ^:private compact-prompt-template (memoize compact-prompt-template*))
-
-(defn ^:private replace-vars [s vars]
-  (reduce
-   (fn [p [k v]]
-     (string/replace p (str "{{" (name k) "}}") (str v)))
-   s
-   vars))
 
 (defn ^:private eca-chat-prompt [behavior config]
   (let [behavior-config (get-in config [:behavior behavior])
@@ -91,30 +85,38 @@
      (str "\n<additionalContext from=\"chatStart\">\n" startup-ctx "\n</additionalContext>\n\n"))
    "</contexts>"))
 
-(defn build-chat-instructions [refined-contexts rules repo-map* behavior config chat-id db]
-  (multi-str
-   (eca-chat-prompt behavior config)
-   (when (seq rules)
-     ["## Rules"
-      ""
-      "<rules description=\"Rules defined by user\">\n"
-      (reduce
-       (fn [rule-str {:keys [name content]}]
-         (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
-       ""
-       rules)
-      "</rules>"])
-   ""
-   (when (seq refined-contexts)
-     ["## Contexts"
-      ""
-      (contexts-str refined-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
-   ""
-   (replace-vars
-    (load-builtin-prompt "additional_system_info.md")
-    {:workspaceRoots (shared/workspaces-as-str db)})))
+(defn ^:private ->base-selmer-ctx [all-tools db]
+  (merge
+   {:workspaceRoots (shared/workspaces-as-str db)}
+   (reduce
+    (fn [m tool]
+      (assoc m (keyword (str "toolEnabled_" (:full-name tool))) true))
+    {}
+    all-tools)))
 
-(defn build-rewrite-instructions [text path full-text range config]
+(defn build-chat-instructions [refined-contexts rules repo-map* behavior config chat-id all-tools db]
+  (let [selmer-ctx (->base-selmer-ctx all-tools db)]
+    (multi-str
+     (selmer/render (eca-chat-prompt behavior config) selmer-ctx)
+     (when (seq rules)
+       ["## Rules"
+        ""
+        "<rules description=\"Rules defined by user\">\n"
+        (reduce
+         (fn [rule-str {:keys [name content]}]
+           (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
+         ""
+         rules)
+        "</rules>"])
+     ""
+     (when (seq refined-contexts)
+       ["## Contexts"
+        ""
+        (contexts-str refined-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
+     ""
+     (selmer/render (load-builtin-prompt "additional_system_info.md") selmer-ctx))))
+
+(defn build-rewrite-instructions [text path full-text range all-tools config db]
   (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
         prompt (-> config :rewrite :systemPrompt)
         prompt-str (cond
@@ -128,39 +130,42 @@
                      ;; Resource path
                      :else
                      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))]
-    (replace-vars
-     prompt-str
-     {:text text
-      :path (when path
-              (str "- File path: " path))
-      :rangeText (multi-str
-                  (str "- Start line: " (-> range :start :line))
-                  (str "- Start character: " (-> range :start :character))
-                  (str "- End line: " (-> range :end :line))
-                  (str "- End character: " (-> range :end :character)))
-      :fullText (when full-text
-                  (multi-str
-                   "- Full file content"
-                   "```"
-                   full-text
-                   "```"))})))
+    (selmer/render prompt-str
+                   (merge
+                     (->base-selmer-ctx all-tools db)
+                     {:text text
+                      :path (when path
+                              (str "- File path: " path))
+                      :rangeText (multi-str
+                                   (str "- Start line: " (-> range :start :line))
+                                   (str "- Start character: " (-> range :start :character))
+                                   (str "- End line: " (-> range :end :line))
+                                   (str "- End character: " (-> range :end :character)))
+                      :fullText (when full-text
+                                  (multi-str
+                                    "- Full file content"
+                                    "```"
+                                    full-text
+                                    "```"))}))))
 
-(defn init-prompt [db]
-  (replace-vars
+(defn init-prompt [all-tools db]
+  (selmer/render
    (init-prompt-template)
-   {:workspaceFolders (shared/workspaces-as-str db)}))
+   (->base-selmer-ctx all-tools db)))
 
 (defn title-prompt []
   (title-prompt-template))
 
-(defn compact-prompt [additional-input config]
-  (replace-vars
-    (or (:compactPrompt config)
+(defn compact-prompt [additional-input all-tools config db]
+  (selmer/render
+   (or (:compactPrompt config)
         ;; legacy
-        (compact-prompt-template (:compactPromptFile config)))
-   {:additionalUserInput (if additional-input
-                           (format "You MUST respect this user input in the summarization: %s." additional-input)
-                           "")}))
+       (compact-prompt-template (:compactPromptFile config)))
+   (merge
+    (->base-selmer-ctx all-tools db)
+    {:additionalUserInput (if additional-input
+                            (format "You MUST respect this user input in the summarization: %s." additional-input)
+                            "")})))
 
 (defn inline-completion-prompt [config]
   (let [legacy-prompt-file (get-in config [:completion :systemPromptFile])

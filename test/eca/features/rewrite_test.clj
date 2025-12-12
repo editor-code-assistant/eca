@@ -61,7 +61,7 @@
                           ((:on-first-response-received opts) {:type :text})
                           ((:on-message-received opts) {:type :finish}))
                         f.prompt/build-rewrite-instructions
-                        (fn [text path full-text range cfg]
+                        (fn [text path full-text range _all-tools cfg _db]
                           (reset! captured-instr-args* {:text text :path path :full-text full-text :range range :config cfg})
                           "MY-INSTR")
                         f.login/maybe-renew-auth-token! (fn [& _] nil)
