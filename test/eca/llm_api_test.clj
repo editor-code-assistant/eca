@@ -44,7 +44,7 @@
                   secrets/credential-file-paths (constantly [])]
       (let [db {:models {}}
             config {:providers {"openai" {:key "yes!"}}}]
-        (is (= "openai/gpt-5.1" (llm-api/default-model db config))))))
+        (is (= "openai/gpt-5.2" (llm-api/default-model db config))))))
 
   (testing "OpenAI API key present in ENV"
     (with-redefs [config/get-env (fn [k] (when (= k "OPENAI_API_KEY") "env-openai"))
@@ -52,7 +52,7 @@
       (let [db {:models {}}
             config {:providers {"anthropic" {:key nil :keyEnv nil :keyRc nil}
                                 "openai" {:keyEnv "OPENAI_API_KEY"}}}]
-        (is (= "openai/gpt-5.1" (llm-api/default-model db config))))))
+        (is (= "openai/gpt-5.2" (llm-api/default-model db config))))))
 
   (testing "Fallback default (no keys anywhere)"
     (with-redefs [config/get-env (constantly nil)
