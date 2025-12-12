@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.85.3
+
 - Support `openai/gpt-5.2` and `github-copilot/gpt-5.2` by default.
 
 ## 0.85.2
