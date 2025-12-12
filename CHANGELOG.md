@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.86.0
+
 - Improve agent behavior prompt to mention usage of editor_diagnostics tool. #230
 - Use selmer syntax for prompt templates.
 
