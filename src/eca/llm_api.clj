@@ -160,6 +160,7 @@
           :tools tools
           :think-tag-start "<thought>"
           :think-tag-end "</thought>"
+          :skip-thought-signature-validator? (get-in provider-config [:skipThoughtSignatureValidator])
           :extra-payload (merge {:parallel_tool_calls false}
                                 (when reason?
                                   {:extra_body {:google {:thinking_config {:include_thoughts true}}}})

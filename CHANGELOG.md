@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support Google Gemini thought signatures.
+- Support `gemini-3-pro-preview` model.
 - Support `~` in dynamic string parser.
 - Support removing nullable values from LLM request body if the value in extraPayload is null. #232
 

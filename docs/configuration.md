@@ -582,6 +582,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             completionUrlRelativePath?: string;
             thinkTagStart?: string;
             thinkTagEnd?: string;
+            skipThoughtSignatureValidator?: boolean;
             models: {[key: string]: {
               modelName?: string;
               extraPayload?: {[key: string]: any}

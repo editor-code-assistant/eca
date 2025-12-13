@@ -70,9 +70,13 @@
   (let [tools-to-call (->> (:choices body)
                            (mapcat (comp :tool_calls :message))
                            (map (fn [tool-call]
-                                  {:id (:id tool-call)
-                                   :full-name (:name (:function tool-call))
-                                   :arguments (json/parse-string (:arguments (:function tool-call)))})))]
+                                  (cond-> {:id (:id tool-call)
+                                           :full-name (:name (:function tool-call))
+                                           :arguments (json/parse-string (:arguments (:function tool-call)))}
+                                    ;; Preserve Google Gemini thought signatures
+                                    (get-in tool-call [:extra_content :google :thought_signature])
+                                    (assoc :thought-signature
+                                           (get-in tool-call [:extra_content :google :thought_signature]))))))]
     {:usage (parse-usage (:usage body))
      :reason-id (str (random-uuid))
      :tools-to-call tools-to-call
@@ -129,13 +133,22 @@
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles."
-  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
+  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end skip-thought-signature-validator?]
   (case role
     "tool_call" {:type :tool-call ; Special marker for accumulation
-                 :data {:id (:id content)
-                        :type "function"
-                        :function {:name (:full-name content)
-                                   :arguments (json/generate-string (:arguments content))}}}
+                 :data (cond-> {:id (:id content)
+                                :type "function"
+                                :function {:name (:full-name content)
+                                           :arguments (json/generate-string (:arguments content))}}
+                         ;; Preserve Google Gemini thought signatures if present
+                         (:thought-signature content)
+                         (assoc-in [:extra_content :google :thought_signature]
+                                   (:thought-signature content))
+                         ;; Use bypass signature when thought signature is missing and bypass is enabled
+                         (and skip-thought-signature-validator?
+                              (not (:thought-signature content)))
+                         (assoc-in [:extra_content :google :thought_signature]
+                                   "skip_thought_signature_validator"))}
     "tool_call_output" {:role "tool"
                         :tool_call_id (:id content)
                         :content (llm-util/stringfy-tool-result content)}
@@ -196,9 +209,9 @@
    'assistant' role message, not as separate messages. This function ensures compliance
    with that requirement by accumulating tool calls and flushing them into assistant
    messages when a non-tool_call message is encountered."
-  [messages supports-image? think-tag-start think-tag-end]
+  [messages supports-image? think-tag-start think-tag-end skip-thought-signature-validator?]
   (->> messages
-       (map #(transform-message % supports-image? think-tag-start think-tag-end))
+       (map #(transform-message % supports-image? think-tag-start think-tag-end skip-thought-signature-validator?))
        (remove nil?)
        accumulate-tool-calls
        (filter valid-message?)))
@@ -295,15 +308,15 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end http-client]}
+           think-tag-start think-tag-end skip-thought-signature-validator? http-client]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
         stream? (boolean callbacks)
         messages (vec (concat
                        (when instructions [{:role "system" :content instructions}])
-                       (normalize-messages past-messages supports-image? think-tag-start think-tag-end)
-                       (normalize-messages user-messages supports-image? think-tag-start think-tag-end)))
+                       (normalize-messages past-messages supports-image? think-tag-start think-tag-end skip-thought-signature-validator?)
+                       (normalize-messages user-messages supports-image? think-tag-start think-tag-end skip-thought-signature-validator?)))
 
         body (deep-merge
               (assoc-some
@@ -333,7 +346,7 @@
                                   (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
                                     (let [new-messages-list (vec (concat
                                                                   (when instructions [{:role "system" :content instructions}])
-                                                                  (normalize-messages new-messages supports-image? think-tag-start think-tag-end)))
+                                                                  (normalize-messages new-messages supports-image? think-tag-start think-tag-end skip-thought-signature-validator?)))
                                           new-rid (llm-util/gen-rid)]
                                       (reset! tool-calls* {})
                                       (base-chat-request!
@@ -406,8 +419,10 @@
                                           (on-message-received {:type :text :text buf}))
                                         (reset! content-buffer* "")))
                                     (doseq [tool-call (:tool_calls delta)]
-                                      (let [{:keys [index id function]} tool-call
+                                      (let [{:keys [index id function extra_content]} tool-call
                                             {name :name args :arguments} function
+                                            ;; Extract Google Gemini thought signature if present
+                                            thought-signature (get-in extra_content [:google :thought_signature])
                                             ;; Use RID as key to avoid collisions between API requests
                                             tool-key (str rid "-" index)
                                             ;; Create globally unique tool call ID for client
@@ -421,7 +436,9 @@
                                                  (cond-> (or existing {:index index})
                                                    unique-id (assoc :id unique-id)
                                                    name (assoc :full-name name)
-                                                   args (update :arguments-text (fnil str "") args))))
+                                                   args (update :arguments-text (fnil str "") args)
+                                                   ;; Store thought signature for Google Gemini
+                                                   thought-signature (assoc :thought-signature thought-signature))))
                                         (when-let [updated-tool-call (get @tool-calls* tool-key)]
                                           (when (and (:id updated-tool-call)
                                                      (:full-name updated-tool-call)

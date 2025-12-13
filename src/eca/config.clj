@@ -82,7 +82,8 @@
                          :key "${env:GOOGLE_API_KEY}"
                          :requiresAuth? true
                          :models {"gemini-2.0-flash" {}
-                                  "gemini-2.5-pro" {}}}
+                                  "gemini-2.5-pro" {}
+                                  "gemini-3-pro-preview" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultBehavior "agent"
    :behavior {"agent" {:systemPrompt "${classpath:prompts/agent_behavior.md}"
