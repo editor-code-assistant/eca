@@ -287,6 +287,41 @@
                     (emit-text! (.substring buf 0 emit-len))
                     (reset! content-buffer* (.substring buf emit-len))))))))))))
 
+(defn- build-request-body-with-version
+  "Build request body with version-specific max tokens parameter.
+  
+  version 1: uses max_tokens (for Mistral, older OpenAI-compatible endpoints)
+  version 2 (default): uses max_completion_tokens (for OpenAI, modern endpoints)
+  
+  Checks for version in both provider-config and extra-payload, with provider-config taking precedence."
+  [extra-payload provider-config model messages stream? temperature tools]
+  (let [version (or (get provider-config :version)
+                     (get extra-payload :version)
+                     2)
+        max-tokens-param (if (= version 1) :max_tokens :max_completion_tokens)
+        base-request (-> {:model model
+                         :messages messages
+                         :stream stream?}
+                        (assoc max-tokens-param 32000)
+                        (assoc-some
+                         :temperature temperature
+                         :tools (when (seq tools) (->tools tools))))
+        ;; Remove version from extra-payload to avoid sending it to the API
+        extra-payload (dissoc extra-payload :version)
+        ;; Handle potential conflicts between extra-payload and version-based tokens
+        extra-payload (if (= version 1)
+                        ;; For version 1, remove max_completion_tokens if present and ensure max_tokens
+                        (-> extra-payload
+                            (dissoc :max_completion_tokens)
+                            (cond-> (not (contains? extra-payload :max_tokens))
+                              (assoc :max_tokens 32000)))
+                        ;; For version 2, remove max_tokens if present and ensure max_completion_tokens
+                        (-> extra-payload
+                            (dissoc :max_tokens)
+                            (cond-> (not (contains? extra-payload :max_completion_tokens))
+                              (assoc :max_completion_tokens 32000))))]
+    (deep-merge base-request extra-payload)))
+
 (defn chat-completion!
   "Primary entry point for OpenAI chat completions with streaming support.
 
@@ -295,7 +330,7 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end http-client]}
+           think-tag-start think-tag-end http-client provider-config]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
@@ -305,15 +340,7 @@
                        (normalize-messages past-messages supports-image? think-tag-start think-tag-end)
                        (normalize-messages user-messages supports-image? think-tag-start think-tag-end)))
 
-        body (deep-merge
-              (assoc-some
-               {:model model
-                :messages messages
-                :stream stream?
-                :max_completion_tokens 32000}
-               :temperature temperature
-               :tools (when (seq tools) (->tools tools)))
-              extra-payload)
+        body (build-request-body-with-version extra-payload provider-config model messages stream? temperature tools)
 
         ;; Atom to accumulate tool call data from streaming chunks.
         ;; OpenAI streams tool call arguments across multiple chunks, so we need to

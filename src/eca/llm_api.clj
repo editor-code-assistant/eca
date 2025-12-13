@@ -140,6 +140,7 @@
                                 extra-payload)
           :api-url api-url
           :api-key api-key
+          :provider-config provider-config
           :extra-headers {"openai-intent" "conversation-panel"
                           "x-request-id" (str (random-uuid))
                           "vscode-sessionid" ""
@@ -165,7 +166,8 @@
                                   {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
                                 extra-payload)
           :api-url api-url
-          :api-key api-key}
+          :api-key api-key
+          :provider-config provider-config}
          callbacks)
 
         (= "ollama" provider)
@@ -207,6 +209,7 @@
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
             :http-client http-client
+            :provider-config provider-config
             :api-url api-url
             :api-key api-key}
            callbacks))
