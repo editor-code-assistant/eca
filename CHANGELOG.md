@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support `~` in dynamic string parser.
+
 ## 0.86.0
 
 - Improve agent behavior prompt to mention usage of editor_diagnostics tool. #230

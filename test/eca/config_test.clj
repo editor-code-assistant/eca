@@ -7,7 +7,8 @@
    [eca.logger :as logger]
    [eca.secrets :as secrets]
    [eca.test-helper :as h]
-   [matcher-combinators.test :refer [match?]]))
+   [matcher-combinators.test :refer [match?]]
+   [clojure.string :as string]))
 
 (h/reset-components-before-test)
 
@@ -281,6 +282,17 @@
                             "relative file content"
                             (throw (ex-info "File not found" {}))))]
       (is (= "relative file content" (#'config/parse-dynamic-string "${file:test.txt}" "/tmp" {})))))
+
+  (testing "replaces file pattern with file content - path with ~"
+    (with-redefs [fs/absolute? (fn [_] true)
+                  fs/path (fn [cwd file-path] (str cwd "/" file-path))
+                  fs/expand-home (fn [f]
+                                   (string/replace (str f) "~" "/home/user"))
+                  slurp (fn [path]
+                          (if (= path "/home/user/foo/test.txt")
+                            "relative file content"
+                            (throw (ex-info "File not found" {}))))]
+      (is (= "relative file content" (#'config/parse-dynamic-string "${file:~/foo/test.txt}" "/tmp" {})))))
 
   (testing "replaces file pattern with empty string when file not found"
     (with-redefs [logger/warn (fn [& _] nil)

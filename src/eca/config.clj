@@ -159,11 +159,12 @@
           (string/replace #"\$\{file:([^}]+)\}"
                           (fn [[_match file-path]]
                             (try
-                              (slurp (str (if (fs/absolute? file-path)
-                                            file-path
-                                            (if cwd
-                                              (fs/path cwd file-path)
-                                              (fs/path file-path)))))
+                              (let [file-path (fs/expand-home file-path)]
+                                (slurp (str (if (fs/absolute? file-path)
+                                              file-path
+                                              (if cwd
+                                                (fs/path cwd file-path)
+                                                (fs/path file-path))))))
                               (catch Exception _
                                 (logger/warn logger-tag "File not found when parsing string:" s)
                                 ""))))
