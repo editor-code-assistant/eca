@@ -125,7 +125,53 @@
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Foo"}]}
                       {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
-             (llm.mocks/get-req-body :simple-text-2)))))))
+             (llm.mocks/get-req-body :simple-text-2))))))
+
+(deftest openai-chat-version-parameter
+  (eca/start-process!)
+
+  (eca/request! (fixture/initialize-request
+                 {:initializationOptions
+                  (merge fixture/default-init-options
+                         {:defaultModel "mistral/labs-devstral-small-2512"
+                          :providers
+                          {"mistral"
+                           {:api "openai-chat"
+                            :version 1  ;; Test version 1 for Mistral
+                            :url (str "http://localhost:" llm-mock.server/port "/openai-chat")
+                            :key "mistral-key"
+                            :models {"labs-devstral-small-2512" {}}}}})
+                  :capabilities {:codeAssistant {:chat {}}}}))
+
+  (eca/notify! (fixture/initialized-notification))
+  (testing "Mistral provider with version 1 uses max_tokens parameter"
+    (is (match?
+         {:chat {:models (m/embeds ["mistral/labs-devstral-small-2512"])
+                 :selectModel "mistral/labs-devstral-small-2512"}}
+         (eca/client-awaits-server-notification :config/updated)))
+
+    (let [chat-id* (atom nil)]
+      (testing "Request body contains max_tokens instead of max_completion_tokens"
+        (llm.mocks/set-case! :simple-text-0)
+        (let [resp (eca/request! (fixture/chat-prompt-request
+                                  {:model "mistral/labs-devstral-small-2512"
+                                   :message "Test Mistral compatibility"}))
+              chat-id (reset! chat-id* (:chatId resp))]
+
+          (is (match?
+               {:chatId (m/pred string?)
+                :model "mistral/labs-devstral-small-2512"
+                :status "prompting"}
+               resp))
+
+          ;; Verify that the request body contains max_tokens (version 1) instead of max_completion_tokens
+          (let [req-body (llm.mocks/get-req-body :simple-text-0)]
+            (is (contains? req-body :max_tokens) "Should contain max_tokens for version 1")
+            (is (not (contains? req-body :max_completion_tokens)) "Should not contain max_completion_tokens for version 1")
+            (is (= 32000 (:max_tokens req-body)) "Should default to 32000 max_tokens"))
+
+          (match-content chat-id "user" {:type "text" :text "Test Mistral compatibility\n"})
+          (match-content chat-id "system" {:type "progress" :state "finished"})))))))
 
 (deftest openai-chat-simple-text
   (eca/start-process!)
