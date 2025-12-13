@@ -268,6 +268,7 @@
 
   (testing "replaces file pattern with file content - absolute path"
     (with-redefs [fs/absolute? (fn [path] (= path "/absolute/file.txt"))
+                  fs/expand-home identity
                   slurp (fn [path]
                           (if (= (str path) "/absolute/file.txt")
                             "test file content"
@@ -277,6 +278,7 @@
   (testing "replaces file pattern with file content - relative path"
     (with-redefs [fs/absolute? (fn [_] false)
                   fs/path (fn [cwd file-path] (str cwd "/" file-path))
+                  fs/expand-home identity
                   slurp (fn [path]
                           (if (= path "/tmp/test.txt")
                             "relative file content"
@@ -303,6 +305,7 @@
 
   (testing "handles multiple file patterns"
     (with-redefs [fs/absolute? (fn [_] true)
+                  fs/expand-home identity
                   slurp (fn [path]
                           (case (str path)
                             "/file1.txt" "content1"
@@ -314,6 +317,7 @@
   (testing "handles mixed env and file patterns"
     (with-redefs [config/get-env (fn [env-var]
                                    (when (= env-var "TEST_VAR") "env-value"))
+                  fs/expand-home identity
                   fs/absolute? (fn [_] true)
                   slurp (fn [path]
                           (if (= (str path) "/file.txt")
@@ -407,6 +411,7 @@
   (testing "handles mixed env, file, classpath, and netrc patterns"
     (with-redefs [config/get-env (fn [env-var]
                                    (when (= env-var "TEST_VAR") "env-value"))
+                  fs/expand-home identity
                   fs/absolute? (fn [_] true)
                   slurp (fn [path]
                           (cond
