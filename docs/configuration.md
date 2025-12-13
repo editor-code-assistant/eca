@@ -582,6 +582,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             completionUrlRelativePath?: string;
             thinkTagStart?: string;
             thinkTagEnd?: string;
+            version?: 1 | 2; // API version for openai-chat providers (1 for Mistral/compatible, 2 for OpenAI/modern, default: 2)
             models: {[key: string]: {
               modelName?: string;
               extraPayload?: {[key: string]: any}
