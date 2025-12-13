@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `version` parameter to `openai-chat` provider config to support different API versions:
+  - **Version 1**: Uses `max_tokens` parameter (for Mistral AI and older OpenAI-compatible endpoints)
+  - **Version 2** (default): Uses `max_completion_tokens` parameter (for OpenAI and modern endpoints)
+  - Fixes Mistral AI 422 errors by allowing configuration of appropriate token parameter
+  - Supports both provider-level and model-level version configuration with provider taking precedence
+  - Maintains full backward compatibility by defaulting to version 2
+
 ## 0.86.0
 
 - Improve agent behavior prompt to mention usage of editor_diagnostics tool. #230
