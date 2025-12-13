@@ -255,4 +255,97 @@
            [:text "re"]]}
          (process-text-think-aware
           ["<" "thi" "nk>H" "um.." ".</" "thi" "nk>H"
-           "ello " "the" "re " "mat" "e!"])))))
+           "ello " "the" "re " "mat" "e!"]))))
+
+;; Test helper to capture the request body from chat-completion!
+(defn capture-request-body
+  "Helper to capture the request body that would be sent to the API"
+  [config]
+  (let [request-body* (atom nil)
+        callbacks {:on-message-received (fn [_])
+                   :on-error (fn [_])
+                   :on-prepare-tool-call (fn [_])
+                   :on-tools-called (fn [_])
+                   :on-reason (fn [_])
+                   :on-usage-updated (fn [_])}
+        ;; Mock the base-chat-request! function to capture the body
+        original-base-chat-request! @(resolve 'eca.llm-providers.openai-chat/base-chat-request!)
+        _ (with-redefs [eca.llm-providers.openai-chat/base-chat-request!
+                        (fn [{:keys [body] :as _all-args}]
+                          (reset! request-body* body)
+                          ;; Return a mock successful response
+                          {:usage {:prompt_tokens 10 :completion_tokens 5 :total_tokens 15}
+                           :choices [{:message {:content "test response" :reasoning "test reasoning"}}]})]
+          (eca.llm-providers.openai-chat/chat-completion! config callbacks))
+        result @request-body*]
+    result))
+
+(deftest version-parameter-test
+  (testing "Version 1 uses max_tokens parameter"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 1}})]
+      (is (contains? body :max_tokens) "Should contain max_tokens for version 1")
+      (is (not (contains? body :max_completion_tokens)) "Should not contain max_completion_tokens for version 1")
+      (is (= 32000 (:max_tokens body)) "Should default to 32000 max_tokens for version 1")))
+
+  (testing "Version 2 uses max_completion_tokens parameter"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 2}})]
+      (is (contains? body :max_completion_tokens) "Should contain max_completion_tokens for version 2")
+      (is (not (contains? body :max_tokens)) "Should not contain max_tokens for version 2")
+      (is (= 32000 (:max_completion_tokens body)) "Should default to 32000 max_completion_tokens for version 2")))
+
+  (testing "Default version (missing) uses max_completion_tokens parameter"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {}})]
+      (is (contains? body :max_completion_tokens) "Should contain max_completion_tokens by default")
+      (is (not (contains? body :max_tokens)) "Should not contain max_tokens by default")
+      (is (= 32000 (:max_completion_tokens body)) "Should default to 32000 max_completion_tokens")))
+
+  (testing "Version 1 with user-provided max_tokens in extraPayload"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 1 :max_tokens 2048}})]
+      (is (contains? body :max_tokens) "Should contain max_tokens for version 1")
+      (is (= 2048 (:max_tokens body)) "Should use user-provided max_tokens for version 1")
+      (is (not (contains? body :max_completion_tokens)) "Should not contain max_completion_tokens for version 1")))
+
+  (testing "Version 2 with user-provided max_completion_tokens in extraPayload"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 2 :max_completion_tokens 1024}})]
+      (is (contains? body :max_completion_tokens) "Should contain max_completion_tokens for version 2")
+      (is (= 1024 (:max_completion_tokens body)) "Should use user-provided max_completion_tokens for version 2")
+      (is (not (contains? body :max_tokens)) "Should not contain max_tokens for version 2")))
+
+  (testing "Version 1 removes conflicting max_completion_tokens from extraPayload"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 1 :max_completion_tokens 5000}})]
+      (is (contains? body :max_tokens) "Should contain max_tokens for version 1")
+      (is (not (contains? body :max_completion_tokens)) "Should remove conflicting max_completion_tokens for version 1")))
+
+  (testing "Version 2 removes conflicting max_tokens from extraPayload"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 2 :max_tokens 5000}})]
+      (is (contains? body :max_completion_tokens) "Should contain max_completion_tokens for version 2")
+      (is (not (contains? body :max_tokens)) "Should remove conflicting max_tokens for version 2")))
+
+  (testing "Version parameter is not included in final request body"
+    (let [body (capture-request-body
+                {:model "test-model"
+                 :user-messages [{:role "user" :content "test"}]
+                 :extra-payload {:version 1 :temperature 0.7}})]
+      (is (not (contains? body :version)) "Should not contain version in final request body")
+      (is (= 0.7 (:temperature body)) "Should preserve other extraPayload parameters")))))
