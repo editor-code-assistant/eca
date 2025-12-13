@@ -100,7 +100,9 @@
   (let [body (some-> (slurp (:body req)) (json/parse-string true))
         messages (:messages body)
         normalized (messages->normalized-input messages)
-        normalized-body (merge normalized (select-keys body [:tools]))]
+        ;; Capture token parameters for version testing
+        token-params (select-keys body [:max_tokens :max_completion_tokens])
+        normalized-body (merge normalized (select-keys body [:tools]) token-params)]
     (hk/as-channel
      req
      {:on-open (fn [ch]
