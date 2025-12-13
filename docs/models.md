@@ -146,6 +146,56 @@ Defaults by API type:
 
 Only set this when your provider uses a different path or expects query parameters at the endpoint (e.g., Azure API versioning).
 
+#### API Version (for openai-chat providers)
+
+The `openai-chat` API supports different versions to accommodate various provider requirements:
+
+- **`version: 1`**: Uses `max_tokens` parameter (for Mistral AI and older OpenAI-compatible endpoints)
+- **`version: 2`** (default): Uses `max_completion_tokens` parameter (for OpenAI and modern endpoints)
+
+Set the version in your provider config to ensure compatibility:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "providers": {
+    "mistral": {
+      "api": "openai-chat",
+      "version": 1,
+      "url": "https://api.mistral.ai",
+      "key": "${env:MISTRAL_API_KEY}",
+      "models": {
+        "labs-devstral-small-2512": {
+          "extraPayload": {
+            "max_tokens": 2048
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+For OpenAI and most modern providers, you can omit the version (defaults to 2):
+
+```javascript title="~/.config/eca/config.json"
+{
+  "providers": {
+    "openai": {
+      "api": "openai-chat",
+      "url": "https://api.openai.com",
+      "key": "${env:OPENAI_API_KEY}",
+      "models": {
+        "gpt-4o": {
+          "extraPayload": {
+            "max_completion_tokens": 2048
+          }
+        }
+      }
+    }
+  }
+}
+```
+
 ### Credential File Authentication
 
 ECA also supports standard plain-text .netrc file format for reading credentials.
