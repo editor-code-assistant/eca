@@ -375,7 +375,7 @@
                                   (when-let [reasoning-text (or (:reasoning delta)
                                                                 (:reasoning_content delta))]
                                     (when-not @reasoning-started*
-                                        ;; Generate new reason-id for each thinking block
+                                      ;; Generate new reason-id for each thinking block
                                       (let [new-reason-id (str (random-uuid))]
                                         (reset! current-reason-id* new-reason-id)
                                         (reset! reasoning-started* true)

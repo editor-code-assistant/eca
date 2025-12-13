@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support `~` in dynamic string parser.
+- Support removing nullable values from LLM request body if the value in extraPayload is null. #232
 
 ## 0.86.0
 

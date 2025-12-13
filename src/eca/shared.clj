@@ -59,7 +59,13 @@
             (cond
               (nil? v1) v2
               (nil? v2) v1
-              (and (map? v1) (map? v2)) (merge-with deep-merge v1 v2)
+              (and (map? v1) (map? v2))
+              (reduce-kv (fn [m k v]
+                           (if (nil? v)
+                             (dissoc m k)
+                             (assoc m k (rec-merge (get v1 k) v))))
+                         v1
+                         v2)
               :else v2))]
     (reduce rec-merge v vs)))
 

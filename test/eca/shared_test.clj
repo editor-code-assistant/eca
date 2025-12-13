@@ -90,7 +90,17 @@
                               {:a 2})))
     (is (= {:a {:b 1}}
            (shared/deep-merge {:a 2}
-                              {:a {:b 1}})))))
+                              {:a {:b 1}}))))
+  (testing "Dissoc nil values"
+    (is (match?
+         {:a 1
+          :b {:c {:e 3
+                  :f 4}}}
+         (shared/deep-merge {:a 1
+                             :b {:c {:e 3}
+                                 :d 2}}
+                            {:b {:c {:f 4}
+                                 :d nil}})))))
 
 (deftest future*-test
   (testing "on test env we run on same thread"
