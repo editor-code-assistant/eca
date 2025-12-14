@@ -560,7 +560,7 @@
            :server (:server event-data)
            :arguments (:arguments event-data)
            :origin (:origin event-data)
-           :thought-signature (:thought-signature event-data)
+           :external-id (:external-id event-data)
            :decision-reason {:code :none
                              :text "No reason"})
 
@@ -1125,7 +1125,7 @@
                                      :finish (do (add-to-history! {:role "assistant"
                                                                    :content [{:type :text :text @received-msgs*}]})
                                                  (finish-chat-prompt! :idle chat-ctx))))
-            :on-prepare-tool-call (fn [{:keys [id full-name arguments-text thought-signature]}]
+            :on-prepare-tool-call (fn [{:keys [id full-name arguments-text external-id]}]
                                     (assert-chat-not-stopped! chat-ctx)
                                     (let [tool (tool-by-full-name full-name all-tools)]
                                       (transition-tool-call! db* chat-ctx id :tool-prepare
@@ -1134,7 +1134,7 @@
                                                               :full-name full-name
                                                               :origin (:origin tool)
                                                               :arguments-text arguments-text
-                                                              :thought-signature thought-signature
+                                                              :external-id external-id
                                                               :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
             :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history!)
             :on-reason (fn [{:keys [status id text external-id]}]

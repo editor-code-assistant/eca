@@ -34,8 +34,7 @@
            {:role "assistant" :content "I found 2 files"}]
           true
           thinking-start-tag
-          thinking-end-tag
-          false))))
+          thinking-end-tag))))
 
   (testing "Skips unsupported message types"
     (is (match?
@@ -49,8 +48,7 @@
                    {:role "assistant" :content "Hi"}]
                   true
                   thinking-start-tag
-                  thinking-end-tag
-                  false))))))
+                  thinking-end-tag))))))
 
 (deftest extract-content-test
   (testing "String input"
@@ -105,8 +103,7 @@
                      :arguments {:location "NYC"}}}
           true
           thinking-start-tag
-          thinking-end-tag
-          false))))
+          thinking-end-tag))))
 
   (testing "Tool call output transformation"
     (is (match?
@@ -119,8 +116,7 @@
                      :output {:contents [{:type :text :text "Sunny, 75°F"}]}}}
           true
           thinking-start-tag
-          thinking-end-tag
-          false))))
+          thinking-end-tag))))
 
   (testing "Unsupported role returns nil"
     (is (nil?
@@ -128,8 +124,7 @@
           {:role "unsupported" :content "test"}
           true
           thinking-start-tag
-          thinking-end-tag
-          false)))))
+          thinking-end-tag)))))
 
 (deftest accumulate-tool-calls-test
   (testing "Multiple sequential tool calls get grouped"
@@ -171,8 +166,8 @@
     (is (#'llm-providers.openai-chat/valid-message?
          {:role "user" :content "Hello world"}))))
 
-(deftest thought-signature-test
-  (testing "Tool call with thought signature is preserved"
+(deftest external-id-test
+  (testing "Tool call with external-id is preserved"
     (is (match?
          {:type :tool-call
           :data {:id "call-123"
@@ -185,65 +180,10 @@
            :content {:id "call-123"
                      :full-name "eca__get_weather"
                      :arguments {:location "Paris"}
-                     :thought-signature "signature-abc-123"}}
+                     :external-id "signature-abc-123"}}
           true
           thinking-start-tag
-          thinking-end-tag
-          false))))
-
-  (testing "Tool call without thought signature when bypass is disabled"
-    (is (match?
-         {:type :tool-call
-          :data {:id "call-456"
-                 :type "function"
-                 :function {:name "eca__get_weather"
-                            :arguments "{\"location\":\"London\"}"}}}
-         (#'llm-providers.openai-chat/transform-message
-          {:role "tool_call"
-           :content {:id "call-456"
-                     :full-name "eca__get_weather"
-                     :arguments {:location "London"}}}
-          true
-          thinking-start-tag
-          thinking-end-tag
-          false))))
-
-  (testing "Tool call without thought signature gets bypass when enabled"
-    (is (match?
-         {:type :tool-call
-          :data {:id "call-789"
-                 :type "function"
-                 :function {:name "eca__get_weather"
-                            :arguments "{\"location\":\"Tokyo\"}"}
-                 :extra_content {:google {:thought_signature "skip_thought_signature_validator"}}}}
-         (#'llm-providers.openai-chat/transform-message
-          {:role "tool_call"
-           :content {:id "call-789"
-                     :full-name "eca__get_weather"
-                     :arguments {:location "Tokyo"}}}
-          true
-          thinking-start-tag
-          thinking-end-tag
-          true))))
-
-  (testing "Tool call with thought signature is not overridden by bypass"
-    (is (match?
-         {:type :tool-call
-          :data {:id "call-999"
-                 :type "function"
-                 :function {:name "eca__get_weather"
-                            :arguments "{\"location\":\"Berlin\"}"}
-                 :extra_content {:google {:thought_signature "original-signature"}}}}
-         (#'llm-providers.openai-chat/transform-message
-          {:role "tool_call"
-           :content {:id "call-999"
-                     :full-name "eca__get_weather"
-                     :arguments {:location "Berlin"}
-                     :thought-signature "original-signature"}}
-          true
-          thinking-start-tag
-          thinking-end-tag
-          true)))))
+          thinking-end-tag)))))
 
 (defn process-text-think-aware [texts]
   (let [content-buffer* (atom "")
