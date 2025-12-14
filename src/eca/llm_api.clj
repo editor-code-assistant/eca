@@ -264,14 +264,16 @@
                       :user-messages user-messages
                       :on-error on-error-wrapper
                       :config config})]
-        (let [{:keys [error output-text reason-text tools-to-call call-tools-fn reason-id usage]} result]
+        (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
           (if error
             (on-error-wrapper error)
             (do
               (when reason-text
                 (on-reason-wrapper {:status :started :id reason-id})
                 (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
-                (on-reason-wrapper {:status :finished :id reason-id}))
+                (on-reason-wrapper {:status :finished
+                                    :id reason-id
+                                    :reasoning-content reasoning-content}))
               (on-message-received-wrapper {:type :text :text output-text})
               (some-> usage (on-usage-updated))
               (if-let [new-result (when (seq tools-to-call)

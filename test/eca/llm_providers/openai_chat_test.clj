@@ -8,7 +8,7 @@
 (def thinking-end-tag "</think>")
 
 (deftest normalize-messages-test
-  (testing "With tool_call history"
+  (testing "With tool_call history - tool calls stay separate from preceding assistant (no reasoning_content)"
     (is (match?
          [{:role "user" :content [{:type "text" :text "List the files"}]}
           {:role "assistant" :content [{:type "text" :text "I'll list the files for you"}]}
@@ -36,19 +36,18 @@
           thinking-start-tag
           thinking-end-tag))))
 
-  (testing "Skips unsupported message types"
+  (testing "Reason messages without reasoning-content use think tags, stay separate from following assistant"
     (is (match?
          [{:role "user" :content [{:type "text" :text "Hello"}]}
           {:role "assistant" :content [{:type "text" :text "<think>Thinking...</think>"}]}
           {:role "assistant" :content [{:type "text" :text "Hi"}]}]
-         (remove nil?
-                 (#'llm-providers.openai-chat/normalize-messages
-                  [{:role "user" :content "Hello"}
-                   {:role "reason" :content {:text "Thinking..."}}
-                   {:role "assistant" :content "Hi"}]
-                  true
-                  thinking-start-tag
-                  thinking-end-tag))))))
+         (#'llm-providers.openai-chat/normalize-messages
+          [{:role "user" :content "Hello"}
+           {:role "reason" :content {:text "Thinking..."}}
+           {:role "assistant" :content "Hi"}]
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
 
 (deftest extract-content-test
   (testing "String input"
@@ -89,13 +88,13 @@
          (#'llm-providers.openai-chat/->tools [])))))
 
 (deftest transform-message-test
-  (testing "Tool call transformation"
+  (testing "Tool call transformation - returns assistant message with tool_calls"
     (is (match?
-         {:type :tool-call
-          :data {:id "call-123"
-                 :type "function"
-                 :function {:name "foo__get_weather"
-                            :arguments "{\"location\":\"NYC\"}"}}}
+         {:role "assistant"
+          :tool_calls [{:id "call-123"
+                        :type "function"
+                        :function {:name "foo__get_weather"
+                                   :arguments "{\"location\":\"NYC\"}"}}]}
          (#'llm-providers.openai-chat/transform-message
           {:role "tool_call"
            :content {:id "call-123"
@@ -118,6 +117,29 @@
           thinking-start-tag
           thinking-end-tag))))
 
+  (testing "Reason messages - use reasoning_content if present, otherwise tags"
+    ;; Without :reasoning-content, uses think tags
+    (is (match?
+         {:role "assistant"
+          :content [{:type "text" :text "<think>Reasoning...</think>"}]}
+         (#'llm-providers.openai-chat/transform-message
+          {:role "reason"
+           :content {:text "Reasoning..."}}
+          true
+          thinking-start-tag
+          thinking-end-tag)))
+    ;; With :reasoning-content, uses reasoning_content field
+    (is (match?
+         {:role "assistant"
+          :reasoning_content "opaque"}
+         (#'llm-providers.openai-chat/transform-message
+          {:role "reason"
+           :content {:text "Reasoning..."
+                     :reasoning-content "opaque"}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
   (testing "Unsupported role returns nil"
     (is (nil?
          (#'llm-providers.openai-chat/transform-message
@@ -126,28 +148,86 @@
           thinking-start-tag
           thinking-end-tag)))))
 
-(deftest accumulate-tool-calls-test
-  (testing "Multiple sequential tool calls get grouped"
+(deftest merge-adjacent-assistants-test
+  (testing "Without reasoning_content, adjacent assistants are NOT merged"
     (is (match?
          [{:role "user" :content "What's the weather?"}
-          {:role "assistant"
-           :tool_calls [{:id "call-1" :function {:name "get_weather"}}
-                        {:id "call-2" :function {:name "get_location"}}]}
+          {:role "assistant" :tool_calls [{:id "call-1" :function {:name "get_weather"}}]}
+          {:role "assistant" :tool_calls [{:id "call-2" :function {:name "get_location"}}]}
           {:role "user" :content "Thanks"}]
-         (#'llm-providers.openai-chat/accumulate-tool-calls
+         (#'llm-providers.openai-chat/merge-adjacent-assistants
           [{:role "user" :content "What's the weather?"}
-           {:type :tool-call :data {:id "call-1" :function {:name "get_weather"}}}
-           {:type :tool-call :data {:id "call-2" :function {:name "get_location"}}}
+           {:role "assistant" :tool_calls [{:id "call-1" :function {:name "get_weather"}}]}
+           {:role "assistant" :tool_calls [{:id "call-2" :function {:name "get_location"}}]}
            {:role "user" :content "Thanks"}]))))
 
-  (testing "Tool calls at end of messages are flushed"
+  (testing "DeepSeek: Reasoning content merges with tool calls"
     (is (match?
-         [{:role "user" :content "Test"}
+         [{:role "user" :content "Calc"}
           {:role "assistant"
-           :tool_calls [{:id "call-1" :function {:name "test_tool"}}]}]
-         (#'llm-providers.openai-chat/accumulate-tool-calls
-          [{:role "user" :content "Test"}
-           {:type :tool-call :data {:id "call-1" :function {:name "test_tool"}}}])))))
+           :reasoning_content "Thinking about math..."
+           :tool_calls [{:id "call-1" :function {:name "calculator"}}]}]
+         (#'llm-providers.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Calc"}
+           {:role "assistant" :reasoning_content "Thinking about math..."}
+           {:role "assistant" :tool_calls [{:id "call-1" :function {:name "calculator"}}]}]))))
+
+  (testing "DeepSeek: Reasoning content merges with text content"
+    (is (match?
+         [{:role "user" :content "Hi"}
+          {:role "assistant"
+           :reasoning_content "Thinking about greeting..."
+           :content "Hello!"}]
+         (#'llm-providers.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Hi"}
+           {:role "assistant" :reasoning_content "Thinking about greeting..."}
+           {:role "assistant" :content "Hello!"}]))))
+
+  (testing "DeepSeek: Standalone reasoning content stays as-is"
+    (is (match?
+         [{:role "user" :content "Why?"}
+          {:role "assistant"
+           :reasoning_content "Thinking..."}]
+         (#'llm-providers.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Why?"}
+           {:role "assistant" :reasoning_content "Thinking..."}])))))
+
+(deftest prune-history-test
+  (testing "Drops reason messages WITH reasoning-content before the last user message (DeepSeek)"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "reason" :content {:text "r2" :reasoning-content "e2"}}
+          {:role "assistant" :content "A2"}]
+         (#'llm-providers.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "r1" :reasoning-content "e1"}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "r2" :reasoning-content "e2"}}
+           {:role "assistant" :content "A2"}]))))
+
+  (testing "Preserves reason messages WITHOUT reasoning-content (think-tag based)"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "reason" :content {:text "thinking..."}}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "reason" :content {:text "more thinking..."}}
+          {:role "assistant" :content "A2"}]
+         (#'llm-providers.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "thinking..."}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "more thinking..."}}
+           {:role "assistant" :content "A2"}]))))
+
+  (testing "No user message leaves list unchanged"
+    (let [msgs [{:role "assistant" :content "A"}
+                {:role "reason" :content {:text "r"}}]]
+      (is (= msgs (#'llm-providers.openai-chat/prune-history msgs))))))
 
 (deftest valid-message-test
   (testing "Tool messages are always kept"
@@ -186,19 +266,13 @@
           thinking-end-tag)))))
 
 (defn process-text-think-aware [texts]
-  (let [content-buffer* (atom "")
-        reasoning-type* (atom nil)
-        reasoning-started* (atom false)
-        current-reason-id* (atom nil)
+  (let [reasoning-state* (atom {:id nil :type nil :content "" :buffer ""})
         callbacks-called* (atom [])]
     (doseq [text texts]
       (with-redefs [random-uuid (constantly "123")]
         (#'llm-providers.openai-chat/process-text-think-aware
          text
-         content-buffer*
-         reasoning-type*
-         current-reason-id*
-         reasoning-started*
+         reasoning-state*
          thinking-start-tag
          thinking-end-tag
          (fn [{:keys [text]}]
@@ -209,7 +283,7 @@
                          status)]
              (swap! callbacks-called* conj [:reason value id]))))))
     {:callbacks-called @callbacks-called*
-     :content-buffer @content-buffer*}))
+     :content-buffer (:buffer @reasoning-state*)}))
 
 (deftest process-text-think-aware-test
   (testing "complete tag by chunk"
@@ -274,4 +348,46 @@
            [:text "re"]]}
          (process-text-think-aware
           ["<" "thi" "nk>H" "um.." ".</" "thi" "nk>H"
-           "ello " "the" "re " "mat" "e!"])))))
+           "ello " "the" "re " "mat" "e!"]))))
+  (testing "buffer never grows beyond tag length for long text without tags"
+    (let [long-text (apply str (repeat 1000 "x"))
+          result (process-text-think-aware [long-text])
+          buffer-size (count (:content-buffer result))]
+      ;; Buffer should be at most start-tail characters.
+      ;; With default tags: start-tail = dec(count "<think>") = dec 7 = 6.
+      (is (<= buffer-size 6)
+          (str "Buffer should be bounded by tag length, but was " buffer-size))
+      ;; Most text should have been emitted
+      (let [text-calls (filter #(= :text (first %)) (:callbacks-called result))
+            total-emitted (apply str (map second text-calls))]
+        (is (<= (- (count long-text) 6) (count total-emitted) (count long-text))
+            "Should emit almost all text, keeping only a small buffer")))))
+
+(deftest finish-reasoning-error-handling-test
+  (testing "finish-reasoning should not call on-reason when :id is nil (regression test)"
+    (let [on-reason-called? (atom false)
+          on-reason (fn [_] (reset! on-reason-called? true))
+          reasoning-state* (atom {:type :tag :id nil :content "" :buffer ""})]
+      ;; With fixed implementation, on-reason should NOT be called when :id is nil
+      (#'llm-providers.openai-chat/finish-reasoning! reasoning-state* on-reason)
+      (is (not @on-reason-called?) "on-reason should not be called when :id is nil"))))
+
+(deftest deepseek-non-stream-reasoning-content-test
+  (testing "response-body->result captures reasoning_content and normalization preserves it"
+    (let [body {:usage {:prompt_tokens 5 :completion_tokens 2}
+                :choices [{:message {:content "hi"
+                                     :reasoning_content "think more"}}]}
+          result (#'llm-providers.openai-chat/response-body->result body (fn [& _]))
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      [{:role "user" :content "Q"}
+                       {:role "reason" :content {:id "r1"
+                                                 :reasoning-content (:reasoning-content result)}}]
+                      true
+                      thinking-start-tag
+                      thinking-end-tag)]
+      (is (= "think more" (:reasoning-content result)))
+      (is (match?
+           [{:role "user" :content [{:type "text" :text "Q"}]}
+            {:role "assistant"
+             :reasoning_content "think more"}]
+           normalized)))))
