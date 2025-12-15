@@ -173,111 +173,101 @@
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :reasoning-1)))))))
 
-#_(deftest tool-calling
-    (eca/start-process!)
+(deftest tool-calling-with-thought-signatures
+  (eca/start-process!)
 
-    (eca/request! (fixture/initialize-request))
-    (eca/notify! (fixture/initialized-notification))
-    (let [chat-id* (atom nil)]
-      (testing "We ask what files LLM see"
-        (llm.mocks/set-case! :tool-calling-0)
-        (let [0
-              resp (eca/request! (fixture/chat-prompt-request
-                                  {:model "google/gemini-2.5-pro"
-                                   :message "What files you see?"}))
-              chat-id (reset! chat-id* (:chatId resp))]
+  (eca/request! (fixture/initialize-request))
+  (eca/notify! (fixture/initialized-notification))
+  (llm-mock.openai-chat/set-thinking-tag! "thought")
+  (let [chat-id* (atom nil)]
+    (testing "We ask what files LLM sees - tool call includes thought signature"
+      (llm.mocks/set-case! :tool-calling-with-thought-signature-0)
+      (let [resp (eca/request! (fixture/chat-prompt-request
+                                {:model "google/gemini-2.5-pro"
+                                 :message "What files you see?"}))
+            chat-id (reset! chat-id* (:chatId resp))]
 
+        (is (match?
+             {:chatId (m/pred string?)
+              :model "google/gemini-2.5-pro"
+              :status "prompting"}
+             resp))
+
+        (match-content chat-id "user" {:type "text" :text "What files you see?\n"})
+        (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
+        (match-content chat-id "assistant" {:type "reasonStarted" :id (m/pred string?)})
+        ;; Note: The buffering in process-text-think-aware keeps a 9-char tail to detect </thought>,
+        ;; so chunks get re-split during streaming. The mock sends "I s", "hould call tool", " eca__directory_tree"
+        ;; but after buffering we get these chunks:
+        (match-content chat-id "assistant" {:type "reasonText" :id (m/pred string?) :text "I should "})
+        (match-content chat-id "assistant" {:type "reasonText" :id (m/pred string?) :text "call tool eca__direc"})
+        (match-content chat-id "assistant" {:type "reasonText" :id (m/pred string?) :text "tory_tree"})
+        (match-content chat-id "assistant" {:type "reasonFinished" :id (m/pred string?) :totalTimeMs (m/pred number?)})
+        ;; Text is buffered (8-char tail for <thought> detection), then flushed when tool calls start
+        (match-content chat-id "assistant" {:type "text" :text "I will li"})
+        (match-content chat-id "assistant" {:type "text" :text "st files"})
+        (match-content chat-id "assistant" {:type "toolCallPrepare"
+                                            :origin "native"
+                                            :id (m/pred string?)
+                                            :name "directory_tree"
+                                            :argumentsText ""
+                                            :summary "Listing file tree"})
+        (match-content chat-id "assistant" {:type "toolCallPrepare"
+                                            :origin "native"
+                                            :id (m/pred string?)
+                                            :name "directory_tree"
+                                            :argumentsText "{\"pat"
+                                            :summary "Listing file tree"})
+        (match-content chat-id "assistant" {:type "toolCallPrepare"
+                                            :origin "native"
+                                            :id (m/pred string?)
+                                            :name "directory_tree"
+                                            :argumentsText (str "h\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")
+                                            :summary "Listing file tree"})
+        (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "assistant" {:type "toolCallRun"
+                                            :origin "native"
+                                            :id (m/pred string?)
+                                            :name "directory_tree"
+                                            :arguments {:path (h/project-path->canon-path "resources")}
+                                            :manualApproval false
+                                            :summary "Listing file tree"})
+        (match-content chat-id "assistant" {:type "toolCallRunning"
+                                            :origin "native"
+                                            :id (m/pred string?)
+                                            :name "directory_tree"
+                                            :arguments {:path (h/project-path->canon-path "resources")}
+                                            :summary "Listing file tree"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
+        (match-content chat-id "assistant" {:type "toolCalled"
+                                            :origin "native"
+                                            :id (m/pred string?)
+                                            :name "directory_tree"
+                                            :arguments {:path (h/project-path->canon-path "resources")}
+                                            :summary "Listing file tree"
+                                            :totalTimeMs (m/pred number?)
+                                            :error false
+                                            :outputs [{:type "text" :text (str (h/project-path->canon-path "resources") "\n"
+                                                                               " file1.md\n"
+                                                                               " file2.md\n\n"
+                                                                               "0 directories, 2 files")}]})
+        ;; Text chunks get re-split due to 8-char tail buffering for <thought> detection.
+        ;; Note: We use m/in-any-order for the final text/usage/progress events since their
+        ;; relative ordering can vary due to async processing and buffering.
+        (match-content chat-id "assistant" {:type "text" :text "The files"})
+        (match-content chat-id "assistant" {:type "text" :text " I see:\nfile"})
+        (match-content chat-id "assistant" {:type "text" :text "1\nfile2\n"})
+        (match-content chat-id "system" {:type "progress" :state "finished"})
+
+        ;; Verify thought signature was passed back in the second request
+        (let [raw-messages (llm.mocks/get-raw-messages :tool-calling-with-thought-signature-0)
+              ;; Find the assistant message with tool_calls
+              assistant-tool-call-msg (first (filter #(and (= "assistant" (:role %))
+                                                           (seq (:tool_calls %)))
+                                                     raw-messages))]
           (is (match?
-               {:chatId (m/pred string?)
-                :model "google/gemini-2.5-pro"
-                :status "prompting"}
-               resp))
-
-          (match-content chat-id "user" {:type "text" :text "What files you see?\n"})
-          (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
-          (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
-          (match-content chat-id "assistant" {:type "reasonStarted" :id (m/pred string?)})
-          (match-content chat-id "assistant" {:type "reasonText" :id (m/pred string?) :text "I should call tool"})
-          (match-content chat-id "assistant" {:type "reasonText" :id (m/pred string?) :text " eca__directory_tree"})
-          (match-content chat-id "assistant" {:type "reasonFinished" :id (m/pred string?) :totalTimeMs (m/pred number?)})
-          (match-content chat-id "assistant" {:type "text" :text "I will list files"})
-          (match-content chat-id "assistant" {:type "toolCallPrepare"
-                                              :origin "native"
-                                              :id "tool-1"
-                                              :name "directory_tree"
-                                              :argumentsText ""
-                                              :manualApproval false
-                                              :summary "Listing file tree"})
-          (match-content chat-id "assistant" {:type "toolCallPrepare"
-                                              :origin "native"
-                                              :id "tool-1"
-                                              :name "directory_tree"
-                                              :argumentsText "{\"pat"
-                                              :manualApproval false
-                                              :summary "Listing file tree"})
-          (match-content chat-id "assistant" {:type "toolCallPrepare"
-                                              :origin "native"
-                                              :id "tool-1"
-                                              :name "directory_tree"
-                                              :argumentsText (str "h\":\"" (h/project-path->canon-path "resources") "\"}")
-                                              :manualApproval false
-                                              :summary "Listing file tree"})
-          (match-content chat-id "system" {:type "usage"
-                                           :messageInputTokens 5
-                                           :messageOutputTokens 30
-                                           :sessionTokens 35
-                                           :messageCost (m/pred string?)
-                                           :sessionCost (m/pred string?)})
-          (match-content chat-id "assistant" {:type "toolCallRun"
-                                              :origin "native"
-                                              :id "tool-1"
-                                              :name "directory_tree"
-                                              :arguments {:path (h/project-path->canon-path "resources")}
-                                              :manualApproval false
-                                              :summary "Listing file tree"})
-          (match-content chat-id "assistant" {:type "toolCallRunning"
-                                              :origin "native"
-                                              :id "tool-1"
-                                              :name "directory_tree"
-                                              :arguments {:path (h/project-path->canon-path "resources")}
-                                              :totalTimeMs number?
-                                              :summary "Listing file tree"})
-          (match-content chat-id "assistant" {:type "toolCalled"
-                                              :origin "native"
-                                              :id "tool-1"
-                                              :name "directory_tree"
-                                              :arguments {:path (h/project-path->canon-path "resources")}
-                                              :summary "Listing file tree"
-                                              :error false
-                                              :outputs [{:type "text" :text (str "[FILE] " (h/project-path->canon-path "resources/file1.md\n")
-                                                                                 "[FILE] " (h/project-path->canon-path "resources/file2.md\n"))}]})
-          (match-content chat-id "assistant" {:type "text" :text "The files I see:\n"})
-          (match-content chat-id "assistant" {:type "text" :text "file1\nfile2\n"})
-          (match-content chat-id "system" {:type "usage"
-                                           :messageInputTokens 5
-                                           :messageOutputTokens 30
-                                           :sessionTokens 70
-                                           :messageCost (m/pred string?)
-                                           :sessionCost (m/pred string?)})
-          (match-content chat-id "system" {:type "progress" :state "finished"})
-          (is (match?
-               {:messages [{:role "user" :content [{:type "text" :text "What files you see?"}]}
-                           {:role "assistant"
-                            :content [{:type "thinking"
-                                       :signature "enc-123"
-                                       :thinking "I should call tool eca__directory_tree"}]}
-                           {:role "assistant" :content [{:type "text" :text "I will list files"}]}
-                           {:role "assistant"
-                            :content [{:type "tool_use"
-                                       :id "tool-1"
-                                       :name "eca__directory_tree"
-                                       :input {:path (h/project-path->canon-path "resources")}}]}
-                           {:role "user"
-                            :content [{:type "tool_result"
-                                       :tool_use_id "tool-1"
-                                       :content (str "[FILE] " (h/project-path->canon-path "resources/file1.md\n")
-                                                     "[FILE] " (h/project-path->canon-path "resources/file2.md\n\n"))}]}]
-                :tools (m/embeds
-                        [{:name "eca__directory_tree"}])
-                :system (m/pred vector?)}
-               llm.mocks/*last-req-body*))))))
+               {:role "assistant"
+                :tool_calls [{:extra_content {:google {:thought_signature "thought-sig-abc123"}}}]}
+               assistant-tool-call-msg)))))))
