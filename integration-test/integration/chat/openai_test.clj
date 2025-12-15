@@ -230,7 +230,7 @@
                                             :origin "native"
                                             :id "tool-1"
                                             :name "directory_tree"
-                                            :argumentsText (str "h\":\"" (h/project-path->canon-path "resources") "\"}")
+                                            :argumentsText (str "h\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")
                                             :summary "Listing file tree"})
         (match-content chat-id "system" {:type "usage"
                                          :sessionTokens 35

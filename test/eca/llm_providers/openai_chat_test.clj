@@ -166,6 +166,25 @@
     (is (#'llm-providers.openai-chat/valid-message?
          {:role "user" :content "Hello world"}))))
 
+(deftest external-id-test
+  (testing "Tool call with external-id is preserved"
+    (is (match?
+         {:type :tool-call
+          :data {:id "call-123"
+                 :type "function"
+                 :function {:name "eca__get_weather"
+                            :arguments "{\"location\":\"Paris\"}"}
+                 :extra_content {:google {:thought_signature "signature-abc-123"}}}}
+         (#'llm-providers.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "call-123"
+                     :full-name "eca__get_weather"
+                     :arguments {:location "Paris"}
+                     :external-id "signature-abc-123"}}
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
+
 (defn process-text-think-aware [texts]
   (let [content-buffer* (atom "")
         reasoning-type* (atom nil)

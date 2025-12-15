@@ -2,6 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.string :as string]
+   [integration.helper :as h]
    [llm-mock.mocks :as llm.mocks]
    [org.httpkit.server :as hk]))
 
@@ -95,6 +96,37 @@
              {:choices [{:message {:content "Some Cool Title"}}]})
             true))
 
+(defn ^:private tool-calling-with-thought-signature-0 [ch path]
+  ;; Send reasoning content first (thinking)
+  (send-sse! ch {:choices [{:delta {:content (str "<" *thinking-tag* ">")}}]})
+  (send-sse! ch {:choices [{:delta {:content "I s"}}]})
+  (send-sse! ch {:choices [{:delta {:content "hould call tool"}}]})
+  (send-sse! ch {:choices [{:delta {:content " eca__directory_tree"}}]})
+  (send-sse! ch {:choices [{:delta {:content (str "</" *thinking-tag* ">")}}]})
+  ;; Send text before tool call
+  (send-sse! ch {:choices [{:delta {:content "I will list files"}}]})
+  ;; Send tool call with thought signature
+  (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
+                                                   :id "tool-1"
+                                                   :function {:name "eca__directory_tree"
+                                                              :arguments ""}
+                                                   :extra_content {:google {:thought_signature "thought-sig-abc123"}}}]}}]})
+  (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
+                                                   :function {:arguments "{\"pat"}}]}}]})
+  (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
+                                                   :function {:arguments (str "h\":\"" (h/json-escape-path path) "\"}")}}]}}]})
+  (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 30}})
+  (send-sse! ch {:choices [{:delta {} :finish_reason "tool_calls"}]})
+  (hk/close ch))
+
+(defn ^:private tool-calling-with-thought-signature-1 [ch]
+  ;; Second stage response after tool output
+  (send-sse! ch {:choices [{:delta {:content "The files I see:\n"}}]})
+  (send-sse! ch {:choices [{:delta {:content "file1\nfile2\n"}}]})
+  (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 30}})
+  (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+  (hk/close ch))
+
 (defn handle-openai-chat [req]
   ;; Capture and normalize the request body for assertions in tests
   (let [body (some-> (slurp (:body req)) (json/parse-string true))
@@ -114,14 +146,20 @@
                    (chat-title-text-0 ch)
                    (do
                      (llm.mocks/set-req-body! llm.mocks/*case* normalized-body)
-                     (case llm.mocks/*case*
-                       :simple-text-0 (simple-text-0 ch)
-                       :simple-text-1 (simple-text-1 ch)
-                       :simple-text-2 (simple-text-2 ch)
-                       :reasoning-0 (reasoning-text-0 ch)
-                       :reasoning-1 (reasoning-text-1 ch)
-                       ;; default fallback
-                       (do
-                         (send-sse! ch {:choices [{:delta {:content "hello"}}]})
-                         (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
-                         (hk/close ch))))))})))
+                     (llm.mocks/set-raw-messages! llm.mocks/*case* messages)
+                     (let [has-tool-message? (some #(= "tool" (:role %)) messages)]
+                       (case llm.mocks/*case*
+                         :simple-text-0 (simple-text-0 ch)
+                         :simple-text-1 (simple-text-1 ch)
+                         :simple-text-2 (simple-text-2 ch)
+                         :reasoning-0 (reasoning-text-0 ch)
+                         :reasoning-1 (reasoning-text-1 ch)
+                         :tool-calling-with-thought-signature-0
+                         (if has-tool-message?
+                           (tool-calling-with-thought-signature-1 ch)
+                           (tool-calling-with-thought-signature-0 ch (h/project-path->canon-path "resources")))
+                         ;; default fallback
+                         (do
+                           (send-sse! ch {:choices [{:delta {:content "hello"}}]})
+                           (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+                           (hk/close ch)))))))})))

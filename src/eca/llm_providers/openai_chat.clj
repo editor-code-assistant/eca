@@ -70,9 +70,13 @@
   (let [tools-to-call (->> (:choices body)
                            (mapcat (comp :tool_calls :message))
                            (map (fn [tool-call]
-                                  {:id (:id tool-call)
-                                   :full-name (:name (:function tool-call))
-                                   :arguments (json/parse-string (:arguments (:function tool-call)))})))]
+                                   (cond-> {:id (:id tool-call)
+                                            :full-name (:name (:function tool-call))
+                                            :arguments (json/parse-string (:arguments (:function tool-call)))}
+                                     ;; Preserve Google Gemini thought signatures
+                                     (get-in tool-call [:extra_content :google :thought_signature])
+                                     (assoc :external-id
+                                            (get-in tool-call [:extra_content :google :thought_signature]))))))]
     {:usage (parse-usage (:usage body))
      :reason-id (str (random-uuid))
      :tools-to-call tools-to-call
@@ -132,10 +136,14 @@
   [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
   (case role
     "tool_call" {:type :tool-call ; Special marker for accumulation
-                 :data {:id (:id content)
-                        :type "function"
-                        :function {:name (:full-name content)
-                                   :arguments (json/generate-string (:arguments content))}}}
+                 :data (cond-> {:id (:id content)
+                                :type "function"
+                                :function {:name (:full-name content)
+                                           :arguments (json/generate-string (:arguments content))}}
+                         ;; Preserve Google Gemini thought signatures if present
+                         (:external-id content)
+                         (assoc-in [:extra_content :google :thought_signature]
+                                   (:external-id content)))}
     "tool_call_output" {:role "tool"
                         :tool_call_id (:id content)
                         :content (llm-util/stringfy-tool-result content)}
@@ -406,8 +414,10 @@
                                           (on-message-received {:type :text :text buf}))
                                         (reset! content-buffer* "")))
                                     (doseq [tool-call (:tool_calls delta)]
-                                      (let [{:keys [index id function]} tool-call
+                                      (let [{:keys [index id function extra_content]} tool-call
                                             {name :name args :arguments} function
+                                            ;; Extract Google Gemini thought signature if present
+                                            thought-signature (get-in extra_content [:google :thought_signature])
                                             ;; Use RID as key to avoid collisions between API requests
                                             tool-key (str rid "-" index)
                                             ;; Create globally unique tool call ID for client
@@ -421,7 +431,9 @@
                                                  (cond-> (or existing {:index index})
                                                    unique-id (assoc :id unique-id)
                                                    name (assoc :full-name name)
-                                                   args (update :arguments-text (fnil str "") args))))
+                                                   args (update :arguments-text (fnil str "") args)
+                                                   ;; Store thought signature for Google Gemini
+                                                   thought-signature (assoc :external-id thought-signature))))
                                         (when-let [updated-tool-call (get @tool-calls* tool-key)]
                                           (when (and (:id updated-tool-call)
                                                      (:full-name updated-tool-call)
