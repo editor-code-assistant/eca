@@ -35,7 +35,6 @@
               :server "eca"
               :arguments tool-arguments
               :origin tool-origin
-              :external-id nil
               :decision-reason {:code :none
                                 :text "No reason"}}
              (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
