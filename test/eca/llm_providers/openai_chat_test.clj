@@ -117,8 +117,8 @@
           thinking-start-tag
           thinking-end-tag))))
 
-  (testing "Reason messages - use reasoning_content if present, otherwise tags"
-    ;; Without :reasoning-content, uses think tags
+  (testing "Reason messages - use reasoning_content if :delta-reasoning?, otherwise tags"
+    ;; Without :delta-reasoning?, uses think tags
     (is (match?
          {:role "assistant"
           :content [{:type "text" :text "<think>Reasoning...</think>"}]}
@@ -128,14 +128,14 @@
           true
           thinking-start-tag
           thinking-end-tag)))
-    ;; With :reasoning-content, uses reasoning_content field
+    ;; With :delta-reasoning?, uses reasoning_content field with :text value
     (is (match?
          {:role "assistant"
-          :reasoning_content "opaque"}
+          :reasoning_content "Reasoning..."}
          (#'llm-providers.openai-chat/transform-message
           {:role "reason"
            :content {:text "Reasoning..."
-                     :reasoning-content "opaque"}}
+                     :delta-reasoning? true}}
           true
           thinking-start-tag
           thinking-end-tag))))
@@ -193,22 +193,22 @@
            {:role "assistant" :reasoning_content "Thinking..."}])))))
 
 (deftest prune-history-test
-  (testing "Drops reason messages WITH reasoning-content before the last user message (DeepSeek)"
+  (testing "Drops reason messages WITH :delta-reasoning? before the last user message (DeepSeek)"
     (is (match?
          [{:role "user" :content "Q1"}
           {:role "assistant" :content "A1"}
           {:role "user" :content "Q2"}
-          {:role "reason" :content {:text "r2" :reasoning-content "e2"}}
+          {:role "reason" :content {:text "r2" :delta-reasoning? true}}
           {:role "assistant" :content "A2"}]
          (#'llm-providers.openai-chat/prune-history
           [{:role "user" :content "Q1"}
-           {:role "reason" :content {:text "r1" :reasoning-content "e1"}}
+           {:role "reason" :content {:text "r1" :delta-reasoning? true}}
            {:role "assistant" :content "A1"}
            {:role "user" :content "Q2"}
-           {:role "reason" :content {:text "r2" :reasoning-content "e2"}}
+           {:role "reason" :content {:text "r2" :delta-reasoning? true}}
            {:role "assistant" :content "A2"}]))))
 
-  (testing "Preserves reason messages WITHOUT reasoning-content (think-tag based)"
+  (testing "Preserves reason messages WITHOUT :delta-reasoning? (think-tag based)"
     (is (match?
          [{:role "user" :content "Q1"}
           {:role "reason" :content {:text "thinking..."}}
@@ -249,12 +249,12 @@
 (deftest external-id-test
   (testing "Tool call with external-id is preserved"
     (is (match?
-         {:type :tool-call
-          :data {:id "call-123"
-                 :type "function"
-                 :function {:name "eca__get_weather"
-                            :arguments "{\"location\":\"Paris\"}"}
-                 :extra_content {:google {:thought_signature "signature-abc-123"}}}}
+         {:role "assistant"
+          :tool_calls [{:id "call-123"
+                        :type "function"
+                        :function {:name      "eca__get_weather"
+                                   :arguments "{\"location\":\"Paris\"}"}
+                        :extra_content {:google {:thought_signature "signature-abc-123"}}}]}
          (#'llm-providers.openai-chat/transform-message
           {:role "tool_call"
            :content {:id "call-123"
@@ -373,15 +373,17 @@
       (is (not @on-reason-called?) "on-reason should not be called when :id is nil"))))
 
 (deftest deepseek-non-stream-reasoning-content-test
-  (testing "response-body->result captures reasoning_content and normalization preserves it"
+  (testing "response-body->result captures reasoning_content and normalization uses :text with :delta-reasoning?"
     (let [body {:usage {:prompt_tokens 5 :completion_tokens 2}
                 :choices [{:message {:content "hi"
                                      :reasoning_content "think more"}}]}
           result (#'llm-providers.openai-chat/response-body->result body (fn [& _]))
+          ;; Simulate how chat.clj would store this: :text has the content, :delta-reasoning? is the flag
           normalized (#'llm-providers.openai-chat/normalize-messages
                       [{:role "user" :content "Q"}
                        {:role "reason" :content {:id "r1"
-                                                 :reasoning-content (:reasoning-content result)}}]
+                                                 :text (:reasoning-content result)
+                                                 :delta-reasoning? true}}]
                       true
                       thinking-start-tag
                       thinking-end-tag)]

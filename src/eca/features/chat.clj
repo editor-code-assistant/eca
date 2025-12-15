@@ -1142,7 +1142,7 @@
                                          (add-to-history! {:role "reason"
                                                            :content {:id id
                                                                      :external-id external-id
-                                                                     :reasoning-content reasoning-content
+                                                                     :delta-reasoning? (some? reasoning-content)
                                                                      :total-time-ms total-time-ms
                                                                      :text (get-in @reasonings* [id :text])}})
                                          (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))

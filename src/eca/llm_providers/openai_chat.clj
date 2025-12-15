@@ -153,10 +153,10 @@
                         :content (llm-util/stringfy-tool-result content)}
     "user" {:role "user"
             :content (extract-content content supports-image?)}
-    "reason" (if-let [reasoning-content (:reasoning-content content)]
+    "reason" (if (:delta-reasoning? content)
                ;; DeepSeek-style: reasoning_content must be passed back to API
                {:role "assistant"
-                :reasoning_content reasoning-content}
+                :reasoning_content (:text content)}
                ;; Fallback: wrap in thinking tags for models that use text-based reasoning
                {:role "assistant"
                 :content [{:type "text"
@@ -323,14 +323,14 @@
 
 (defn ^:private prune-history
   "Ensure DeepSeek-style reasoning_content is discarded from history but kept for the active turn.
-   Only drops 'reason' messages WITH :reasoning-content before the last user message.
-   Think-tag based reasoning (without :reasoning-content) is preserved and transformed to assistant messages."
+   Only drops 'reason' messages WITH :delta-reasoning? before the last user message.
+   Think-tag based reasoning (without :delta-reasoning?) is preserved and transformed to assistant messages."
   [messages]
   (if-let [last-user-idx (llm-util/find-last-user-msg-idx messages)]
     (->> messages
          (keep-indexed (fn [i m]
                          (when-not (and (= "reason" (:role m))
-                                        (get-in m [:content :reasoning-content])
+                                        (get-in m [:content :delta-reasoning?])
                                         (< i last-user-idx))
                            m)))
          vec)
