@@ -114,7 +114,7 @@
   (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
                                                    :function {:arguments "{\"pat"}}]}}]})
   (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
-                                                   :function {:arguments (str "h\":\"" path "\"}")}}]}}]})
+                                                   :function {:arguments (str "h\":\"" (h/json-escape-path path) "\"}")}}]}}]})
   (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 30}})
   (send-sse! ch {:choices [{:delta {} :finish_reason "tool_calls"}]})
   (hk/close ch))
