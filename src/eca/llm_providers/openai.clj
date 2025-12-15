@@ -22,7 +22,7 @@
 (defn ^:private jtw-token->account-id [api-key]
   (let [[_ base64] (string/split api-key #"\.")
         payload (some-> base64
-                        llm-util/<-base64
+                        oauth/<-base64
                         json/parse-string)]
     (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])))
 
@@ -270,7 +270,7 @@
 
 (defn ^:private oauth-url [server-url]
   (let [url "https://auth.openai.com/oauth/authorize"
-        {:keys [challenge verifier]} (llm-util/generate-pkce)]
+        {:keys [challenge verifier]} (oauth/generate-pkce)]
     {:verifier verifier
      :url (str url "?" (ring.util/form-encode {:client_id client-id
                                                :response_type "code"

@@ -1,15 +1,18 @@
 (ns eca.features.tools.mcp
   (:require
    [cheshire.core :as json]
+   [clojure.java.browse :as browse]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
+   [eca.oauth :as oauth]
    [eca.shared :as shared])
   (:import
    [com.fasterxml.jackson.databind ObjectMapper]
    [io.modelcontextprotocol.client McpClient McpSyncClient]
    [io.modelcontextprotocol.client.transport HttpClientStreamableHttpTransport ServerParameters StdioClientTransport]
+   [io.modelcontextprotocol.client.transport.customizer McpSyncHttpClientRequestCustomizer]
    [io.modelcontextprotocol.json McpJsonMapper]
    [io.modelcontextprotocol.spec
     McpSchema$CallToolRequest
@@ -29,6 +32,8 @@
     McpSchema$TextResourceContents
     McpSchema$Tool
     McpTransport]
+   [java.net URI]
+   [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
    [java.time Duration]
    [java.util List Map]
    [java.util.concurrent TimeoutException]))
@@ -51,11 +56,77 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
+(defn ^:private url->base-url
+  "Extract the base URL (scheme + host + port) from a full URL.
+   E.g., 'https://api.example.com/v1/mcp' -> 'https://api.example.com'"
+  [^String url]
+  (let [uri (URI. url)]
+    (str (.getScheme uri) "://" (.getHost uri)
+         (when (pos? (.getPort uri))
+           (str ":" (.getPort uri))))))
+
+(defn ^:private parse-www-authenticate
+  "Parse WWW-Authenticate header to extract OAuth parameters.
+   Returns a map with :realm, :error, :error_description, :resource_metadata if present."
+  [header-value]
+  (when (and header-value (string/starts-with? (string/lower-case header-value) "bearer"))
+    (let [params-str (string/trim (subs header-value (count "Bearer")))
+          ;; Parse key="value" pairs, handling commas within values
+          param-pattern #"(\w+)=\"([^\"]*)\""
+          matches (re-seq param-pattern params-str)]
+      (into {:type :bearer}
+            (for [[_ k v] matches]
+              [(keyword k) v])))))
+
+(defn ^:private fetch-oauth-metadata
+  "Fetch OAuth authorization server metadata from /.well-known/oauth-authorization-server.
+   Returns a map with :authorization_endpoint, :token_endpoint, etc. or nil on failure."
+  [^String base-url]
+  (try
+    (let [metadata-url (str base-url "/.well-known/oauth-authorization-server")
+          client (HttpClient/newHttpClient)
+          request (-> (HttpRequest/newBuilder)
+                      (.uri (URI. metadata-url))
+                      (.timeout (Duration/ofSeconds 10))
+                      (.header "Accept" "application/json")
+                      (.GET)
+                      (.build))
+          response (.send client request (HttpResponse$BodyHandlers/ofString))
+          status (.statusCode response)]
+      (when (= 200 status)
+        (json/parse-string (.body response) true)))
+    (catch Exception e
+      (logger/debug logger-tag "Could not fetch OAuth metadata:" (.getMessage e))
+      nil)))
+
+(defn ^:private fetch-protected-resource-metadata
+  "Fetch OAuth protected resource metadata from a resource_metadata URL.
+   Returns a map with :authorization_servers, :scopes_supported, etc. or nil on failure."
+  [^String resource-metadata-url]
+  (try
+    (let [client (HttpClient/newHttpClient)
+          request (-> (HttpRequest/newBuilder)
+                      (.uri (URI. resource-metadata-url))
+                      (.timeout (Duration/ofSeconds 10))
+                      (.header "Accept" "application/json")
+                      (.GET)
+                      (.build))
+          response (.send client request (HttpResponse$BodyHandlers/ofString))
+          status (.statusCode response)]
+      (when (= 200 status)
+        (json/parse-string (.body response) true)))
+    (catch Exception e
+      (logger/debug logger-tag "Could not fetch protected resource metadata:" (.getMessage e))
+      nil)))
+
 (defn ^:private ->transport ^McpTransport [server-name server-config workspaces]
   (if (:url server-config)
     ;; HTTP Streamable transport
     (let [url (replace-env-vars (:url server-config))]
       (-> (HttpClientStreamableHttpTransport/builder url)
+          (.httpRequestCustomizer (reify McpSyncHttpClientRequestCustomizer
+                                    (customize [_this builder method endpoint body context]
+                                      (logger/info "-->" method endpoint body context))))
           (.build)))
 
     ;; STDIO transport
@@ -167,29 +238,43 @@
   (let [db @db*
         workspaces (:workspace-folders @db*)
         server-config (get-in config [:mcpServers name])
-        obj-mapper (ObjectMapper.)
-        init-timeout (:mcpTimeoutSeconds config)
-        transport (->transport name server-config workspaces)
-        client (->client name transport init-timeout workspaces)]
-    (on-server-updated (->server name server-config :starting db))
-    (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
-    (try
-      (.initialize client)
-      (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
-      (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
-      (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
-      (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
-      (swap! db* assoc-in [:mcp-clients name :status] :running)
-      (on-server-updated (->server name server-config :running @db*))
-      (logger/info logger-tag (format "Started MCP server %s" name))
-      (catch Exception e
-        (let [cause-message (if (instance? TimeoutException (.getCause e))
-                              (format "Timeout of %s secs waiting for server start" init-timeout)
-                              (.getMessage (.getCause e)))]
-          (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message)))
-        (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed db))
-        (.close client)))))
+        url (:url server-config)
+        {:keys [authorization-endpoint] :as oauth-info} (when url (oauth/oauth-start-info (replace-env-vars url)))]
+    ;; For HTTP servers, check if OAuth authentication is required before initializing
+    (when oauth-info
+      (logger/info logger-tag (format "Authenticating MCP server '%s' at '%s'" name authorization-endpoint))
+      (swap! db* assoc-in [:mcp-clients name] {:status :requires-auth
+                                               :oauth-info oauth-info})
+      (oauth/start-oauth-server!
+       {:on-success (fn [res]
+                      (logger/info "============>" res))
+        :on-error (fn [error]
+                    (logger/info "---------> " error))})
+      (browse/browse-url authorization-endpoint)
+      (on-server-updated (->server name server-config :requires-auth db)))
+    (let [obj-mapper (ObjectMapper.)
+          init-timeout (:mcpTimeoutSeconds config)
+          transport (->transport name server-config workspaces)
+          client (->client name transport init-timeout workspaces)]
+      (on-server-updated (->server name server-config :starting db))
+      (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
+      (try
+        (.initialize client)
+        (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
+        (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
+        (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
+        (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
+        (swap! db* assoc-in [:mcp-clients name :status] :running)
+        (on-server-updated (->server name server-config :running @db*))
+        (logger/info logger-tag (format "Started MCP server %s" name))
+        (catch Exception e
+          (let [cause-message (if (instance? TimeoutException (.getCause e))
+                                (format "Timeout of %s secs waiting for server start" init-timeout)
+                                (.getMessage (.getCause e)))]
+            (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message)))
+          (swap! db* assoc-in [:mcp-clients name :status] :failed)
+          (on-server-updated (->server name server-config :failed db))
+          (.close client))))))
 
 (defn initialize-servers-async! [{:keys [on-server-updated]} db* config]
   (let [db @db*]
