@@ -1130,7 +1130,7 @@
                                                               :arguments-text arguments-text
                                                               :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
             :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history!)
-            :on-reason (fn [{:keys [status id text external-id reasoning-content]}]
+            :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
                          (assert-chat-not-stopped! chat-ctx)
                          (case status
                            :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
@@ -1142,7 +1142,7 @@
                                          (add-to-history! {:role "reason"
                                                            :content {:id id
                                                                      :external-id external-id
-                                                                     :delta-reasoning? (some? reasoning-content)
+                                                                     :delta-reasoning? delta-reasoning?
                                                                      :total-time-ms total-time-ms
                                                                      :text (get-in @reasonings* [id :text])}})
                                          (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))

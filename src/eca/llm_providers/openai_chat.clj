@@ -227,20 +227,20 @@
   (let [all-accumulated (vals @tool-calls*)
         completed-tools (->> all-accumulated
                              (filter #(every? % [:id :full-name :arguments-text]))
-                             (map (fn [{:keys [arguments-text name] :as tool-call}]
+                             (map (fn [{:keys [arguments-text full-name] :as tool-call}]
                                     (try
                                       (assoc tool-call :arguments (json/parse-string arguments-text))
                                       (catch Exception e
                                         (let [error-msg (format "Failed to parse JSON arguments for tool '%s': %s"
-                                                                name (ex-message e))]
+                                                                full-name (ex-message e))]
                                           (logger/warn logger-tag error-msg)
                                           (assoc tool-call :arguments {} :parse-error error-msg)))))))
         ;; Filter out tool calls with parse errors to prevent execution with invalid data
         valid-tools (remove :parse-error completed-tools)]
-    (if (seq completed-tools)
-      ;; We have some completed tools (valid or with errors), so continue the conversation
+    (if (seq valid-tools)
+      ;; We have valid tools to execute, continue the conversation
       (on-tools-called-wrapper valid-tools on-tools-called handle-response)
-      ;; No completed tools at all - let the streaming response provide the actual finish_reason
+      ;; No valid tools (all had parse errors or none accumulated) - don't loop
       nil)))
 
 (defn ^:private process-text-think-aware
@@ -314,11 +314,9 @@
   [reasoning-state* on-reason]
   (let [state @reasoning-state*]
     (when (and (:type state) (:id state))
-      (let [accumulated-reasoning (when (= (:type state) :delta)
-                                    (not-empty (:content state)))]
-        (on-reason (cond-> {:status :finished :id (:id state)}
-                     accumulated-reasoning
-                     (assoc :reasoning-content accumulated-reasoning)))))
+      (on-reason {:status :finished
+                  :id (:id state)
+                  :delta-reasoning? (= (:type state) :delta)}))
     (reset! reasoning-state* {:id nil :type nil :content "" :buffer ""})))
 
 (defn ^:private prune-history
@@ -441,17 +439,11 @@
                                   ;; Process reasoning if present (o1 models and compatible providers)
                                   (when-let [reasoning-text (or (:reasoning delta)
                                                                 (:reasoning_content delta))]
-                                    (let [state @reasoning-state*]
-                                      (when-not (= (:type state) :delta)
-                                        (start-delta-reasoning))
-                                      ;; Get current state after potentially starting delta reasoning
-                                      (let [current-state @reasoning-state*]
-                                        ;; Accumulate reasoning_content (needed for providers that require echoing it back)
-                                        (when (:reasoning_content delta)
-                                          (swap! reasoning-state* update :content str reasoning-text))
-                                        (on-reason {:status :thinking
-                                                    :id (:id current-state)
-                                                    :text reasoning-text}))))
+                                    (when-not (= (:type @reasoning-state*) :delta)
+                                      (start-delta-reasoning))
+                                    (on-reason {:status :thinking
+                                                :id (:id @reasoning-state*)
+                                                :text reasoning-text}))
 
                                   ;; Check if reasoning just stopped (delta-based)
                                   (let [state @reasoning-state*]

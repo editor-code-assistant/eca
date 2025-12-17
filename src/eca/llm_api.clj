@@ -273,7 +273,7 @@
                 (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
                 (on-reason-wrapper {:status :finished
                                     :id reason-id
-                                    :reasoning-content reasoning-content}))
+                                    :delta-reasoning? (some? reasoning-content)}))
               (on-message-received-wrapper {:type :text :text output-text})
               (some-> usage (on-usage-updated))
               (if-let [new-result (when (seq tools-to-call)

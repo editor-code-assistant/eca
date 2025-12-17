@@ -372,6 +372,43 @@
       (#'llm-providers.openai-chat/finish-reasoning! reasoning-state* on-reason)
       (is (not @on-reason-called?) "on-reason should not be called when :id is nil"))))
 
+(deftest execute-accumulated-tools-with-parse-errors-test
+  (testing "When all tools have parse errors, should NOT call on-tools-called-wrapper (prevents infinite loop)"
+    (let [tool-calls* (atom {"rid-0" {:index 0
+                                      :id "call-123"
+                                      :full-name "eca__write_file"
+                                      :arguments-text "{\"path\": \"/tmp/test.txt\", \"content\": \"truncated..."}}) ;; Invalid JSON
+          wrapper-called? (atom false)
+          on-tools-called-wrapper (fn [& _] (reset! wrapper-called? true))]
+      (#'llm-providers.openai-chat/execute-accumulated-tools!
+       tool-calls*
+       on-tools-called-wrapper
+       (fn [_] {:new-messages []})
+       (fn [& _]))
+      ;; The wrapper should NOT be called because there are no valid tools
+      (is (not @wrapper-called?)
+          "on-tools-called-wrapper should NOT be called when all tools have parse errors")))
+
+  (testing "When some tools are valid and some have errors, should call wrapper with valid tools only"
+    (let [tool-calls* (atom {"rid-0" {:index 0
+                                      :id "call-123"
+                                      :full-name "eca__read_file"
+                                      :arguments-text "{\"path\": \"/tmp/test.txt\"}"}  ;; Valid JSON
+                             "rid-1" {:index 1
+                                      :id "call-456"
+                                      :full-name "eca__write_file"
+                                      :arguments-text "{\"path\": \"truncated..."}})  ;; Invalid JSON
+          passed-tools (atom nil)
+          on-tools-called-wrapper (fn [tools & _] (reset! passed-tools tools))]
+      (#'llm-providers.openai-chat/execute-accumulated-tools!
+       tool-calls*
+       on-tools-called-wrapper
+       (fn [_] {:new-messages []})
+       (fn [& _]))
+      ;; Should be called with only the valid tool
+      (is (= 1 (count @passed-tools)))
+      (is (= "call-123" (:id (first @passed-tools)))))))
+
 (deftest deepseek-non-stream-reasoning-content-test
   (testing "response-body->result captures reasoning_content and normalization uses :text with :delta-reasoning?"
     (let [body {:usage {:prompt_tokens 5 :completion_tokens 2}
@@ -379,15 +416,17 @@
                                      :reasoning_content "think more"}}]}
           result (#'llm-providers.openai-chat/response-body->result body (fn [& _]))
           ;; Simulate how chat.clj would store this: :text has the content, :delta-reasoning? is the flag
+          ;; In non-streaming, llm_api.clj converts (some? reasoning-content) to :delta-reasoning?
           normalized (#'llm-providers.openai-chat/normalize-messages
                       [{:role "user" :content "Q"}
                        {:role "reason" :content {:id "r1"
-                                                 :text (:reasoning-content result)
-                                                 :delta-reasoning? true}}]
+                                                 :text (:reason-text result)
+                                                 :delta-reasoning? (some? (:reasoning-content result))}}]
                       true
                       thinking-start-tag
                       thinking-end-tag)]
-      (is (= "think more" (:reasoning-content result)))
+      (is (= "think more" (:reason-text result)))
+      (is (some? (:reasoning-content result)) "reasoning-content should be present in non-streaming result")
       (is (match?
            [{:role "user" :content [{:type "text" :text "Q"}]}
             {:role "assistant"
