@@ -4,6 +4,7 @@
 
 - Support Google Gemini thought signatures.
 - Support `gemini-3-pro-preview` model.
+- Fix deepseek reasoning with openai-chat API #228
 - Support `~` in dynamic string parser.
 - Support removing nullable values from LLM request body if the value in extraPayload is null. #232
 
@@ -11,6 +12,7 @@
 
 - Improve agent behavior prompt to mention usage of editor_diagnostics tool. #230
 - Use selmer syntax for prompt templates.
+
 
 ## 0.85.3
 
