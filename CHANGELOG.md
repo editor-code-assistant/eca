@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.87.0
+
 - Support Google Gemini thought signatures.
 - Support `gemini-3-pro-preview` and `gemini-3-flash-preview` models in Google and Copilot providers.
 - Fix deepseek reasoning with openai-chat API #228
