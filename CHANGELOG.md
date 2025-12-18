@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Support for Gemini 3 models in Github-copilot.
 - Support Google Gemini thought signatures.
 - Support `gemini-3-pro-preview` model.
 - Fix deepseek reasoning with openai-chat API #228
