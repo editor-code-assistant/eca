@@ -2,10 +2,8 @@
 
 ## Unreleased
 
-- Support for Gemini 3 models in Github-copilot.
 - Support Google Gemini thought signatures.
-- Support `gemini-3-pro-preview` model.
-- Support `gemini-3-flash-preview` model.
+- Support `gemini-3-pro-preview` and `gemini-3-flash-preview` models in Google and Copilot providers.
 - Fix deepseek reasoning with openai-chat API #228
 - Support `~` in dynamic string parser.
 - Support removing nullable values from LLM request body if the value in extraPayload is null. #232
