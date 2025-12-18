@@ -158,6 +158,7 @@
     "reason" (if (:delta-reasoning? content)
                ;; DeepSeek-style: reasoning_content must be passed back to API
                {:role "assistant"
+                :content ""
                 :reasoning_content (:text content)}
                ;; Fallback: wrap in thinking tags for models that use text-based reasoning
                {:role "assistant"
@@ -169,39 +170,66 @@
               :content (extract-content content supports-image?)}
     nil))
 
-(defn ^:private merge-reasoning-with-response
-  "Merge reasoning_content from prev with tool_calls/content from msg.
-   Required for DeepSeek which needs reasoning_content on same message as the response."
+(defn ^:private merge-assistant-messages
+  "Merge two assistant messages into one.
+   Concatenates contents and tool_calls, and preserves reasoning_content."
   [prev msg]
-  (cond-> {:role "assistant"
-           :reasoning_content (:reasoning_content prev)}
-    ;; content: from msg (DeepSeek's final answer)
-    (:content msg)
-    (assoc :content (:content msg))
-    ;; tool_calls: concatenate (prev may have some from earlier merge, msg adds more)
-    (or (:tool_calls prev) (:tool_calls msg))
-    (assoc :tool_calls (into (or (:tool_calls prev) []) (:tool_calls msg)))))
+  (let [prev-content (:content prev)
+        msg-content (:content msg)
+        blank-string? (fn [s] (and (string? s) (string/blank? s)))
+        combined-content (cond
+                           (nil? prev-content)
+                           msg-content
+
+                           (nil? msg-content)
+                           prev-content
+
+                           (blank-string? prev-content)
+                           msg-content
+
+                           (blank-string? msg-content)
+                           prev-content
+
+                           (and (string? prev-content) (string? msg-content))
+                           (if (or (string/ends-with? prev-content "\n")
+                                   (string/starts-with? msg-content "\n"))
+                             (str prev-content msg-content)
+                             (str prev-content "\n" msg-content))
+
+                           (and (sequential? prev-content) (sequential? msg-content))
+                           (vec (concat prev-content msg-content))
+
+                           :else
+                           (let [as-seq (fn [c] (if (sequential? c) c [{:type "text" :text (str c)}]))]
+                             (vec (concat (as-seq prev-content) (as-seq msg-content)))))]
+    (cond-> {:role "assistant"
+             :content (or combined-content "")}
+      (or (:reasoning_content prev) (:reasoning_content msg))
+      (assoc :reasoning_content (str (:reasoning_content prev) (:reasoning_content msg)))
+
+      (or (:tool_calls prev) (:tool_calls msg))
+      (assoc :tool_calls (vec (concat (:tool_calls prev)
+                                      (:tool_calls msg)))))))
 
 (defn ^:private merge-adjacent-assistants
-  "Merge adjacent assistant messages only when prev has reasoning_content.
-   This is required for DeepSeek which needs reasoning_content on same message as tool_calls/content."
+  "Merge all adjacent assistant messages.
+   This is required by many OpenAI-compatible APIs (including DeepSeek)
+   which do not allow multiple consecutive assistant messages."
   [messages]
   (reduce
    (fn [acc msg]
      (let [prev (peek acc)]
        (if (and (= "assistant" (:role prev))
-                (= "assistant" (:role msg))
-                (:reasoning_content prev))
-         (conj (pop acc) (merge-reasoning-with-response prev msg))
+                (= "assistant" (:role msg)))
+         (conj (pop acc) (merge-assistant-messages prev msg))
          (conj acc msg))))
    []
    messages))
 
 (defn ^:private valid-message?
   "Check if a message should be included in the final output."
-  [{:keys [role content tool_calls reasoning_content] :as msg}]
-  (and msg
-       (or (= role "tool") ; Never remove tool messages
+  [{:keys [role content tool_calls reasoning_content] :as _msg}]
+  (and (or (= role "tool") ; Never remove tool messages
            (seq tool_calls) ; Keep messages with tool calls
            (seq reasoning_content) ; Keep messages with reasoning_content (DeepSeek)
            (and (string? content)

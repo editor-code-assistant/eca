@@ -8,11 +8,11 @@
 (def thinking-end-tag "</think>")
 
 (deftest normalize-messages-test
-  (testing "With tool_call history - tool calls stay separate from preceding assistant (no reasoning_content)"
+  (testing "With tool_call history - assistant text and tool calls are merged"
     (is (match?
          [{:role "user" :content [{:type "text" :text "List the files"}]}
-          {:role "assistant" :content [{:type "text" :text "I'll list the files for you"}]}
           {:role "assistant"
+           :content [{:type "text" :text "I'll list the files for you"}]
            :tool_calls [{:id "call-1"
                          :type "function"
                          :function {:name "eca__list_files"
@@ -36,11 +36,11 @@
           thinking-start-tag
           thinking-end-tag))))
 
-  (testing "Reason messages without reasoning-content use think tags, stay separate from following assistant"
+  (testing "Reason messages without reasoning-content use think tags, merged with following assistant"
     (is (match?
          [{:role "user" :content [{:type "text" :text "Hello"}]}
-          {:role "assistant" :content [{:type "text" :text "<think>Thinking...</think>"}]}
-          {:role "assistant" :content [{:type "text" :text "Hi"}]}]
+          {:role "assistant" :content [{:type "text" :text "<think>Thinking...</think>"}
+                                       {:type "text" :text "Hi"}]}]
          (#'llm-providers.openai-chat/normalize-messages
           [{:role "user" :content "Hello"}
            {:role "reason" :content {:text "Thinking..."}}
@@ -149,17 +149,41 @@
           thinking-end-tag)))))
 
 (deftest merge-adjacent-assistants-test
-  (testing "Without reasoning_content, adjacent assistants are NOT merged"
+  (testing "All adjacent assistant messages are merged (even without reasoning_content)"
     (is (match?
          [{:role "user" :content "What's the weather?"}
-          {:role "assistant" :tool_calls [{:id "call-1" :function {:name "get_weather"}}]}
-          {:role "assistant" :tool_calls [{:id "call-2" :function {:name "get_location"}}]}
+          {:role "assistant"
+           :content ""
+           :tool_calls [{:id "call-1" :function {:name "get_weather"}}
+                        {:id "call-2" :function {:name "get_location"}}]}
           {:role "user" :content "Thanks"}]
          (#'llm-providers.openai-chat/merge-adjacent-assistants
           [{:role "user" :content "What's the weather?"}
            {:role "assistant" :tool_calls [{:id "call-1" :function {:name "get_weather"}}]}
            {:role "assistant" :tool_calls [{:id "call-2" :function {:name "get_location"}}]}
            {:role "user" :content "Thanks"}]))))
+
+  (testing "Blank string content does not introduce leading newlines"
+    (is (match?
+         [{:role "user" :content "Hi"}
+          {:role "assistant" :content "Hello"}
+          {:role "user" :content "Thanks"}]
+         (#'llm-providers.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Hi"}
+           {:role "assistant" :content ""}
+           {:role "assistant" :content "Hello"}
+           {:role "user" :content "Thanks"}]))))
+
+  (testing "DeepSeek: empty assistant content from reasoning does not add newlines to final content"
+    (is (match?
+         [{:role "user" :content "Q"}
+          {:role "assistant"
+           :reasoning_content "Thinking..."
+           :content "A"}]
+         (#'llm-providers.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Q"}
+           {:role "assistant" :reasoning_content "Thinking..." :content ""}
+           {:role "assistant" :content "A"}]))))
 
   (testing "DeepSeek: Reasoning content merges with tool calls"
     (is (match?
