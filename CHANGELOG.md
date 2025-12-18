@@ -7,6 +7,7 @@
 - Fix deepseek reasoning with openai-chat API #228
 - Support `~` in dynamic string parser.
 - Support removing nullable values from LLM request body if the value in extraPayload is null. #232
+- Add git worktree support: automatically detect and use git repository root as workspace folder when not explicitly provided.
 
 ## 0.86.0
 

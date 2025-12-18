@@ -17,6 +17,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.logger :as logger]
+   [eca.git :as git]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
@@ -250,17 +251,21 @@
               (parse-dynamic-string-values (global-config-dir))))))
 
 (defn ^:private config-from-local-file [roots]
-  (reduce
-   (fn [final-config {:keys [uri]}]
-     (merge
-      final-config
-      (let [config-dir (io/file (shared/uri->filename uri) ".eca")
-            config-file (io/file config-dir "config.json")]
-        (when (.exists config-file)
-          (some-> (safe-read-json-string (slurp config-file) (var *local-config-error*))
-                  (parse-dynamic-string-values config-dir))))))
-   {}
-   roots))
+  (let [roots (if (seq roots)
+                roots
+                (when-let [git-root (git/root)]
+                  [{:uri (shared/filename->uri git-root)}]))]
+    (reduce
+     (fn [final-config {:keys [uri]}]
+       (merge
+        final-config
+        (let [config-dir (io/file (shared/uri->filename uri) ".eca")
+              config-file (io/file config-dir "config.json")]
+          (when (.exists config-file)
+            (some-> (safe-read-json-string (slurp config-file) (var *local-config-error*))
+                    (parse-dynamic-string-values config-dir))))))
+     {}
+     roots)))
 
 (def initialization-config* (atom {}))
 

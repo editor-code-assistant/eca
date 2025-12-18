@@ -1,5 +1,7 @@
 (ns eca.handlers
   (:require
+   [clojure.java.io :as io]
+   [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
@@ -9,6 +11,7 @@
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
+   [eca.git :as git]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
@@ -20,18 +23,33 @@
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
-    (let [config (config/all @db*)]
+    (let [config (config/all @db*)
+          workspace-folders (or (:workspace-folders params)
+                                (when-some [root-uri (or (:root-uri params)
+                                                         (when-let [root-path (:root-path params)]
+                                                           (shared/filename->uri root-path)))]
+                                  [{:name "root" :uri root-uri}])
+                                (when-let [git-root (git/root)]
+                                  (let [folder-name (.getName (io/file git-root))]
+                                    (logger/info "No workspace folders provided, using git root as fallback:"
+                                                 git-root
+                                                 (when (git/in-worktree?)
+                                                   "(worktree)"))
+                                    [{:name folder-name
+                                      :uri (shared/filename->uri git-root)}])))]
       (logger/debug "Considered config: " config)
+      (logger/debug "Workspace folders: " workspace-folders)
       (swap! db* assoc
              :client-info (:client-info params)
-             :workspace-folders (:workspace-folders params)
+             :workspace-folders workspace-folders
              :client-capabilities (:capabilities params))
       (metrics/set-extra-metrics! db*)
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
       {:chat-welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
-                                 (:welcomeMessage config))})))
+                                  (:welcomeMessage config))})))
+
 
 (defn initialized [{:keys [db* messenger config metrics]}]
   (metrics/task metrics :eca/initialized

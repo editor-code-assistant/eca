@@ -132,7 +132,8 @@
         (spit temp-path (str "machine api.anthropic.com\nlogin work\npassword sk-ant-work-key\n\n"
                              "machine api.anthropic.com\nlogin personal\npassword sk-ant-personal-key\n"))
 
-        (with-redefs [secrets/credential-file-paths (constantly [temp-path])]
+        (with-redefs [secrets/credential-file-paths (constantly [temp-path])
+                      config/get-env (constantly nil)]
           ;; Test with specific login
           (let [config {:providers
                         {"anthropic" {:keyRc "work@api.anthropic.com"}}}
