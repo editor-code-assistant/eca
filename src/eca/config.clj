@@ -76,7 +76,9 @@
                                           "gpt-4.1" {}
                                           "gpt-4o" {}
                                           "grok-code-fast-1" {}
-                                          "gemini-2.5-pro" {}}}
+                                          "gemini-2.5-pro" {}
+                                          "gemini-3-pro-preview" {}
+                                          "gemini-3-flash-preview" {}}}
                "google" {:api "openai-chat"
                          :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
                          :key "${env:GOOGLE_API_KEY}"
@@ -302,8 +304,7 @@
                           (map? m*)
                           (let [apply-kebab-key? (applies? kc-paths cur-path)
                                 apply-string-key? (applies? str-paths cur-path)
-                                apply-keywordize-val? (applies? keywordize-paths cur-path)
-                                ]
+                                apply-keywordize-val? (applies? keywordize-paths cur-path)]
                             (into {}
                                   (map (fn [[k v]]
                                          (let [base-name (cond

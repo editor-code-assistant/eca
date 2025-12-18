@@ -73,12 +73,12 @@
         tools-to-call (->> (:tool_calls message)
                            (map (fn [tool-call]
                                   (cond-> {:id (:id tool-call)
-                                            :full-name (:name (:function tool-call))
-                                            :arguments (json/parse-string (:arguments (:function tool-call)))}
+                                           :full-name (:name (:function tool-call))
+                                           :arguments (json/parse-string (:arguments (:function tool-call)))}
                                      ;; Preserve Google Gemini thought signatures
-                                     (get-in tool-call [:extra_content :google :thought_signature])
-                                     (assoc :external-id
-                                            (get-in tool-call [:extra_content :google :thought_signature]))))))
+                                    (get-in tool-call [:extra_content :google :thought_signature])
+                                    (assoc :external-id
+                                           (get-in tool-call [:extra_content :google :thought_signature]))))))
         ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
         reasoning-content (:reasoning_content message)]
     {:usage (parse-usage usage)
@@ -86,7 +86,9 @@
      :tools-to-call tools-to-call
      :call-tools-fn (fn [on-tools-called]
                       (on-tools-called-wrapper tools-to-call on-tools-called nil))
-     :reason-text (or (:reasoning message) reasoning-content)
+     :reason-text (or (:reasoning message)
+                      (:reasoning_text message)
+                      reasoning-content)
      :reasoning-content reasoning-content
      :output-text (:content message)}))
 
@@ -438,7 +440,8 @@
 
                                   ;; Process reasoning if present (o1 models and compatible providers)
                                   (when-let [reasoning-text (or (:reasoning delta)
-                                                                (:reasoning_content delta))]
+                                                                (:reasoning_content delta)
+                                                                (:reasoning_text delta))]
                                     (when-not (= (:type @reasoning-state*) :delta)
                                       (start-delta-reasoning))
                                     (on-reason {:status :thinking
@@ -450,7 +453,8 @@
                                     (when (and (= (:type state) :delta)
                                                (:id state)  ;; defensive check
                                                (nil? (:reasoning delta))
-                                               (nil? (:reasoning_content delta)))
+                                               (nil? (:reasoning_content delta))
+                                               (nil? (:reasoning_text delta)))
                                       ;; Flush any buffered content before finishing reasoning
                                       (flush-content-buffer)
                                       (finish-reasoning! reasoning-state* on-reason)))
