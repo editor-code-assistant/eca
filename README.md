@@ -85,14 +85,14 @@ Type `/init` to ask ECA to create/update a [AGENTS.md](http://agents.md) file wh
 
 Check the planned work [here](https://github.com/orgs/editor-code-assistant/projects/1).
 
+## Be the first to sponsor the project 💖
+
+Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help grow faster, the support helps to keep the project going, being updated and maintained!
+
 ## Contributing
 
 Contributions are very welcome, please open an issue for discussion or a pull request.
 For developer details, check [development docs](https://eca.dev/development).
-
-## Support the project 💖
-
-Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help grow faster, the support helps to keep the project going, being updated and maintained!
 
 These are all the incredible people who helped make ECA better!
 
