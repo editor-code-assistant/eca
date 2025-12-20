@@ -508,9 +508,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-start-chatting" class="md-nav__link">
+  <a href="#3-start-chatting-completing-rewriting" class="md-nav__link">
     <span class="md-ellipsis">
-      3. Start chatting
+      3. Start chatting, completing, rewriting
     </span>
   </a>
   
@@ -875,9 +875,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-start-chatting" class="md-nav__link">
+  <a href="#3-start-chatting-completing-rewriting" class="md-nav__link">
     <span class="md-ellipsis">
-      3. Start chatting
+      3. Start chatting, completing, rewriting
     </span>
   </a>
   
@@ -972,14 +972,14 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 <h2 id="rationale">Rationale<a class="headerlink" href="#rationale" title="Permanent link">#</a></h2>
 <p><img src="images/rationale.jpg" width="500"></p>
 <p>A Free and OpenSource editor-agnostic tool that aims to easily link LLMs &lt;-&gt; Editors, giving the best UX possible for AI pair programming using a well-defined protocol. The server is written in Clojure and heavily inspired by the <a href="https://microsoft.github.io/language-server-protocol/">LSP protocol</a> which is a success case for this kind of integration.</p>
-<p>The protocol makes easier for other editors integrate and having a server in the middle helps adding more features quickly, some examples:
+<p>The protocol makes it easier for other editors to integrate, and having a server in the middle helps add more features quickly, some examples:
 - Tool call management
 - Multiple LLM interaction 
-- Telemetry of features usage
+- Telemetry of feature usage
 - Single way to configure for any editor
 - Same UX, easy to onboard people and teams. </p>
-<p>With the LLMs models race, the differences between them tend to be irrelevant in the future, but UX on how to edit code or plan changes is something that will exist, ECA helps editors focus on that.</p>
-<p><strong>How it works</strong>: Editors spawn the server via <code>eca server</code> and communicate via stdin/stdout, similar to LSPs. Supported editors already download latest server on start and require no extra configuration.</p>
+<p>With the LLMs models race, the differences between them tend to be irrelevant in the future, but UX on how to edit code or plan changes is something that will exist; ECA helps editors focus on that.</p>
+<p><strong>How it works</strong>: Editors spawn the server via <code>eca server</code> and communicate via stdin/stdout, similar to LSPs. Supported editors already download the latest server on start and require no extra configuration.</p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">#</a></h2>
 <h3 id="1-install-the-editor-plugin">1. Install the editor plugin<a class="headerlink" href="#1-install-the-editor-plugin" title="Permanent link">#</a></h3>
 <p>Install the plugin for your editor and ECA server will be downloaded and started automatically:</p>
@@ -990,17 +990,19 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 <li><a href="https://github.com/editor-code-assistant/eca-intellij">Intellij</a></li>
 </ul>
 <h3 id="2-set-up-your-first-model">2. Set up your first model<a class="headerlink" href="#2-set-up-your-first-model" title="Permanent link">#</a></h3>
-<p>To use ECA, you need to configure at least one model / provider (<em>tip: Github Copilot offer free models!</em>). See the <a href="https://eca.dev/models#adding-and-configuring-models">Models documentation</a> for detailed instructions:</p>
+<p>To use ECA, you need to configure at least one model / provider (<em>tip: Github Copilot offer free models!</em>).</p>
+<p>See the <a href="https://eca.dev/models#adding-and-configuring-models">Models documentation</a> for detailed instructions:</p>
 <ol>
 <li>Type in the chat <code>/login</code>.</li>
-<li>Chose your provider</li>
+<li>Choose your provider</li>
 <li>Follow the steps to configure the key or auth for your provider.</li>
+<li>This will add to the global config.json the config for that provider.</li>
 </ol>
 <p>or <a href="https://eca.dev/models/">configure manually</a>.</p>
 <p><strong>Note</strong>: For other providers or custom models, see the <a href="https://eca.dev/models#custom-providers">custom providers documentation</a>.</p>
-<h3 id="3-start-chatting">3. Start chatting<a class="headerlink" href="#3-start-chatting" title="Permanent link">#</a></h3>
-<p>Once your model is configured, you can start using ECA's chat interface in your editor to ask questions, review code, and work together on your project.</p>
-<p>Type <code>/init</code> to ask ECA to create/update a <a href="http://agents.md">AGENTS.md</a> file which will help ECA on next iterations have good context about your project standards.</p>
+<h3 id="3-start-chatting-completing-rewriting">3. Start chatting, completing, rewriting<a class="headerlink" href="#3-start-chatting-completing-rewriting" title="Permanent link">#</a></h3>
+<p>Once your model is configured, you can start using ECA's features interface in your editor to ask questions, review code, and work together on your project.</p>
+<p>Type <code>/init</code> to ask ECA to create/update a <a href="http://agents.md">AGENTS.md</a> file, which will help ECA in the next iterations have good context about your project standards.</p>
 <h2 id="roadmap">Roadmap<a class="headerlink" href="#roadmap" title="Permanent link">#</a></h2>
 <p>Check the planned work <a href="https://github.com/orgs/editor-code-assistant/projects/1">here</a>.</p>
 <h2 id="be-the-first-to-sponsor-the-project">Be the first to sponsor the project 💖<a class="headerlink" href="#be-the-first-to-sponsor-the-project" title="Permanent link">#</a></h2>
@@ -1030,7 +1032,7 @@ For developer details, check <a href="https://eca.dev/development">development d
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 20, 2025 19:48:26 UTC">December 20, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 20, 2025 19:52:15 UTC">December 20, 2025</span>
   </span>
 
     
