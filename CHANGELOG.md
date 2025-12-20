@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve read-file summary to show final range properly.
+
 ## 0.87.0
 
 - Support Google Gemini thought signatures.
