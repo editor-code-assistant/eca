@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.87.1
+
 - Improve read-file summary to show final range properly.
 - Improve model capabilities for providers which model name has slash: `my-provider/anthropic/my-model`
 
