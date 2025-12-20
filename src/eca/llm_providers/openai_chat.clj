@@ -229,12 +229,12 @@
 (defn ^:private valid-message?
   "Check if a message should be included in the final output."
   [{:keys [role content tool_calls reasoning_content] :as _msg}]
-  (and (or (= role "tool") ; Never remove tool messages
-           (seq tool_calls) ; Keep messages with tool calls
-           (seq reasoning_content) ; Keep messages with reasoning_content (DeepSeek)
-           (and (string? content)
-                (not (string/blank? content)))
-           (sequential? content))))
+  (or (= role "tool") ; Never remove tool messages
+      (seq tool_calls) ; Keep messages with tool calls
+      (seq reasoning_content) ; Keep messages with reasoning_content (DeepSeek)
+      (and (string? content)
+           (not (string/blank? content)))
+      (sequential? content)))
 
 (defn ^:private normalize-messages
   "Converts ECA message format to OpenAI API format (also used by compatible providers).

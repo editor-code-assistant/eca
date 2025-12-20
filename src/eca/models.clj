@@ -92,8 +92,12 @@
                                                                     (or (get all-models full-real-model)
                                                                            ;; we guess the capabilities from
                                                                            ;; the first model with same name
-                                                                        (when-let [found-full-model (first (filter #(= (shared/normalize-model-name real-model-name)
-                                                                                                                       (shared/normalize-model-name (second (string/split % #"/" 2))))
+                                                                        (when-let [found-full-model (first (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
+                                                                                                                                                                              #"(.+/)"
+                                                                                                                                                                              ""))
+                                                                                                                           (shared/normalize-model-name (second (string/split % #"/" 2))))
+                                                                                                                        (= (shared/normalize-model-name real-model-name)
+                                                                                                                           (shared/normalize-model-name (second (string/split % #"/" 2)))))
                                                                                                                    (keys all-models)))]
                                                                           (get all-models found-full-model))
                                                                         {:tools true
@@ -129,4 +133,9 @@
 (comment
   (require '[clojure.pprint :as pprint])
   (pprint/pprint (models-dev))
-  (pprint/pprint (all)))
+  (pprint/pprint (all))
+  (require '[eca.db :as db])
+  (sync-models! db/db*
+                (config/all @db/db*)
+                (fn [new-models]
+                  (pprint/pprint new-models))))
