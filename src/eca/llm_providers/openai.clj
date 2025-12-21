@@ -330,10 +330,10 @@
                         (f.login/login-done! ctx))
                       (future
                         (Thread/sleep 2000) ;; wait to render success page
-                        (oauth/stop-oauth-server!)))
+                        (oauth/stop-oauth-server! local-server-port)))
         :on-error (fn [error]
                     (send-msg! (str "Error authenticating via oauth: " error))
-                    (oauth/stop-oauth-server!))})
+                    (oauth/stop-oauth-server! local-server-port))})
       (send-msg! (format "Open your browser at `%s` and authenticate at OpenAI.\n\nThen ECA will finish the login automatically." url)))
     "manual"
     (do

@@ -147,7 +147,8 @@
     (f.mcp/initialize-servers-async!
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
      db*
-     config)))
+     config
+     metrics)))
 
 (defn stop-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
@@ -163,6 +164,7 @@
      name
      db*
      config
+     metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
 (defn legacy-manual-approval? [config tool-name]

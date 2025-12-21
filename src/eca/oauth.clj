@@ -19,7 +19,7 @@
 
 (def ^:private logger-tag "[OAUTH]")
 
-(defonce ^:private oauth-server* (atom nil))
+(defonce ^:private oauth-server-by-port* (atom {}))
 
 (def eca-client-id "Ov23liT613uPA2ydLTa8")
 
@@ -110,14 +110,15 @@
                                     "</body></html>"))
             (response/content-type "text/html"))))))
 
-(defn oauth-start-info [^String url]
+(defn oauth-info [^String url]
   (let [base-url (url->base-url url)
         {:keys [status headers]} (http/head
                                   url
                                   {:timeout 10000
                                    :throw-exceptions? false})]
     (when (= 401 status)
-      (let [redirect-uri "http://localhost/auth/callback"
+      (let [callback-port (get-free-port)
+            redirect-uri (format "http://localhost:%s/auth/callback" callback-port)
             www-authenticate (some-> (get headers "www-authenticate") parse-www-authenticate)
             auth-resource-meta (:body (http/get
                                        (or (:resource_metadata www-authenticate)
@@ -126,8 +127,9 @@
                                         :throw-exceptions? false
                                         :as :json})
                                       :body)
+            auth-server (first (:authorization_servers auth-resource-meta))
             base-auth-endpoint (or (:authorization_endpoint auth-resource-meta)
-                                   (str (first (:authorization_servers auth-resource-meta)) "/authorize"))
+                                   (str auth-server "/authorize"))
             new-client-id (when-let [reg-endpoint (:registration_endpoint auth-resource-meta)]
                             (let [res
                                   (http/post
@@ -145,25 +147,32 @@
                                             :client_id_issued_at (.getEpochSecond (java.time.Instant/now))})})]
                               (:client_id (:body res))))
             {:keys [challenge verifier]} (generate-pkce)
+            client-id (or new-client-id eca-client-id)
             query-params (ring.util/form-encode
                           {:response_type "code"
-                           :client_id (or new-client-id eca-client-id)
+                           :client_id client-id
                            :code_challenge_method "S256"
                            :code_challenge challenge
                            :scopes (:scopes_supported auth-resource-meta)
                            :state verifier
                            :redirect_uri redirect-uri})]
-        {:authorization-endpoint (str base-auth-endpoint "?" query-params)}))))
+        {:callback-port callback-port
+         :token-endpoint (or (:token_endpoint auth-resource-meta)
+                             (str auth-server "/access_token"))
+         :verifier verifier
+         :client-id client-id
+         :redirect-uri redirect-uri
+         :authorization-endpoint (str base-auth-endpoint "?" query-params)}))))
 
 (comment
-  (oauth-start-info "https://mcp.atlassian.com/v1/sse")
-  (oauth-start-info "https://mcp.miro.com/")
-  (oauth-start-info "https://api.githubcopilot.com/mcp/"))
+  (oauth-info "https://mcp.atlassian.com/v1/sse")
+  (oauth-info "https://mcp.miro.com/")
+  (oauth-info "https://api.githubcopilot.com/mcp/"))
 
 (defn start-oauth-server!
   "Start local server on port to handle OAuth redirect"
   [{:keys [on-error on-success port]}]
-  (when-not @oauth-server*
+  (when-not (get @oauth-server-by-port* port)
     (let [handler (-> oauth-handler
                       wrap-keyword-params
                       wrap-params)
@@ -175,14 +184,85 @@
                           (response/status 404))))
                   {:port (or port (get-free-port))
                    :join? false})]
-      (reset! oauth-server* server)
+      (swap! oauth-server-by-port* assoc port server)
       (logger/info logger-tag (str "OAuth server started on http://localhost:" port))
-      server)))
+      {:server server
+       :port port})))
 
 (defn stop-oauth-server!
   "Stop the local OAuth server"
-  []
-  (when-let [^Server server @oauth-server*]
+  [port]
+  (when-let [^Server server (get oauth-server-by-port* port)]
     (.stop server)
-    (reset! oauth-server* nil)
+    (swap! oauth-server-by-port* dissoc port)
     (logger/info logger-tag "OAuth server stopped")))
+
+(defn ^:private parse-body
+  "Attempt to parse body as JSON, then URL-encoded, falling back to raw string."
+  [^String body-str]
+  (cond
+    (nil? body-str) nil
+    (string/blank? body-str) nil
+    :else
+    (or
+     ;; Try JSON first (starts with { or [)
+     (when (or (string/starts-with? (string/trim body-str) "{")
+               (string/starts-with? (string/trim body-str) "["))
+       (try
+         (json/parse-string body-str true)
+         (catch Exception _ nil)))
+     ;; Try URL-encoded format (key=value&key2=value2)
+     (when (and (string/includes? body-str "=")
+                (not (string/includes? body-str "\n")))
+       (try
+         (-> (ring.util/form-decode body-str)
+             (update-keys keyword))
+         (catch Exception _ nil)))
+     ;; Fallback to raw error
+     {:raw_error body-str})))
+
+(defn authorize-token! [{:keys [token-endpoint verifier client-id redirect-uri]} code]
+  (let [{:keys [status body]} (http/post
+                               token-endpoint
+                               {:headers {"Content-Type" "application/x-www-form-urlencoded"
+                                          "Accept" "application/json"}
+                                :body (ring.util/form-encode
+                                       {:grant_type "authorization_code"
+                                        :client_id client-id
+                                        :code code
+                                        :code_verifier verifier
+                                        :redirect_uri redirect-uri})
+                                :throw-exceptions? false
+                                :as :stream})
+        body-str (when body (slurp body))
+        parsed-body (parse-body body-str)]
+    (logger/debug logger-tag (format "Token response status=%d body=%s" status (pr-str parsed-body)))
+    (cond
+      ;; Success case
+      (and (= 200 status) (:access_token parsed-body))
+      {:refresh-token (:refresh_token parsed-body)
+       :access-token (:access_token parsed-body)
+       :expires-at (+ (quot (System/currentTimeMillis) 1000)
+                      (or (:expires_in parsed-body) 3600))}
+
+      ;; Error in response body (some OAuth servers return 200 with error in body)
+      (:error parsed-body)
+      (throw (ex-info (format "OAuth error: %s - %s"
+                              (:error parsed-body)
+                              (or (:error_description parsed-body) "No description"))
+                      {:status status
+                       :error (:error parsed-body)
+                       :error-description (:error_description parsed-body)
+                       :body parsed-body}))
+
+      ;; Non-200 status
+      (not= 200 status)
+      (throw (ex-info (format "OAuth token exchange failed (HTTP %d): %s" status (or body-str "No response body"))
+                      {:status status
+                       :body parsed-body}))
+
+      ;; 200 but no access_token
+      :else
+      (throw (ex-info (format "OAuth response missing access_token: %s" (pr-str parsed-body))
+                      {:status status
+                       :body parsed-body})))))
