@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fix openai-chat tool call + support for Mistral API #233
 
 ## 0.87.1
 

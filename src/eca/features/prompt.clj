@@ -80,7 +80,6 @@
                          "")))
     ""
     refined-contexts)
-   ;; TODO - should be refined contexts?
    (when startup-ctx
      (str "\n<additionalContext from=\"chatStart\">\n" startup-ctx "\n</additionalContext>\n\n"))
    "</contexts>"))

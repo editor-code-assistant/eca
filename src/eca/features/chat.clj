@@ -1021,21 +1021,31 @@
                               (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
                           (cond
                             stop? (do (finish-chat-prompt! :idle chat-ctx) nil)
-                            :else (let [last-user-idx (or (llm-util/find-last-user-msg-idx user-messages)
-                                                          (dec (count user-messages)))
-                                        rewritten     (if (and modify-allowed?
-                                                               last-user-idx
-                                                               final-prompt)
+                            :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
+                                        ;; preRequest additionalContext should ideally attach to the last user message,
+                                        ;; but some prompt sources may not contain a user role (e.g. prompt templates).
+                                        context-idx   (or last-user-idx
+                                                          (some-> user-messages seq count dec))
+                                        rewritten     (if (and modify-allowed? last-user-idx final-prompt)
                                                         (assoc-in user-messages [last-user-idx :content 0 :text] final-prompt)
                                                         user-messages)
-                                        with-contexts (if (seq additional-contexts)
+                                        with-contexts (cond
+                                                        (and (seq additional-contexts) context-idx)
                                                         (reduce (fn [msgs {:keys [hook-name content]}]
-                                                                  (update-in msgs [last-user-idx :content]
+                                                                  (update-in msgs [context-idx :content]
                                                                              #(conj (vec %)
                                                                                     {:type :text
                                                                                      :text (wrap-additional-context hook-name content)})))
                                                                 rewritten
                                                                 additional-contexts)
+
+                                                        (seq additional-contexts)
+                                                        (do (logger/warn logger-tag "Dropping preRequest additionalContext because no message index was found"
+                                                                         {:source-type source-type
+                                                                          :num-messages (count user-messages)})
+                                                            rewritten)
+
+                                                        :else
                                                         rewritten)]
                                     with-contexts)))
                         user-messages)]
