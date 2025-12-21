@@ -19,7 +19,8 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :as shared :refer [assoc-some future*]]))
+   [eca.shared :as shared :refer [assoc-some future*]]
+   [eca.llm-util :as llm-util]))
 
 (set! *warn-on-reflection* true)
 
@@ -81,13 +82,11 @@
     (let [entry {:type :text :text (wrap-additional-context hook-name additional-context)}]
       (swap! db* update-in [:chats chat-id :messages]
              ;; Optimized: Scans messages backwards since the tool output is likely one of the last items.
-             #(let [idx (loop [i (dec (count %))]
-                          (when (>= i 0)
-                            (let [msg (nth % i)]
-                              (if (and (= "tool_call_output" (:role msg))
-                                       (= tool-call-id (get-in msg [:content :id])))
-                                i
-                                (recur (dec i))))))]
+             #(let [idx (llm-util/find-last-msg-idx
+                         (fn [msg]
+                           (and (= "tool_call_output" (:role msg))
+                                (= tool-call-id (get-in msg [:content :id]))))
+                         %)]
                 (if idx
                   (update-in % [idx :content :output :contents] conj entry)
                   %))))))
@@ -811,10 +810,6 @@
       hook-rejected? (assoc :hook-continue hook-continue
                             :hook-stop-reason hook-stop-reason))))
 
-(defn ^:private find-last-user-msg-idx [messages]
-  ;; Returns the index of the last :role "user" message, or nil if none.
-  (last (keep-indexed (fn [i m] (when (= "user" (:role m)) i)) messages)))
-
 (defn ^:private on-tools-called! [{:keys [db* config chat-id behavior messenger metrics] :as chat-ctx}
                                   received-msgs* add-to-history!]
   (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
@@ -1026,7 +1021,7 @@
                               (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
                           (cond
                             stop? (do (finish-chat-prompt! :idle chat-ctx) nil)
-                            :else (let [last-user-idx (or (find-last-user-msg-idx user-messages)
+                            :else (let [last-user-idx (or (llm-util/find-last-user-msg-idx user-messages)
                                                           (dec (count user-messages)))
                                         rewritten     (if (and modify-allowed?
                                                                last-user-idx
@@ -1135,20 +1130,22 @@
                                                               :arguments-text arguments-text
                                                               :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
             :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history!)
-            :on-reason (fn [{:keys [status id text external-id]}]
+            :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
                          (assert-chat-not-stopped! chat-ctx)
                          (case status
                            :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
                                          (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
                            :thinking (do (swap! reasonings* update-in [id :text] str text)
                                          (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
-                           :finished (let [total-time-ms (- (System/currentTimeMillis) (get-in @reasonings* [id :start-time]))]
-                                       (add-to-history! {:role "reason"
-                                                         :content {:id id
-                                                                   :external-id external-id
-                                                                   :total-time-ms total-time-ms
-                                                                   :text (get-in @reasonings* [id :text])}})
-                                       (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id}))
+                           :finished (when-let [start-time (get-in @reasonings* [id :start-time])]
+                                       (let [total-time-ms (- (System/currentTimeMillis) start-time)]
+                                         (add-to-history! {:role "reason"
+                                                           :content {:id id
+                                                                     :external-id external-id
+                                                                     :delta-reasoning? delta-reasoning?
+                                                                     :total-time-ms total-time-ms
+                                                                     :text (get-in @reasonings* [id :text])}})
+                                         (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
                            nil))
             :on-error (fn [{:keys [message exception]}]
                         (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})

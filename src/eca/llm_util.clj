@@ -1,14 +1,27 @@
 (ns eca.llm-util
   (:require
+   [clojure.string :as string]
    [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
-   [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.secrets :as secrets]
    [eca.shared :as shared])
   (:import
    [java.io BufferedReader]))
+
+(set! *warn-on-reflection* true)
+
+(defn find-last-msg-idx
+  "Returns the index of the last message in `msgs` for which `(pred msg)` is true."
+  [pred msgs]
+  (->> msgs
+       (keep-indexed (fn [i msg] (when (pred msg) i)))
+       last))
+
+(defn find-last-user-msg-idx [messages]
+  ;; Returns the index of the last :role "user" message, or nil if none.
+  (find-last-msg-idx #(= "user" (:role %)) messages))
 
 (defn event-data-seq [^BufferedReader rdr]
   (letfn [(next-group []

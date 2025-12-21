@@ -152,7 +152,7 @@
         (sse-send! ch "response.function_call_arguments.delta"
                    {:type "response.function_call_arguments.delta"
                     :item_id "item-1"
-                    :delta (str "h\":\"" (h/project-path->canon-path "resources") "\"}")})
+                    :delta (str "h\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")})
         ;; Complete with the function call present so the client triggers tools
         (sse-send! ch "response.completed"
                    {:type "response.completed"

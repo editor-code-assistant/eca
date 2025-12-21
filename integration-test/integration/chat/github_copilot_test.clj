@@ -168,8 +168,7 @@
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
-                      {:role "assistant" :content [{:type "output_text" :text "<think>I should say hello</think>"}]}
-                      {:role "assistant" :content [{:type "output_text" :text "hello there!"}]}
+                      {:role "assistant" :content [{:type "output_text" :text "<think>I should say hello</think>\nhello there!"}]}
                       {:role "user" :content [{:type "input_text" :text "how are you?"}]}]
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :reasoning-1)))))))
@@ -220,7 +219,7 @@
                                               :origin "native"
                                               :id "tool-1"
                                               :name "directory_tree"
-                                              :argumentsText (str "h\":\"" (h/project-path->canon-path "resources") "\"}")
+                                              :argumentsText (str "h\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")
                                               :manualApproval false
                                               :summary "Listing file tree"})
           (match-content chat-id "system" {:type "usage"

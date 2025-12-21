@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.87.1
+
+- Improve read-file summary to show final range properly.
+- Improve model capabilities for providers which model name has slash: `my-provider/anthropic/my-model`
+
+## 0.87.0
+
+- Support Google Gemini thought signatures.
+- Support `gemini-3-pro-preview` and `gemini-3-flash-preview` models in Google and Copilot providers.
+- Fix deepseek reasoning with openai-chat API #228
 - Support `~` in dynamic string parser.
 - Support removing nullable values from LLM request body if the value in extraPayload is null. #232
 
@@ -9,6 +19,7 @@
 
 - Improve agent behavior prompt to mention usage of editor_diagnostics tool. #230
 - Use selmer syntax for prompt templates.
+
 
 ## 0.85.3
 

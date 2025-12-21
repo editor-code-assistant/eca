@@ -41,16 +41,16 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 
 A Free and OpenSource editor-agnostic tool that aims to easily link LLMs <-> Editors, giving the best UX possible for AI pair programming using a well-defined protocol. The server is written in Clojure and heavily inspired by the [LSP protocol](https://microsoft.github.io/language-server-protocol/) which is a success case for this kind of integration.
 
-The protocol makes easier for other editors integrate and having a server in the middle helps adding more features quickly, some examples:
+The protocol makes it easier for other editors to integrate, and having a server in the middle helps add more features quickly, some examples:
 - Tool call management
 - Multiple LLM interaction 
-- Telemetry of features usage
+- Telemetry of feature usage
 - Single way to configure for any editor
 - Same UX, easy to onboard people and teams. 
 
-With the LLMs models race, the differences between them tend to be irrelevant in the future, but UX on how to edit code or plan changes is something that will exist, ECA helps editors focus on that.
+With the LLMs models race, the differences between them tend to be irrelevant in the future, but UX on how to edit code or plan changes is something that will exist; ECA helps editors focus on that.
 
-**How it works**: Editors spawn the server via `eca server` and communicate via stdin/stdout, similar to LSPs. Supported editors already download latest server on start and require no extra configuration.
+**How it works**: Editors spawn the server via `eca server` and communicate via stdin/stdout, similar to LSPs. Supported editors already download the latest server on start and require no extra configuration.
 
 ## Quickstart
 
@@ -65,34 +65,37 @@ Install the plugin for your editor and ECA server will be downloaded and started
 
 ### 2. Set up your first model
 
-To use ECA, you need to configure at least one model / provider (_tip: Github Copilot offer free models!_). See the [Models documentation](https://eca.dev/models#adding-and-configuring-models) for detailed instructions:
+To use ECA, you need to configure at least one model / provider (_tip: Github Copilot offer free models!_).
+
+See the [Models documentation](https://eca.dev/models#adding-and-configuring-models) for detailed instructions:
 
 1. Type in the chat `/login`.
-2. Chose your provider
+2. Choose your provider
 3. Follow the steps to configure the key or auth for your provider.
+4. This will add to the global config.json the config for that provider.
 
 or [configure manually](https://eca.dev/models/).
 
 **Note**: For other providers or custom models, see the [custom providers documentation](https://eca.dev/models#custom-providers).
 
-### 3. Start chatting
+### 3. Start chatting, completing, rewriting
 
-Once your model is configured, you can start using ECA's chat interface in your editor to ask questions, review code, and work together on your project.
+Once your model is configured, you can start using ECA's features interface in your editor to ask questions, review code, and work together on your project.
 
-Type `/init` to ask ECA to create/update a [AGENTS.md](http://agents.md) file which will help ECA on next iterations have good context about your project standards.
+Type `/init` to ask ECA to create/update a [AGENTS.md](http://agents.md) file, which will help ECA in the next iterations have good context about your project standards.
 
 ## Roadmap
 
 Check the planned work [here](https://github.com/orgs/editor-code-assistant/projects/1).
 
+## Be the first to sponsor the project 💖
+
+Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help grow faster, the support helps to keep the project going, being updated and maintained!
+
 ## Contributing
 
 Contributions are very welcome, please open an issue for discussion or a pull request.
 For developer details, check [development docs](https://eca.dev/development).
-
-## Support the project 💖
-
-Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help grow faster, the support helps to keep the project going, being updated and maintained!
 
 These are all the incredible people who helped make ECA better!
 

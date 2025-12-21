@@ -100,7 +100,7 @@
                 (when sub-read
                   (format "(%s-%s)"
                           line-offset
-                          limit))
+                          (+ line-offset limit)))
                 )))
     "Reading file"))
 
