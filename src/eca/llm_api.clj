@@ -20,15 +20,12 @@
 
 (def ^:private logger-tag "[LLM-API]")
 
-;; TODO ask LLM for the most relevant parts of the path
 (defn refine-file-context [path lines-range]
   (cond
     (not (fs/exists? path))
-    "File not found"
-
+    (logger/warn logger-tag "File not found at" path)
     (not (fs/readable? path))
-    "File not readable"
-
+    (logger/warn logger-tag "Unable to read file at" path)
     :else
     (let [content (slurp path)]
       (if lines-range
