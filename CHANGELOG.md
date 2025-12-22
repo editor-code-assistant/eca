@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.87.2
+
 - Fix openai-chat tool call + support for Mistral API #233
 - Skip missing/unreadable @file references when building context
 - Fix regression: /compact not working for some models. Related to #240
