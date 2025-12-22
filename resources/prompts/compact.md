@@ -17,6 +17,6 @@ Purpose: To create a comprehensive record that ensures no important details or c
 
 ## Response
 
-DONT reply anything to user, just call the `eca_compact_chat` tool with the created summary, the system will take care to present to user, ignore the tool call output as well.
+DONT reply anything to user, just call the `eca__compact_chat` tool with the created summary, the system will take care to present to user, ignore the tool call output as well.
 
 DONT offer to compact automatically in the future.
