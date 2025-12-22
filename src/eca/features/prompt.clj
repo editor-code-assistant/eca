@@ -68,7 +68,7 @@
                                          content)
                                  (format "<file path=\"%s\">%s</file>\n\n" path content))
                          :agents-file (multi-str
-                                       (format "<agents-file description=\"Instructions following AGENTS.md spec.\" path=\"%s\">" path)
+                                       (format "<agents-file description=\"Primary System Directives & Coding Standards.\" path=\"%s\">" path)
                                        content
                                        "</agents-file>\n\n")
                          :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n\n" @repo-map*)

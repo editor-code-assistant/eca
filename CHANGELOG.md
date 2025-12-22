@@ -2,6 +2,7 @@
 
 ## Unreleased
 - Fix openai-chat tool call + support for Mistral API #233
+- Skip missing/unreadable @file references when building context
 
 ## 0.87.1
 

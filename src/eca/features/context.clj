@@ -27,33 +27,34 @@
   ([path visited]
    (if (contains? visited path)
      []
-     (let [root-content (llm-api/refine-file-context path nil)
-           visited' (conj visited path)
-           at-mentions (extract-at-mentions root-content)
-           parent-dir (str (fs/parent path))
-           resolved-paths (map (fn [mention]
-                                 (cond
-                                   ;; Absolute path
-                                   (string/starts-with? mention "/")
-                                   (str (fs/canonicalize (fs/file mention)))
+     (if-let [root-content (llm-api/refine-file-context path nil)]
+       (let [visited' (conj visited path)
+             at-mentions (extract-at-mentions root-content)
+             parent-dir (str (fs/parent path))
+             resolved-paths (map (fn [mention]
+                                   (cond
+                                     ;; Absolute path
+                                     (string/starts-with? mention "/")
+                                     (str (fs/canonicalize (fs/file mention)))
 
-                                   ;; Relative path (./... or ../...)
-                                   (or (string/starts-with? mention "./")
-                                       (string/starts-with? mention "../"))
-                                   (str (fs/canonicalize (fs/file parent-dir mention)))
+                                     ;; Relative path (./... or ../...)
+                                     (or (string/starts-with? mention "./")
+                                         (string/starts-with? mention "../"))
+                                     (str (fs/canonicalize (fs/file parent-dir mention)))
 
-                                   ;; Simple filename, relative to current file's directory
-                                   :else
-                                   (str (fs/canonicalize (fs/file parent-dir mention)))))
-                               at-mentions)
-           ;; Deduplicate resolved paths
-           unique-paths (distinct resolved-paths)
-           ;; Recursively parse all mentioned files
-           nested-results (mapcat #(parse-agents-file % visited') unique-paths)]
-       (concat [{:type :agents-file
-                 :path path
-                 :content root-content}]
-               nested-results)))))
+                                     ;; Simple filename, relative to current file's directory
+                                     :else
+                                     (str (fs/canonicalize (fs/file parent-dir mention)))))
+                                 at-mentions)
+             ;; Deduplicate resolved paths
+             unique-paths (distinct resolved-paths)
+             ;; Recursively parse all mentioned files
+             nested-results (mapcat #(parse-agents-file % visited') unique-paths)]
+         (concat [{:type :agents-file
+                   :path path
+                   :content root-content}]
+                 nested-results))
+       []))))
 
 (defn agents-file-contexts
   "Search for AGENTS.md file both in workspaceRoot and global config dir.
@@ -75,30 +76,35 @@
          (mapcat #(parse-agents-file (str %))))))
 
 (defn ^:private file->refined-context [path lines-range]
-  (let [ext (string/lower-case (or (fs/extension path) ""))]
-    (if (contains? #{"png" "jpg" "jpeg" "gif" "webp"} ext)
-      {:type :image
-       :media-type (case ext
-                     "jpg" "image/jpeg"
-                     (str "image/" ext))
-       :base64 (.encodeToString (Base64/getEncoder)
-                                (fs/read-all-bytes (fs/file path)))
-       :path path}
-      (assoc-some
-       {:type :file
-        :path path
-        :content (llm-api/refine-file-context path lines-range)}
-       :lines-range lines-range))))
+  (if (fs/readable? path)
+    (let [ext (string/lower-case (or (fs/extension path) ""))]
+      (if (contains? #{"png" "jpg" "jpeg" "gif" "webp"} ext)
+        {:type :image
+         :media-type (case ext
+                       "jpg" "image/jpeg"
+                       (str "image/" ext))
+         :base64 (.encodeToString (Base64/getEncoder)
+                                  (fs/read-all-bytes (fs/file path)))
+         :path path}
+        (when-let [content (llm-api/refine-file-context path lines-range)]
+          (assoc-some
+           {:type :file
+            :path path
+            :content content}
+           :lines-range lines-range))))
+    (logger/warn logger-tag "File not found or unreadable at" path)))
 
 (defn raw-contexts->refined [contexts db]
   (mapcat (fn [{:keys [type path lines-range position uri]}]
             (case (name type)
-              "file" [(file->refined-context path lines-range)]
+              "file" (if-let [ctx (file->refined-context path lines-range)]
+                       [ctx]
+                       [])
               "directory" (->> (fs/glob path "**")
                                (remove fs/directory?)
-                               (map (fn [path]
-                                      (let [filename (str (fs/canonicalize path))]
-                                        (file->refined-context filename nil)))))
+                               (keep (fn [path]
+                                       (let [filename (str (fs/canonicalize path))]
+                                         (file->refined-context filename nil)))))
               "repoMap" [{:type :repoMap}]
               "cursor" [{:type :cursor
                          :path path
@@ -122,16 +128,16 @@
   [prompt db]
   (let [;; Capture @<path> with optional :L<start>-L<end>
         context-pattern #"@([^\s:]+)(?::L(\d+)-L(\d+))?"
-        matches (re-seq context-pattern prompt)]
-    (when (seq matches)
-      (let [raw-contexts (mapv (fn [[_ path s e]]
-                                 (assoc-some {:type "file"
-                                              :path path}
-                                             :lines-range (when (and s e)
-                                                            {:start (Integer/parseInt s)
-                                                             :end (Integer/parseInt e)})))
-                               matches)]
-        (raw-contexts->refined raw-contexts db)))))
+        matches (re-seq context-pattern prompt)
+        raw-contexts (mapv (fn [[_ path s e]]
+                             (assoc-some {:type "file"
+                                          :path path}
+                                         :lines-range (when (and s e)
+                                                        {:start (Integer/parseInt s)
+                                                         :end   (Integer/parseInt e)})))
+                           matches)]
+    (when (seq raw-contexts)
+      (raw-contexts->refined raw-contexts db))))
 
 (defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
 (def ^:private all-files-from (memoize all-files-from*))

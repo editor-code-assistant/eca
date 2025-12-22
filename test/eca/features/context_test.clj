@@ -321,6 +321,22 @@
                 :path b-file
                 :content b-content}])
              (#'f.context/parse-agents-file a-file)))))))
+  (testing "Missing referenced file is ignored"
+    (let [a-file (h/file-path "/fake/AGENTS.md")
+          a-content (multi-str
+                     "- do foo"
+                     "- check @missing.md for missing things")
+          missing-file (h/file-path "/fake/missing.md")]
+      (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                  (condp = p
+                                                    a-file a-content
+                                                    missing-file nil))]
+        (is (match?
+             (m/in-any-order
+              [{:type :agents-file
+                :path a-file
+                :content a-content}])
+             (#'f.context/parse-agents-file a-file))))))
 
 (deftest contexts-str-from-prompt-test
   (testing "not context mention"
@@ -328,14 +344,16 @@
          nil
          (f.context/contexts-str-from-prompt "check /path/to/file" (h/db)))))
   (testing "Context mention"
-    (with-redefs [llm-api/refine-file-context (constantly "Some content")]
+    (with-redefs [fs/readable? (constantly true)
+                  llm-api/refine-file-context (constantly "Some content")]
       (is (match?
            [{:type :file
              :path "/path/to/file"
              :content "Some content"}]
            (f.context/contexts-str-from-prompt "check @/path/to/file" (h/db))))))
   (testing "Context mention with lines range"
-    (with-redefs [llm-api/refine-file-context (constantly "Some content")]
+    (with-redefs [fs/readable? (constantly true)
+                  llm-api/refine-file-context (constantly "Some content")]
       (is (match?
            [{:type :file
              :path "/path/to/file"
