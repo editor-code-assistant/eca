@@ -6,7 +6,8 @@
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [assoc-some] :as shared]))
+   [eca.shared :refer [assoc-some] :as shared]
+   [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
 
@@ -77,36 +78,130 @@
         (and (llm-util/provider-api-url provider config)
              (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))
 
+(def ^:private models-endpoint-path "/models")
+
+(defn ^:private fetch-compatible-models
+  "Fetches models from an /models endpoint (both Anthropic and OpenAI).
+   Returns a map of model-id -> {} (empty config, to be enriched later).
+   On any error, logs a warning and returns nil."
+  [{:keys [api-url api-key provider]}]
+  (when api-url
+    (let [url (str api-url models-endpoint-path)
+          rid (llm-util/gen-rid)
+          headers (cond-> {"Content-Type" "application/json"}
+                    api-key (assoc "Authorization" (str "Bearer " api-key)))]
+      (try
+        (llm-util/log-request logger-tag rid url nil headers)
+        (let [{:keys [status body]} (http/get url
+                                              {:headers headers
+                                               :throw-exceptions? false
+                                               :as :json
+                                               :timeout 10000})]
+          (if (= 200 status)
+            (do
+              (llm-util/log-response logger-tag rid "models" body)
+              (let [models-data (:data body)]
+                (when (seq models-data)
+                  (reduce
+                   (fn [acc model]
+                     (let [model-id (:id model)]
+                       (if model-id
+                         (assoc acc model-id {})
+                         acc)))
+                   {}
+                   models-data))))
+            (logger/warn logger-tag
+                         (format "Provider '%s': /models endpoint returned status %s"
+                                 provider status))))
+        (catch Exception e
+          (logger/warn logger-tag
+                       (format "Provider '%s': Failed to fetch models from %s: %s"
+                               provider url (ex-message e))))))))
+
+(defn ^:private provider-with-fetch-models?
+  "Returns true if provider should fetch models dynamically (fetchModels = true)."
+  [provider-config]
+  (and (:api provider-config)
+       (true? (:fetchModels provider-config))))
+
+(defn ^:private fetch-dynamic-provider-models
+  "For providers that support dynamic model discovery,
+   attempts to fetch available models from the API.
+   Returns a map of {provider-name -> {model-id -> model-config}}."
+  [config db]
+  (reduce
+   (fn [acc [provider provider-config]]
+     (if (provider-with-fetch-models? provider-config)
+       (let [api-url (llm-util/provider-api-url provider config)
+             [_auth-type api-key] (llm-util/provider-api-key provider
+                                                             (get-in db [:auth provider])
+                                                             config)
+             fetched-models (fetch-compatible-models
+                             {:api-url api-url
+                              :api-key api-key
+                              :provider provider})]
+         (if (seq fetched-models)
+           (do
+             (logger/info logger-tag
+                          (format "Provider '%s': Discovered %d models from /models endpoint"
+                                  provider (count fetched-models)))
+             (assoc acc provider fetched-models))
+           acc))
+       acc))
+   {}
+   (:providers config)))
+
+(defn ^:private build-model-capabilities
+  "Build capabilities for a single model, looking up from known models database."
+  [all-models provider model model-config]
+  (let [real-model-name (or (:modelName model-config) model)
+        full-real-model (str provider "/" real-model-name)
+        full-model (str provider "/" model)
+        model-capabilities (merge
+                            (or (get all-models full-real-model)
+                                ;; we guess the capabilities from
+                                ;; the first model with same name
+                                (when-let [found-full-model
+                                           (->> (keys all-models)
+                                                (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
+                                                                                                                   #"(.+/)"
+                                                                                                                   ""))
+                                                                (shared/normalize-model-name (second (string/split % #"/" 2))))
+                                                             (= (shared/normalize-model-name real-model-name)
+                                                                (shared/normalize-model-name (second (string/split % #"/" 2))))))
+                                                first)]
+                                  (get all-models found-full-model))
+                                {:tools true
+                                 :reason? true
+                                 :web-search false})
+                            {:model-name real-model-name})]
+    [full-model model-capabilities]))
+
+(defn ^:private merge-provider-models
+  "Merges static config models with dynamically fetched models.
+   Static config takes precedence (allows user overrides)."
+  [static-models dynamic-models]
+  (merge dynamic-models static-models))
+
 (defn sync-models! [db* config on-models-updated]
   (let [all-models (all)
         db @db*
+        ;; Fetch dynamic models for providers that support it
+        dynamic-provider-models (fetch-dynamic-provider-models config db)
+        ;; Build all supported models from config + dynamic sources
         all-supported-models (reduce
                               (fn [p [provider provider-config]]
-                                (merge p
-                                       (reduce
-                                        (fn [m [model model-config]]
-                                          (let [real-model-name (or (:modelName model-config) model)
-                                                full-real-model (str provider "/" real-model-name)
-                                                full-model (str provider "/" model)
-                                                model-capabilities (merge
-                                                                    (or (get all-models full-real-model)
-                                                                           ;; we guess the capabilities from
-                                                                           ;; the first model with same name
-                                                                        (when-let [found-full-model (first (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
-                                                                                                                                                                              #"(.+/)"
-                                                                                                                                                                              ""))
-                                                                                                                           (shared/normalize-model-name (second (string/split % #"/" 2))))
-                                                                                                                        (= (shared/normalize-model-name real-model-name)
-                                                                                                                           (shared/normalize-model-name (second (string/split % #"/" 2)))))
-                                                                                                                   (keys all-models)))]
-                                                                          (get all-models found-full-model))
-                                                                        {:tools true
-                                                                         :reason? true
-                                                                         :web-search false})
-                                                                    {:model-name real-model-name})]
-                                            (assoc m full-model model-capabilities)))
-                                        {}
-                                        (:models provider-config))))
+                                (let [static-models (:models provider-config)
+                                      dynamic-models (get dynamic-provider-models provider)
+                                      merged-models (merge-provider-models static-models dynamic-models)]
+                                  (merge p
+                                         (reduce
+                                          (fn [m [model model-config]]
+                                            (let [[full-model capabilities] (build-model-capabilities
+                                                                             all-models provider model model-config)]
+                                              (assoc m full-model capabilities)))
+                                          {}
+                                          merged-models))))
                               {}
                               (:providers config))
         ollama-api-url (llm-util/provider-api-url "ollama" config)

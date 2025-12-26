@@ -73,6 +73,7 @@ Schema:
 | `models`                      | map    | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload` | map    | Extra payload sent in body to LLM                                                                            | No       |
 | `models <model> modelName`    | string | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
+| `fetchModels`                 | boolean | Enable automatic model discovery from `/models` endpoint (OpenAI-compatible providers) | No |
 
 _* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
 
@@ -105,7 +106,7 @@ Examples:
       "providers": {
         "openai": {
           "api": "openai-responses",
-          "models": { 
+          "models": {
             "gpt-5": {},
             "gpt-5-high": {
               "modelName": "gpt-5",
@@ -116,8 +117,27 @@ Examples:
       }
     }
     ```
-    
+
     This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
+
+=== "Dynamic model discovery"
+
+    For OpenAI-compatible providers, set `fetchModels: true` to automatically discover available models:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "openrouter": {
+          "api": "openai-chat",
+          "url": "https://openrouter.ai/api/v1",
+          "key": "your-api-key",
+          "fetchModels": true
+        }
+      }
+    }
+    ```
+
+    Static `models` config overrides discovered models, allowing customization.
 
 ### API Types
 
@@ -335,11 +355,11 @@ Notes:
       }
     }
     ```
-    
+
 === "LM Studio"
-    
+
     This config works with LM studio:
-    
+
     ```javascript title="~/.config/eca/config.json"
     {
       "providers": {

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add dynamic model discovery via `fetchModels` provider config for OpenAI-compatible `/models` endpoints
+
 ## 0.87.2
 
 - Fix openai-chat tool call + support for Mistral API #233
