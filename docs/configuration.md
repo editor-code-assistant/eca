@@ -47,7 +47,7 @@ There are multiples ways to configure ECA:
     ```bash
     ECA_CONFIG='{"myConfig": "my_value"}' eca server
     ```
-    
+
 ### Dynamic string contents
 
 It's possible to retrieve content of any configs with a string value using the `${key:value}` approach, being `key`:
@@ -276,7 +276,7 @@ You can configure in multiple different ways:
     ```markdown title=".eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
-    
+
     ECA will make available a `/check-performance` command after creating that file.
 
 === "Global custom commands"
@@ -286,7 +286,7 @@ You can configure in multiple different ways:
     ```markdown title="~/.config/eca/commands/check-performance.md"
     Check for performance issues in $ARG1 and optimize if needed.
     ```
-    
+
     ECA will make available a `/check-performance` command after creating that file.
 
 === "Config"
@@ -298,7 +298,7 @@ You can configure in multiple different ways:
       "commands": [{"path": "my-custom-prompt.md"}]
     }
     ```
-    
+
     ECA will make available a `/my-custom-prompt` command after creating that file.
 
 ## Rules
@@ -576,6 +576,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
     interface Config {
         providers?: {[key: string]: {
             api?: 'openai-responses' | 'openai-chat' | 'anthropic';
+            fetchModels?: boolean;
             url?: string;
             key?: string; // when provider supports api key.
             keyRc?: string; // credential file lookup in format [login@]machine[:port]
