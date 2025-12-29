@@ -13,9 +13,9 @@
           fake-response {:status 200
                          :body {:models [{:name "model-a"}
                                          {:name "model-b"}]}}]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           fake-response)
 
@@ -34,9 +34,9 @@
           fake-model "test-model"
           fake-response {:status 200
                          :body {:capabilities [:chat :completion]}}]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           fake-response)
 
@@ -62,9 +62,9 @@
           body {:model "test-model" :input "Hello"}
           fake-response {:status 200
                          :body {:message {:content "Hello world"}}}]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           fake-response)
 

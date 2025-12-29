@@ -66,7 +66,8 @@
   (testing "Custom OpenAI provider behavior and proper passing of httpClient options to the Hato client"
     (let [req* (atom nil)]
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:usage {:prompt_tokens 5 :completion_tokens 2}

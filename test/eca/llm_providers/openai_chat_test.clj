@@ -12,7 +12,8 @@
   (testing "builds a chat request and extracts assistant output text"
     (let [req* (atom nil)]
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:id "chatcmpl-p7ezf7cu8pbcg5e20p6er6",

@@ -7,9 +7,9 @@
 (deftest oauth-url-test
   (testing "constructs GitHub device OAuth request and parses key response fields"
     (let [req* (atom nil)]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:user_code        "USER-CODE"
@@ -40,9 +40,9 @@
 (deftest oauth-access-token-test
   (testing "builds device access-token request and parses access token"
     (let [req* (atom nil)]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:access_token "gh-access-token"}})
@@ -70,9 +70,9 @@
 (deftest oauth-renew-token-test
   (testing "sends token renewal request and extracts API key and expiry"
     (let [req* (atom nil)]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:token      "copilot-api-key"

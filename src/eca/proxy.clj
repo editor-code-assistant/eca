@@ -1,8 +1,7 @@
 (ns eca.proxy
   (:require
    [clojure.string :as string]
-   [eca.config :as config]
-   [eca.logger :as logger])
+   [eca.config :as config])
   (:import
    [java.net URI URLDecoder]))
 

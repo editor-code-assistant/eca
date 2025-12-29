@@ -11,7 +11,8 @@
     (let [req* (atom nil)
           fake-response {:content [{:text "Hello from Anthropics proxy!"}]}]
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body fake-response})
@@ -40,7 +41,8 @@
     (let [req* (atom nil)
           now-seconds (quot (System/currentTimeMillis) 1000)]
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:refresh_token "r-token"
@@ -80,7 +82,8 @@
     (let [req* (atom nil)
           now-seconds (quot (System/currentTimeMillis) 1000)]
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:refresh_token "new-r-token"
@@ -113,7 +116,8 @@
   (testing "creates a new API key and sets the appropriate authorization headers"
     (let [req* (atom nil)]
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           (reset! req* req)
           {:status 200
            :body {:raw_key "sk-ant-test-key"}})

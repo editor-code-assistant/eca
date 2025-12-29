@@ -38,9 +38,9 @@
   (testing "that OAuth token exchange is routed through the http proxy"
     (let [req* (atom nil)
           now-seconds (quot (System/currentTimeMillis) 1000)]
-
       (with-client-proxied {}
-        (fn [req]
+
+        (fn handler [req]
           ;; capture the outgoing request
           (reset! req* req)
           ;; fake token endpoint response
