@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve error handleing for incompatible models messages in chat. #209
+
 ## 0.87.2
 
 - Fix openai-chat tool call + support for Mistral API #233
