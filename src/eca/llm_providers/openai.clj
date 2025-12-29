@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
@@ -56,7 +57,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
-       :http-client http-client
+       :http-client (client/merge-with-global-http-client http-client)
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try
@@ -283,9 +284,12 @@
                                                :code_challenge_method "S256"
                                                :state verifier}))}))
 
+(def ^:private oauth-token-url
+  "https://auth.openai.com/oauth/token")
+
 (defn ^:private oauth-authorize [server-url code verifier]
   (let [{:keys [status body]} (http/post
-                               "https://auth.openai.com/oauth/token"
+                               oauth-token-url
                                {:headers {"Content-Type" "application/json"}
                                 :body (json/generate-string
                                        {:grant_type "authorization_code"
@@ -293,6 +297,7 @@
                                         :code code
                                         :code_verifier verifier
                                         :redirect_uri server-url})
+                                :http-client (client/merge-with-global-http-client {})
                                 :as :json})]
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
