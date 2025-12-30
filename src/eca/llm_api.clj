@@ -200,7 +200,9 @@
           :extra-payload extra-payload}
          callbacks)
 
-        (and model-config handler)
+        (and (or (:fetchModels provider-config)
+                 model-config)
+             handler)
         (let [url-relative-path (:completionUrlRelativePath provider-config)
               think-tag-start (:thinkTagStart provider-config)
               think-tag-end (:thinkTagEnd provider-config)
