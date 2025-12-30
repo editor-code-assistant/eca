@@ -178,7 +178,8 @@
           :extra-payload extra-payload}
          callbacks)
 
-        (:api provider-config)
+        (or (:fetchModels provider-config)
+            model-config)
         (let [provider-fn (case (:api provider-config)
                             ("openai-responses"
                              "openai") llm-providers.openai/create-response!
