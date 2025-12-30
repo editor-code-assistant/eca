@@ -396,9 +396,8 @@
 
         ;; Atom to accumulate tool call data from streaming chunks.
         ;; OpenAI streams tool call arguments across multiple chunks, so we need to
-        ;; accumulate the partial JSON strings before parsing them. Keys are either
-        ;; index numbers for simple cases, or "index-id" composite keys for parallel
-        ;; tool calls that share the same index but have different IDs.
+        ;; accumulate partial JSON strings before parsing them. Keys are tool call
+        ;; indices (fallback: IDs) to keep chunks grouped for the active response.
         tool-calls* (atom {})
 
         ;; Reasoning state machine:
@@ -431,6 +430,12 @@
                                          :content ""
                                          :buffer "")
                                   (on-reason {:status :started :id new-reason-id})))
+        find-existing-tool-key (fn [tool-calls index id]
+                                 (some (fn [[k v]] (when (or (some-> id (= (:id v)))
+                                                             (and (nil? (:id v))
+                                                                  (some-> index (= (:index v)))))
+                                                     k))
+                                       tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
                                   (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
                                     (let [pruned-messages (prune-history new-messages)
@@ -449,9 +454,9 @@
                                         :api-key api-key
                                         :url-relative-path url-relative-path
                                         :on-error wrapped-on-error
-                                        :on-stream (when stream? (fn [event data] (handle-response event data tool-calls* new-rid)))}))))
+                                        :on-stream (when stream? (fn [event data] (handle-response event data tool-calls*)))}))))
 
-        handle-response (fn handle-response [event data tool-calls* rid]
+        handle-response (fn handle-response [event data tool-calls*]
                           (if (= event "stream-end")
                             (do
                               ;; Flush any leftover buffered content and finish reasoning if needed
@@ -496,27 +501,32 @@
                                             {name :name args :arguments} function
                                             ;; Extract Google Gemini thought signature if present
                                             thought-signature (get-in extra_content [:google :thought_signature])
-                                            ;; Use RID as key to avoid collisions between API requests
-                                            tool-key (str rid "-" index)
-                                            ;; Create globally unique tool call ID for client
-                                            unique-id (when id (str rid "-" id))]
-                                        (when (and name unique-id)
-                                          (on-prepare-tool-call {:id unique-id
-                                                                 :full-name name
-                                                                 :arguments-text ""}))
-                                        (swap! tool-calls* update tool-key
-                                               (fn [existing]
-                                                 (cond-> (or existing {:index index})
-                                                   unique-id (assoc :id unique-id)
-                                                   name (assoc :full-name name)
-                                                   args (update :arguments-text (fnil str "") args)
-                                                   ;; Store thought signature for Google Gemini
-                                                   thought-signature (assoc :external-id thought-signature))))
-                                        (when-let [updated-tool-call (get @tool-calls* tool-key)]
-                                          (when (and (:id updated-tool-call)
-                                                     (:full-name updated-tool-call)
-                                                     args)
-                                            (on-prepare-tool-call (assoc updated-tool-call :arguments-text args)))))))
+                                            existing-key (find-existing-tool-key @tool-calls* index id)
+                                            existing (when existing-key (get @tool-calls* existing-key))
+                                            tool-key (or existing-key index id)]
+                                        (if (nil? tool-key)
+                                          (logger/warn logger-tag "Received tool_call delta without index/id; ignoring"
+                                                       {:tool-call tool-call})
+                                          (do
+                                            (swap! tool-calls* update tool-key
+                                                   (fn [existing]
+                                                     (cond-> (or existing {:index index})
+                                                       (some? index) (assoc :index index)
+                                                       (and id (nil? (:id existing))) (assoc :id id)
+                                                       (and name (nil? (:full-name existing))) (assoc :full-name name)
+                                                       args (update :arguments-text (fnil str "") args)
+                                                       ;; Store thought signature for Google Gemini
+                                                       thought-signature (assoc :external-id thought-signature))))
+                                            (when-let [updated-tool-call (get @tool-calls* tool-key)]
+                                              ;; Streaming tool_calls may split metadata (id/name) and arguments across deltas.
+                                              ;; Emit prepare once we can correlate the call (id + full-name), on first id or args deltas,
+                                              ;; so :tool-prepare always precedes :tool-run in the tool-call state machine.
+                                              (when (and (:id updated-tool-call)
+                                                         (:full-name updated-tool-call)
+                                                         (or (nil? (:id existing)) args))
+                                                (on-prepare-tool-call
+                                                 (assoc updated-tool-call
+                                                        :arguments-text (or args ""))))))))))
                                   ;; Process finish reason if present (but not tool_calls which is handled above)
                                   (when finish-reason
                                     ;; Flush any leftover buffered content before finishing
@@ -541,4 +551,4 @@
       :on-tools-called-wrapper on-tools-called-wrapper
       :on-error wrapped-on-error
       :on-stream (when stream?
-                   (fn [event data] (handle-response event data tool-calls* rid)))})))
+                   (fn [event data] (handle-response event data tool-calls*)))})))

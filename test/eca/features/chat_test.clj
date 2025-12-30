@@ -1,5 +1,6 @@
 (ns eca.features.chat-test
   (:require
+   [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
@@ -193,9 +194,32 @@
 (deftest contexts-in-prompt-test
   (testing "When prompt contains @file we add a user message"
     (h/reset-components!)
-    (let [{:keys [chat-id]}
+    (with-redefs [fs/readable? (constantly true)
+                  llm-api/refine-file-context (constantly "Mocked file content")]
+      (let [{:keys [chat-id]}
+            (prompt!
+             {:message "Check @/path/to/file please"}
+             {:all-tools-mock (constantly [])
+              :api-mock
+              (fn [{:keys [on-first-response-received
+                           on-message-received]}]
+                (on-first-response-received {:type :text :text "On it..."})
+                (on-message-received {:type :text :text "On it..."})
+                (on-message-received {:type :finish}))})]
+        (is (match?
+             {chat-id {:id chat-id
+                       :messages [{:role "user"
+                                   :content [{:type :text :text "Check @/path/to/file please"}
+                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
+                                  {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
+             (:chats (h/db)))))))
+  (testing "When prompt contains @missing-file we do not add context noise"
+    (h/reset-components!)
+    (let [missing-file "definitely-does-not-exist-eca-test-ctx.md"
+          msg (str "Check @" missing-file " please")
+          {:keys [chat-id]}
           (prompt!
-           {:message "Check @/path/to/file please"}
+           {:message msg}
            {:all-tools-mock (constantly [])
             :api-mock
             (fn [{:keys [on-first-response-received
@@ -205,14 +229,13 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Check @/path/to/file please"}
-                                                        {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
+                     :messages [{:role "user" :content [{:type :text :text msg}]}
                                 {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
            (:chats (h/db))))
       (is (match?
            {:chat-content-received
             [{:chat-id chat-id
-              :content {:type :text :text "Check @/path/to/file please\n"}
+              :content {:type :text :text (str msg "\n")}
               :role :user}
              {:chat-id chat-id
               :content {:type :progress :state :running :text "Waiting model"}
@@ -585,9 +608,9 @@
         ;; Rollback to second message (keep first 2 messages, remove last 2)
         (h/reset-messenger!)
         (is (= {} (f.chat/rollback-chat
-                    {:chat-id chat-id
-                     :include ["messages" "tools"]
-                     :content-id second-content-id} (h/db*) (h/messenger))))
+                   {:chat-id chat-id
+                    :include ["messages" "tools"]
+                    :content-id second-content-id} (h/db*) (h/messenger))))
 
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?

@@ -16,11 +16,11 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :as shared :refer [assoc-some future*]]
-   [eca.llm-util :as llm-util]))
+   [eca.shared :as shared :refer [assoc-some future*]]))
 
 (set! *warn-on-reflection* true)
 
@@ -1006,13 +1006,29 @@
                   nil)))
           {:new-messages (get-in @db* [:chats chat-id :messages])})))))
 
+(defn ^:private assert-compatible-apis-between-models!
+  "Ensure new request is compatible with last api used.
+   E.g. Anthropic is not compatible with openai and vice versa."
+  [db chat-id provider config]
+  (let [current-api (:api (llm-api/provider->api-handler provider config))
+        last-api (get-in db [:chats chat-id :last-api])]
+    (cond
+      (not last-api) nil
+      (not current-api) nil
+
+      (or (and (= :anthropic current-api)
+               (not= :anthropic last-api))
+          (and (not= :anthropic current-api)
+               (= :anthropic last-api)))
+      (throw (ex-info "Incompatible past messages in chat.\nAnthropic models are only compatible with other Anthropic models, switch models or start a new chat." {})))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook behavior.
    Run preRequest hooks before any heavy lifting.
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
-   {:keys [db* config chat-id full-model instructions metrics message] :as chat-ctx}]
+   {:keys [db* config chat-id full-model behavior instructions metrics message] :as chat-ctx}]
   (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
@@ -1021,21 +1037,31 @@
                               (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
                           (cond
                             stop? (do (finish-chat-prompt! :idle chat-ctx) nil)
-                            :else (let [last-user-idx (or (llm-util/find-last-user-msg-idx user-messages)
-                                                          (dec (count user-messages)))
-                                        rewritten     (if (and modify-allowed?
-                                                               last-user-idx
-                                                               final-prompt)
+                            :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
+                                        ;; preRequest additionalContext should ideally attach to the last user message,
+                                        ;; but some prompt sources may not contain a user role (e.g. prompt templates).
+                                        context-idx   (or last-user-idx
+                                                          (some-> user-messages seq count dec))
+                                        rewritten     (if (and modify-allowed? last-user-idx final-prompt)
                                                         (assoc-in user-messages [last-user-idx :content 0 :text] final-prompt)
                                                         user-messages)
-                                        with-contexts (if (seq additional-contexts)
+                                        with-contexts (cond
+                                                        (and (seq additional-contexts) context-idx)
                                                         (reduce (fn [msgs {:keys [hook-name content]}]
-                                                                  (update-in msgs [last-user-idx :content]
+                                                                  (update-in msgs [context-idx :content]
                                                                              #(conj (vec %)
                                                                                     {:type :text
                                                                                      :text (wrap-additional-context hook-name content)})))
                                                                 rewritten
                                                                 additional-contexts)
+
+                                                        (seq additional-contexts)
+                                                        (do (logger/warn logger-tag "Dropping preRequest additionalContext because no message index was found"
+                                                                         {:source-type source-type
+                                                                          :num-messages (count user-messages)})
+                                                            rewritten)
+
+                                                        :else
                                                         rewritten)]
                                     with-contexts)))
                         user-messages)]
@@ -1057,7 +1083,7 @@
             past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
-            all-tools (:all-tools chat-ctx)
+            all-tools (f.tools/all-tools chat-id behavior @db* config)
             received-msgs* (atom "")
             reasonings* (atom {})
             add-to-history! (fn [msg]
@@ -1065,6 +1091,7 @@
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  (send-content! chat-ctx :system (merge {:type :usage} usage))))]
+        (assert-compatible-apis-between-models! db chat-id provider config)
         (when-not (get-in db [:chats chat-id :title])
           (future* config
             (when-let [{:keys [output-text]} (llm-api/sync-prompt!
@@ -1099,6 +1126,7 @@
                                           (doseq [message user-messages]
                                             (add-to-history!
                                              (assoc message :content-id (:user-content-id chat-ctx))))
+                                          (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider config)))
                                           (send-content! chat-ctx :system {:type :progress
                                                                            :state :running
                                                                            :text "Generating"}))
@@ -1329,7 +1357,6 @@
                   :instructions instructions
                   :user-messages user-messages
                   :full-model full-model
-                  :all-tools all-tools
                   :db* db*
                   :metrics metrics
                   :config config
@@ -1340,17 +1367,24 @@
     (send-content! chat-ctx :user {:type :text
                                    :content-id (:user-content-id chat-ctx)
                                    :text (str message "\n")})
-    (case (:type decision)
-      :mcp-prompt (send-mcp-prompt! decision chat-ctx)
-      :eca-command (handle-command! decision chat-ctx)
-      :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
-    (metrics/count-up! "prompt-received"
-                       {:full-model full-model
-                        :behavior behavior}
-                       metrics)
-    {:chat-id chat-id
-     :model full-model
-     :status :prompting}))
+    (try
+      (case (:type decision)
+        :mcp-prompt (send-mcp-prompt! decision chat-ctx)
+        :eca-command (handle-command! decision chat-ctx)
+        :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
+      (metrics/count-up! "prompt-received"
+                         {:full-model full-model
+                          :behavior behavior}
+                         metrics)
+      {:chat-id chat-id
+       :model full-model
+       :status :prompting}
+      (catch Exception e
+        (send-content! chat-ctx :system {:type :text :text (str "Error: " (ex-message e))})
+        (finish-chat-prompt! :idle chat-ctx)
+        {:chat-id chat-id
+         :model full-model
+         :status :error}))))
 
 (defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
   (let [chat-ctx {:chat-id chat-id

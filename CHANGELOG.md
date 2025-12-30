@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add dynamic model discovery via `fetchModels` provider config for OpenAI-compatible `/models` endpoints
+- Improve error handling for incompatible models messages in chat. #209
+
+## 0.87.2
+
+- Fix openai-chat tool call + support for Mistral API #233
+- Skip missing/unreadable @file references when building context
+- Fix regression: /compact not working for some models. Related to #240
+
 ## 0.87.1
 
 - Improve read-file summary to show final range properly.
