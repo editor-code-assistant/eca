@@ -62,6 +62,27 @@
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
+(defn provider->api-handler [provider config]
+  (cond
+    (= "openai" provider) {:api :openai-responses
+                           :handler llm-providers.openai/create-response!}
+    (= "anthropic" provider) {:api :anthropic
+                              :handler llm-providers.anthropic/chat!}
+    (= "github-copilot" provider) {:api :openai-chat
+                                   :handler llm-providers.openai-chat/chat-completion!}
+    (= "google" provider) {:api :openai-chat
+                           :handler llm-providers.openai-chat/chat-completion!}
+    (= "ollama" provider) {:api :ollama
+                           :handler llm-providers.ollama/chat!}
+    :else (case (get-in config [:providers provider :api])
+            ("openai-responses" "openai") {:api :openai-responses
+                                           :handler llm-providers.openai/create-response!}
+            "anthropic" {:api :anthropic
+                         :handler llm-providers.anthropic/chat!}
+            "openai-chat" {:api :openai-chat
+                           :handler llm-providers.openai-chat/chat-completion!}
+            nil)))
+
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
@@ -78,6 +99,7 @@
         extra-payload (:extraPayload model-config)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
+        {:keys [handler]} (provider->api-handler provider config)
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -89,7 +111,7 @@
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
         (= "openai" provider)
-        (llm-providers.openai/create-response!
+        (handler
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -107,7 +129,7 @@
          callbacks)
 
         (= "anthropic" provider)
-        (llm-providers.anthropic/chat!
+        (handler
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -124,7 +146,7 @@
          callbacks)
 
         (= "github-copilot" provider)
-        (llm-providers.openai-chat/chat-completion!
+        (handler
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -146,7 +168,7 @@
          callbacks)
 
         (= "google" provider)
-        (llm-providers.openai-chat/chat-completion!
+        (handler
          {:model real-model
           :instructions instructions
           :user-messages user-messages
@@ -166,7 +188,7 @@
          callbacks)
 
         (= "ollama" provider)
-        (llm-providers.ollama/chat!
+        (handler
          {:api-url api-url
           :reason? (:reason? model-capabilities)
           :supports-image? supports-image?
@@ -178,19 +200,14 @@
           :extra-payload extra-payload}
          callbacks)
 
-        (or (:fetchModels provider-config)
-            model-config)
-        (let [provider-fn (case (:api provider-config)
-                            ("openai-responses"
-                             "openai") llm-providers.openai/create-response!
-                            "anthropic" llm-providers.anthropic/chat!
-                            "openai-chat" llm-providers.openai-chat/chat-completion!
-                            (on-error {:message (format "Unknown model %s for provider %s" (:api provider-config) provider)}))
-              url-relative-path (:completionUrlRelativePath provider-config)
+        (and (or (:fetchModels provider-config)
+                 model-config)
+             handler)
+        (let [url-relative-path (:completionUrlRelativePath provider-config)
               think-tag-start (:thinkTagStart provider-config)
               think-tag-end (:thinkTagEnd provider-config)
               http-client (:httpClient provider-config)]
-          (provider-fn
+          (handler
            {:model real-model
             :instructions instructions
             :user-messages user-messages

@@ -505,7 +505,7 @@ interface ChatPromptResponse {
     /**
      * What the server is doing after receing this prompt
      */
-    status: 'prompting' | 'login';
+    status: 'prompting' | 'login' | 'error';
 }
 ```
 

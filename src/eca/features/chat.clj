@@ -16,11 +16,11 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :as shared :refer [assoc-some future*]]
-   [eca.llm-util :as llm-util]))
+   [eca.shared :as shared :refer [assoc-some future*]]))
 
 (set! *warn-on-reflection* true)
 
@@ -1006,6 +1006,22 @@
                   nil)))
           {:new-messages (get-in @db* [:chats chat-id :messages])})))))
 
+(defn ^:private assert-compatible-apis-between-models!
+  "Ensure new request is compatible with last api used.
+   E.g. Anthropic is not compatible with openai and vice versa."
+  [db chat-id provider config]
+  (let [current-api (:api (llm-api/provider->api-handler provider config))
+        last-api (get-in db [:chats chat-id :last-api])]
+    (cond
+      (not last-api) nil
+      (not current-api) nil
+
+      (or (and (= :anthropic current-api)
+               (not= :anthropic last-api))
+          (and (not= :anthropic current-api)
+               (= :anthropic last-api)))
+      (throw (ex-info "Incompatible past messages in chat.\nAnthropic models are only compatible with other Anthropic models, switch models or start a new chat." {})))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook behavior.
@@ -1075,6 +1091,7 @@
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  (send-content! chat-ctx :system (merge {:type :usage} usage))))]
+        (assert-compatible-apis-between-models! db chat-id provider config)
         (when-not (get-in db [:chats chat-id :title])
           (future* config
             (when-let [{:keys [output-text]} (llm-api/sync-prompt!
@@ -1109,6 +1126,7 @@
                                           (doseq [message user-messages]
                                             (add-to-history!
                                              (assoc message :content-id (:user-content-id chat-ctx))))
+                                          (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider config)))
                                           (send-content! chat-ctx :system {:type :progress
                                                                            :state :running
                                                                            :text "Generating"}))
@@ -1349,17 +1367,24 @@
     (send-content! chat-ctx :user {:type :text
                                    :content-id (:user-content-id chat-ctx)
                                    :text (str message "\n")})
-    (case (:type decision)
-      :mcp-prompt (send-mcp-prompt! decision chat-ctx)
-      :eca-command (handle-command! decision chat-ctx)
-      :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
-    (metrics/count-up! "prompt-received"
-                       {:full-model full-model
-                        :behavior behavior}
-                       metrics)
-    {:chat-id chat-id
-     :model full-model
-     :status :prompting}))
+    (try
+      (case (:type decision)
+        :mcp-prompt (send-mcp-prompt! decision chat-ctx)
+        :eca-command (handle-command! decision chat-ctx)
+        :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
+      (metrics/count-up! "prompt-received"
+                         {:full-model full-model
+                          :behavior behavior}
+                         metrics)
+      {:chat-id chat-id
+       :model full-model
+       :status :prompting}
+      (catch Exception e
+        (send-content! chat-ctx :system {:type :text :text (str "Error: " (ex-message e))})
+        (finish-chat-prompt! :idle chat-ctx)
+        {:chat-id chat-id
+         :model full-model
+         :status :error}))))
 
 (defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
   (let [chat-ctx {:chat-id chat-id
