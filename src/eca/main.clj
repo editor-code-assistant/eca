@@ -7,7 +7,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
-   [eca.proxy :as proxy]
+   [eca.client-http :as client]
    [eca.server :as server]))
 
 (set! *warn-on-reflection* true)
@@ -94,7 +94,7 @@
 
 (defn ^:private handle-action!
   [action options]
-  (proxy/load!)
+  (client/hato-client-global-setup! {})
   (when (= "server" action)
     (when-some [cfg-file (:config-file options)]
       (reset! config/custom-config-file-path* cfg-file))

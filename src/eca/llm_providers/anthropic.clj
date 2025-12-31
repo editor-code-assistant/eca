@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
@@ -89,7 +90,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
-       :http-client http-client
+       :http-client (client/merge-with-global-http-client http-client)
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try
@@ -289,9 +290,12 @@
                                                :code_challenge_method "S256"
                                                :state verifier}))}))
 
+(def ^:private oauth-token-url
+  "https://console.anthropic.com/v1/oauth/token")
+
 (defn ^:private oauth-authorize [code verifier]
   (let [[code state] (string/split code #"#")
-        url "https://console.anthropic.com/v1/oauth/token"
+        url oauth-token-url
         body {:grant_type "authorization_code"
               :code code
               :state state
@@ -302,6 +306,7 @@
                                url
                                {:headers {"Content-Type" "application/json"}
                                 :body (json/generate-string body)
+                                :http-client (client/merge-with-global-http-client {})
                                 :as :json})]
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
@@ -312,7 +317,7 @@
                        :body body})))))
 
 (defn ^:private oauth-refresh [refresh-token]
-  (let [url "https://console.anthropic.com/v1/oauth/token"
+  (let [url oauth-token-url
         body {:grant_type "refresh_token"
               :refresh_token refresh-token
               :client_id client-id}
@@ -321,6 +326,7 @@
                                {:headers {"Content-Type" "application/json"}
                                 :body (json/generate-string body)
                                 :throw-exceptions? false
+                                :http-client (client/merge-with-global-http-client {})
                                 :as :json})]
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
@@ -330,13 +336,18 @@
                       {:status status
                        :body body})))))
 
+
+(def ^:private create-api-key-url
+  "https://api.anthropic.com/api/oauth/claude_cli/create_api_key")
+
 (defn ^:private create-api-key [access-token]
-  (let [url "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
+  (let [url create-api-key-url
         {:keys [status body]} (http/post
                                url
                                {:headers {"Authorization" (str "Bearer " access-token)
                                           "Content-Type" "application/x-www-form-urlencoded"
                                           "Accept" "application/json, text/plain, */*"}
+                                :http-client (client/merge-with-global-http-client {})
                                 :as :json})]
     (if (= 200 status)
       (let [raw-key (:raw_key body)]

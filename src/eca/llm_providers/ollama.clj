@@ -2,6 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]
+   [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :refer [deep-merge]]
@@ -21,6 +22,7 @@
           {:keys [status body]} (http/get
                                  (format list-models-url api-url)
                                  {:throw-exceptions? false
+                                  :http-client (client/merge-with-global-http-client {})
                                   :as :json})]
       (if (= 200 status)
         (do
@@ -39,6 +41,7 @@
                                  (format show-model-url api-url)
                                  {:throw-exceptions? false
                                   :body (json/generate-string {:model model})
+                                  :http-client (client/merge-with-global-http-client {})
                                   :as :json})]
       (if (= 200 status)
         (do
@@ -66,6 +69,7 @@
       {:body (json/generate-string body)
        :throw-exceptions? false
        :async? true
+       :http-client (client/merge-with-global-http-client {})
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try

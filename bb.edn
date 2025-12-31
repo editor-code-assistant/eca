@@ -16,6 +16,7 @@
 
          tag make/tag
          get-last-changelog-entry make/get-last-changelog-entry
+         ;; run with -h to see the available options
          integration-test make/integration-test
 
          local-webpage make/local-webpage}}
