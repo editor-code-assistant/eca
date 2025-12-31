@@ -13,7 +13,7 @@
           (reset! req* req)
           ;; fake a successful non-stream JSON response
           {:status 200
-           :body {:output [{:content [{:text "Hello from responses proxy!"}]}]}})
+           :body {:output [{:content [{:text "Hello from responses!"}]}]}})
 
         (let [body {:model "mymodel"
                     :input "hi"
@@ -31,7 +31,7 @@
                  (select-keys @req* [:method :uri :body])))
 
           ;; parsed response
-          (is (= {:output-text "Hello from responses proxy!"}
+          (is (= {:output-text "Hello from responses!"}
                  (select-keys response [:output-text]))))))))
 
 (deftest oauth-authorize-test

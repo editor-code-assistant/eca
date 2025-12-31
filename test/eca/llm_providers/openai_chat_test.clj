@@ -22,7 +22,7 @@
                   :model "ibm/granite-4-h-tiny",
                   :choices [{:index 0,
                              :message {:role "assistant",
-                                       :content "Hello from proxy!"
+                                       :content "Hello there!"
                                        :tool_calls []},
                              :logprobs nil,
                              :finish_reason "stop"}]
@@ -47,7 +47,7 @@
                   :uri "/v1/chat/completions"
                   :body body}
                  (select-keys @req* [:method :uri :body])))
-          (is (= {:output-text "Hello from proxy!"}
+          (is (= {:output-text "Hello there!"}
                  (select-keys response [:output-text]))))))))
 
 (deftest normalize-messages-test

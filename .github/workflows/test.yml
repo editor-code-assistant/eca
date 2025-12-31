@@ -86,7 +86,7 @@ jobs:
           # while downloading dependencies. Workaround: offload some
           # of the deps download to the clojure CLI tool.
           #
-          # See https://clojure.atlassian.net/jira/software/c/projects/TBUILD/issues?jql=project%20%3D%20TBUILD%20ORDER%20BY%20created%20DESC&selectedIssue=TBUILD-47
+          # See https://clojure.atlassian.net/browse/TBUILD-47
           clojure -P
           bb prod-cli
 

@@ -29,11 +29,6 @@
   32 KB and does not buffer responses."
   [handler-fn]
   (proxy [HttpFiltersSource] []
-    (clientToProxyRequest [http-obj]
-      ;; always return nil to accept the request
-      ;; or you can normalize the URI here if you want
-      nil)
-
     (filterRequest [original-request ctx]
       (proxy [HttpFiltersAdapter] [original-request]
         (proxyToServerRequest [http-obj]
@@ -179,13 +174,12 @@
   nil)
 
 (defmacro with-client-proxied
-  "Runs BODY with a temporary LittleProxy server active on a random local port,
-  while setting `eca.client-http/*hato-http-client*` to route traffic through the
-  proxy for any Hato requests made in BODY.
-
-  Starts a proxy using the provided request HANDLER-FN and optional OPTS. Ensures
-  the proxy is shut down after BODY executes, and `eca.client-http/*hato-http-client*`
-  is reset to nil.
+  "Runs BODY with a temporary LittleProxy server on a random local port,
+  configuring `eca.client-http/*hato-http-client*` so all Hato
+  requests in BODY are routed through the proxy. The proxy is started
+  using the provided HANDLER-FN and optional OPTS, and is always shut
+  down afterward, with `eca.client-http/*hato-http-client*` reset to
+  nil.
 
   During execution, any calls to `eca.client-http/merge-with-global-http-client`
   are recorded in `*http-client-captures*` as a sequence of merged options maps.

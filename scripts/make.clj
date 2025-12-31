@@ -102,7 +102,7 @@
     :list-ns {:desc "List available test namespaces."
               :alias :l}
 
-    :ns {:desc "Comma-separated list of test namespaces to run.."
+    :ns {:desc "Comma-separated list of test namespaces to run."
          :type :string
          :validate (fn [s]
                      (every? #(some #{%} entrypoint/namespaces)

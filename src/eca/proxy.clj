@@ -43,7 +43,7 @@
 
 (defn proxy-urls-system-env-get
   "Returns a map of the HTTP and HTTPS proxy environment variables,
-  preferring lowercase variable names over uppercase:
+  preferring lowercase variable names over uppercase.
 
   The map includes:
 
