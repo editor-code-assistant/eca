@@ -12,7 +12,7 @@ To use AWS Bedrock with ECA, you need to configure the provider in your ECA conf
 {
   "providers": {
     "bedrock": {
-      "api": "anthropic",
+      "api": "bedrock",
       "key": "${env:BEDROCK_API_KEY}",
       "url": "https://your-proxy.example.com/model/{modelId}/converse",
       "region": "us-east-1",
