@@ -32,13 +32,17 @@
                  (get-in config [:behavior behavior :disabledTools] [])
                  []))))
 
+(defn ^:private tool-disabled? [tool disabled-tools]
+  (or (contains? disabled-tools (str (:name (:server tool)) "__" (:name tool)))
+      (contains? disabled-tools (:name tool))))
+
 (defn make-tool-status-fn
   "Returns a function that marks tools as disabled based on config and behavior.
    If behavior is nil, only uses global disabledTools."
   [config behavior]
   (let [disabled-tools (get-disabled-tools config behavior)]
     (fn [tool]
-      (assoc-some tool :disabled (contains? disabled-tools (:name tool))))))
+      (assoc-some tool :disabled (tool-disabled? tool disabled-tools)))))
 
 (defn ^:private replace-string-values-with-vars
   "walk through config parsing dynamic string contents if value is a string."
@@ -76,7 +80,7 @@
   (let [disabled-tools (get-disabled-tools config behavior)]
     (filterv
      (fn [tool]
-       (and (not (contains? disabled-tools (:name tool)))
+       (and (not (tool-disabled? tool disabled-tools))
             ;; check for enabled-fn if present
             ((or (:enabled-fn tool) (constantly true))
              {:behavior behavior
@@ -142,8 +146,8 @@
                                               :status "running"
                                               :tools (->> (native-tools @db* config)
                                                           (remove #(= "compact_chat" (:name %)))
-                                                          (mapv #(select-keys % [:name :description :parameters]))
-                                                          (mapv tool-status-fn))})
+                                                          (mapv tool-status-fn)
+                                                          (mapv #(select-keys % [:name :description :parameters :disabled])))})
     (f.mcp/initialize-servers-async!
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
      db*
@@ -280,8 +284,8 @@
                                             :name "ECA"
                                             :status "running"
                                             :tools (->> (native-tools @db* config)
-                                                        (mapv #(select-keys % [:name :description :parameters]))
-                                                        (mapv tool-status-fn))})
+                                                        (mapv tool-status-fn)
+                                                        (mapv #(select-keys % [:name :description :parameters :disabled])))})
   (doseq [[server-name {:keys [tools status]}] (:mcp-clients @db*)]
     (messenger/tool-server-updated messenger {:type :mcp
                                               :name server-name

@@ -4,6 +4,7 @@
 
 - Add dynamic model discovery via `fetchModels` provider config for OpenAI-compatible `/models` endpoints
 - Improve error handling for incompatible models messages in chat. #209
+- Support `server__tool_name` in `disabledTools` config as well.
 
 ## 0.87.2
 
