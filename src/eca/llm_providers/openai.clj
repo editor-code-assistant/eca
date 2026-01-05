@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
@@ -22,7 +23,7 @@
 (defn ^:private jtw-token->account-id [api-key]
   (let [[_ base64] (string/split api-key #"\.")
         payload (some-> base64
-                        llm-util/<-base64
+                        oauth/<-base64
                         json/parse-string)]
     (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])))
 
@@ -56,7 +57,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
-       :http-client http-client
+       :http-client (client/merge-with-global-http-client http-client)
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try
@@ -270,7 +271,7 @@
 
 (defn ^:private oauth-url [server-url]
   (let [url "https://auth.openai.com/oauth/authorize"
-        {:keys [challenge verifier]} (llm-util/generate-pkce)]
+        {:keys [challenge verifier]} (oauth/generate-pkce)]
     {:verifier verifier
      :url (str url "?" (ring.util/form-encode {:client_id client-id
                                                :response_type "code"
@@ -283,9 +284,12 @@
                                                :code_challenge_method "S256"
                                                :state verifier}))}))
 
+(def ^:private oauth-token-url
+  "https://auth.openai.com/oauth/token")
+
 (defn ^:private oauth-authorize [server-url code verifier]
   (let [{:keys [status body]} (http/post
-                               "https://auth.openai.com/oauth/token"
+                               oauth-token-url
                                {:headers {"Content-Type" "application/json"}
                                 :body (json/generate-string
                                        {:grant_type "authorization_code"
@@ -293,6 +297,7 @@
                                         :code code
                                         :code_verifier verifier
                                         :redirect_uri server-url})
+                                :http-client (client/merge-with-global-http-client {})
                                 :as :json})]
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
@@ -330,10 +335,10 @@
                         (f.login/login-done! ctx))
                       (future
                         (Thread/sleep 2000) ;; wait to render success page
-                        (oauth/stop-oauth-server!)))
+                        (oauth/stop-oauth-server! local-server-port)))
         :on-error (fn [error]
                     (send-msg! (str "Error authenticating via oauth: " error))
-                    (oauth/stop-oauth-server!))})
+                    (oauth/stop-oauth-server! local-server-port))})
       (send-msg! (format "Open your browser at `%s` and authenticate at OpenAI.\n\nThen ECA will finish the login automatically." url)))
     "manual"
     (do

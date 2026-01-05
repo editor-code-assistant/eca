@@ -92,21 +92,23 @@
            (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
           (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))))))
 
-(defn call-tool! [^String name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
+(defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
                   ]
-  (logger/info logger-tag (format "Calling tool '%s' with args '%s'" name arguments))
-  (let [arguments (update-keys arguments clojure.core/name)
+  (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
+  (let [[server-name tool-name] (string/split full-name #"__")
+        arguments (update-keys arguments clojure.core/name)
         db @db*
-        tool-meta (some #(when (= name (:name %)) %)
+        tool-meta (some #(when (= full-name (:full-name %)) %)
                         (all-tools chat-id behavior db config))
         required-args-error (when-let [parameters (:parameters tool-meta)]
                               (tools.util/required-params-error parameters arguments))]
     (try
       (let [result (-> (if required-args-error
                          required-args-error
-                         (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
+                         (if-let [native-tool-handler (and (= "eca" server-name)
+                                                           (get-in (native-definitions db config) [tool-name :handler]))]
                            (native-tool-handler arguments {:db db
                                                            :db* db*
                                                            :config config
@@ -116,17 +118,17 @@
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
                                                            :state-transition-fn state-transition-fn})
-                           (f.mcp/call-tool! name arguments {:db db}))))]
+                           (f.mcp/call-tool! tool-name arguments {:db db}))))]
         (logger/debug logger-tag "Tool call result: " result)
-        (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
+        (metrics/count-up! "tool-called" {:name full-name :error (:error result)} metrics)
         (if-let [r (:rollback-changes result)]
           (do
             (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
             (dissoc result :rollback-changes))
           result))
       (catch Exception e
-        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" name (.getMessage e) (with-out-str (.printStackTrace e))))
-        (metrics/count-up! "tool-called" {:name name :error true} metrics)
+        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name (.getMessage e) (with-out-str (.printStackTrace e))))
+        (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
         {:error true
          :contents [{:type :text
                      :text (str "Error calling tool: " (.getMessage e))}]}))))
@@ -151,7 +153,8 @@
     (f.mcp/initialize-servers-async!
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
      db*
-     config)))
+     config
+     metrics)))
 
 (defn stop-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
@@ -167,6 +170,7 @@
      name
      db*
      config
+     metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
 (defn legacy-manual-approval? [config tool-name]
