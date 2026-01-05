@@ -266,3 +266,30 @@
       (throw (ex-info (format "OAuth response missing access_token: %s" (pr-str parsed-body))
                       {:status status
                        :body parsed-body})))))
+
+(defn refresh-token!
+  "Refresh an OAuth access token using a refresh token.
+   Returns {:access-token :refresh-token :expires-at} on success, nil if refresh fails."
+  [token-endpoint client-id refresh-token]
+  (try
+    (let [{:keys [status body]} (http/post
+                                 token-endpoint
+                                 {:headers {"Content-Type" "application/x-www-form-urlencoded"
+                                            "Accept" "application/json"}
+                                  :body (ring.util/form-encode
+                                         {:grant_type "refresh_token"
+                                          :client_id client-id
+                                          :refresh_token refresh-token})
+                                  :throw-exceptions? false
+                                  :as :stream})
+          body-str (when body (slurp body))
+          parsed-body (parse-body body-str)]
+      (logger/debug logger-tag (format "Refresh token response status=%d body=%s" status (pr-str parsed-body)))
+      (when (and (= 200 status) (:access_token parsed-body))
+        {:refresh-token (or (:refresh_token parsed-body) refresh-token)
+         :access-token (:access_token parsed-body)
+         :expires-at (+ (quot (System/currentTimeMillis) 1000)
+                        (or (:expires_in parsed-body) 3600))}))
+    (catch Exception e
+      (logger/warn logger-tag (format "Failed to refresh token: %s" (.getMessage e)))
+      nil)))

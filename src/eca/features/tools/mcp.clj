@@ -226,13 +226,46 @@
   (browse/browse-url authorization-endpoint)
   (on-server-updated (->server server-name server-config :requires-auth @db*)))
 
+(defn ^:private token-expired?
+  "Check if the token is expired or will expire in the next 60 seconds."
+  [expires-at]
+  (when expires-at
+    (< expires-at (+ (quot (System/currentTimeMillis) 1000) 60))))
+
+(defn ^:private try-refresh-token!
+  "Attempt to refresh an MCP server's OAuth token.
+   Returns true if refresh succeeded, false otherwise."
+  [name db* url metrics]
+  (let [mcp-auth (get-in @db* [:mcp-auth name])
+        {:keys [refresh-token]} mcp-auth]
+    (when refresh-token
+      (logger/info logger-tag (format "Attempting to refresh token for MCP server '%s'" name))
+      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url))]
+        (when-let [new-tokens (oauth/refresh-token!
+                               (:token-endpoint oauth-info)
+                               (:client-id oauth-info)
+                               refresh-token)]
+          (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
+          (swap! db* assoc-in [:mcp-auth name]
+                 (merge mcp-auth new-tokens))
+          (db/update-global-cache! @db* metrics)
+          true)))))
+
 (defn ^:private initialize-server! [name db* config metrics on-server-updated]
   (let [db @db*
         workspaces (:workspace-folders @db*)
         server-config (get-in config [:mcpServers name])
         url (:url server-config)
-        oauth-info (when (and url
-                              (not (get-in @db* [:mcp-auth name :access-token])))
+        mcp-auth (get-in @db* [:mcp-auth name])
+        has-token? (some? (:access-token mcp-auth))
+        token-expired? (token-expired? (:expires-at mcp-auth))
+        ;; Try to refresh if token exists but is expired
+        refresh-succeeded? (when (and has-token? token-expired?)
+                             (try-refresh-token! name db* url metrics))
+        ;; Only get oauth-info if we don't have a token or refresh failed
+        needs-oauth? (or (not has-token?)
+                         (and token-expired? (not refresh-succeeded?)))
+        oauth-info (when (and url needs-oauth?)
                      (oauth/oauth-info (replace-env-vars url)))]
     (if oauth-info
       (initialize-mcp-oauth oauth-info
