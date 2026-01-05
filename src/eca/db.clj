@@ -14,7 +14,7 @@
 
 (def ^:private logger-tag "[DB]")
 
-(def version 5)
+(def version 6)
 
 (def ^:private _db-spec
   "Used for documentation only"
@@ -38,7 +38,7 @@
                             :input-cache-read-token-cost (or :number nil)
                             :input-cache-creation-token-cost (or :number nil)}}
    :mcp-clients {"<client-id>" {:client :McpSyncClient
-                                :status (or :starting :running :failed :stopping :stopped)
+                                :status (or :requires-auth :starting :running :failed :stopping :stopped)
                                 :version :string
                                 :tools [{:name :string
                                          :description :string
@@ -64,7 +64,7 @@
                                      {:status (or :initial :preparing :check-approval :waiting-approval
                                                   :execution-approved :executing :rejected :cleanup
                                                   :completed :stopping)
-                                      
+
                                       :name :string
                                       :full-name :string
                                       :server :string
@@ -88,7 +88,11 @@
                              :refresh-token :string
                              :expires-at :long
                              :verifier :string
-                             :device-code :string}}})
+                             :device-code :string}}
+   :mcp-auth {"<mcp-server-name>" {:type :auth/oauth
+                                   :access-token :string
+                                   :refresh-token :string
+                                   :expires-at :long}}})
 
 (defonce initial-db
   {:client-info {}
@@ -110,7 +114,8 @@
           "google" {}
           "openai" {}
           "openrouter" {}
-          "z-ai" {}}})
+          "z-ai" {}}
+   :mcp-auth {}})
 
 (defonce db* (atom initial-db))
 
@@ -181,7 +186,7 @@
                              chats)))))
 
 (defn ^:private normalize-db-for-global-write [db]
-  (select-keys db [:auth]))
+  (select-keys db [:auth :mcp-auth]))
 
 (defn update-workspaces-cache! [db metrics]
   (-> (normalize-db-for-workspace-write db)

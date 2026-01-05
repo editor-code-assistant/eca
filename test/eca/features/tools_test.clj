@@ -256,7 +256,7 @@
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `path`"}]}
          (with-redefs [f.tools.filesystem/definitions
-                       {"eca_test_native_tool"
+                       {"test_native_tool"
                         {:description "Test tool"
                          :parameters  {"type"      "object"
                                        :properties {"path" {:type "string"}}
@@ -265,7 +265,7 @@
                                         {:error    false
                                          :contents [{:type :text :text "OK"}]})}}]
            (f.tools/call-tool!
-            "eca_test_native_tool"
+            "eca__test_native_tool"
             {}
             "chat-1"
             "call-1"
@@ -294,7 +294,7 @@
                                           {:error    false
                                            :contents [{:type :text :text "should-not-be-called"}]})]
            (f.tools/call-tool!
-            "mcp_eval"
+            "clojureMCP__mcp_eval"
             {}
             "chat-1"
             "call-2"
@@ -313,7 +313,7 @@
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `path`, `content`"}]}
          (with-redefs [f.tools.filesystem/definitions
-                       {"eca_test_native_multi"
+                       {"test_native_multi"
                         {:description "Test tool multi"
                          :parameters  {"type"      "object"
                                        :properties {"path" {:type "string"}
@@ -323,7 +323,7 @@
                                         {:error    false
                                          :contents [{:type :text :text "OK"}]})}}]
            (f.tools/call-tool!
-            "eca_test_native_multi"
+            "eca__test_native_multi"
             {}
             "chat-2"
             "call-3"

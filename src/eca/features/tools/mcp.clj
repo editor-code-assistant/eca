@@ -1,15 +1,23 @@
 (ns eca.features.tools.mcp
   (:require
    [cheshire.core :as json]
+   [clojure.java.browse :as browse]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.logger :as logger]
+   [eca.oauth :as oauth]
    [eca.shared :as shared])
   (:import
    [com.fasterxml.jackson.databind ObjectMapper]
    [io.modelcontextprotocol.client McpClient McpSyncClient]
-   [io.modelcontextprotocol.client.transport HttpClientStreamableHttpTransport ServerParameters StdioClientTransport]
+   [io.modelcontextprotocol.client.transport
+    HttpClientSseClientTransport
+    HttpClientStreamableHttpTransport
+    ServerParameters
+    StdioClientTransport]
+   [io.modelcontextprotocol.client.transport.customizer McpSyncHttpClientRequestCustomizer]
    [io.modelcontextprotocol.json McpJsonMapper]
    [io.modelcontextprotocol.spec
     McpSchema$CallToolRequest
@@ -51,12 +59,43 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
-(defn ^:private ->transport ^McpTransport [server-name server-config workspaces]
+(defn ^:private split-sse-url
+  "Split an SSE URL into base URI and endpoint path.
+   Examples:
+   - 'https://api.example.com/v1/sse' -> ['https://api.example.com', '/v1/sse']
+   - 'https://mcp.example.com/sse?key=abc' -> ['https://mcp.example.com', '/sse?key=abc']"
+  [^String url]
+  (let [uri (java.net.URI. url)
+        scheme (.getScheme uri)
+        host (.getHost uri)
+        port (.getPort uri)
+        path (or (.getPath uri) "")
+        query (.getQuery uri)
+        base-uri (str scheme "://" host (when (and (pos? port) (not= port -1)) (str ":" port)))
+        endpoint (str path (when query (str "?" query)))]
+    [base-uri endpoint]))
+
+(defn ^:private ->transport ^McpTransport [server-name server-config workspaces db]
   (if (:url server-config)
-    ;; HTTP Streamable transport
-    (let [url (replace-env-vars (:url server-config))]
-      (-> (HttpClientStreamableHttpTransport/builder url)
-          (.build)))
+    ;; HTTP transport (SSE or Streamable, inferred from URL)
+    (let [url (replace-env-vars (:url server-config))
+          sse? (string/includes? url "/sse")
+          customizer (reify McpSyncHttpClientRequestCustomizer
+                       (customize [_this builder _method _endpoint _body _context]
+                         (when-let [access-token (get-in db [:mcp-auth server-name :access-token])]
+                           (.header builder "Authorization" (str "Bearer " access-token)))))]
+      (if sse?
+        (let [[base-uri sse-endpoint] (split-sse-url url)]
+          (logger/info logger-tag (format "Creating SSE transport for server '%s' - base: %s, endpoint: %s" server-name base-uri sse-endpoint))
+          (-> (HttpClientSseClientTransport/builder base-uri)
+              (.sseEndpoint sse-endpoint)
+              (.httpRequestCustomizer customizer)
+              (.build)))
+        (do
+          (logger/info logger-tag (format "Creating HTTP transport for server '%s' at URL: %s" server-name url))
+          (-> (HttpClientStreamableHttpTransport/builder url)
+              (.httpRequestCustomizer customizer)
+              (.build)))))
 
     ;; STDIO transport
     (let [{:keys [command args env]} server-config
@@ -163,35 +202,132 @@
       (logger/warn logger-tag "Could not list resources:" (.getMessage e))
       [])))
 
-(defn ^:private initialize-server! [name db* config on-server-updated]
+(defn ^:private initialize-mcp-oauth
+  [{:keys [authorization-endpoint callback-port] :as oauth-info}
+   server-name
+   db*
+   server-config
+   {:keys [on-success on-error on-server-updated]}]
+  (oauth/start-oauth-server!
+   {:port callback-port
+    :on-success (fn [{:keys [code]}]
+                  (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
+                    (swap! db* assoc-in [:mcp-auth server-name] {:type :auth/oauth
+                                                                 :refresh-token refresh-token
+                                                                 :access-token access-token
+                                                                 :expires-at expires-at}))
+                  (oauth/stop-oauth-server! callback-port)
+                  (on-success))
+    :on-error (fn [error]
+                (oauth/stop-oauth-server! callback-port)
+                (on-error error))})
+  (logger/info logger-tag (format "Authenticating MCP server '%s' at '%s'" server-name authorization-endpoint))
+  (swap! db* assoc-in [:mcp-clients server-name] {:status :requires-auth})
+  (browse/browse-url authorization-endpoint)
+  (on-server-updated (->server server-name server-config :requires-auth @db*)))
+
+(defn ^:private token-expired?
+  "Check if the token is expired or will expire in the next 60 seconds."
+  [expires-at]
+  (when expires-at
+    (< expires-at (+ (quot (System/currentTimeMillis) 1000) 60))))
+
+(defn ^:private try-refresh-token!
+  "Attempt to refresh an MCP server's OAuth token.
+   Returns true if refresh succeeded, false otherwise."
+  [name db* url metrics]
+  (let [mcp-auth (get-in @db* [:mcp-auth name])
+        {:keys [refresh-token]} mcp-auth]
+    (when refresh-token
+      (logger/info logger-tag (format "Attempting to refresh token for MCP server '%s'" name))
+      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url))]
+        (when-let [new-tokens (oauth/refresh-token!
+                               (:token-endpoint oauth-info)
+                               (:client-id oauth-info)
+                               refresh-token)]
+          (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
+          (swap! db* assoc-in [:mcp-auth name]
+                 (merge mcp-auth new-tokens))
+          (db/update-global-cache! @db* metrics)
+          true)))))
+
+(defn ^:private initialize-server! [name db* config metrics on-server-updated]
   (let [db @db*
         workspaces (:workspace-folders @db*)
         server-config (get-in config [:mcpServers name])
-        obj-mapper (ObjectMapper.)
-        init-timeout (:mcpTimeoutSeconds config)
-        transport (->transport name server-config workspaces)
-        client (->client name transport init-timeout workspaces)]
-    (on-server-updated (->server name server-config :starting db))
-    (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
-    (try
-      (.initialize client)
-      (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
-      (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
-      (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
-      (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
-      (swap! db* assoc-in [:mcp-clients name :status] :running)
-      (on-server-updated (->server name server-config :running @db*))
-      (logger/info logger-tag (format "Started MCP server %s" name))
-      (catch Exception e
-        (let [cause-message (if (instance? TimeoutException (.getCause e))
-                              (format "Timeout of %s secs waiting for server start" init-timeout)
-                              (.getMessage (.getCause e)))]
-          (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message)))
-        (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed db))
-        (.close client)))))
+        url (:url server-config)
+        mcp-auth (get-in @db* [:mcp-auth name])
+        has-token? (some? (:access-token mcp-auth))
+        token-expired? (token-expired? (:expires-at mcp-auth))
+        ;; Try to refresh if token exists but is expired
+        refresh-succeeded? (when (and has-token? token-expired?)
+                             (try-refresh-token! name db* url metrics))
+        ;; Only get oauth-info if we don't have a token or refresh failed
+        needs-oauth? (or (not has-token?)
+                         (and token-expired? (not refresh-succeeded?)))
+        oauth-info (when (and url needs-oauth?)
+                     (oauth/oauth-info (replace-env-vars url)))]
+    (if oauth-info
+      (initialize-mcp-oauth oauth-info
+                            name
+                            db*
+                            server-config
+                            {:on-server-updated on-server-updated
+                             :on-success (fn []
+                                           ;; :mcp-auth exists now
+                                           (db/update-global-cache! @db* metrics)
+                                           (initialize-server! name db* config metrics on-server-updated))
+                             :on-error (fn [error]
+                                         (logger/error logger-tag error)
+                                         (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                                         (on-server-updated (->server name server-config :failed db)))})
+      (let [obj-mapper (ObjectMapper.)
+            init-timeout (:mcpTimeoutSeconds config)
+            transport (->transport name server-config workspaces db)
+            client (->client name transport init-timeout workspaces)]
+        (on-server-updated (->server name server-config :starting db))
+        (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
+        (try
+          (.initialize client)
+          (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
+          (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
+          (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
+          (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
+          (swap! db* assoc-in [:mcp-clients name :status] :running)
+          (on-server-updated (->server name server-config :running @db*))
+          (logger/info logger-tag (format "Started MCP server %s" name))
+          (catch Exception e
+            (let [cause (.getCause e)
+                  is-sse-error (and cause
+                                    (string/includes? (.getMessage cause) "Invalid SSE response"))
+                  is-404 (and cause
+                              (string/includes? (.getMessage cause) "Status code: 404"))
+                  cause-message (cond
+                                  (instance? TimeoutException cause)
+                                  (format "Timeout of %s secs waiting for server start" init-timeout)
 
-(defn initialize-servers-async! [{:keys [on-server-updated]} db* config]
+                                  (and is-sse-error is-404)
+                                  (str "SSE endpoint returned 404 Not Found. "
+                                       "Please verify the URL is correct. "
+                                       "For SSE connections, the URL should point to the SSE stream endpoint "
+                                       "(e.g., ending with '/sse' or '/messages')")
+
+                                  is-sse-error
+                                  (str "SSE connection failed: " (.getMessage cause))
+
+                                  cause
+                                  (.getMessage cause)
+
+                                  :else
+                                  "Unknown error")]
+              (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message))
+              (when (and is-sse-error (:url server-config))
+                (logger/error logger-tag (format "SSE URL was: %s" (replace-env-vars (:url server-config))))))
+            (swap! db* assoc-in [:mcp-clients name :status] :failed)
+            (on-server-updated (->server name server-config :failed db))
+            (.close client)))))))
+
+(defn initialize-servers-async! [{:keys [on-server-updated]} db* config metrics]
   (let [db @db*]
     (doseq [[name-kwd server-config] (:mcpServers config)]
       (let [name (name name-kwd)]
@@ -199,7 +335,7 @@
           (if (get server-config :disabled false)
             (on-server-updated (->server name server-config :disabled db))
             (future
-              (initialize-server! name db* config on-server-updated))))))))
+              (initialize-server! name db* config metrics on-server-updated))))))))
 
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
   (when-let [{:keys [client]} (get-in @db* [:mcp-clients name])]
@@ -212,11 +348,11 @@
       (swap! db* update :mcp-clients dissoc name)
       (logger/info logger-tag (format "Stopped MCP server %s" name)))))
 
-(defn start-server! [name db* config {:keys [on-server-updated]}]
+(defn start-server! [name db* config metrics {:keys [on-server-updated]}]
   (when-let [server-config (get-in config [:mcpServers name])]
     (if (get server-config :disabled false)
       (logger/warn logger-tag (format "MCP server %s is disabled and cannot be started" name))
-      (initialize-server! name db* config on-server-updated))))
+      (initialize-server! name db* config metrics on-server-updated))))
 
 (defn all-tools [db]
   (into []
@@ -273,6 +409,8 @@
     {:contents (mapv ->resource-content (.contents resource))}))
 
 (defn shutdown! [db*]
-  (doseq [[_name {:keys [client]}] (:mcp-clients @db*)]
-    (.closeGracefully ^McpSyncClient client))
+  (try
+    (doseq [[_name {:keys [client]}] (:mcp-clients @db*)]
+      (.closeGracefully ^McpSyncClient client))
+    (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))

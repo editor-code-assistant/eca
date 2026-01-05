@@ -8,6 +8,7 @@
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.oauth :as oauth]
    [eca.shared :as shared :refer [assoc-some deep-merge multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
@@ -139,19 +140,19 @@
                                    (if (string? c)
                                      (string/trim c)
                                      (vec
-                                       (keep #(case (name (:type %))
+                                      (keep #(case (name (:type %))
 
-                                                "text"
-                                                (update % :text string/trim)
+                                               "text"
+                                               (update % :text string/trim)
 
-                                                "image"
-                                                (when supports-image?
-                                                  {:type "image"
-                                                   :source {:data (:base64 %)
-                                                            :media_type (:media-type %)
-                                                            :type "base64"}})
+                                               "image"
+                                               (when supports-image?
+                                                 {:type "image"
+                                                  :source {:data (:base64 %)
+                                                           :media_type (:media-type %)
+                                                           :type "base64"}})
 
-                                                %)
+                                               %)
                                             c))))))))
         past-messages))
 
@@ -279,7 +280,7 @@
 
 (defn ^:private oauth-url [mode]
   (let [url (str (if (= :console mode) "https://console.anthropic.com" "https://claude.ai") "/oauth/authorize")
-        {:keys [challenge verifier]} (llm-util/generate-pkce)]
+        {:keys [challenge verifier]} (oauth/generate-pkce)]
     {:verifier verifier
      :url (str url "?" (ring.util/form-encode {:code true
                                                :client_id client-id

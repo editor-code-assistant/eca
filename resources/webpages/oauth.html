@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECA Authentication</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7f9;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #333;
+        }
+        
+        .container {
+            text-align: center;
+            padding: 3rem;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            max-width: 400px;
+            width: 90%;
+        }
+        
+        .logo-container {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1rem;
+            background: #007a94;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 122, 148, 0.3);
+        }
+        
+        .logo-container svg {
+            width: 60px;
+            height: 60px;
+        }
+        
+        .brand-name {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #007a94;
+            margin-bottom: 0.25rem;
+        }
+        
+        .tagline {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        
+        .status-icon {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+        
+        h2.success {
+            color: #007a94;
+        }
+        
+        h2.error {
+            color: #d32f2f;
+        }
+        
+        .message {
+            color: #555;
+            line-height: 1.5;
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .error-details {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #991b1b;
+            word-break: break-word;
+        }
+        
+        .hint {
+            font-size: 0.75rem;
+            color: #888;
+            padding-top: 1rem;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo-container">
+            {{logo-svg|safe}}
+        </div>
+        <div class="brand-name">ECA</div>
+        <div class="tagline">Editor Code Assistant</div>
+        
+        {% if success %}
+        <div class="status-icon">✓</div>
+        <h2 class="success">Authentication Successful</h2>
+        <p class="message">You can now close this window and return to your terminal.</p>
+        {% endif %}
+        
+        {% if error %}
+        <div class="status-icon">✕</div>
+        <h2 class="error">Authentication Failed</h2>
+        <p class="message">Something went wrong during authentication.</p>
+        <div class="error-details">{{error-message}}</div>
+        {% endif %}
+        
+        {% if success %}
+        <p class="hint">This window will close automatically.</p>
+        {% else %}
+        <p class="hint">You can close this window.</p>
+        {% endif %}
+    </div>
+    {% if success %}
+    <script>setTimeout(function() { window.close(); }, 5000);</script>
+    {% endif %}
+</body>
+</html>

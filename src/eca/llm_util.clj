@@ -8,10 +8,7 @@
    [eca.secrets :as secrets]
    [eca.shared :as shared])
   (:import
-   [java.io BufferedReader]
-   [java.nio.charset StandardCharsets]
-   [java.security MessageDigest SecureRandom]
-   [java.util Base64]))
+   [java.io BufferedReader]))
 
 (set! *warn-on-reflection* true)
 
@@ -83,34 +80,6 @@
 
 (defn log-response [tag rid event data]
   (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))
-
-(defn ^:private rand-bytes
-  "Returns a random byte array of the specified size."
-  [size]
-  (let [seed (byte-array size)]
-    (.nextBytes (SecureRandom.) seed)
-    seed))
-
-(defn <-base64 ^String [^String s]
-  (String. (.decode (Base64/getDecoder) s)))
-
-(defn ^:private ->base64 [^bytes bs]
-  (.encodeToString (Base64/getEncoder) bs))
-
-(defn ^:private ->base64url [base64-str]
-  (-> base64-str (string/replace "+" "-") (string/replace "/" "_")))
-
-(defn ^:private str->sha256 [^String s]
-  (-> (MessageDigest/getInstance "SHA-256")
-      (.digest (.getBytes s StandardCharsets/UTF_8))))
-
-(defn ^:private random-verifier []
-  (->base64url (->base64 (rand-bytes 63))))
-
-(defn generate-pkce []
-  (let [verifier (random-verifier)]
-    {:verifier verifier
-     :challenge (-> verifier str->sha256 ->base64 ->base64url (string/replace "=" ""))}))
 
 (defn provider-api-key [provider provider-auth config]
   (or (when-let [key (not-empty (get-in config [:providers (name provider) :key]))]

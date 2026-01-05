@@ -1,17 +1,19 @@
 (ns eca.models-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [eca.llm-util :as llm-util]
-            [eca.models :as models]
-            [matcher-combinators.test :refer [match?]]))
+  (:require
+   [clojure.test :refer [deftest is testing]]
+   [eca.llm-util :as llm-util]
+   [eca.models :as models]
+   [hato.client :as http]
+   [matcher-combinators.test :refer [match?]]))
 
 (set! *warn-on-reflection* true)
 
 (deftest fetch-compatible-models-test
   (testing "Successful model fetching from /models endpoint"
-    (with-redefs [hato.client/get (constantly {:status 200
-                                              :body {:data [{:id "gpt-4"}
-                                                            {:id "gpt-4-turbo"}
-                                                            {:id "gpt-3.5-turbo"}]}})]
+    (with-redefs [http/get (constantly {:status 200
+                                        :body {:data [{:id "gpt-4"}
+                                                      {:id "gpt-4-turbo"}
+                                                      {:id "gpt-3.5-turbo"}]}})]
       (is (match?
            {"gpt-4" {}
             "gpt-4-turbo" {}
@@ -28,30 +30,30 @@
                 :provider "test"}))))
 
   (testing "Returns nil when models data is empty"
-    (with-redefs [hato.client/get (constantly {:status 200 :body {:data []}})]
+    (with-redefs [http/get (constantly {:status 200 :body {:data []}})]
       (is (nil? (#'models/fetch-compatible-models
                  {:api-url "https://api.example.com"
                   :api-key "sk-test"
                   :provider "test"})))))
 
   (testing "Handles non-200 error gracefully"
-    (with-redefs [hato.client/get (constantly {:status 500 :body {}})]
+    (with-redefs [http/get (constantly {:status 500 :body {}})]
       (is (nil? (#'models/fetch-compatible-models
                  {:api-url "https://api.example.com"
                   :api-key "sk-test"
                   :provider "test"})))))
 
   (testing "Handles network exception gracefully"
-    (with-redefs [hato.client/get (fn [_] (throw (ex-info "Network error" {})))]
+    (with-redefs [http/get (fn [_] (throw (ex-info "Network error" {})))]
       (is (nil? (#'models/fetch-compatible-models
                  {:api-url "https://api.example.com"
                   :api-key "sk-test"
                   :provider "test"})))))
 
   (testing "Filters out models without id"
-    (with-redefs [hato.client/get (constantly {:status 200
-                                              :body {:data [{:id "gpt-4"}
-                                                            {:name "no-id-model"}]}})]
+    (with-redefs [http/get (constantly {:status 200
+                                        :body {:data [{:id "gpt-4"}
+                                                      {:name "no-id-model"}]}})]
       (is (match?
            {"gpt-4" {}}
            (#'models/fetch-compatible-models
@@ -62,19 +64,19 @@
 (deftest provider-with-fetch-models?-test
   (testing "Returns true when fetchModels is true"
     (is (true? (#'models/provider-with-fetch-models?
-               {:api "openai-chat" :fetchModels true}))))
+                {:api "openai-chat" :fetchModels true}))))
 
   (testing "Returns false when fetchModels is not set"
     (is (false? (#'models/provider-with-fetch-models?
-                {:api "openai-chat"}))))
+                 {:api "openai-chat"}))))
 
   (testing "Returns false when fetchModels is false"
     (is (false? (#'models/provider-with-fetch-models?
-                {:api "openai-chat" :fetchModels false}))))
+                 {:api "openai-chat" :fetchModels false}))))
 
   (testing "Returns nil (falsy) when api is not set"
     (is (nil? (#'models/provider-with-fetch-models?
-              {:fetchModels true})))))
+               {:fetchModels true})))))
 
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
@@ -135,8 +137,8 @@
 
 (deftest fetch-dynamic-provider-models-test
   (testing "Fetches models for providers with fetchModels enabled"
-    (with-redefs [hato.client/get (constantly {:status 200
-                                              :body {:data [{:id "gpt-4"}]}})
+    (with-redefs [http/get (constantly {:status 200
+                                        :body {:data [{:id "gpt-4"}]}})
                   llm-util/provider-api-url (constantly "https://api.example.com")
                   llm-util/provider-api-key (constantly [:auth/token "sk-test"])]
       (let [config {:providers {"provider1" {:api "openai-chat" :fetchModels true}
@@ -148,8 +150,8 @@
              result)))))
 
   (testing "Skips providers without fetchModels"
-    (with-redefs [hato.client/get (constantly {:status 200
-                                              :body {:data [{:id "gpt-4"}]}})]
+    (with-redefs [http/get (constantly {:status 200
+                                        :body {:data [{:id "gpt-4"}]}})]
       (let [config {:providers {"provider1" {:api "openai-chat" :fetchModels false}
                                 "provider2" {:api "openai-chat"}}}
             db {:auth {}}
@@ -157,7 +159,7 @@
         (is (empty? result)))))
 
   (testing "Handles failed fetches gracefully"
-    (with-redefs [hato.client/get (constantly {:status 500 :body {}})
+    (with-redefs [http/get (constantly {:status 500 :body {}})
                   llm-util/provider-api-url (constantly "https://api.example.com")
                   llm-util/provider-api-key (constantly [:auth/token "sk-test"])]
       (let [config {:providers {"provider1" {:api "openai-chat" :fetchModels true}}}
