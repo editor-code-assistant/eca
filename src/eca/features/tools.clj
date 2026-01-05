@@ -32,13 +32,17 @@
                  (get-in config [:behavior behavior :disabledTools] [])
                  []))))
 
+(defn ^:private tool-disabled? [tool disabled-tools]
+  (or (contains? disabled-tools (str (:name (:server tool)) "__" (:name tool)))
+      (contains? disabled-tools (:name tool))))
+
 (defn make-tool-status-fn
   "Returns a function that marks tools as disabled based on config and behavior.
    If behavior is nil, only uses global disabledTools."
   [config behavior]
   (let [disabled-tools (get-disabled-tools config behavior)]
     (fn [tool]
-      (assoc-some tool :disabled (contains? disabled-tools (:name tool))))))
+      (assoc-some tool :disabled (tool-disabled? tool disabled-tools)))))
 
 (defn ^:private replace-string-values-with-vars
   "walk through config parsing dynamic string contents if value is a string."
@@ -76,7 +80,7 @@
   (let [disabled-tools (get-disabled-tools config behavior)]
     (filterv
      (fn [tool]
-       (and (not (contains? disabled-tools (:name tool)))
+       (and (not (tool-disabled? tool disabled-tools))
             ;; check for enabled-fn if present
             ((or (:enabled-fn tool) (constantly true))
              {:behavior behavior
@@ -88,21 +92,23 @@
            (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
           (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))))))
 
-(defn call-tool! [^String name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
+(defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
                   ]
-  (logger/info logger-tag (format "Calling tool '%s' with args '%s'" name arguments))
-  (let [arguments (update-keys arguments clojure.core/name)
+  (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
+  (let [[server-name tool-name] (string/split full-name #"__")
+        arguments (update-keys arguments clojure.core/name)
         db @db*
-        tool-meta (some #(when (= name (:name %)) %)
+        tool-meta (some #(when (= full-name (:full-name %)) %)
                         (all-tools chat-id behavior db config))
         required-args-error (when-let [parameters (:parameters tool-meta)]
                               (tools.util/required-params-error parameters arguments))]
     (try
       (let [result (-> (if required-args-error
                          required-args-error
-                         (if-let [native-tool-handler (get-in (native-definitions db config) [name :handler])]
+                         (if-let [native-tool-handler (and (= "eca" server-name)
+                                                           (get-in (native-definitions db config) [tool-name :handler]))]
                            (native-tool-handler arguments {:db db
                                                            :db* db*
                                                            :config config
@@ -112,17 +118,17 @@
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
                                                            :state-transition-fn state-transition-fn})
-                           (f.mcp/call-tool! name arguments {:db db}))))]
+                           (f.mcp/call-tool! tool-name arguments {:db db}))))]
         (logger/debug logger-tag "Tool call result: " result)
-        (metrics/count-up! "tool-called" {:name name :error (:error result)} metrics)
+        (metrics/count-up! "tool-called" {:name full-name :error (:error result)} metrics)
         (if-let [r (:rollback-changes result)]
           (do
             (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
             (dissoc result :rollback-changes))
           result))
       (catch Exception e
-        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" name (.getMessage e) (with-out-str (.printStackTrace e))))
-        (metrics/count-up! "tool-called" {:name name :error true} metrics)
+        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name (.getMessage e) (with-out-str (.printStackTrace e))))
+        (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
         {:error true
          :contents [{:type :text
                      :text (str "Error calling tool: " (.getMessage e))}]}))))
@@ -142,8 +148,8 @@
                                               :status "running"
                                               :tools (->> (native-tools @db* config)
                                                           (remove #(= "compact_chat" (:name %)))
-                                                          (mapv #(select-keys % [:name :description :parameters]))
-                                                          (mapv tool-status-fn))})
+                                                          (mapv tool-status-fn)
+                                                          (mapv #(select-keys % [:name :description :parameters :disabled])))})
     (f.mcp/initialize-servers-async!
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
      db*
@@ -282,8 +288,8 @@
                                             :name "ECA"
                                             :status "running"
                                             :tools (->> (native-tools @db* config)
-                                                        (mapv #(select-keys % [:name :description :parameters]))
-                                                        (mapv tool-status-fn))})
+                                                        (mapv tool-status-fn)
+                                                        (mapv #(select-keys % [:name :description :parameters :disabled])))})
   (doseq [[server-name {:keys [tools status]}] (:mcp-clients @db*)]
     (messenger/tool-server-updated messenger {:type :mcp
                                               :name server-name

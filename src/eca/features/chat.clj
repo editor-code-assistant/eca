@@ -863,7 +863,7 @@
                       (let [delayed-future
                             (delay
                               (future
-                                (let [result (f.tools/call-tool! name
+                                (let [result (f.tools/call-tool! full-name
                                                                  arguments
                                                                  chat-id
                                                                  id

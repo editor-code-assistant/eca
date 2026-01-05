@@ -331,21 +331,21 @@
               (on-message-received {:type :finish}))
             :call-tool-mock
             ;; Ensure that the tools complete in the 3-2-1 order by adjusting sleep times
-            (fn [name & _others]
+            (fn [full-name & _others]
               ;; When this is called, we are already in a future.
-              (case name
+              (case full-name
 
-                "ro_tool_1"
+                "eca__ro_tool_1"
                 (do (deep-sleep 900)
                     {:error false
                      :contents [{:type :text :text "RO tool call 1 result"}]})
 
-                "ro_tool_2"
+                "eca__ro_tool_2"
                 (do (deep-sleep 600)
                     {:error false
                      :contents [{:type :text :text "RO tool call 2 result"}]})
 
-                "ro_tool_3"
+                "eca__ro_tool_3"
                 (do (deep-sleep 100)
                     {:error false
                      :contents [{:type :text :text "RO tool call 3 result"}]})))})]
@@ -435,18 +435,18 @@
                                   {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}}
                                   {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}])))
             :call-tool-mock
-            (fn [name & _others]
+            (fn [full-name & _others]
               ;; When this is called, we are already in a future
-              (case name
+              (case full-name
 
-                "ro_tool_1"
+                "eca__ro_tool_1"
                 (do (deep-sleep 1000)
                     (when (= :timeout (deref wait-for-tool2 10000 :timeout))
                       (println "tool-calls-with-prompt-stop-test: deref in tool 1 timed out"))
                     {:error false
                      :contents [{:type :text :text "RO tool call 1 result"}]})
 
-                "ro_tool_2"
+                "eca__ro_tool_2"
                 (do (deep-sleep 800)
                     (when (= :timeout (deref wait-for-stop 10000 :timeout))
                       (println "tool-calls-with-prompt-stop-test: deref in tool 2 timed out"))
@@ -454,7 +454,7 @@
                     {:error false
                      :contents [{:type :text :text "RO tool call 2 result"}]})
 
-                "ro_tool_3"
+                "eca__ro_tool_3"
                 (do (deep-sleep 200)
                     (deliver wait-for-tool3 true)
                     {:error false
