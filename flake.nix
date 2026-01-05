@@ -40,6 +40,7 @@
                   clojure
                   clojure-lsp
                   git
+                  tinyproxy
                 ];
 
                 env = {

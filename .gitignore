@@ -36,5 +36,5 @@ docs/README.md
 docs/CHANGELOG.md
 docs/images/
 
-integration-test/stderr.txt
+/integration-test/out/
 reachability-metadata.json

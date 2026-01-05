@@ -1,11 +1,54 @@
 (ns eca.llm-providers.openai-chat-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [matcher-combinators.test :refer [match?]]))
 
 (def thinking-start-tag "<think>")
 (def thinking-end-tag "</think>")
+
+(deftest base-chat-req-test
+  (testing "builds a chat request and extracts assistant output text"
+    (let [req* (atom nil)]
+      (with-client-proxied {}
+
+        (fn handler [req]
+          (reset! req* req)
+          {:status 200
+           :body {:id "chatcmpl-p7ezf7cu8pbcg5e20p6er6",
+                  :object "chat.completion",
+                  :created 1763927678,
+                  :model "ibm/granite-4-h-tiny",
+                  :choices [{:index 0,
+                             :message {:role "assistant",
+                                       :content "Hello there!"
+                                       :tool_calls []},
+                             :logprobs nil,
+                             :finish_reason "stop"}]
+
+                  :usage {:prompt_tokens 17,
+                          :completion_tokens 32,
+                          :ytotal_tokens 49},
+                  :stats {},
+                  :system_fingerprint "ibm/granite-4-h-tiny"}})
+
+        (let [body {:model "ibm/granite-4-h-tiny"
+                    :messages [{:role "system" :content "# title generator"}
+                               {:role "user" :content "hi"}]
+                    :stream false
+                    :max_completion_tokens 32000}
+              response (#'llm-providers.openai-chat/base-chat-request!
+                        {:api-key "username:password"
+                         :api-url "http://localhost:1"
+                         :body body
+                         :url-relative-path "/v1/chat/completions"})]
+          (is (= {:method "POST"
+                  :uri "/v1/chat/completions"
+                  :body body}
+                 (select-keys @req* [:method :uri :body])))
+          (is (= {:output-text "Hello there!"}
+                 (select-keys response [:output-text]))))))))
 
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"

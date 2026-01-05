@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         jdk: [24]
         include:
           - os: windows-latest
@@ -49,12 +49,13 @@ jobs:
 
       - name: Run tests
         run: bb test
+
   jvm-integration-test:
     runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
+        os: [ubuntu-24.04]
         jdk: [24]
         include:
           - os: windows-latest
@@ -84,6 +85,8 @@ jobs:
           # AccessDeniedException exception when renaming temp files
           # while downloading dependencies. Workaround: offload some
           # of the deps download to the clojure CLI tool.
+          #
+          # See https://clojure.atlassian.net/browse/TBUILD-47
           clojure -P
           bb prod-cli
 
@@ -91,7 +94,7 @@ jobs:
         run: bb integration-test
 
   graalvm-build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
     steps:
@@ -130,7 +133,7 @@ jobs:
 
   graalvm-integration-test:
     needs: graalvm-build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
     steps:
@@ -148,6 +151,11 @@ jobs:
           cli: '1.12.0.1530'
           bb: '1.12.200'
 
+      - name: Install tinyproxy
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq tinyproxy
+
       - uses: actions/download-artifact@v4
         name: eca-native
 
@@ -156,8 +164,8 @@ jobs:
           cp -rf eca-native/eca eca
           chmod +x eca
 
-      - name: Run integration tests
-        run: bb integration-test
+      - name: Run integration tests (via proxy)
+        run: bb integration-test --proxy
 
   nix-build:
     needs: unit-test

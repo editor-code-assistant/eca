@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :refer [assoc-some deep-merge]]
@@ -111,7 +112,7 @@
        :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
-       :http-client http-client
+       :http-client (client/merge-with-global-http-client http-client)
        :as (if on-stream :stream :json)}
       (fn [{:keys [status body]}]
         (try

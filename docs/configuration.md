@@ -57,6 +57,19 @@ It's possible to retrieve content of any configs with a string value using the `
 - `classpath`: `${classpath:path/to/eca/file}` to get a file content from [ECA's classpath](https://github.com/editor-code-assistant/eca/tree/master/resources)
 - `netrc`: Support Unix RC [credential files](./models.md#credential-file-authentication)
 
+## Proxy Configuration
+
+ECA supports proxies with basic cleartext authentication via the de-facto env vars:
+
+```bash
+HTTP_PROXY="http://user:pass@host:port"
+HTTPS_PROXY="http://user:pass@host:port"
+http_proxy="http://user:pass@host:port"
+https_proxy="http://user:pass@host:port"
+```
+
+Lowercase var wins if both are set. Credentials (if used) must match for HTTP and HTTPS.
+
 ## Providers / Models
 
 For providers and models configuration check the [dedicated models section](./models.md#custom-providers).
