@@ -1150,11 +1150,15 @@
             :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                     (assert-chat-not-stopped! chat-ctx)
                                     (let [tool (tool-by-full-name full-name all-tools)]
+                                      (when-not tool
+                                        (logger/warn logger-tag "Tool not found for prepare"
+                                                     {:full-name full-name
+                                                      :available-tools (mapv :full-name all-tools)}))
                                       (transition-tool-call! db* chat-ctx id :tool-prepare
-                                                             {:name (:name tool)
+                                                             {:name (or (:name tool) full-name)
                                                               :server (:name (:server tool))
                                                               :full-name full-name
-                                                              :origin (:origin tool)
+                                                              :origin (or (:origin tool) :unknown)
                                                               :arguments-text arguments-text
                                                               :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
             :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history!)

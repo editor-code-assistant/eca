@@ -1,6 +1,7 @@
 (ns eca.oauth
   (:require
    [cheshire.core :as json]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.logger :as logger]
    [hato.client :as http]
@@ -8,7 +9,8 @@
    [ring.middleware.keyword-params :refer [wrap-keyword-params]]
    [ring.middleware.params :refer [wrap-params]]
    [ring.util.codec :as ring.util]
-   [ring.util.response :as response])
+   [ring.util.response :as response]
+   [selmer.parser :as selmer])
   (:import
    [java.nio.charset StandardCharsets]
    [java.security MessageDigest SecureRandom]
@@ -22,6 +24,21 @@
 (defonce ^:private oauth-server-by-port* (atom {}))
 
 (def eca-client-id "Ov23liT613uPA2ydLTa8")
+
+(def ^:private logo-svg
+  (delay
+    (-> (slurp (io/resource "logo.svg"))
+        ;; Change fill color to white for display on colored background
+        (string/replace #"fill:#f8f8f8" "fill:#ffffff"))))
+
+(defn ^:private render-oauth-page
+  "Render the OAuth HTML page with success or error state."
+  [{:keys [success? error-message]}]
+  (selmer/render-file "webpages/oauth.html"
+                      {:success success?
+                       :error (not success?)
+                       :error-message (or error-message "Unknown error")
+                       :logo-svg @logo-svg}))
 
 (defn ^:private url->base-url
   "Extract the base URL (scheme + host + port) from a full URL.
@@ -85,29 +102,12 @@
       (do
         (on-success {:code code
                      :state state})
-        (-> (response/response (str "<html>"
-                                    "<head>"
-                                    "<meta charset=\"UTF-8\">"
-                                    "<title>My Web Page</title>"
-                                    "</head>"
-                                    "<body>"
-                                    "<h2>✅ Authentication Successful!</h2>"
-                                    "<p>You can close this window and return to ECA.</p>"
-                                    "<script>window.close();</script>"
-                                    "</body></html>"))
+        (-> (response/response (render-oauth-page {:success? true}))
             (response/content-type "text/html")))
       (do
         (on-error error)
-        (-> (response/response (str "<html>"
-                                    "<head>"
-                                    "<meta charset=\"UTF-8\">"
-                                    "<title>My Web Page</title>"
-                                    "</head>"
-                                    "<body>"
-                                    "<h2>❌ Authentication Failed</h2>"
-                                    "<p>Error: " (or error "Unknown error") "</p>"
-                                    "<p>You can close this window and return to ECA.</p>"
-                                    "</body></html>"))
+        (-> (response/response (render-oauth-page {:success? false
+                                                   :error-message error}))
             (response/content-type "text/html"))))))
 
 (defn oauth-info [^String url]
