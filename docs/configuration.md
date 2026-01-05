@@ -82,7 +82,9 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
-=== "HTTP-streamable"
+=== "HTTP (streamable or sse)"
+
+    ECA supports OAuth authentication as well
 
     ```javascript title="~/.config/eca/config.json"
     {

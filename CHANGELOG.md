@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support http MCP servers that require oauth. #51
+
 ## 0.88.0
 
 - Add dynamic model discovery via `fetchModels` provider config for OpenAI-compatible `/models` endpoints
