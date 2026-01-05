@@ -100,11 +100,16 @@
   (let [[server-name tool-name] (string/split full-name #"__")
         arguments (update-keys arguments clojure.core/name)
         db @db*
-        tool-meta (some #(when (= full-name (:full-name %)) %)
-                        (all-tools chat-id behavior db config))
+        all-tools (all-tools chat-id behavior db config)
+        tool-meta (some #(when (= full-name (:full-name %)) %) all-tools)
         required-args-error (when-let [parameters (:parameters tool-meta)]
                               (tools.util/required-params-error parameters arguments))]
     (try
+      (when-not tool-meta
+        (throw (ex-info (format "Tool '%s' not found" full-name) {:full-name full-name
+                                                                  :server-name server-name
+                                                                  :arguments arguments
+                                                                  :all-tools (mapv :full-name all-tools)})))
       (let [result (-> (if required-args-error
                          required-args-error
                          (if-let [native-tool-handler (and (= "eca" server-name)
