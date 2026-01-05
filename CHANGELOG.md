@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.89.0
+
 - Support http MCP servers that require oauth. #51
 - Add basic username/password proxy authentication support and recognize lowercase http[s]_proxy env var alongside HTTP[S]_PROXY. #248
 - Avoid tool call of invalid names
