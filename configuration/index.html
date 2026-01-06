@@ -589,9 +589,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-command-prompts" class="md-nav__link">
+  <a href="#skills" class="md-nav__link">
     <span class="md-ellipsis">
-      Custom command prompts
+      Skills
     </span>
   </a>
   
@@ -601,6 +601,15 @@
   <a href="#rules" class="md-nav__link">
     <span class="md-ellipsis">
       Rules
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-command-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom command prompts
     </span>
   </a>
   
@@ -1071,9 +1080,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-command-prompts" class="md-nav__link">
+  <a href="#skills" class="md-nav__link">
     <span class="md-ellipsis">
-      Custom command prompts
+      Skills
     </span>
   </a>
   
@@ -1083,6 +1092,15 @@
   <a href="#rules" class="md-nav__link">
     <span class="md-ellipsis">
       Rules
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-command-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom command prompts
     </span>
   </a>
   
@@ -1446,11 +1464,62 @@
 </div>
 </div>
 </div>
+<h2 id="skills">Skills<a class="headerlink" href="#skills" title="Permanent link">#</a></h2>
+<p>Skills are folders with <code>SKILL.md</code> which teachs LLM how to solve a specific task or gain knowledge about it.
+Following the <a href="https://agentskills.io/">agentskills</a> standard, ECA search for skills following <code>~/.config/eca/skills/some-skill/SKILL.md</code> and <code>.eca/skills/some-skill/SKILL.md</code> which should contain <code>name</code> and <code>description</code> metadatas.</p>
+<p>When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via <code>eca___skill</code> tool if that matches user request. Check the examples:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:2"><input checked="checked" id="simple-lint-skill" name="__tabbed_5" type="radio" /><input id="disabling-skills-feature" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="simple-lint-skill">Simple lint skill</label><label for="disabling-skills-feature">Disabling skills feature</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/skills/lint-fix/SKILL.md</span><pre><span></span><code>---
+name: lint-fix
+<span class="gu">description: Learn how to lint and fix the code</span>
+<span class="gu">---</span>
+
+<span class="gh"># Instructions</span>
+
+Run <span class="sb">`clojure-lsp diagnostics`</span> to lint the code
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;skills&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>You can have more directories and contents like <code>scripts/</code>, <code>references/</code>, <code>assets/</code> for a skill making it really powerful, check <a href="https://agentskills.io/specification#optional-directories">the spec</a> for more details.</p>
+<h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h2>
+<p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
+Rules are text files (typically <code>.md</code>, but any format works):</p>
+<p>There are 3 possible ways to configure rules following this order of priority:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="project-file" name="__tabbed_6" type="radio" /><input id="global-file" name="__tabbed_6" type="radio" /><input id="config" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config">Config</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
+<div class="highlight"><span class="filename">.eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>A <code>$XDG_CONFIG_HOME/eca/rules</code> or <code>~/.config/eca/rules</code> folder containing <code>.md</code> files with the rules.</p>
+<div class="highlight"><span class="filename">~/.config/eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Just add toyour config the <code>:rules</code> pointing to <code>.md</code> files that will be searched from the workspace root if not an absolute path:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-rule.md&quot;</span><span class="p">}]</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
 <h2 id="custom-command-prompts">Custom command prompts<a class="headerlink" href="#custom-command-prompts" title="Permanent link">#</a></h2>
 <p>You can configure custom command prompts for project, global or via <code>commands</code> config pointing to the path of the commands.
 Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <code>ARG2</code>, to replace in the prompt during command call.</p>
 <p>You can configure in multiple different ways:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="local-custom-commands" name="__tabbed_5" type="radio" /><input id="global-custom-commands" name="__tabbed_5" type="radio" /><input id="config" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="7:3"><input checked="checked" id="local-custom-commands" name="__tabbed_7" type="radio" /><input id="global-custom-commands" name="__tabbed_7" type="radio" /><input id="config_1" name="__tabbed_7" type="radio" /><div class="tabbed-labels"><label for="local-custom-commands">Local custom commands</label><label for="global-custom-commands">Global custom commands</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>A <code>.eca/commands</code> folder from the workspace root containing <code>.md</code> files with the custom prompt.</p>
@@ -1474,34 +1543,9 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 </div>
 </div>
 </div>
-<h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h2>
-<p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
-Rules are text files (typically <code>.md</code>, but any format works):</p>
-<p>There are 3 possible ways to configure rules following this order of priority:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="project-file" name="__tabbed_6" type="radio" /><input id="global-file" name="__tabbed_6" type="radio" /><input id="config_1" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config_1">Config</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
-<div class="highlight"><span class="filename">.eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>A <code>$XDG_CONFIG_HOME/eca/rules</code> or <code>~/.config/eca/rules</code> folder containing <code>.md</code> files with the rules.</p>
-<div class="highlight"><span class="filename">~/.config/eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>Just add toyour config the <code>:rules</code> pointing to <code>.md</code> files that will be searched from the workspace root if not an absolute path:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-rule.md&quot;</span><span class="p">}]</span>
-<span class="p">}</span>
-</code></pre></div>
-</div>
-</div>
-</div>
 <h2 id="behaviors-prompts">Behaviors / prompts<a class="headerlink" href="#behaviors-prompts" title="Permanent link">#</a></h2>
 <p>ECA allows to totally customize the prompt sent to LLM via the <code>behavior</code> config, allowing to have multiple behaviors for different tasks or workflows.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="7:1"><input checked="checked" id="example-my-behavior" name="__tabbed_7" type="radio" /><div class="tabbed-labels"><label for="example-my-behavior">Example: my-behavior</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="8:1"><input checked="checked" id="example-my-behavior" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="example-my-behavior">Example: my-behavior</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1603,7 +1647,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <p>Plain text output (non-JSON) is treated as <code>additionalContext</code>.</p>
 <p>To reject a tool call, either output <code>{"approval": "deny"}</code> or exit with code <code>2</code>.</p>
 <h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="8:7"><input checked="checked" id="notify-after-prompt" name="__tabbed_8" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_8" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_8" type="radio" /><input id="rewrite-prompt" name="__tabbed_8" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_8" type="radio" /><input id="modify-tool-arguments" name="__tabbed_8" type="radio" /><input id="use-external-script-file" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="use-external-script-file">Use external script file</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="9:7"><input checked="checked" id="notify-after-prompt" name="__tabbed_9" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_9" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_9" type="radio" /><input id="rewrite-prompt" name="__tabbed_9" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_9" type="radio" /><input id="modify-tool-arguments" name="__tabbed_9" type="radio" /><input id="use-external-script-file" name="__tabbed_9" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="use-external-script-file">Use external script file</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1709,7 +1753,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 </div>
 <h2 id="completion">Completion<a class="headerlink" href="#completion" title="Permanent link">#</a></h2>
 <p>You can configure which model and system prompt ECA will use during its inline completion:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="9:1"><input checked="checked" id="example" name="__tabbed_9" type="radio" /><div class="tabbed-labels"><label for="example">Example</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="10:1"><input checked="checked" id="example" name="__tabbed_10" type="radio" /><div class="tabbed-labels"><label for="example">Example</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1724,7 +1768,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 </div>
 <h2 id="rewrite">Rewrite<a class="headerlink" href="#rewrite" title="Permanent link">#</a></h2>
 <p>Configure the model and system prompt used for ECA's rewrite feature via the <code>rewrite</code> config. By default, ECA follows the same model selection as chat unless overwritten:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="10:1"><input checked="checked" id="example_1" name="__tabbed_10" type="radio" /><div class="tabbed-labels"><label for="example_1">Example</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="11:1"><input checked="checked" id="example_1" name="__tabbed_11" type="radio" /><div class="tabbed-labels"><label for="example_1">Example</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1748,7 +1792,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="p">}</span>
 </code></pre></div>
 <h2 id="all-configs">All configs<a class="headerlink" href="#all-configs" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="11:2"><input checked="checked" id="schema" name="__tabbed_11" type="radio" /><input id="default-values" name="__tabbed_11" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="12:2"><input checked="checked" id="schema" name="__tabbed_12" type="radio" /><input id="default-values" name="__tabbed_12" type="radio" /><div class="tabbed-labels"><label for="schema">Schema</label><label for="default-values">Default values</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">Config</span><span class="w"> </span><span class="p">{</span>
@@ -1782,6 +1826,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="w">        </span><span class="p">};</span>
 <span class="w">    </span><span class="p">};</span>
 <span class="w">    </span><span class="nx">rules</span><span class="o">?:</span><span class="w"> </span><span class="p">[{</span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;}];</span>
+<span class="w">    </span><span class="nx">skills?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
 <span class="w">    </span><span class="nx">commands</span><span class="o">?:</span><span class="w"> </span><span class="p">[{</span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;}];</span>
 <span class="w">    </span><span class="nx">behavior</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">systemPrompt?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
@@ -1868,6 +1913,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
 <span class="w">  </span><span class="s2">&quot;netrcFile&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="c1">// search ~/.netrc or ~/_netrc when null.</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
 <span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="s2">&quot;skills&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;commands&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
 <span class="w">  </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
 <span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1950,7 +1996,7 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="January 5, 2026 19:04:24 UTC">January 5, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="January 6, 2026 21:54:42 UTC">January 6, 2026</span>
   </span>
 
     
