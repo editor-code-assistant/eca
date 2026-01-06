@@ -111,7 +111,7 @@
      (when (seq skills)
        ["## Skills"
         ""
-        "<skills description=\"Basic information about available skills to load via `eca__load_skill` tool for more information later if matches user request\">\n"
+        "<skills description=\"Basic information about available skills to load via `eca__skill` tool for more information later if matches user request\">\n"
         (reduce
          (fn [skills-str {:keys [name description]}]
            (str skills-str (format "<skill name=\"%s\" description=\"%s\"/>\n" name description)))

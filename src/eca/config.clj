@@ -122,7 +122,7 @@
                                  "eca__directory_tree" {}
                                  "eca__grep" {}
                                  "eca__editor_diagnostics" {}
-                                 "eca__load_skill" {}}
+                                 "eca__skill" {}}
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}

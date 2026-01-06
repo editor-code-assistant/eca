@@ -4,7 +4,7 @@
    [eca.features.tools.util :as tools.util]
    [eca.shared :refer [multi-str]]))
 
-(defn ^:private load-skill
+(defn ^:private skill
   [arguments {:keys [db config]}]
   (let [skill-name (get arguments "name")
         all-skills (f.skills/all config (:workspace-folders db))
@@ -26,13 +26,13 @@
                    :text (format "Skill '%s' not found, available skills: %s" skill-name (mapv :name all-skills))}]})))
 
 (def definitions
-  {"load_skill"
-   {:description (tools.util/read-tool-description "load_skill")
+  {"skill"
+   {:description (tools.util/read-tool-description "skill")
     :parameters {:type "object"
                  :properties {"name" {:type "string"
                                       :description "The skill identifier from available skills to load (e.g. review-pr)"}}
                  :required ["name"]}
-    :handler #'load-skill
+    :handler #'skill
     :enabled-fn (fn [{:keys [config]}]
                   (:skills config))
     :summary-fn (fn [{:keys [args]}]
