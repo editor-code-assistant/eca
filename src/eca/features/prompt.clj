@@ -93,7 +93,7 @@
     {}
     all-tools)))
 
-(defn build-chat-instructions [refined-contexts rules repo-map* behavior config chat-id all-tools db]
+(defn build-chat-instructions [refined-contexts rules skills repo-map* behavior config chat-id all-tools db]
   (let [selmer-ctx (->base-selmer-ctx all-tools db)]
     (multi-str
      (selmer/render (eca-chat-prompt behavior config) selmer-ctx)
@@ -106,8 +106,19 @@
            (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
          ""
          rules)
-        "</rules>"])
-     ""
+        "</rules>"
+        ""])
+     (when (seq skills)
+       ["## Skills"
+        ""
+        "<skills description=\"Basic information about available skills to load via `eca__load_skill` tool for more information later if matches user request\">\n"
+        (reduce
+         (fn [skills-str {:keys [name description]}]
+           (str skills-str (format "<skill name=\"%s\" description=\"%s\"/>\n" name description)))
+         ""
+         skills)
+        "</skills>"
+        ""])
      (when (seq refined-contexts)
        ["## Contexts"
         ""
@@ -131,21 +142,21 @@
                      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))]
     (selmer/render prompt-str
                    (merge
-                     (->base-selmer-ctx all-tools db)
-                     {:text text
-                      :path (when path
-                              (str "- File path: " path))
-                      :rangeText (multi-str
-                                   (str "- Start line: " (-> range :start :line))
-                                   (str "- Start character: " (-> range :start :character))
-                                   (str "- End line: " (-> range :end :line))
-                                   (str "- End character: " (-> range :end :character)))
-                      :fullText (when full-text
-                                  (multi-str
-                                    "- Full file content"
-                                    "```"
-                                    full-text
-                                    "```"))}))))
+                    (->base-selmer-ctx all-tools db)
+                    {:text text
+                     :path (when path
+                             (str "- File path: " path))
+                     :rangeText (multi-str
+                                 (str "- Start line: " (-> range :start :line))
+                                 (str "- Start character: " (-> range :start :character))
+                                 (str "- End line: " (-> range :end :line))
+                                 (str "- End character: " (-> range :end :character)))
+                     :fullText (when full-text
+                                 (multi-str
+                                  "- Full file content"
+                                  "```"
+                                  full-text
+                                  "```"))}))))
 
 (defn init-prompt [all-tools db]
   (selmer/render

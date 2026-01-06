@@ -11,6 +11,7 @@
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.mcp.clojure-mcp]
    [eca.features.tools.shell :as f.tools.shell]
+   [eca.features.tools.skill :as f.tools.skill]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -68,6 +69,7 @@
           f.tools.shell/definitions
           f.tools.editor/definitions
           f.tools.chat/definitions
+          f.tools.skill/definitions
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]

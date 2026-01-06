@@ -112,6 +112,7 @@
    :defaultModel nil
    :hooks {}
    :rules []
+   :skills true
    :commands []
    :disabledTools []
    :toolCall {:approval {:byDefault "ask"
@@ -120,7 +121,8 @@
                                  "eca__read_file" {}
                                  "eca__directory_tree" {}
                                  "eca__grep" {}
-                                 "eca__editor_diagnostics" {}}
+                                 "eca__editor_diagnostics" {}
+                                 "eca__load_skill" {}}
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}

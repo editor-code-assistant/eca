@@ -276,7 +276,70 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
       }
     }
     ```
+    
+## Skills
 
+Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
+Following the [agentskills](https://agentskills.io/) standard, ECA search for skills following `~/.config/eca/skills/some-skill/SKILL.md` and `.eca/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
+
+When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca___skill` tool if that matches user request. Check the examples:
+
+=== "Simple lint skill"
+
+    ```markdown title="~/.config/eca/skills/lint-fix/SKILL.md"
+    ---
+    name: lint-fix
+    description: Learn how to lint and fix the code
+    ---
+    
+    # Instructions
+    
+    Run `clojure-lsp diagnostics` to lint the code
+    ```
+
+=== "Disabling skills feature"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "skills": false
+    }
+    ```
+    
+You can have more directories and contents like `scripts/`, `references/`, `assets/` for a skill making it really powerful, check [the spec](https://agentskills.io/specification#optional-directories) for more details.
+
+## Rules
+
+Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
+Rules are text files (typically `.md`, but any format works):
+
+There are 3 possible ways to configure rules following this order of priority:
+
+=== "Project file"
+
+    A `.eca/rules` folder from the workspace root containing `.md` files with the rules.
+
+    ```markdown title=".eca/rules/talk_funny.md"
+    - Talk funny like Mickey!
+    ```
+
+=== "Global file"
+
+    A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.md` files with the rules.
+
+    ```markdown title="~/.config/eca/rules/talk_funny.md"
+    - Talk funny like Mickey!
+    ```
+
+=== "Config"
+
+    Just add toyour config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "rules": [{"path": "my-rule.md"}]
+    }
+    ```
+    
 ## Custom command prompts
 
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
@@ -315,39 +378,6 @@ You can configure in multiple different ways:
     ```
 
     ECA will make available a `/my-custom-prompt` command after creating that file.
-
-## Rules
-
-Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
-Rules are text files (typically `.md`, but any format works):
-
-There are 3 possible ways to configure rules following this order of priority:
-
-=== "Project file"
-
-    A `.eca/rules` folder from the workspace root containing `.md` files with the rules.
-
-    ```markdown title=".eca/rules/talk_funny.md"
-    - Talk funny like Mickey!
-    ```
-
-=== "Global file"
-
-    A `$XDG_CONFIG_HOME/eca/rules` or `~/.config/eca/rules` folder containing `.md` files with the rules.
-
-    ```markdown title="~/.config/eca/rules/talk_funny.md"
-    - Talk funny like Mickey!
-    ```
-
-=== "Config"
-
-    Just add toyour config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "rules": [{"path": "my-rule.md"}]
-    }
-    ```
 
 ## Behaviors / prompts
 
@@ -619,6 +649,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             };
         };
         rules?: [{path: string;}];
+        skills?: boolean;
         commands?: [{path: string;}];
         behavior?: {[key: string]: {
             systemPrompt?: string;
@@ -707,6 +738,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "netrcFile": null, // search ~/.netrc or ~/_netrc when null.
       "hooks": {},
       "rules" : [],
+      "skills": true,
       "commands" : [],
       "disabledTools": [],
       "toolCall": {

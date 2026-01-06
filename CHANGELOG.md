@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Skills support following https://agentskills.io . #241
+  - Make skills available via commands as well e.g. `/my-skill`.
+
 ## 0.89.0
 
 - Support http MCP servers that require oauth. #51

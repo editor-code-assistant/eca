@@ -8,6 +8,7 @@
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
+   [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
    [eca.messenger :as messenger]
@@ -122,9 +123,16 @@
                             :type :custom-prompt
                             :description (:path custom)
                             :arguments []})
-                         (custom-commands config (:workspace-folders db)))]
+                         (custom-commands config (:workspace-folders db)))
+        skills-cmds (->> (f.skills/all config (:workspace-folders db))
+                         (mapv (fn [skill]
+                                 {:name (:name skill)
+                                  :type :skill
+                                  :description (:description skill)
+                                  :arguments []})))]
     (concat mcp-prompts
             eca-commands
+            skills-cmds
             custom-cmds)))
 
 (defn ^:private get-custom-command [command args custom-cmds]
@@ -197,7 +205,8 @@
 
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model all-tools instructions user-messages metrics]}]
   (let [db @db*
-        custom-cmds (custom-commands config (:workspace-folders db))]
+        custom-cmds (custom-commands config (:workspace-folders db))
+        skills (f.skills/all config (:workspace-folders db))]
     (case command
       "init" {:type :send-prompt
               :on-finished-side-effect (fn []
@@ -328,9 +337,12 @@
                                                     :content [{:type :text
                                                                :text full-prompt}]}]}}})
 
-      ;; else check if a custom command
+      ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
         {:type :send-prompt
          :prompt custom-command-prompt}
-        {:type :text
-         :text (str "Unknown command: " command)}))))
+        (if-let [skill (first (filter #(= command (:name %)) skills))]
+          {:type :send-prompt
+           :prompt (str "Load skill: " (:name skill))}
+          {:type :text
+           :text (str "Unknown command: " command)})))))
