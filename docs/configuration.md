@@ -188,7 +188,7 @@ Check some examples:
           "byDefault": "allow",
           "deny": {
             "shell_command": {"argsMatchers": {"command": [".*rm.*",
-                                                               ".*mv.*"]}}
+                                                           ".*mv.*"]}}
           }
         }
       }
@@ -282,7 +282,9 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
 Following the [agentskills](https://agentskills.io/) standard, ECA search for skills following `~/.config/eca/skills/some-skill/SKILL.md` and `.eca/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
 
-When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request. Check the examples:
+When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request. 
+
+Check the examples:
 
 === "Simple lint skill"
 
@@ -316,15 +318,31 @@ When sending a prompt request to LLM, ECA will send only name and description of
     ....
     ```
 
-=== "Enabling specific skills for a behavior"
+=== "Enable/disable specific skills"
 
-    You can override the global `enabledSkills` config in a specific behavior, the default is `enabledSkills: [".*"]`
+    It's possible to control which skills LLM have access globally or for a specific behavior.
+    You just need to define a tool call approval for the `eca__skill` for a specific skill `name`:
+    
+    Example disabling all skills but one for a behavior
 
     ```javascript title="~/.config/eca/config.json"
     {
+      "toolCall": {
+        "approval": {
+          "deny": {
+            "eca__skill": {}
+          }
+        }
+      },
       "behavior": {
         "reviewer": {
-          "enabledSkills": ["reviewer-*"]
+          "toolCall": {
+            "approval": {
+              "allow": {
+                "eca__skill": {"argsMatchers": {"name": ["my-skill"]}}
+              }
+            }
+          }
         }
       }
     }
