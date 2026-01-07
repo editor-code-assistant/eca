@@ -90,6 +90,10 @@
                        :type :native
                        :description "Log into a provider (Ex: /login gitub-copilot)"
                        :arguments [{:name "provider-id"}]}
+                      {:name "skills"
+                       :type :native
+                       :description "List available skills."
+                       :arguments []}
                       {:name "costs"
                        :type :native
                        :description "Total costs of the current chat session."
@@ -315,6 +319,14 @@
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "skills" (let [skills (f.skills/all (:workspace-folders db))
+                     msg (reduce
+                          (fn [s {:keys [name description]}]
+                            (str s "- " name ": " description "\n"))
+                          "Skills available:\n\n"
+                          skills)]
+                 {:type :chat-messages
+                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "config" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages

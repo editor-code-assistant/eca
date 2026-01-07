@@ -4,6 +4,7 @@
 
 - Skills support following https://agentskills.io . #241
   - Make skills available via commands as well e.g. `/my-skill`.
+  - new command `/skills` to list available skills.
 
 ## 0.89.0
 
