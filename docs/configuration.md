@@ -282,7 +282,7 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
 Following the [agentskills](https://agentskills.io/) standard, ECA search for skills following `~/.config/eca/skills/some-skill/SKILL.md` and `.eca/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
 
-When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca___skill` tool if that matches user request. Check the examples:
+When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request. Check the examples:
 
 === "Simple lint skill"
 
@@ -295,6 +295,24 @@ When sending a prompt request to LLM, ECA will send only name and description of
     # Instructions
     
     Run `clojure-lsp diagnostics` to lint the code
+    ```
+    
+=== "More complex skill using scripts"
+
+    ```markdown title="~/.config/eca/skills/gif-generator/SKILL.md"
+    ---
+    name: gif-generator
+    description: Knowledge and utils to create gifs. Provide concepts and scripts, use when requested to create gifs.
+    ---
+    
+    - Use scripts/gif-generate.py passing gif name and dimensions.
+    ...
+    ```
+    
+    ```pyton title="~/.config/eca/skills/gif-generator/scripts/generator.py"
+    from PIL import Image
+    # Python code that generates a gif here
+    ....
     ```
 
 === "Disabling skills feature"
