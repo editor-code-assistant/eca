@@ -39,7 +39,6 @@
       (is (match?
            {:chatId nil
             :commands [{:name "login" :arguments [{:name "provider-id"}]}
-                       {:name "skills" :arguments []}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "config" :arguments []}]}
