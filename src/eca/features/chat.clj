@@ -1328,7 +1328,7 @@
                        (:defaultModel behavior-config)
                        (default-model db config))
         rules (f.rules/all config (:workspace-folders db))
-        skills (f.skills/all config (:workspace-folders db))
+        skills (f.skills/all behavior config (:workspace-folders db))
         _ (when (seq contexts)
             (send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
                                                                             :state :running

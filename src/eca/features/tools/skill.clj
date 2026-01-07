@@ -5,9 +5,9 @@
    [eca.shared :refer [multi-str]]))
 
 (defn ^:private skill
-  [arguments {:keys [db config]}]
+  [arguments {:keys [behavior db config]}]
   (let [skill-name (get arguments "name")
-        all-skills (f.skills/all config (:workspace-folders db))
+        all-skills (f.skills/all behavior config (:workspace-folders db))
         skill (first (filter
                       #(= skill-name (:name %))
                       all-skills))]
@@ -33,8 +33,8 @@
                                       :description "The skill identifier from available skills to load (e.g. review-pr)"}}
                  :required ["name"]}
     :handler #'skill
-    :enabled-fn (fn [{:keys [config]}]
-                  (:skills config))
+    :enabled-fn (fn [{:keys [config behavior]}]
+                  (not-empty (f.skills/enabled-skills behavior config)))
     :summary-fn (fn [{:keys [args]}]
                   (if-let [name (get args "name")]
                     (format "Loading skill '%s'" name)

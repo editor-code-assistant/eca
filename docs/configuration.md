@@ -316,11 +316,17 @@ When sending a prompt request to LLM, ECA will send only name and description of
     ....
     ```
 
-=== "Disabling skills feature"
+=== "Enabling specific skills for a behavior"
+
+    You can override the global `enabledSkills` config in a specific behavior, the default is `enabledSkills: [".*"]`
 
     ```javascript title="~/.config/eca/config.json"
     {
-      "skills": false
+      "behavior": {
+        "reviewer": {
+          "enabledSkills": ["reviewer-*"]
+        }
+      }
     }
     ```
     
@@ -668,12 +674,14 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             };
         };
         rules?: [{path: string;}];
-        skills?: boolean;
+        enabledSkills?: string[];
+        disabledTools?: string[],
         commands?: [{path: string;}];
         behavior?: {[key: string]: {
             systemPrompt?: string;
             defaultModel?: string;
             disabledTools?: string[];
+            enabledSkills?: string[];
             toolCall?: {
                 approval?: {
                     byDefault?: 'ask' | 'allow' | 'deny';
@@ -694,7 +702,6 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                 required: string[];
             };
         }};
-        disabledTools?: string[],
         toolCall?: {
           approval?: {
             byDefault: 'ask' | 'allow';
@@ -757,8 +764,8 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "netrcFile": null, // search ~/.netrc or ~/_netrc when null.
       "hooks": {},
       "rules" : [],
-      "skills": true,
       "commands" : [],
+      "enabledSkills": [".*"],
       "disabledTools": [],
       "toolCall": {
         "approval": {

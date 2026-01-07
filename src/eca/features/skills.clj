@@ -68,7 +68,18 @@
                      (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))
        (keep skill-file->skill)))
 
-(defn all [config roots]
-  (when (:skills config)
-    (concat (global-skills)
-            (local-skills roots))))
+(defn ^:private skill-enabled? [skill enabled-skills]
+  (some (fn [pattern]
+          (re-matches (re-pattern pattern)
+                      (:name skill))) enabled-skills))
+
+(defn enabled-skills [behavior config]
+  (or (get-in config [:behavior behavior :enabledSkills])
+      (get config :enabledSkills)))
+
+(defn all [behavior config roots]
+  (let [enabled-skills (enabled-skills behavior config)]
+    (when (not-empty enabled-skills)
+      (filterv #(skill-enabled? % enabled-skills)
+               (concat (global-skills)
+                       (local-skills roots))))))

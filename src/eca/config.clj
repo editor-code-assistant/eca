@@ -112,8 +112,8 @@
    :defaultModel nil
    :hooks {}
    :rules []
-   :skills true
    :commands []
+   :enabledSkills [".*"]
    :disabledTools []
    :toolCall {:approval {:byDefault "ask"
                          :allow {"eca__compact_chat" {}
