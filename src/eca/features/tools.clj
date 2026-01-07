@@ -25,6 +25,83 @@
 
 (def ^:private logger-tag "[TOOLS]")
 
+(defn legacy-manual-approval? [config tool-name]
+  (let [manual-approval? (get-in config [:toolCall :manualApproval] nil)]
+    (if (coll? manual-approval?)
+      (some #(= tool-name (str %)) manual-approval?)
+      manual-approval?)))
+
+(defn ^:private approval-matches? [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
+  (let [args-matchers (:argsMatchers config)
+        [server-name tool-name] (if (string/includes? server-or-full-tool-name "__")
+                                  (string/split server-or-full-tool-name #"__" 2)
+                                  (if (some #(= server-or-full-tool-name (:name %)) native-tools)
+                                    ["eca" server-or-full-tool-name]
+                                    [server-or-full-tool-name nil]))]
+    (cond
+      ;; specified server name in config
+      (and (nil? tool-name)
+           ;; but the name doesn't match
+           (not= tool-call-server server-name))
+      false
+
+      ;; tool or server not match
+      (and tool-name
+           (or (not= tool-call-server server-name)
+               (not= tool-call-name tool-name)))
+      false
+
+      (map? args-matchers)
+      (some (fn [[arg-name matchers]]
+              (when-let [arg (get args arg-name)]
+                (some #(re-matches (re-pattern (str %)) (str arg))
+                      matchers)))
+            args-matchers)
+
+      :else
+      true)))
+
+(defn approval
+  "Return the approval keyword for the specific tool call: ask, allow or deny.
+   Behavior parameter is required - pass nil for global-only approval rules."
+  [all-tools tool args db config behavior]
+  (let [{:keys [server name require-approval-fn]} tool
+        remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
+        native-tools (filter #(= :native (:origin %)) all-tools)
+        {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
+                                                    (get-in config [:behavior behavior :toolCall :approval]))]
+    (cond
+      (and require-approval-fn (require-approval-fn args {:db db}))
+      :ask
+
+      remember-to-approve?
+      :allow
+
+      (some #(approval-matches? % (:name server) name args native-tools) deny)
+      :deny
+
+      (some #(approval-matches? % (:name server) name args native-tools) ask)
+      :ask
+
+      (some #(approval-matches? % (:name server) name args native-tools) allow)
+      :allow
+
+      (legacy-manual-approval? config name)
+      :ask
+
+      (= "ask" byDefault)
+      :ask
+
+      (= "allow" byDefault)
+      :allow
+
+      (= "deny" byDefault)
+      :deny
+
+       ;; Probably a config error, default to ask
+      :else
+      :ask)))
+
 (defn ^:private get-disabled-tools
   "Returns a set of disabled tools, merging global and behavior-specific."
   [config behavior]
@@ -77,22 +154,25 @@
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
-   (like filesystem and shell tools) and tools provided by MCP servers."
+   (like filesystem and shell tools) and tools provided by MCP servers.
+   Removes denied tools."
   [chat-id behavior db config]
-  (let [disabled-tools (get-disabled-tools config behavior)]
-    (filterv
-     (fn [tool]
-       (and (not (tool-disabled? tool disabled-tools))
-            ;; check for enabled-fn if present
-            ((or (:enabled-fn tool) (constantly true))
-             {:behavior behavior
-              :db db
-              :chat-id chat-id
-              :config config})))
-     (->> (concat
-           (mapv #(assoc % :origin :native) (native-tools db config))
-           (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
-          (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))))))
+  (let [disabled-tools (get-disabled-tools config behavior)
+        all-tools (->> (concat
+                        (mapv #(assoc % :origin :native) (native-tools db config))
+                        (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
+                       (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
+                       (filterv (fn [tool]
+                                  (and (not (tool-disabled? tool disabled-tools))
+                             ;; check for enabled-fn if present
+                                       ((or (:enabled-fn tool) (constantly true))
+                                        {:behavior behavior
+                                         :db db
+                                         :chat-id chat-id
+                                         :config config})))))]
+    (remove (fn [tool]
+              (= :deny (approval all-tools tool {} db config behavior)))
+            all-tools)))
 
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
                   call-state-fn         ; thunk
@@ -179,83 +259,6 @@
      config
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn legacy-manual-approval? [config tool-name]
-  (let [manual-approval? (get-in config [:toolCall :manualApproval] nil)]
-    (if (coll? manual-approval?)
-      (some #(= tool-name (str %)) manual-approval?)
-      manual-approval?)))
-
-(defn ^:private approval-matches? [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
-  (let [args-matchers (:argsMatchers config)
-        [server-name tool-name] (if (string/includes? server-or-full-tool-name "__")
-                                  (string/split server-or-full-tool-name #"__" 2)
-                                  (if (some #(= server-or-full-tool-name (:name %)) native-tools)
-                                    ["eca" server-or-full-tool-name]
-                                    [server-or-full-tool-name nil]))]
-    (cond
-      ;; specified server name in config
-      (and (nil? tool-name)
-           ;; but the name doesn't match
-           (not= tool-call-server server-name))
-      false
-
-      ;; tool or server not match
-      (and tool-name
-           (or (not= tool-call-server server-name)
-               (not= tool-call-name tool-name)))
-      false
-
-      (map? args-matchers)
-      (some (fn [[arg-name matchers]]
-              (when-let [arg (get args arg-name)]
-                (some #(re-matches (re-pattern (str %)) (str arg))
-                      matchers)))
-            args-matchers)
-
-      :else
-      true)))
-
-(defn approval
-  "Return the approval keyword for the specific tool call: ask, allow or deny.
-   Behavior parameter is required - pass nil for global-only approval rules."
-  [all-tools tool args db config behavior]
-  (let [{:keys [server name require-approval-fn]} tool
-        remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
-        native-tools (filter #(= :native (:origin %)) all-tools)
-        {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
-                                                    (get-in config [:behavior behavior :toolCall :approval]))]
-    (cond
-      (and require-approval-fn (require-approval-fn args {:db db}))
-      :ask
-
-      remember-to-approve?
-      :allow
-
-      (some #(approval-matches? % (:name server) name args native-tools) deny)
-      :deny
-
-      (some #(approval-matches? % (:name server) name args native-tools) ask)
-      :ask
-
-      (some #(approval-matches? % (:name server) name args native-tools) allow)
-      :allow
-
-      (legacy-manual-approval? config name)
-      :ask
-
-      (= "ask" byDefault)
-      :ask
-
-      (= "allow" byDefault)
-      :allow
-
-      (= "deny" byDefault)
-      :deny
-
-       ;; Probably a config error, default to ask
-      :else
-      :ask)))
 
 (defn tool-call-summary [all-tools full-name args config]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))

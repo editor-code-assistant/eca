@@ -124,7 +124,7 @@
                             :description (:path custom)
                             :arguments []})
                          (custom-commands config (:workspace-folders db)))
-        skills-cmds (->> (f.skills/all nil config (:workspace-folders db))
+        skills-cmds (->> (f.skills/all (:workspace-folders db))
                          (mapv (fn [skill]
                                  {:name (:name skill)
                                   :type :skill
@@ -206,7 +206,7 @@
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model all-tools instructions user-messages metrics]}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
-        skills (f.skills/all nil config (:workspace-folders db))]
+        skills (f.skills/all (:workspace-folders db))]
     (case command
       "init" {:type :send-prompt
               :on-finished-side-effect (fn []
