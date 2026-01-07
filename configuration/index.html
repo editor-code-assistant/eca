@@ -1468,7 +1468,7 @@
 <p>Skills are folders with <code>SKILL.md</code> which teachs LLM how to solve a specific task or gain knowledge about it.
 Following the <a href="https://agentskills.io/">agentskills</a> standard, ECA search for skills following <code>~/.config/eca/skills/some-skill/SKILL.md</code> and <code>.eca/skills/some-skill/SKILL.md</code> which should contain <code>name</code> and <code>description</code> metadatas.</p>
 <p>When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via <code>eca__skill</code> tool if that matches user request. Check the examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="simple-lint-skill" name="__tabbed_5" type="radio" /><input id="more-complex-skill-using-scripts" name="__tabbed_5" type="radio" /><input id="disabling-skills-feature" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="simple-lint-skill">Simple lint skill</label><label for="more-complex-skill-using-scripts">More complex skill using scripts</label><label for="disabling-skills-feature">Disabling skills feature</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="simple-lint-skill" name="__tabbed_5" type="radio" /><input id="more-complex-skill-using-scripts" name="__tabbed_5" type="radio" /><input id="enabling-specific-skills-for-a-behavior" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="simple-lint-skill">Simple lint skill</label><label for="more-complex-skill-using-scripts">More complex skill using scripts</label><label for="enabling-specific-skills-for-a-behavior">Enabling specific skills for a behavior</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/skills/lint-fix/SKILL.md</span><pre><span></span><code>---
@@ -1497,8 +1497,13 @@ name: gif-generator
 </code></pre></div>
 </div>
 <div class="tabbed-block">
+<p>You can override the global <code>enabledSkills</code> config in a specific behavior, the default is <code>enabledSkills: [".*"]</code></p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;skills&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">  </span><span class="s2">&quot;behavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;reviewer&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;enabledSkills&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;reviewer-*&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -1841,12 +1846,14 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <span class="w">        </span><span class="p">};</span>
 <span class="w">    </span><span class="p">};</span>
 <span class="w">    </span><span class="nx">rules</span><span class="o">?:</span><span class="w"> </span><span class="p">[{</span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;}];</span>
-<span class="w">    </span><span class="nx">skills?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">enabledSkills?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<span class="w">    </span><span class="nx">disabledTools?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[],</span>
 <span class="w">    </span><span class="nx">commands</span><span class="o">?:</span><span class="w"> </span><span class="p">[{</span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;}];</span>
 <span class="w">    </span><span class="nx">behavior</span><span class="o">?:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">systemPrompt?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">        </span><span class="nx">defaultModel?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">        </span><span class="nx">disabledTools?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<span class="w">        </span><span class="nx">enabledSkills?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
 <span class="w">        </span><span class="nx">toolCall</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">            </span><span class="nx">approval</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">                </span><span class="nx">byDefault</span><span class="o">?:</span><span class="w"> </span><span class="s1">&#39;ask&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;allow&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;deny&#39;</span><span class="p">;</span>
@@ -1867,7 +1874,6 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <span class="w">            </span><span class="nx">required</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
 <span class="w">        </span><span class="p">};</span>
 <span class="w">    </span><span class="p">}};</span>
-<span class="w">    </span><span class="nx">disabledTools?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[],</span>
 <span class="w">    </span><span class="nx">toolCall</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="nx">approval</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">byDefault</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;ask&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;allow&#39;</span><span class="p">;</span>
@@ -1928,8 +1934,8 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <span class="w">  </span><span class="s2">&quot;netrcFile&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="c1">// search ~/.netrc or ~/_netrc when null.</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
 <span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">  </span><span class="s2">&quot;skills&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;commands&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">  </span><span class="s2">&quot;enabledSkills&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*&quot;</span><span class="p">],</span>
 <span class="w">  </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
 <span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -2011,7 +2017,7 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="January 7, 2026 13:06:34 UTC">January 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="January 7, 2026 14:09:05 UTC">January 7, 2026</span>
   </span>
 
     
