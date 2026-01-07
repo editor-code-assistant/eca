@@ -23,7 +23,7 @@
                          :description "A test skill"
                          :body "Skill body content"
                          :dir (h/file-path "/my/project/.eca/skills/my-skill")}])
-             (f.skills/all roots))))))
+             (f.skills/all {} roots))))))
 
   (testing "global skills"
     (with-redefs [config/get-env (constantly (h/file-path "/home/someuser/.config"))
@@ -38,7 +38,7 @@
                          :description "A global skill"
                          :body "Global skill body"
                          :dir (h/file-path "/home/someuser/.config/eca/skills/global-skill")}])
-             (f.skills/all roots))))))
+             (f.skills/all {} roots))))))
 
   (testing "global skills with XDG_CONFIG_HOME fallback"
     (with-redefs [config/get-env (constantly nil)
@@ -54,7 +54,7 @@
                          :description "Fallback skill"
                          :body "Fallback body"
                          :dir (h/file-path "/home/someuser/.config/eca/skills/fallback-skill")}])
-             (f.skills/all roots))))))
+             (f.skills/all {} roots))))))
 
   (testing "skills with quoted YAML values"
     (with-redefs [config/get-env (constantly nil)
@@ -69,4 +69,4 @@
              (m/embeds [{:name "quoted-skill"
                          :description "Single quoted description"
                          :body "Body"}])
-             (f.skills/all roots)))))))
+             (f.skills/all {} roots)))))))

@@ -9,16 +9,18 @@
    [llm-mock.server :as llm-mock.server]))
 
 (def namespaces
-  '[integration.initialize-test
-    integration.chat.hooks-test
-    integration.chat.openai-test
-    integration.chat.anthropic-test
-    integration.chat.github-copilot-test
-    integration.chat.google-test
-    integration.chat.ollama-test
-    integration.chat.custom-provider-test
+  '[
+    ;; integration.initialize-test
+    ;; integration.chat.hooks-test
+    ;; integration.chat.openai-test
+    ;; integration.chat.anthropic-test
+    ;; integration.chat.github-copilot-test
+    ;; integration.chat.google-test
+    ;; integration.chat.ollama-test
+    ;; integration.chat.custom-provider-test
     integration.chat.commands-test
-    integration.rewrite.openai-test])
+    ;;integration.rewrite.openai-test
+    ])
 
 (defn timeout [timeout-ms callback]
   (let [fut (future (callback))

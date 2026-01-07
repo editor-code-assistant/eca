@@ -5,9 +5,9 @@
    [eca.shared :refer [multi-str]]))
 
 (defn ^:private skill
-  [arguments {:keys [db]}]
+  [arguments {:keys [db config]}]
   (let [skill-name (get arguments "name")
-        all-skills (f.skills/all (:workspace-folders db))
+        all-skills (f.skills/all config (:workspace-folders db))
         skill (first (filter
                       #(= skill-name (:name %))
                       all-skills))]

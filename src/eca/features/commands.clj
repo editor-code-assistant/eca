@@ -128,7 +128,7 @@
                             :description (:path custom)
                             :arguments []})
                          (custom-commands config (:workspace-folders db)))
-        skills-cmds (->> (f.skills/all (:workspace-folders db))
+        skills-cmds (->> (f.skills/all config (:workspace-folders db))
                          (mapv (fn [skill]
                                  {:name (:name skill)
                                   :type :skill
@@ -210,7 +210,7 @@
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model all-tools instructions user-messages metrics]}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
-        skills (f.skills/all (:workspace-folders db))]
+        skills (f.skills/all config (:workspace-folders db))]
     (case command
       "init" {:type :send-prompt
               :on-finished-side-effect (fn []
@@ -319,7 +319,7 @@
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
-      "skills" (let [skills (f.skills/all (:workspace-folders db))
+      "skills" (let [skills (f.skills/all config (:workspace-folders db))
                      msg (reduce
                           (fn [s {:keys [name description]}]
                             (str s "- " name ": " description "\n"))

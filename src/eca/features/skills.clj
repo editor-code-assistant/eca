@@ -68,6 +68,8 @@
                      (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))
        (keep skill-file->skill)))
 
-(defn all [roots]
-  (concat (global-skills)
+(defn all [config roots]
+  (concat []
+          (when-not (:pureConfig config)
+            (global-skills))
           (local-skills roots)))

@@ -1329,7 +1329,7 @@
                        (default-model db config))
         rules (f.rules/all config (:workspace-folders db))
         all-tools (f.tools/all-tools chat-id behavior @db* config)
-        skills (->> (f.skills/all (:workspace-folders db))
+        skills (->> (f.skills/all config (:workspace-folders db))
                     (remove
                      (fn [skill]
                        (= :deny (f.tools/approval all-tools
