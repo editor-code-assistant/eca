@@ -306,6 +306,7 @@ When sending a prompt request to LLM, ECA will send only name and description of
     ---
     
     - Use scripts/gif-generate.py passing gif name and dimensions.
+    - <More complex instructions here>
     ...
     ```
     
