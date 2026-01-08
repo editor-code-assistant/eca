@@ -23,6 +23,7 @@
            {:chatId nil
             :commands [{:name "init" :arguments []}
                        {:name "login" :arguments [{:name "provider-id"}]}
+                       {:name "skills" :arguments []}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "resume" :arguments [{:name "chat-id"}]}

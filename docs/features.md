@@ -129,6 +129,14 @@ Current supported providers with login:
 - `anthropic`: with options to login to Claude Max/Pro or create API keys.
 - `github-copilot`: via Github oauth.
 
+### Skills
+
+Following the [skills spec](https://agentskills.io/), ECA supports skills that can teach LLM how to learn about a context or handle a specific task.
+
+![](./images/features/skills.png)
+
+For more details, check [skills configuration](./configuration.md#skills).
+
 ### Hooks
 
 Hooks are actions that can run before or after an specific event, useful to notify after prompt finished or to block a tool call doing some check in a script.

@@ -13,6 +13,7 @@
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
+   [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
@@ -1327,6 +1328,16 @@
                        (:defaultModel behavior-config)
                        (default-model db config))
         rules (f.rules/all config (:workspace-folders db))
+        all-tools (f.tools/all-tools chat-id behavior @db* config)
+        skills (->> (f.skills/all config (:workspace-folders db))
+                    (remove
+                     (fn [skill]
+                       (= :deny (f.tools/approval all-tools
+                                                  {:server {:name "eca"} :name "skill"}
+                                                  {"name" (:name skill)}
+                                                  db
+                                                  config
+                                                  behavior)))))
         _ (when (seq contexts)
             (send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
                                                                             :state :running
@@ -1335,9 +1346,9 @@
                           (f.context/agents-file-contexts db)
                           (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
-        all-tools (f.tools/all-tools chat-id behavior @db* config)
         instructions (f.prompt/build-chat-instructions refined-contexts
                                                        rules
+                                                       skills
                                                        repo-map*
                                                        selected-behavior
                                                        config
