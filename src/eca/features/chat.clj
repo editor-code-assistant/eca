@@ -110,6 +110,19 @@
     (on-finished-side-effect))
   (db/update-workspaces-cache! @db* metrics))
 
+(defn ^:private maybe-renew-auth-token [chat-ctx]
+  (f.login/maybe-renew-auth-token!
+   {:provider (:provider chat-ctx)
+    :on-renewing (fn []
+                   (send-content! chat-ctx :system {:type  :progress
+                                                    :state :running
+                                                    :text  "Renewing auth token"}))
+    :on-error (fn [error-msg]
+                (send-content! chat-ctx :system {:type :text :text error-msg})
+                (finish-chat-prompt! :idle chat-ctx)
+                (throw (ex-info "Auth token renew failed" {})))}
+   chat-ctx))
+
 (defn ^:private assert-chat-not-stopped! [{:keys [chat-id db*] :as chat-ctx}]
   (when (identical? :stopping (get-in @db* [:chats chat-id :status]))
     (finish-chat-prompt! :idle chat-ctx)
@@ -1005,7 +1018,8 @@
                                                :text "I rejected one or more tool calls with the following reason"}]})
                   (finish-chat-prompt! :idle chat-ctx)
                   nil)))
-          {:new-messages (get-in @db* [:chats chat-id :messages])})))))
+          (do (maybe-renew-auth-token chat-ctx)
+              {:new-messages (get-in @db* [:chats chat-id :messages])}))))))
 
 (defn ^:private assert-compatible-apis-between-models!
   "Ensure new request is compatible with last api used.
@@ -1029,7 +1043,7 @@
    Run preRequest hooks before any heavy lifting.
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
-   {:keys [db* config chat-id full-model behavior instructions metrics message] :as chat-ctx}]
+   {:keys [db* config chat-id provider model full-model behavior instructions metrics message] :as chat-ctx}]
   (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
@@ -1068,18 +1082,7 @@
                         user-messages)]
     (when user-messages
       (swap! db* assoc-in [:chats chat-id :status] :running)
-      (let [[provider model]   (string/split full-model #"/" 2)
-            _  (f.login/maybe-renew-auth-token!
-                {:provider provider
-                 :on-renewing (fn []
-                                (send-content! chat-ctx :system {:type  :progress
-                                                                 :state :running
-                                                                 :text  "Renewing auth token"}))
-                 :on-error (fn [error-msg]
-                             (send-content! chat-ctx :system {:type :text :text error-msg})
-                             (finish-chat-prompt! :idle chat-ctx)
-                             (throw (ex-info "Auth token renew failed" {})))}
-                chat-ctx)
+      (let [_ (maybe-renew-auth-token chat-ctx)
             db @db*
             past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
@@ -1364,6 +1367,7 @@
         user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                            expanded-prompt-contexts
                                                            image-contents))}]
+        [provider model] (string/split full-model #"/" 2)
         chat-ctx {:chat-id chat-id
                   :message message
                   :contexts contexts
@@ -1372,6 +1376,8 @@
                   :instructions instructions
                   :user-messages user-messages
                   :full-model full-model
+                  :provider provider
+                  :model model
                   :db* db*
                   :metrics metrics
                   :config config

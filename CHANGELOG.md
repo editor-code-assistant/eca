@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix tokens not renewing between tool calls. #258
+
 ## 0.90.0
 
 - Skills support following https://agentskills.io . #241
