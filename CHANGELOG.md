@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix tokens not renewing between tool calls. #258
+- Fix diff correct numbers in added/removed. #259
 
 ## 0.90.0
 
