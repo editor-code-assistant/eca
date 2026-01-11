@@ -4,6 +4,7 @@
 
 - Fix tokens not renewing between tool calls. #258
 - Fix diff correct numbers in added/removed. #259
+- Fix post tool call hook trigger
 
 ## 0.90.0
 
