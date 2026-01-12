@@ -108,6 +108,7 @@ The built-in commands are:
 
 - `/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
 - `/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
+- `/skills`: List known skills that ECA can load.
 - `/compact`: Compact/summarize conversation helping reduce context window.
 - `/resume`: Resume a chat from previous session of this workspace folder.
 - `/costs`: Show costs about current session.
