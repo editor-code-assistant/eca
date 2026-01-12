@@ -5,6 +5,7 @@
 - Fix tokens not renewing between tool calls. #258
 - Fix diff correct numbers in added/removed. #259
 - Fix post tool call hook trigger
+- Fix Gemini tool calling. #247
 
 ## 0.90.0
 
