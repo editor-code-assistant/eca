@@ -26,6 +26,9 @@
 (defn ^:private title-prompt-template* [] (slurp (io/resource "prompts/title.md")))
 (def ^:private title-prompt-template (memoize title-prompt-template*))
 
+(defn ^:private codex-prompt* [] (slurp (io/resource "prompts/codex.md")))
+(def codex-prompt (memoize codex-prompt*))
+
 (defn ^:private compact-prompt-template* [file-path]
   (if (fs/relative? file-path)
     (slurp (io/resource file-path))

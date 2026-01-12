@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Codex login support via `/login openai` and selecting `pro` option. #261
+
 ## 0.90.1
 
 - Fix tokens not renewing between tool calls. #258
