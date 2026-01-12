@@ -382,11 +382,11 @@
 
    [:executing :execution-end]
    {:status :cleanup
-    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress]}
+    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
 
    [:cleanup :cleanup-finished]
    {:status :completed
-    :actions [:destroy-all-resources :remove-all-resources :remove-all-promises :remove-future :trigger-post-tool-call-hook]}
+    :actions [:destroy-all-resources :remove-all-resources :remove-all-promises :remove-future]}
 
    [:executing :resources-created]
    {:status :executing
@@ -402,7 +402,7 @@
 
    [:stopping :stop-attempted]
    {:status :cleanup
-    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCallRejected]}
+    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCallRejected :trigger-post-tool-call-hook]}
 
    ;; And now all the :stop-requested transitions
 
