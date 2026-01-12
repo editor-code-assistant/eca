@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.91.0
+
 - Codex login support via `/login openai` and selecting `pro` option. #261
   - Add `gpt-5.2-codex` model.
 
