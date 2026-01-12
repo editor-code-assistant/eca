@@ -71,15 +71,18 @@
   (when (> (count choices) 1)
     (throw (ex-info "Multiple choices in response!" {})))
   (let [message (-> choices first :message)
+        tool-turn-id (when (seq (:tool_calls message)) (str (random-uuid)))
         tools-to-call (->> (:tool_calls message)
-                           (map (fn [tool-call]
-                                  (cond-> {:id (:id tool-call)
-                                           :full-name (:name (:function tool-call))
-                                           :arguments (json/parse-string (:arguments (:function tool-call)))}
-                                     ;; Preserve Google Gemini thought signatures
-                                    (get-in tool-call [:extra_content :google :thought_signature])
-                                    (assoc :external-id
-                                           (get-in tool-call [:extra_content :google :thought_signature]))))))
+                           (map-indexed (fn [idx tool-call]
+                                          (cond-> {:index idx
+                                                   :id (:id tool-call)
+                                                   :full-name (:name (:function tool-call))
+                                                   :arguments (json/parse-string (:arguments (:function tool-call)))}
+                                            tool-turn-id (assoc :tool-turn-id tool-turn-id)
+                                            ;; Preserve Google Gemini thought signatures
+                                            (get-in tool-call [:extra_content :google :thought_signature])
+                                            (assoc :external-id
+                                                   (get-in tool-call [:extra_content :google :thought_signature]))))))
         ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
         reasoning-content (:reasoning_content message)]
     {:usage (parse-usage usage)
@@ -237,17 +240,44 @@
            (not (string/blank? content)))
       (sequential? content)))
 
+(defn- reorder-tool-turn
+  "Reorder messages: all tool_calls first (by index), then outputs (matching call order)."
+  [turn]
+  (let [{calls "tool_call" outputs "tool_call_output"} (group-by :role turn)
+        sorted-calls (sort-by #(get-in % [:content :index] Long/MAX_VALUE) calls)
+        call-id->pos (into {} (map-indexed (fn [i m] [(get-in m [:content :id]) i]) sorted-calls))]
+    (concat sorted-calls (sort-by #(call-id->pos (get-in % [:content :id])) outputs))))
+
+(defn- group-parallel-tool-calls
+  "Groups tool_calls before their outputs, respecting tool-turn boundaries."
+  [messages]
+  (let [tool-msg? #(contains? #{"tool_call" "tool_call_output"} (:role %))]
+    (->> messages
+         (partition-by tool-msg?)
+         (mapcat (fn [group]
+                   (if-not (tool-msg? (first group))
+                     group
+                     ;; Reorder within the same tool-turn to avoid merging sequential
+                     ;; tool-call steps into a single parallel tool_calls turn.
+                     (let [turn-id #(get-in % [:content :tool-turn-id])]
+                       (->> (if (some turn-id group)
+                              (partition-by turn-id group)
+                              [group])
+                            (mapcat reorder-tool-turn)))))))))
+
 (defn ^:private normalize-messages
   "Converts ECA message format to OpenAI API format (also used by compatible providers).
 
    Key transformations:
+   - Groups parallel tool calls (tool_call messages) before their outputs
    - Transforms each ECA message to API format (tool_call -> assistant with tool_calls, etc.)
    - Merges adjacent assistant messages (required by OpenAI/DeepSeek APIs)
    - Filters out invalid/empty messages
 
-   The pipeline: transform -> merge adjacent assistants -> filter valid"
+   The pipeline: group tool calls -> transform -> merge adjacent assistants -> filter valid"
   [messages supports-image? think-tag-start think-tag-end]
   (->> messages
+       group-parallel-tool-calls
        (map #(transform-message % supports-image? think-tag-start think-tag-end))
        (remove nil?)
        merge-adjacent-assistants
@@ -255,7 +285,10 @@
 
 (defn ^:private execute-accumulated-tools!
   [tool-calls* on-tools-called-wrapper on-tools-called handle-response]
-  (let [all-accumulated (vals @tool-calls*)
+  (let [all-accumulated (->> (vals @tool-calls*)
+                             ;; The accumulator is a map; ensure deterministic tool execution order.
+                             ;; :index comes from OpenAI API, :stream-order is fallback for providers without it.
+                             (sort-by #(or (:index %) (:stream-order %) 0)))
         completed-tools (->> all-accumulated
                              (filter #(every? % [:id :full-name :arguments-text]))
                              (map (fn [{:keys [arguments-text full-name] :as tool-call}]
@@ -270,7 +303,9 @@
         valid-tools (remove :parse-error completed-tools)]
     (if (seq valid-tools)
       ;; We have valid tools to execute, continue the conversation
-      (on-tools-called-wrapper valid-tools on-tools-called handle-response)
+      (let [tool-turn-id (str (random-uuid))
+            tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) valid-tools)]
+        (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response))
       ;; No valid tools (all had parse errors or none accumulated) - don't loop
       nil)))
 
@@ -432,8 +467,9 @@
                                          :buffer "")
                                   (on-reason {:status :started :id new-reason-id})))
         find-existing-tool-key (fn [tool-calls index id]
+                                 ;; Find existing tool call by id match, or by index when delta has no id
                                  (some (fn [[k v]] (when (or (some-> id (= (:id v)))
-                                                             (and (nil? (:id v))
+                                                             (and (nil? id)
                                                                   (some-> index (= (:index v)))))
                                                      k))
                                        tool-calls))
@@ -504,20 +540,27 @@
                                             thought-signature (get-in extra_content [:google :thought_signature])
                                             existing-key (find-existing-tool-key @tool-calls* index id)
                                             existing (when existing-key (get @tool-calls* existing-key))
-                                            tool-key (or existing-key index id)]
+                                            ;; Prefer id over index - Gemini sends all parallel tool calls with index=0
+                                            tool-key (or existing-key id index)]
                                         (if (nil? tool-key)
                                           (logger/warn logger-tag "Received tool_call delta without index/id; ignoring"
                                                        {:tool-call tool-call})
                                           (do
-                                            (swap! tool-calls* update tool-key
-                                                   (fn [existing]
-                                                     (cond-> (or existing {:index index})
-                                                       (some? index) (assoc :index index)
-                                                       (and id (nil? (:id existing))) (assoc :id id)
-                                                       (and name (nil? (:full-name existing))) (assoc :full-name name)
-                                                       args (update :arguments-text (fnil str "") args)
-                                                       ;; Store thought signature for Google Gemini
-                                                       thought-signature (assoc :external-id thought-signature))))
+                                            (swap! tool-calls*
+                                                   (fn [tool-calls]
+                                                     (let [existing (get tool-calls tool-key)
+                                                           created? (nil? existing)
+                                                           tool-call (cond-> (or existing {:index index})
+                                                                       ;; Providers may omit tool_calls[].index; preserve
+                                                                       ;; stream arrival order for a stable UX fallback.
+                                                                       created? (assoc :stream-order (count tool-calls))
+                                                                       (some? index) (assoc :index index)
+                                                                       (and id (nil? (:id existing))) (assoc :id id)
+                                                                       (and name (nil? (:full-name existing))) (assoc :full-name name)
+                                                                       args (update :arguments-text (fnil str "") args)
+                                                                       ;; Store thought signature for Google Gemini
+                                                                       thought-signature (assoc :external-id thought-signature))]
+                                                       (assoc tool-calls tool-key tool-call))))
                                             (when-let [updated-tool-call (get @tool-calls* tool-key)]
                                               ;; Streaming tool_calls may split metadata (id/name) and arguments across deltas.
                                               ;; Emit prepare once we can correlate the call (id + full-name), on first id or args deltas,
