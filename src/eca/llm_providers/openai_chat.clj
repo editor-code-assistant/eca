@@ -25,13 +25,12 @@
 
 (defn ^:private extract-content
   "Extract text content from various message content formats.
-   Handles: strings (legacy eca), nested arrays from chat.clj, and fallback."
+   Returns a string for text-only content, and an array only when images are present (multimodal)."
   [content supports-image?]
   (cond
     ;; Legacy/fallback: handles system messages, error strings, or unexpected simple text content
     (string? content)
-    [{:type "text"
-      :text (string/trim content)}]
+    (string/trim content)
 
     (and (sequential? content)
          (every? #(= "text" (name (:type %))) content))
@@ -166,8 +165,7 @@
                 :reasoning_content (:text content)}
                ;; Fallback: wrap in thinking tags for models that use text-based reasoning
                {:role "assistant"
-                :content [{:type "text"
-                           :text (str think-tag-start (:text content) think-tag-end)}]})
+                :content (str think-tag-start (:text content) think-tag-end)})
     "assistant" {:role "assistant"
                  :content (extract-content content supports-image?)}
     "system" {:role "system"

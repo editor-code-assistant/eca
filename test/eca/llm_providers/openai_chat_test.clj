@@ -53,9 +53,9 @@
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"
     (is (match?
-         [{:role "user" :content [{:type "text" :text "List the files"}]}
+         [{:role "user" :content "List the files"}
           {:role "assistant"
-           :content [{:type "text" :text "I'll list the files for you"}]
+           :content "I'll list the files for you"
            :tool_calls [{:id "call-1"
                          :type "function"
                          :function {:name "eca__list_files"
@@ -63,7 +63,7 @@
           {:role "tool"
            :tool_call_id "call-1"
            :content "file1.txt\nfile2.txt\n"}
-          {:role "assistant" :content [{:type "text" :text "I found 2 files"}]}]
+          {:role "assistant" :content "I found 2 files"}]
          (#'llm-providers.openai-chat/normalize-messages
           [{:role "user" :content "List the files"}
            {:role "assistant" :content "I'll list the files for you"}
@@ -81,9 +81,8 @@
 
   (testing "Reason messages without reasoning-content use think tags, merged with following assistant"
     (is (match?
-         [{:role "user" :content [{:type "text" :text "Hello"}]}
-          {:role "assistant" :content [{:type "text" :text "<think>Thinking...</think>"}
-                                       {:type "text" :text "Hi"}]}]
+         [{:role "user" :content "Hello"}
+          {:role "assistant" :content "<think>Thinking...</think>\nHi"}]
          (#'llm-providers.openai-chat/normalize-messages
           [{:role "user" :content "Hello"}
            {:role "reason" :content {:text "Thinking..."}}
@@ -93,8 +92,8 @@
           thinking-end-tag)))))
 
 (deftest extract-content-test
-  (testing "String input"
-    (is (= [{:type "text" :text "Hello world"}]
+  (testing "String input - returns string for text-only content"
+    (is (= "Hello world"
            (#'llm-providers.openai-chat/extract-content "  Hello world  " true))))
 
   (testing "Sequential messages with actual format"
@@ -161,10 +160,10 @@
           thinking-end-tag))))
 
   (testing "Reason messages - use reasoning_content if :delta-reasoning?, otherwise tags"
-    ;; Without :delta-reasoning?, uses think tags
+    ;; Without :delta-reasoning?, uses think tags (string, not array - for Gemini compatibility)
     (is (match?
          {:role "assistant"
-          :content [{:type "text" :text "<think>Reasoning...</think>"}]}
+          :content "<think>Reasoning...</think>"}
          (#'llm-providers.openai-chat/transform-message
           {:role "reason"
            :content {:text "Reasoning..."}}
@@ -372,13 +371,13 @@
       ;; After normalization, all tool_calls should be merged into one assistant message
       ;; followed by all tool outputs, then the final assistant message
       (is (match?
-           [{:role "user" :content [{:type "text" :text "Read two files"}]}
+           [{:role "user" :content "Read two files"}
             {:role "assistant"
              :tool_calls [{:id "call-1" :function {:name "eca__read_file"}}
                           {:id "call-2" :function {:name "eca__read_file"}}]}
             {:role "tool" :tool_call_id "call-1" :content "content1\n"}
             {:role "tool" :tool_call_id "call-2" :content "content2\n"}
-            {:role "assistant" :content [{:type "text" :text "I read both files"}]}]
+            {:role "assistant" :content "I read both files"}]
            normalized)
           "Tool calls must be grouped together before their outputs")))
 
@@ -421,11 +420,11 @@
            [{:role "user"}
             {:role "assistant" :tool_calls [{:id "call-1"}]}
             {:role "tool" :tool_call_id "call-1"}
-            {:role "assistant" :content [{:type "text" :text "First response"}]}
+            {:role "assistant" :content "First response"}
             {:role "user"}
             {:role "assistant" :tool_calls [{:id "call-2"}]}
             {:role "tool" :tool_call_id "call-2"}
-            {:role "assistant" :content [{:type "text" :text "Second response"}]}]
+            {:role "assistant" :content "Second response"}]
            normalized)))))
 
 (deftest gemini-thought-signature-test
@@ -527,7 +526,7 @@
             {:role "assistant"
              :tool_calls [{:id "call-2" :function {:name "tool2"}}]}
             {:role "tool" :tool_call_id "call-2" :content "r2\n"}
-            {:role "assistant" :content [{:type "text" :text "Done"}]}]
+            {:role "assistant" :content "Done"}]
            normalized)))))
 
 (deftest tool-call-order-by-index-test
@@ -768,7 +767,7 @@
       (is (= "think more" (:reason-text result)))
       (is (some? (:reasoning-content result)) "reasoning-content should be present in non-streaming result")
       (is (match?
-           [{:role "user" :content [{:type "text" :text "Q"}]}
+           [{:role "user" :content "Q"}
             {:role "assistant"
              :reasoning_content "think more"}]
            normalized)))))
