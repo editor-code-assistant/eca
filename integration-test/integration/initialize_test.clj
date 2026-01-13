@@ -35,14 +35,10 @@
                 "google/gemini-3-flash-preview"
                 "google/gemini-3-pro-preview"
                 "openai/gpt-4.1"
-                "openai/gpt-5"
-                "openai/gpt-5-codex"
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
-                "openai/gpt-5.1"
                 "openai/gpt-5.2"
-                "openai/o3"
-                "openai/o4-mini"]]
+                "openai/gpt-5.2-codex"]]
     (testing "initialize request with default config"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
@@ -105,14 +101,10 @@
                 "my-custom/bar2"
                 "my-custom/foo1"
                 "openai/gpt-4.1"
-                "openai/gpt-5"
-                "openai/gpt-5-codex"
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
-                "openai/gpt-5.1"
                 "openai/gpt-5.2"
-                "openai/o3"
-                "openai/o4-mini"]]
+                "openai/gpt-5.2-codex"]]
     (testing "initialize request with custom providers"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}

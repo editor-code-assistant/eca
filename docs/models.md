@@ -12,7 +12,7 @@ ECA will return to clients the models configured, either via config or login.
 
 | model                                            | tools (MCP) | reasoning / thinking | prompt caching | web_search | image_input |
 |--------------------------------------------------|-------------|----------------------|----------------|------------|-------------|
-| :simple-openai: OpenAI                           | √           | √                    | √              | √          | √           |
+| :simple-openai: OpenAI (Also subscription)       | √           | √                    | √              | √          | √           |
 | :simple-anthropic: Anthropic (Also subscription) | √           | √                    | √              | √          | √           |
 | :simple-githubcopilot: Github Copilot            | √           | √                    | √              | X          | √           |
 | :simple-googlegemini: Google                     | √           | √                    | √              | X          | √           |
@@ -208,6 +208,14 @@ Notes:
 
     1. Login to Anthropic via the chat command `/login`.
     2. Type 'anthropic' and send it.
+    3. Type the chosen method
+    4. Authenticate in your browser, copy the code.
+    5. Paste and send the code and done!
+    
+=== "Codex / Openai"
+
+    1. Login to Openai via the chat command `/login`.
+    2. Type 'openai' and send it.
     3. Type the chosen method
     4. Authenticate in your browser, copy the code.
     5. Paste and send the code and done!

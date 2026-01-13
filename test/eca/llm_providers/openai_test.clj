@@ -76,6 +76,43 @@
           (is (> (:expires-at result) now-seconds)
               "expires-at should be computed relative to current time"))))))
 
+(deftest oauth-refresh-test
+  (testing "that OAuth token refresh is routed through the http proxy"
+    (let [req* (atom nil)
+          now-seconds (quot (System/currentTimeMillis) 1000)]
+      (with-client-proxied {}
+
+        (fn handler [req]
+          ;; capture the outgoing request
+          (reset! req* req)
+          ;; fake token endpoint response
+          {:status 200
+           :body {:refresh_token "new-r-token"
+                  :access_token  "new-a-token"
+                  :expires_in     3600}})
+
+        (let [refresh-token "old-r-token"
+              result        (with-redefs [llm-providers.openai/oauth-token-url "http://localhost:99/oauth/token"]
+                              (#'llm-providers.openai/oauth-refresh refresh-token))]
+
+          ;; request validation
+          (is (= {:method "POST"
+                  :uri    "/oauth/token"}
+                 (select-keys @req* [:method :uri])))
+
+          (is (= {:grant_type     "refresh_token"
+                  :refresh_token  refresh-token
+                  :client_id      @#'llm-providers.openai/client-id}
+                 (:body @req*))
+              "Outgoing payload should match refresh token fields")
+
+          ;; response parsing
+          (is (= "new-r-token" (:refresh-token result)))
+          (is (= "new-a-token" (:access-token result)))
+          ;; expires-at should be > now
+          (is (> (:expires-at result) now-seconds)
+              "expires-at should be computed relative to current time"))))))
+
 (deftest ->normalize-messages-test
   (testing "no previous history"
     (is (match?

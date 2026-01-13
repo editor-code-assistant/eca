@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.features.prompt :as f.prompt]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
@@ -130,18 +131,21 @@
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search extra-payload auth-type http-client]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
-  (let [input (concat (normalize-messages past-messages supports-image?)
+  (let [codex? (= :auth/oauth auth-type)
+        input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (cond-> (->tools tools)
-                web-search (conj {:type "web_search_preview"}))
+                web-search (conj (when-not codex? {:type "web_search_preview"})))
         stream? (boolean callbacks)
         body (deep-merge
               (assoc-some
                {:model model
-                :input input
+                :input (if codex?
+                         (concat [{:role "system" :content instructions}] input)
+                         input)
                 :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-                :instructions (if (= :auth/oauth auth-type)
-                                (str "You are Codex." instructions)
+                :instructions (if codex?
+                                (f.prompt/codex-prompt)
                                 instructions)
                 :tools tools
                 :include (when reason?
@@ -151,7 +155,7 @@
                              {:effort "medium"
                               :summary "detailed"})
                 :stream stream?}
-               :max_output_tokens max-output-tokens
+               :max_output_tokens (when-not codex? max-output-tokens)
                :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
@@ -307,12 +311,33 @@
                       {:status status
                        :body body})))))
 
+(defn ^:private oauth-refresh [refresh-token]
+  (let [{:keys [status body]} (http/post
+                               oauth-token-url
+                               {:headers {"Content-Type" "application/json"}
+                                :body (json/generate-string
+                                       {:grant_type "refresh_token"
+                                        :refresh_token refresh-token
+                                        :client_id client-id})
+                                :throw-exceptions? false
+                                :http-client (client/merge-with-global-http-client {})
+                                :as :json})]
+    (if (= 200 status)
+      {:refresh-token (:refresh_token body)
+       :access-token (:access_token body)
+       :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
+      (throw (ex-info (format "OpenAI refresh token failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+
+
 (defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
   (send-msg! (multi-str "Now, inform the login method:"
                         ""
-                        ;; "pro: GPT Pro (subscription)"
+                        "pro: GPT Plus/Pro (subscription)"
                         "manual: Manually enter API Key")))
 
 (defmethod f.login/login-step ["openai" :login/waiting-login-method] [{:keys [db* input provider send-msg!] :as ctx}]
@@ -321,7 +346,6 @@
     (let [local-server-port 1455 ;; openai requires this port
           server-url (str "http://localhost:" local-server-port "/auth/callback")
           {:keys [verifier url]} (oauth-url server-url)]
-      (throw (ex-info "Unsupported login" {}))
       (oauth/start-oauth-server!
        {:port local-server-port
         :on-success (fn [{:keys [code]}]
@@ -355,3 +379,13 @@
 
         (f.login/login-done! ctx :update-cache? false))
     (send-msg! (format "Invalid API key '%s'" input))))
+
+(defmethod f.login/login-step ["openai" :login/renew-token] [{:keys [db* provider] :as ctx}]
+  (let [{:keys [refresh-token]} (get-in @db* [:auth provider])
+        {:keys [refresh-token access-token expires-at]} (oauth-refresh refresh-token)]
+    (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                 :type :auth/oauth
+                                                 :refresh-token refresh-token
+                                                 :api-key access-token
+                                                 :expires-at expires-at})
+    (f.login/login-done! ctx :silent? true)))

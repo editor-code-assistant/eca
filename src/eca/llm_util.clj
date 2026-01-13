@@ -86,7 +86,7 @@
         [:auth/token key])
       (when-let [key (:api-key provider-auth)]
         [:auth/oauth key])
-      (when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
+      #_(when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
         [:auth/token key])
       ;; legacy
       (when-let [key (some-> (get-in config [:providers (name provider) :keyRc])

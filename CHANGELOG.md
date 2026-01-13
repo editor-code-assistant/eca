@@ -2,8 +2,16 @@
 
 ## Unreleased
 
+## 0.91.0
+
+- Codex login support via `/login openai` and selecting `pro` option. #261
+  - Add `gpt-5.2-codex` model.
+
+## 0.90.1
+
 - Fix tokens not renewing between tool calls. #258
 - Fix diff correct numbers in added/removed. #259
+- Fix post tool call hook trigger
 - Fix Gemini tool calling. #247
 
 ## 0.90.0
