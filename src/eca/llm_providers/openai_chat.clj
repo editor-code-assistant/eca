@@ -301,13 +301,12 @@
                                           (assoc tool-call :arguments {} :parse-error error-msg)))))))
         ;; Filter out tool calls with parse errors to prevent execution with invalid data
         valid-tools (remove :parse-error completed-tools)]
-    (if (seq valid-tools)
+    (when (seq valid-tools)
       ;; We have valid tools to execute, continue the conversation
       (let [tool-turn-id (str (random-uuid))
             tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) valid-tools)]
-        (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response))
-      ;; No valid tools (all had parse errors or none accumulated) - don't loop
-      nil)))
+        (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
+        tools-with-turn-id))))
 
 (defn ^:private process-text-think-aware
   "Incremental parser that splits streamed content into user text and thinking blocks.
@@ -495,11 +494,15 @@
 
         handle-response (fn handle-response [event data tool-calls*]
                           (if (= event "stream-end")
-                            (do
+                            (let [had-tool-calls? (seq @tool-calls*)]
                               ;; Flush any leftover buffered content and finish reasoning if needed
                               (flush-content-buffer)
                               (finish-reasoning! reasoning-state* on-reason)
-                              (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
+                              (when (and had-tool-calls?
+                                         (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response)))
+                                ;; The stream ended with tool_calls, but none were executable (e.g. invalid JSON args).
+                                ;; Emit :finish so the UI does not hang waiting for the next turn.
+                                (on-message-received {:type :finish :finish-reason "stop"})))
                             (when (seq (:choices data))
                               (doseq [choice (:choices data)]
                                 (let [delta (:delta choice)
@@ -578,7 +581,11 @@
                                     ;; Handle reasoning completion
                                     (finish-reasoning! reasoning-state* on-reason)
                                     ;; Handle regular finish
-                                    (when (not= finish-reason "tool_calls")
+                                    ;; Some OpenAI-compatible providers (e.g. Google's) may emit finish_reason "stop"
+                                    ;; even when the turn contains tool_calls. In that case, defer :finish until after
+                                    ;; the tool loop completes, otherwise chat-level side effects may run too early.
+                                    (when (and (not= finish-reason "tool_calls")
+                                               (empty? @tool-calls*))
                                       (on-message-received {:type :finish :finish-reason finish-reason})))))))
                           (when-let [usage (:usage data)]
                             (on-usage-updated (parse-usage usage))))
