@@ -363,7 +363,7 @@
         :on-error (fn [error]
                     (send-msg! (str "Error authenticating via oauth: " error))
                     (oauth/stop-oauth-server! local-server-port))})
-      (send-msg! (format "Open your browser at `%s` and authenticate at OpenAI.\n\nThen ECA will finish the login automatically." url)))
+      (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate at OpenAI, then ECA will finish the login automatically." url)))
     "manual"
     (do
       (swap! db* assoc-in [:auth provider] {:step :login/waiting-api-key

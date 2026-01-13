@@ -374,14 +374,14 @@
       (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                             :mode :max
                                             :verifier verifier})
-      (send-msg! (format "Open your browser at `%s` and authenticate at Anthropic.\nThen paste the code generated in the chat and send it to continue the authentication."
+      (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
                          url)))
     "console"
     (let [{:keys [verifier url]} (oauth-url :console)]
       (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                             :mode :console
                                             :verifier verifier})
-      (send-msg! (format "Open your browser at `%s` and authenticate at Anthropic.\nThen paste the code generated in the chat and send it to continue the authentication."
+      (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
                          url)))
     "manual"
     (do
