@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix openai pro login exceptions related to graalvm.
+
 ## 0.91.0
 
 - Codex login support via `/login openai` and selecting `pro` option. #261
