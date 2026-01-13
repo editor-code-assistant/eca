@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.91.1
+
 - Fix openai pro login exceptions related to graalvm.
 
 ## 0.91.0
