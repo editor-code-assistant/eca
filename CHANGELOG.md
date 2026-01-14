@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Gemini (OpenAI compatible). #247
+
 ## 0.91.2
 
 - Fix `eca_shell_command` to include stderr output even when exit 0.
