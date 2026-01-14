@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.91.2
+
 - Fix `eca_shell_command` to include stderr output even when exit 0.
 
 ## 0.91.1
