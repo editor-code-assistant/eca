@@ -93,23 +93,16 @@
                                (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
               err (some-> (:err result) string/trim)
               out (some-> (:out result) string/trim)]
-          (cond
-            (= result ::timeout)
+          (if (= result ::timeout)
             (do
               (logger/debug logger-tag "Command timed out after " timeout " ms")
               (tools.util/single-text-content (str "Command timed out after " timeout " ms") true))
-
-            (zero? (:exit result))
-            (do (logger/debug logger-tag "Command executed:" result)
-                (tools.util/single-text-content (:out result)))
-
-            :else
             (do
               (logger/debug logger-tag "Command executed:" result)
-              {:error true
+              {:error (not (zero? (:exit result)))
                :contents (remove nil?
                                  (concat [{:type :text
-                                           :text (str "Exit code " (:exit result))}]
+                                           :text (str "Exit code: " (:exit result))}]
                                          (when-not (string/blank? err)
                                            [{:type :text
                                              :text (str "Stderr:\n" err)}])
