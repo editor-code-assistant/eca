@@ -254,14 +254,21 @@
                                                   :content (merge {:type :usage}
                                                                   usage)})))
                    :prompt (f.prompt/compact-prompt (string/join " " args) all-tools config db)})
-      "login" (do (f.login/handle-step {:message (or (first args) "")
-                                        :chat-id chat-id}
-                                       db*
-                                       messenger
-                                       config
-                                       metrics)
-                  {:type :new-chat-status
-                   :status :login})
+      "login" (do
+                (messenger/chat-content-received
+                 messenger
+                 {:chat-id chat-id
+                  :role "system"
+                  :content {:type :text
+                            :text "Login started, type 'cancel' anytime to exit login."}})
+                (f.login/handle-step {:message (or (first args) "")
+                                      :chat-id chat-id}
+                                     db*
+                                     messenger
+                                     config
+                                     metrics)
+                {:type :new-chat-status
+                 :status :login})
       "resume" (let [chats (into {}
                                  (filter #(not= chat-id (first %)))
                                  (:chats db))

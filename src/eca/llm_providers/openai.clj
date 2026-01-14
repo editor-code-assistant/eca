@@ -337,8 +337,8 @@
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
   (send-msg! (multi-str "Now, inform the login method:"
                         ""
-                        "pro: GPT Plus/Pro (subscription)"
-                        "manual: Manually enter API Key")))
+                        "- pro: GPT Plus/Pro (subscription)"
+                        "- manual: Manually enter API Key")))
 
 (defmethod f.login/login-step ["openai" :login/waiting-login-method] [{:keys [db* input provider send-msg!] :as ctx}]
   (case input

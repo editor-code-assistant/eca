@@ -22,7 +22,7 @@
                          :send-msg! send-msg!})
 
       (testing "should ask to choose a provider"
-        (is (= "Choose a provider:\n- github-copilot\n- google\n"
+        (is (= "Inform the provider:\n\n- github-copilot\n- google\n"
                (last @msg-log)))))
 
     (testing "user is confused"
@@ -34,7 +34,7 @@
                          :send-msg! send-msg!})
 
       (testing "should ask to choose a provider and provide instructions"
-        (is (= "Choose a provider:\n- github-copilot\n- google\n"
+        (is (= "Inform the provider:\n\n- github-copilot\n- google\n"
                (last @msg-log)))
 
         (testing "state didn't change"

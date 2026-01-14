@@ -363,9 +363,9 @@
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
   (send-msg! (multi-str "Now, inform the login method:"
                         ""
-                        "max: Claude Pro/Max"
-                        "console: Create API Key"
-                        "manual: Manually enter API Key")))
+                        "- max: Claude Pro/Max"
+                        "- console: Automatically create API Key and use it"
+                        "- manual: Manually enter API Key")))
 
 (defmethod f.login/login-step ["anthropic" :login/waiting-login-method] [{:keys [db* input provider send-msg!]}]
   (case input
