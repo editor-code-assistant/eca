@@ -1,9 +1,16 @@
 (ns eca.client-http
   "Support for the  HTTP client to make outbound requests."
-  (:require [eca.logger :as logger]
-            [eca.proxy :as proxy])
-  (:import  [java.net URI Proxy Proxy$Type InetSocketAddress ProxySelector]
-            [java.io IOException]))
+  (:require
+   [eca.logger :as logger]
+   [eca.proxy :as proxy])
+  (:import
+   [java.io IOException]
+   [java.net
+    InetSocketAddress
+    Proxy
+    Proxy$Type
+    ProxySelector
+    URI]))
 
 (defn hato-client-make
   "Builds an options map for creating a Hato HTTP client.
@@ -45,9 +52,9 @@
                            (connectFailed [_ _ ^IOException e]
                              (.printStackTrace e))))
         http-creds  (when (and http-user http-pass)
-                    {:user http-user :pass http-pass})
+                      {:user http-user :pass http-pass})
         https-creds (when (and https-user https-pass)
-                    {:user https-user :pass https-pass})
+                      {:user https-user :pass https-pass})
         proxy-creds (cond
                       (and http-creds https-creds)
                       (if (= http-creds https-creds)
@@ -74,6 +81,12 @@
   `*hato-http-client*` and return the result."
   [http-client]
   (merge *hato-http-client* http-client))
+
+(defn merge-llm-headers
+  "Merge the given headers with the default LLM headers.
+  Request-specific headers take precedence over defaults."
+  [headers]
+  (merge {"x-llm-application-name" "eca"} headers))
 
 (defn hato-client-global-setup!
   "Builds the Hato HTTP client used throughout the application for making

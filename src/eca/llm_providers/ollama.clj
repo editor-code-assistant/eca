@@ -58,15 +58,17 @@
   (let [reason-id (str (random-uuid))
         reasoning?* (atom false)
         response* (atom nil)
+        headers (client/merge-llm-headers {})
         on-error (if on-stream
                    on-error
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" body)
                      (reset! response* error-data)))]
-    (llm-util/log-request logger-tag rid url body {})
+    (llm-util/log-request logger-tag rid url body headers)
     @(http/post
       url
-      {:body (json/generate-string body)
+      {:headers headers
+       :body (json/generate-string body)
        :throw-exceptions? false
        :async? true
        :http-client (client/merge-with-global-http-client {})
