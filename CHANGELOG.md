@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `eca_shell_command` to include stderr output even when exit 0.
+
 ## 0.91.1
 
 - Fix openai pro login exceptions related to graalvm.
