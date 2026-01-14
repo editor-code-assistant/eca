@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.92.0
+
 - Fix Gemini (OpenAI compatible). #247
 - Improve login wording + add cancel option. #205
 
