@@ -259,7 +259,7 @@
            {:role "assistant" :reasoning_content "Thinking..."}])))))
 
 (deftest prune-history-test
-  (testing "Drops reason messages WITH :delta-reasoning? before the last user message (DeepSeek)"
+  (testing "Drops all reason messages before the last user message by default"
     (is (match?
          [{:role "user" :content "Q1"}
           {:role "assistant" :content "A1"}
@@ -272,15 +272,14 @@
            {:role "assistant" :content "A1"}
            {:role "user" :content "Q2"}
            {:role "reason" :content {:text "r2" :delta-reasoning? true}}
-           {:role "assistant" :content "A2"}]))))
+           {:role "assistant" :content "A2"}]
+          false))))
 
-  (testing "Preserves reason messages WITHOUT :delta-reasoning? (think-tag based)"
+  (testing "Preserves reason messages (without :delta-reasoning?) before last user message"
     (is (match?
          [{:role "user" :content "Q1"}
-          {:role "reason" :content {:text "thinking..."}}
           {:role "assistant" :content "A1"}
           {:role "user" :content "Q2"}
-          {:role "reason" :content {:text "more thinking..."}}
           {:role "assistant" :content "A2"}]
          (#'llm-providers.openai-chat/prune-history
           [{:role "user" :content "Q1"}
@@ -288,12 +287,30 @@
            {:role "assistant" :content "A1"}
            {:role "user" :content "Q2"}
            {:role "reason" :content {:text "more thinking..."}}
-           {:role "assistant" :content "A2"}]))))
+           {:role "assistant" :content "A2"}]
+          false))))
+
+  (testing "Preserves all reasoning when keep-history-reasoning is true (Bedrock)"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "reason" :content {:text "r1"}}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "reason" :content {:text "r2"}}
+          {:role "assistant" :content "A2"}]
+         (#'llm-providers.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "r1"}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "r2"}}
+           {:role "assistant" :content "A2"}]
+          true))))
 
   (testing "No user message leaves list unchanged"
     (let [msgs [{:role "assistant" :content "A"}
                 {:role "reason" :content {:text "r"}}]]
-      (is (= msgs (#'llm-providers.openai-chat/prune-history msgs))))))
+      (is (= msgs (#'llm-providers.openai-chat/prune-history msgs false))))))
 
 (deftest valid-message-test
   (testing "Tool messages are always kept"
