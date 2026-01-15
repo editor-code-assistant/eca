@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- Fix typos in development docs.
-
 ## 0.92.0
 
 - Fix Gemini (OpenAI compatible). #247
