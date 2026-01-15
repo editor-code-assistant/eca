@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `x-llm-application-name: eca` to prompt requests, useful to track and get metrics when using LLM gateways.
+
 ## 0.92.0
 
 - Fix Gemini (OpenAI compatible). #247
