@@ -206,6 +206,7 @@
         (let [url-relative-path (:completionUrlRelativePath provider-config)
               think-tag-start (:thinkTagStart provider-config)
               think-tag-end (:thinkTagEnd provider-config)
+              keep-history-reasoning (:keepHistoryReasoning model-config)
               http-client (:httpClient provider-config)]
           (handler
            {:model real-model
@@ -221,6 +222,7 @@
             :url-relative-path url-relative-path
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
+            :keep-history-reasoning keep-history-reasoning
             :http-client http-client
             :api-url api-url
             :api-key api-key}

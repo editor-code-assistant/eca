@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (OpenAI Chat) - Configurable reasoning history via `reasoningHistory` (model-level, default: all)
+
 ## 0.94.2
 
 - Fix autocompact not cleaning tokens in memory and thinking it should auto compact again.
