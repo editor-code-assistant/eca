@@ -21,7 +21,7 @@
       (.writeInt total-len)      ; Total Length
       (.writeInt 0)              ; Header Length
       ;; Header CRC (4 bytes dummy)
-      (.writeInt 0x00000000)    
+      (.writeInt 0x00000000)
       ;; Payload
       (.write payload-bytes)
       ;; Message CRC (4 bytes dummy)
@@ -46,17 +46,18 @@
                :content "{\"result\": 1}"
                :tool_call_id "123"
                :error false}
-          result (first (:content (bedrock/message->bedrock msg)))]
-      (is (= "123" (:toolUseId result)))
-      (is (= "success" (:status result)))
-      (is (= [{:json {:result 1}}] (:content result))))))
+          full-result (bedrock/message->bedrock msg)
+          result (first (:content full-result))]
+      (is (= "123" (get-in result [:toolResult :toolUseId])))
+      (is (= "success" (get-in result [:toolResult :status])))
+      (is (= [{:json {:result 1}}] (get-in result [:toolResult :content]))))))
 
 (deftest test-message->bedrock-assistant-tool-call
   (testing "Assistant tool calls formatted correctly"
     (let [tool-call {:id "123"
-                      :type "function"
-                      :function {:name "my_func"
-                                 :arguments "{\"x\": 1}"}}
+                     :type "function"
+                     :function {:name "my_func"
+                                :arguments "{\"x\": 1}"}}
           msg {:role "assistant" :tool_calls [tool-call]}
           result (first (:content (bedrock/message->bedrock msg)))]
       (is (= "123" (get-in result [:toolUse :toolUseId])))
@@ -84,7 +85,7 @@
           combined (byte-array (+ (alength frame1) (alength frame2)))]
       (System/arraycopy frame1 0 combined 0 (alength frame1))
       (System/arraycopy frame2 0 combined (alength frame1) (alength frame2))
-      
+
       (let [input-stream (ByteArrayInputStream. combined)
             events (bedrock/parse-event-stream input-stream)
             texts (bedrock/extract-text-deltas events)]
@@ -100,19 +101,20 @@
 
 (deftest test-parse-event-stream-with-tool-calls
   (testing "Parses stream with tool call events"
-    (let [payload1 "{"contentBlockDelta": {"delta": {"text": "Thinking"}}}"
-          payload2 "{"contentBlockDelta": {"delta": {"toolUse": {"toolUseId": "1", "name": "test_func", "input": {"x": 1}}}}}"
+    (let [payload1 "{\"contentBlockDelta\": {\"delta\": {\"text\": \"Thinking\"}}}"
+          payload2 "{\"contentBlockDelta\": {\"delta\": {\"toolUse\": {\"toolUseId\": \"1\", \"name\": \"test_func\", \"input\": {\"x\": 1}}}}}"
           frame1 (build-stream-frame payload1)
           frame2 (build-stream-frame payload2)
           combined (byte-array (+ (alength frame1) (alength frame2)))]
       (System/arraycopy frame1 0 combined 0 (alength frame1))
       (System/arraycopy frame2 0 combined (alength frame1) (alength frame2))
-      
+
       (let [input-stream (ByteArrayInputStream. combined)
-            events (bedrock/parse-event-stream input-stream)]
-        (is (= 2 (count events)))
-        (is (= "Thinking" (get-in events [0 :contentBlockDelta :delta :text])))
-        (is (= "test_func" (get-in events [1 :contentBlockDelta :delta :toolUse :name])))))))
+            events (bedrock/parse-event-stream input-stream)
+            event-vec (vec events)]
+        (is (= 2 (count event-vec)))
+        (is (= "Thinking" (get-in event-vec [0 :contentBlockDelta :delta :text])))
+        (is (= "test_func" (get-in event-vec [1 :contentBlockDelta :delta :toolUse :name])))))))
 
 ;; --- Tests: Response Parsing ---
 

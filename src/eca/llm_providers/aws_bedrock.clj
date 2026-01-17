@@ -180,6 +180,15 @@
 
 ;; --- Binary Stream Parser ---
 
+(defn- convert-keyword-values
+  "Convert keyword values to strings while preserving nested structures."
+  [x]
+  (cond
+    (map? x) (into {} (map (fn [[k v]] [k (convert-keyword-values v)]) x))
+    (vector? x) (vec (map convert-keyword-values x))
+    (and (keyword? x) (not (namespace x))) (name x)
+    :else x))
+
 (defn parse-event-stream
   "Parses AWS Event Stream (Binary format) from a raw InputStream.
 
@@ -225,7 +234,9 @@
            ;; 6. Parse JSON payload if present
            (if (> payload-len 0)
              (let [payload-str (String. payload-bytes "UTF-8")
-                   event (json/parse-string payload-str true)]
+                   event (json/parse-string payload-str true)
+                   ;; Convert keyword values back to strings
+                   event (convert-keyword-values event)]
                (cons event (parse-event-stream dis)))
              ;; Empty payload (heartbeat), continue to next event
              (parse-event-stream dis))))
