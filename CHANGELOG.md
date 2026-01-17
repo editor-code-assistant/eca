@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.92.2
+
 - Fix whitespace handle in uris. #270
 
 ## 0.92.1
