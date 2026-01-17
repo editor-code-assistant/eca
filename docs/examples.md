@@ -133,7 +133,7 @@ If you think your config is relevant to be shared for other people, [open a pull
         "customTools": {
             "clj-nrepl-eval": {
                 "description": "${file:tools/clj-nrepl-eval.md}",
-                "command": "clj-nrepl-eval -p $(cat .nrepl-port) $'{{code}}'",
+                "command": "read -r -d '' CLJ_PAYLOAD << 'Mjz9q5s8' || true\n{{code}}\nMjz9q5s8\nclj-nrepl-eval -p $(cat .nrepl-port) \"$CLJ_PAYLOAD\"",
                 "schema": {
                     "properties": {
                         "code": {

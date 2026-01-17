@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix whitespace handle in uris. #270
+
 ## 0.92.1
 
 - Add `x-llm-application-name: eca` to prompt requests, useful to track and get metrics when using LLM gateways.

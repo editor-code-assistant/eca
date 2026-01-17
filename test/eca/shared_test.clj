@@ -15,7 +15,10 @@
     (is (= (when h/windows? "C:\\Users\\FirstName LastName\\c.clj")
            (when h/windows? (shared/uri->filename "file:/c:/Users/FirstName%20LastName/c.clj"))))
     (is (= (when h/windows? "C:\\c.clj")
-           (when h/windows? (shared/uri->filename "file:///c:/c.clj"))))))
+           (when h/windows? (shared/uri->filename "file:///c:/c.clj")))))
+  (testing "Spaces"
+    (is (= (h/file-path "/Users/foo/Library/Some Document/comappleCloudDocs")
+           (shared/uri->filename (h/file-uri "file:///Users/foo/Library/Some Document/comappleCloudDocs"))))))
 
 (deftest assoc-some-test
   (testing "single association"
@@ -122,18 +125,18 @@
     (is (= "**" (shared/obfuscate "ab")))
     (is (= "****" (shared/obfuscate "abcd"))))
 
-    (testing "default preserve-num=3 with various lengths"
+  (testing "default preserve-num=3 with various lengths"
       ;; length 5: middle forced to at least 5 stars, preserve shrinks to floor(len/2)
-      (is (= "ab*****de" (shared/obfuscate "abcde")))
+    (is (= "ab*****de" (shared/obfuscate "abcde")))
       ;; length 6: prefix 3, 5 stars, suffix 3 => 11 chars
-      (is (= "abc*****def" (shared/obfuscate "abcdef")))
+    (is (= "abc*****def" (shared/obfuscate "abcdef")))
       ;; length 7: prefix 3, 5 stars, suffix 3 => 11 chars
-      (is (= "abc*****efg" (shared/obfuscate "abcdefg")))
+    (is (= "abc*****efg" (shared/obfuscate "abcdefg")))
       ;; length 10: prefix 3, 5 stars, suffix 3 => 11 chars
-      (is (= "abc*****hij" (shared/obfuscate "abcdefghij"))))
-  
-    (testing "respect (bounded) preserve-num"
+    (is (= "abc*****hij" (shared/obfuscate "abcdefghij"))))
+
+  (testing "respect (bounded) preserve-num"
       ;; preserve-num smaller than half the length
-      (is (= "a*****f" (shared/obfuscate "abcdef" :preserve-num 1)))
+    (is (= "a*****f" (shared/obfuscate "abcdef" :preserve-num 1)))
       ;; preserve-num larger than half the length is capped
-      (is (= "abc*****def" (shared/obfuscate "abcdef" :preserve-num 10)))))
+    (is (= "abc*****def" (shared/obfuscate "abcdef" :preserve-num 10)))))
