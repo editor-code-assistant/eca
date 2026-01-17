@@ -42,7 +42,7 @@
 
 (deftest test-message->bedrock-tool-result
   (testing "Tool result formatted correctly for user message"
-    (let [msg {:role "tool"
+    (let [msg {:role "tool_call"
                :content "{\"result\": 1}"
                :tool_call_id "123"
                :error false}
@@ -97,6 +97,22 @@
                   {:ping true}]
           result (bedrock/extract-text-deltas events)]
       (is (= ["Hi"] result)))))
+
+(deftest test-parse-event-stream-with-tool-calls
+  (testing "Parses stream with tool call events"
+    (let [payload1 "{"contentBlockDelta": {"delta": {"text": "Thinking"}}}"
+          payload2 "{"contentBlockDelta": {"delta": {"toolUse": {"toolUseId": "1", "name": "test_func", "input": {"x": 1}}}}}"
+          frame1 (build-stream-frame payload1)
+          frame2 (build-stream-frame payload2)
+          combined (byte-array (+ (alength frame1) (alength frame2)))]
+      (System/arraycopy frame1 0 combined 0 (alength frame1))
+      (System/arraycopy frame2 0 combined (alength frame1) (alength frame2))
+      
+      (let [input-stream (ByteArrayInputStream. combined)
+            events (bedrock/parse-event-stream input-stream)]
+        (is (= 2 (count events)))
+        (is (= "Thinking" (get-in events [0 :contentBlockDelta :delta :text])))
+        (is (= "test_func" (get-in events [1 :contentBlockDelta :delta :toolUse :name])))))))
 
 ;; --- Tests: Response Parsing ---
 
