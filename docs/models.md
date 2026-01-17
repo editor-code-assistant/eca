@@ -122,8 +122,11 @@ Examples:
     This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
 
 === "History reasoning"
+	`keepHistoryReasoning` - Determines whether the model's internal reasoning chain is persisted in the conversation history for subsequent turns.
 
-    `keepHistoryReasoning` preserves reasoning in conversation history. Set for specific models:
+	- **Standard Behavior**: Most models expect reasoning blocks (e.g., `<think>` tags or `reasoning_content`) to be removed in subsequent requests to save tokens and avoid bias.
+	- **Usage**: Enable this for models that explicitly support "preserved thinking," or if you want to experiment with letting the model see its previous thought process (with XML-based reasoning).
+	- **Example**: See [GLM-4.7 with Preserved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking).
 
     ```javascript title="~/.config/eca/config.json"
     {

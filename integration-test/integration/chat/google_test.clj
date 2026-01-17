@@ -167,7 +167,7 @@
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
-                      {:role "assistant" :content [{:type "output_text" :text "<thought>I should say hello</thought>\nhello there!"}]}
+                      {:role "assistant" :content [{:type "output_text" :text "hello there!"}]}
                       {:role "user" :content [{:type "input_text" :text "how are you?"}]}]
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :reasoning-1)))))))
