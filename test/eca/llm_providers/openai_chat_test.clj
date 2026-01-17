@@ -53,9 +53,9 @@
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"
     (is (match?
-         [{:role "user" :content [{:type "text" :text "List the files"}]}
+         [{:role "user" :content "List the files"}
           {:role "assistant"
-           :content [{:type "text" :text "I'll list the files for you"}]
+           :content "I'll list the files for you"
            :tool_calls [{:id "call-1"
                          :type "function"
                          :function {:name "eca__list_files"
@@ -63,7 +63,7 @@
           {:role "tool"
            :tool_call_id "call-1"
            :content "file1.txt\nfile2.txt\n"}
-          {:role "assistant" :content [{:type "text" :text "I found 2 files"}]}]
+          {:role "assistant" :content "I found 2 files"}]
          (#'llm-providers.openai-chat/normalize-messages
           [{:role "user" :content "List the files"}
            {:role "assistant" :content "I'll list the files for you"}
@@ -81,9 +81,8 @@
 
   (testing "Reason messages without reasoning-content use think tags, merged with following assistant"
     (is (match?
-         [{:role "user" :content [{:type "text" :text "Hello"}]}
-          {:role "assistant" :content [{:type "text" :text "<think>Thinking...</think>"}
-                                       {:type "text" :text "Hi"}]}]
+         [{:role "user" :content "Hello"}
+          {:role "assistant" :content "<think>Thinking...</think>\nHi"}]
          (#'llm-providers.openai-chat/normalize-messages
           [{:role "user" :content "Hello"}
            {:role "reason" :content {:text "Thinking..."}}
@@ -93,8 +92,8 @@
           thinking-end-tag)))))
 
 (deftest extract-content-test
-  (testing "String input"
-    (is (= [{:type "text" :text "Hello world"}]
+  (testing "String input - returns string for text-only content"
+    (is (= "Hello world"
            (#'llm-providers.openai-chat/extract-content "  Hello world  " true))))
 
   (testing "Sequential messages with actual format"
@@ -161,10 +160,10 @@
           thinking-end-tag))))
 
   (testing "Reason messages - use reasoning_content if :delta-reasoning?, otherwise tags"
-    ;; Without :delta-reasoning?, uses think tags
+    ;; Without :delta-reasoning?, uses think tags (string, not array - for Gemini compatibility)
     (is (match?
          {:role "assistant"
-          :content [{:type "text" :text "<think>Reasoning...</think>"}]}
+          :content "<think>Reasoning...</think>"}
          (#'llm-providers.openai-chat/transform-message
           {:role "reason"
            :content {:text "Reasoning..."}}
@@ -332,6 +331,279 @@
           thinking-start-tag
           thinking-end-tag)))))
 
+;; =============================================================================
+;; Gemini API compatibility tests
+;; These tests ensure proper message ordering and thought_signature preservation
+;; required by Google Gemini API.
+;;
+;; Gemini requires:
+;; 1. Function call turns come immediately after user/function response turns
+;; 2. thought_signature is preserved in functionCall parts
+;; =============================================================================
+
+(deftest gemini-message-ordering-test
+  (testing "Gemini: Sequential tool calls must be grouped - all tool_calls before outputs"
+    ;; ECA stores tool calls sequentially: [tool_call_1, output_1, tool_call_2, output_2]
+    ;; But Gemini expects: [assistant with all tool_calls, output_1, output_2]
+    ;; This tests that normalize-messages produces the correct ordering
+    (let [eca-messages [{:role "user" :content "Read two files"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file1.txt"}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file1.txt"}
+                                   :output {:contents [{:type :text :text "content1"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file2.txt"}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file2.txt"}
+                                   :output {:contents [{:type :text :text "content2"}]}}}
+                        {:role "assistant" :content "I read both files"}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      ;; After normalization, all tool_calls should be merged into one assistant message
+      ;; followed by all tool outputs, then the final assistant message
+      (is (match?
+           [{:role "user" :content "Read two files"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1" :function {:name "eca__read_file"}}
+                          {:id "call-2" :function {:name "eca__read_file"}}]}
+            {:role "tool" :tool_call_id "call-1" :content "content1\n"}
+            {:role "tool" :tool_call_id "call-2" :content "content2\n"}
+            {:role "assistant" :content "I read both files"}]
+           normalized)
+          "Tool calls must be grouped together before their outputs")))
+
+  (testing "Gemini: Single tool call ordering is preserved"
+    (let [eca-messages [{:role "user" :content "Read a file"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file.txt"}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :output {:contents [{:type :text :text "content"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant" :tool_calls [{:id "call-1"}]}
+            {:role "tool" :tool_call_id "call-1"}]
+           normalized))))
+
+  (testing "Gemini: Multiple separate tool call sequences are each grouped"
+    ;; User asks something -> tool call -> output -> assistant responds
+    ;; User asks again -> tool call -> output -> assistant responds
+    (let [eca-messages [{:role "user" :content "First request"}
+                        {:role "tool_call"
+                         :content {:id "call-1" :full-name "tool1" :arguments {}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1" :output {:contents [{:type :text :text "r1"}]}}}
+                        {:role "assistant" :content "First response"}
+                        {:role "user" :content "Second request"}
+                        {:role "tool_call"
+                         :content {:id "call-2" :full-name "tool2" :arguments {}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2" :output {:contents [{:type :text :text "r2"}]}}}
+                        {:role "assistant" :content "Second response"}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant" :tool_calls [{:id "call-1"}]}
+            {:role "tool" :tool_call_id "call-1"}
+            {:role "assistant" :content "First response"}
+            {:role "user"}
+            {:role "assistant" :tool_calls [{:id "call-2"}]}
+            {:role "tool" :tool_call_id "call-2"}
+            {:role "assistant" :content "Second response"}]
+           normalized)))))
+
+(deftest gemini-thought-signature-test
+  (testing "Gemini: thought_signature (external-id) is preserved through normalize-messages"
+    (let [eca-messages [{:role "user" :content "Do something"}
+                        {:role "tool_call"
+                         :content {:id "call-abc"
+                                   :full-name "eca__some_tool"
+                                   :arguments {:arg "value"}
+                                   :external-id "gemini-thought-sig-12345"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-abc"
+                                   :output {:contents [{:type :text :text "result"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-abc"
+                           :extra_content {:google {:thought_signature "gemini-thought-sig-12345"}}}]}
+            {:role "tool"}]
+           normalized)
+          "thought_signature must be preserved for Gemini API compatibility")))
+
+  (testing "Gemini: Multiple tool calls each preserve their thought_signatures"
+    (let [eca-messages [{:role "user" :content "Multi-tool request"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "tool1"
+                                   :arguments {}
+                                   :external-id "sig-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1" :output {:contents [{:type :text :text "r1"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2"
+                                   :full-name "tool2"
+                                   :arguments {}
+                                   :external-id "sig-2"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2" :output {:contents [{:type :text :text "r2"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1"
+                           :extra_content {:google {:thought_signature "sig-1"}}}
+                          {:id "call-2"
+                           :extra_content {:google {:thought_signature "sig-2"}}}]}
+            {:role "tool" :tool_call_id "call-1"}
+            {:role "tool" :tool_call_id "call-2"}]
+           normalized)
+          "Each tool call must preserve its own thought_signature")))
+
+  (testing "Gemini: Tool calls without external-id don't include extra_content"
+    (let [eca-messages [{:role "user" :content "Request"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "some_tool"
+                                   :arguments {}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1" :output {:contents [{:type :text :text "r"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)
+          tool-calls (-> normalized second :tool_calls)]
+      (is (nil? (:extra_content (first tool-calls)))
+          "Tool calls without external-id should not have extra_content"))))
+
+(deftest tool-turn-boundary-test
+  (testing "Tool-call step boundaries: sequential rounds must not be merged into one parallel tool_calls array"
+    ;; Problem:
+    ;; - ECA history can contain adjacent tool_call/tool_call_output messages from multiple model steps.
+    ;; - If we blindly reorder a contiguous tool-related block, we can accidentally merge sequential rounds
+    ;;   (step 1 tool call -> output -> step 2 tool call -> output) into a single parallel tool_calls turn.
+    ;;
+    ;; Expected:
+    ;; - Tool calls are grouped only within the same step (tool-turn), preserving sequential rounds.
+    (let [eca-messages [{:role "user" :content "Q"}
+                        {:role "tool_call"
+                         :content {:id "call-1" :full-name "tool1" :arguments {} :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r1"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2" :full-name "tool2" :arguments {} :tool-turn-id "turn-2"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2"
+                                   :tool-turn-id "turn-2"
+                                   :output {:contents [{:type :text :text "r2"}]}}}
+                        {:role "assistant" :content "Done"}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1" :function {:name "tool1"}}]}
+            {:role "tool" :tool_call_id "call-1" :content "r1\n"}
+            {:role "assistant"
+             :tool_calls [{:id "call-2" :function {:name "tool2"}}]}
+            {:role "tool" :tool_call_id "call-2" :content "r2\n"}
+            {:role "assistant" :content "Done"}]
+           normalized)))))
+
+(deftest tool-call-order-by-index-test
+  (testing "Parallel tool calls: normalize-messages sorts by :index within a tool turn"
+    ;; Chat history can record parallel tool calls in completion order (tool finishes first wins),
+    ;; but API payloads must preserve the model-provided order (tool_calls[].index).
+    (let [eca-messages [{:role "user" :content "Q"}
+                        ;; Completion order: 3, 2, 1 (but indices indicate model order: 1, 2, 3)
+                        {:role "tool_call"
+                         :content {:id "call-3" :full-name "tool3" :arguments {} :index 2 :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-3"
+                                   :index 2
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r3"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2" :full-name "tool2" :arguments {} :index 1 :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2"
+                                   :index 1
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r2"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-1" :full-name "tool1" :arguments {} :index 0 :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :index 0
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r1"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1" :function {:name "tool1"}}
+                          {:id "call-2" :function {:name "tool2"}}
+                          {:id "call-3" :function {:name "tool3"}}]}
+            {:role "tool" :tool_call_id "call-1" :content "r1\n"}
+            {:role "tool" :tool_call_id "call-2" :content "r2\n"}
+            {:role "tool" :tool_call_id "call-3" :content "r3\n"}]
+           normalized)))))
+
+(deftest execute-accumulated-tools-ordering-test
+  (testing "Streaming tool calls: execution order must follow :index, not map iteration order"
+    ;; Problem:
+    ;; - Streaming tool call deltas are accumulated into a map.
+    ;; - Using (vals map) produces an undefined order, which can reorder tool calls.
+    ;;
+    ;; Expected:
+    ;; - Tool calls are executed (and later recorded) in ascending :index order.
+    (let [tool-calls* (atom (sorted-map
+                             ;; Key order is intentionally the opposite of :index order.
+                             "a" {:index 1 :id "call-2" :full-name "tool2" :arguments-text "{}"}
+                             "b" {:index 0 :id "call-1" :full-name "tool1" :arguments-text "{}"}))
+          result (#'llm-providers.openai-chat/execute-accumulated-tools!
+                  tool-calls*
+                  (fn [tools-to-call _ _] tools-to-call)
+                  nil
+                  nil)]
+      (is (= ["call-1" "call-2"] (mapv :id result)))))
+  (testing "Streaming tool calls: when :index is missing, execution order must follow stream arrival order (not :id sorting)"
+    ;; Problem:
+    ;; - Some OpenAI-compatible providers emit tool_calls without tool_calls[].index.
+    ;; - If we fall back to sorting by :id, approval/execution order can disagree with the UI's
+    ;;   toolCallPrepare order, making the UX appear to jump between tool calls.
+    ;;
+    ;; Expected:
+    ;; - When :index is absent, preserve the stream arrival order via a stable :stream-order field.
+    (let [tool-calls* (atom {"k1" {:stream-order 0 :id "z-call" :full-name "tool-z" :arguments-text "{}"}
+                             "k2" {:stream-order 1 :id "a-call" :full-name "tool-a" :arguments-text "{}"}})
+          result (#'llm-providers.openai-chat/execute-accumulated-tools!
+                  tool-calls*
+                  (fn [tools-to-call _ _] tools-to-call)
+                  nil
+                  nil)]
+      (is (= ["z-call" "a-call"] (mapv :id result))))))
+
 (defn process-text-think-aware [texts]
   (let [reasoning-state* (atom {:id nil :type nil :content "" :buffer ""})
         callbacks-called* (atom [])]
@@ -495,7 +767,7 @@
       (is (= "think more" (:reason-text result)))
       (is (some? (:reasoning-content result)) "reasoning-content should be present in non-streaming result")
       (is (match?
-           [{:role "user" :content [{:type "text" :text "Q"}]}
+           [{:role "user" :content "Q"}
             {:role "assistant"
              :reasoning_content "think more"}]
            normalized)))))

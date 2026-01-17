@@ -22,13 +22,26 @@
       (send-msg! (reduce
                   (fn [s provider]
                     (str s "- " provider "\n"))
-                  "Choose a provider:\n"
+                  "Inform the provider:\n\n"
                   providers)))))
 
 (defn handle-step [{:keys [message chat-id]} db* messenger config metrics]
   (let [provider (get-in @db* [:chats chat-id :login-provider])
         step (get-in @db* [:auth provider :step] :login/start)
         input (string/trim message)
+        send-msg! (fn [msg]
+                      (messenger/chat-content-received
+                       messenger
+                       {:chat-id chat-id
+                        :role "system"
+                        :content {:type :text
+                                  :text msg}})
+                      (messenger/chat-content-received
+                       messenger
+                       {:chat-id chat-id
+                        :role "system"
+                        :content {:type :progress
+                                  :state :finished}}))
         ctx {:chat-id chat-id
              :step step
              :input input
@@ -37,28 +50,24 @@
              :messenger messenger
              :metrics metrics
              :provider provider
-             :send-msg! (fn [msg]
-                          (messenger/chat-content-received
-                           messenger
-                           {:chat-id chat-id
-                            :role "system"
-                            :content {:type :text
-                                      :text msg}})
-                          (messenger/chat-content-received
-                           messenger
-                           {:chat-id chat-id
-                            :role "system"
-                            :content {:type :progress
-                                      :state :finished}}))}]
+             :send-msg! send-msg!}]
     (messenger/chat-content-received
      messenger
      {:chat-id chat-id
       :role "user"
       :content {:type :text
                 :text (str input "\n")}})
-    (login-step ctx)
-    {:chat-id chat-id
-     :status :login}))
+    (if (= "cancel" input)
+      (do
+        (send-msg! "Login cancelled")
+        (swap! db* assoc-in [:chats chat-id :login-provider] nil)
+        (swap! db* assoc-in [:chats chat-id :status] :idle)
+        {:chat-id chat-id
+         :status :idle})
+      (do
+        (login-step ctx)
+        {:chat-id chat-id
+         :status :login}))))
 
 (defn ^:private renew-auth!
   [provider

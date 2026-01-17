@@ -35,13 +35,20 @@
                       (mapcat (fn [^InsertDelta delta]
                                 (.getLines (.getRevised delta))))
                       count))
-         changed (if new-file?
-                   0
-                   (->> deltas
-                        (filter #(instance? ChangeDelta %))
-                        (mapcat (fn [^ChangeDelta delta]
-                                  (.getLines (.getRevised delta))))
-                        count))
+         changed-added (if new-file?
+                         0
+                         (->> deltas
+                              (filter #(instance? ChangeDelta %))
+                              (mapcat (fn [^ChangeDelta delta]
+                                        (.getLines (.getRevised delta))))
+                              count))
+         changed-removed (if new-file?
+                           0
+                           (->> deltas
+                                (filter #(instance? ChangeDelta %))
+                                (mapcat (fn [^ChangeDelta delta]
+                                          (.getLines (.getOriginal delta))))
+                                count))
          removed (if new-file?
                    0
                    (->> deltas
@@ -49,8 +56,8 @@
                         (mapcat (fn [^DeleteDelta delta]
                                   (.getLines (.getOriginal delta))))
                         count))]
-     {:added (+ added changed)
-      :removed (+ removed changed)
+     {:added (+ added changed-added)
+      :removed (+ removed changed-removed)
       :diff
       (->> (DiffUtils/generateUnifiedDiff file file original-lines patch 3)
            (drop 2) ;; removes file header

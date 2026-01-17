@@ -3,7 +3,7 @@
 ## Building local
 
 - Install [babashka](https://babashka.org/).
-- Run `bb debug-cli`, it will geneate a JVM embeeded binary at project root where yuo can just `./eca`.
+- Run `bb debug-cli`, it will generate a JVM embedded binary at project root where you can just `./eca`.
 
 ## Project structure
 
@@ -40,10 +40,10 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/main.clj`       | The CLI interface.
    `src/eca/nrepl.clj`      | Starts an nREPL when `:debug` flag is passed.
 
-Together these files implement the request flow: 
+Together these files implement the request flow:
 
 `client/editor` → `stdin JSON-RPC` → `handlers` → `features` → `llm_api` → `llm_provider` → results streamed back.
-   
+
 With this map you can usually answer:
 
 - _"Where does request X enter the system?"_ – look in `handlers.clj`.
@@ -58,7 +58,7 @@ Run with `bb test` or run test via Clojure REPL. CI will run the same task.
 
 Run with `bb integration-test`, it will use your `eca` binary project root to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor.
 
-## Coding 
+## Coding
 
 There are several ways of finding and fixing a bug or implementing a new feature:
 
@@ -85,7 +85,7 @@ This step-by-step feature implementation help track progress and next steps:
   - [ ] Support `initialize` and `initialized` methods.
   - [ ] Support `exit` and `shutdown` methods.
 - Chat
-  - [ ] Oepn chat window
+  - [ ] Open chat window
   - [ ] Send user messages via `chat/prompt` request.
   - [ ] Clear chat and Reset chat.
   - [ ] Support receive chat contents via `chat/contentReceived` notification.
@@ -106,4 +106,4 @@ This step-by-step feature implementation help track progress and next steps:
 
 Create a issue to help track the effort copying and pasting these check box to help track progress, [example](https://github.com/editor-code-assistant/eca/issues/5).
 
-Please provide feedback of the dificulties implementing your server, especially missing docs, to make next integrations smoother!
+Please provide feedback of the difficulties implementing your server, especially missing docs, to make next integrations smoother!

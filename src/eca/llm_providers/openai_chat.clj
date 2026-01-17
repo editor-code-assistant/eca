@@ -25,13 +25,12 @@
 
 (defn ^:private extract-content
   "Extract text content from various message content formats.
-   Handles: strings (legacy eca), nested arrays from chat.clj, and fallback."
+   Returns a string for text-only content, and an array only when images are present (multimodal)."
   [content supports-image?]
   (cond
     ;; Legacy/fallback: handles system messages, error strings, or unexpected simple text content
     (string? content)
-    [{:type "text"
-      :text (string/trim content)}]
+    (string/trim content)
 
     (and (sequential? content)
          (every? #(= "text" (name (:type %))) content))
@@ -71,15 +70,18 @@
   (when (> (count choices) 1)
     (throw (ex-info "Multiple choices in response!" {})))
   (let [message (-> choices first :message)
+        tool-turn-id (when (seq (:tool_calls message)) (str (random-uuid)))
         tools-to-call (->> (:tool_calls message)
-                           (map (fn [tool-call]
-                                  (cond-> {:id (:id tool-call)
-                                           :full-name (:name (:function tool-call))
-                                           :arguments (json/parse-string (:arguments (:function tool-call)))}
-                                     ;; Preserve Google Gemini thought signatures
-                                    (get-in tool-call [:extra_content :google :thought_signature])
-                                    (assoc :external-id
-                                           (get-in tool-call [:extra_content :google :thought_signature]))))))
+                           (map-indexed (fn [idx tool-call]
+                                          (cond-> {:index idx
+                                                   :id (:id tool-call)
+                                                   :full-name (:name (:function tool-call))
+                                                   :arguments (json/parse-string (:arguments (:function tool-call)))}
+                                            tool-turn-id (assoc :tool-turn-id tool-turn-id)
+                                            ;; Preserve Google Gemini thought signatures
+                                            (get-in tool-call [:extra_content :google :thought_signature])
+                                            (assoc :external-id
+                                                   (get-in tool-call [:extra_content :google :thought_signature]))))))
         ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
         reasoning-content (:reasoning_content message)]
     {:usage (parse-usage usage)
@@ -102,9 +104,10 @@
                    (fn [error-data]
                      (llm-util/log-response logger-tag rid "response-error" error-data)
                      {:error error-data}))
-        headers (merge {"Authorization" (str "Bearer " api-key)
-                        "Content-Type" "application/json"}
-                       extra-headers)]
+        headers (client/merge-llm-headers
+                 (merge {"Authorization" (str "Bearer " api-key)
+                         "Content-Type" "application/json"}
+                        extra-headers))]
     (llm-util/log-request logger-tag rid url body headers)
     @(http/post
       url
@@ -163,8 +166,7 @@
                 :reasoning_content (:text content)}
                ;; Fallback: wrap in thinking tags for models that use text-based reasoning
                {:role "assistant"
-                :content [{:type "text"
-                           :text (str think-tag-start (:text content) think-tag-end)}]})
+                :content (str think-tag-start (:text content) think-tag-end)})
     "assistant" {:role "assistant"
                  :content (extract-content content supports-image?)}
     "system" {:role "system"
@@ -237,17 +239,44 @@
            (not (string/blank? content)))
       (sequential? content)))
 
+(defn- reorder-tool-turn
+  "Reorder messages: all tool_calls first (by index), then outputs (matching call order)."
+  [turn]
+  (let [{calls "tool_call" outputs "tool_call_output"} (group-by :role turn)
+        sorted-calls (sort-by #(get-in % [:content :index] Long/MAX_VALUE) calls)
+        call-id->pos (into {} (map-indexed (fn [i m] [(get-in m [:content :id]) i]) sorted-calls))]
+    (concat sorted-calls (sort-by #(call-id->pos (get-in % [:content :id])) outputs))))
+
+(defn- group-parallel-tool-calls
+  "Groups tool_calls before their outputs, respecting tool-turn boundaries."
+  [messages]
+  (let [tool-msg? #(contains? #{"tool_call" "tool_call_output"} (:role %))]
+    (->> messages
+         (partition-by tool-msg?)
+         (mapcat (fn [group]
+                   (if-not (tool-msg? (first group))
+                     group
+                     ;; Reorder within the same tool-turn to avoid merging sequential
+                     ;; tool-call steps into a single parallel tool_calls turn.
+                     (let [turn-id #(get-in % [:content :tool-turn-id])]
+                       (->> (if (some turn-id group)
+                              (partition-by turn-id group)
+                              [group])
+                            (mapcat reorder-tool-turn)))))))))
+
 (defn ^:private normalize-messages
   "Converts ECA message format to OpenAI API format (also used by compatible providers).
 
    Key transformations:
+   - Groups parallel tool calls (tool_call messages) before their outputs
    - Transforms each ECA message to API format (tool_call -> assistant with tool_calls, etc.)
    - Merges adjacent assistant messages (required by OpenAI/DeepSeek APIs)
    - Filters out invalid/empty messages
 
-   The pipeline: transform -> merge adjacent assistants -> filter valid"
+   The pipeline: group tool calls -> transform -> merge adjacent assistants -> filter valid"
   [messages supports-image? think-tag-start think-tag-end]
   (->> messages
+       group-parallel-tool-calls
        (map #(transform-message % supports-image? think-tag-start think-tag-end))
        (remove nil?)
        merge-adjacent-assistants
@@ -255,7 +284,10 @@
 
 (defn ^:private execute-accumulated-tools!
   [tool-calls* on-tools-called-wrapper on-tools-called handle-response]
-  (let [all-accumulated (vals @tool-calls*)
+  (let [all-accumulated (->> (vals @tool-calls*)
+                             ;; The accumulator is a map; ensure deterministic tool execution order.
+                             ;; :index comes from OpenAI API, :stream-order is fallback for providers without it.
+                             (sort-by #(or (:index %) (:stream-order %) 0)))
         completed-tools (->> all-accumulated
                              (filter #(every? % [:id :full-name :arguments-text]))
                              (map (fn [{:keys [arguments-text full-name] :as tool-call}]
@@ -268,11 +300,12 @@
                                           (assoc tool-call :arguments {} :parse-error error-msg)))))))
         ;; Filter out tool calls with parse errors to prevent execution with invalid data
         valid-tools (remove :parse-error completed-tools)]
-    (if (seq valid-tools)
+    (when (seq valid-tools)
       ;; We have valid tools to execute, continue the conversation
-      (on-tools-called-wrapper valid-tools on-tools-called handle-response)
-      ;; No valid tools (all had parse errors or none accumulated) - don't loop
-      nil)))
+      (let [tool-turn-id (str (random-uuid))
+            tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) valid-tools)]
+        (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
+        tools-with-turn-id))))
 
 (defn ^:private process-text-think-aware
   "Incremental parser that splits streamed content into user text and thinking blocks.
@@ -432,8 +465,9 @@
                                          :buffer "")
                                   (on-reason {:status :started :id new-reason-id})))
         find-existing-tool-key (fn [tool-calls index id]
+                                 ;; Find existing tool call by id match, or by index when delta has no id
                                  (some (fn [[k v]] (when (or (some-> id (= (:id v)))
-                                                             (and (nil? (:id v))
+                                                             (and (nil? id)
                                                                   (some-> index (= (:index v)))))
                                                      k))
                                        tool-calls))
@@ -459,11 +493,15 @@
 
         handle-response (fn handle-response [event data tool-calls*]
                           (if (= event "stream-end")
-                            (do
+                            (let [had-tool-calls? (seq @tool-calls*)]
                               ;; Flush any leftover buffered content and finish reasoning if needed
                               (flush-content-buffer)
                               (finish-reasoning! reasoning-state* on-reason)
-                              (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
+                              (when (and had-tool-calls?
+                                         (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response)))
+                                ;; The stream ended with tool_calls, but none were executable (e.g. invalid JSON args).
+                                ;; Emit :finish so the UI does not hang waiting for the next turn.
+                                (on-message-received {:type :finish :finish-reason "stop"})))
                             (when (seq (:choices data))
                               (doseq [choice (:choices data)]
                                 (let [delta (:delta choice)
@@ -504,20 +542,27 @@
                                             thought-signature (get-in extra_content [:google :thought_signature])
                                             existing-key (find-existing-tool-key @tool-calls* index id)
                                             existing (when existing-key (get @tool-calls* existing-key))
-                                            tool-key (or existing-key index id)]
+                                            ;; Prefer id over index - Gemini sends all parallel tool calls with index=0
+                                            tool-key (or existing-key id index)]
                                         (if (nil? tool-key)
                                           (logger/warn logger-tag "Received tool_call delta without index/id; ignoring"
                                                        {:tool-call tool-call})
                                           (do
-                                            (swap! tool-calls* update tool-key
-                                                   (fn [existing]
-                                                     (cond-> (or existing {:index index})
-                                                       (some? index) (assoc :index index)
-                                                       (and id (nil? (:id existing))) (assoc :id id)
-                                                       (and name (nil? (:full-name existing))) (assoc :full-name name)
-                                                       args (update :arguments-text (fnil str "") args)
-                                                       ;; Store thought signature for Google Gemini
-                                                       thought-signature (assoc :external-id thought-signature))))
+                                            (swap! tool-calls*
+                                                   (fn [tool-calls]
+                                                     (let [existing (get tool-calls tool-key)
+                                                           created? (nil? existing)
+                                                           tool-call (cond-> (or existing {:index index})
+                                                                       ;; Providers may omit tool_calls[].index; preserve
+                                                                       ;; stream arrival order for a stable UX fallback.
+                                                                       created? (assoc :stream-order (count tool-calls))
+                                                                       (some? index) (assoc :index index)
+                                                                       (and id (nil? (:id existing))) (assoc :id id)
+                                                                       (and name (nil? (:full-name existing))) (assoc :full-name name)
+                                                                       args (update :arguments-text (fnil str "") args)
+                                                                       ;; Store thought signature for Google Gemini
+                                                                       thought-signature (assoc :external-id thought-signature))]
+                                                       (assoc tool-calls tool-key tool-call))))
                                             (when-let [updated-tool-call (get @tool-calls* tool-key)]
                                               ;; Streaming tool_calls may split metadata (id/name) and arguments across deltas.
                                               ;; Emit prepare once we can correlate the call (id + full-name), on first id or args deltas,
@@ -535,7 +580,11 @@
                                     ;; Handle reasoning completion
                                     (finish-reasoning! reasoning-state* on-reason)
                                     ;; Handle regular finish
-                                    (when (not= finish-reason "tool_calls")
+                                    ;; Some OpenAI-compatible providers (e.g. Google's) may emit finish_reason "stop"
+                                    ;; even when the turn contains tool_calls. In that case, defer :finish until after
+                                    ;; the tool loop completes, otherwise chat-level side effects may run too early.
+                                    (when (and (not= finish-reason "tool_calls")
+                                               (empty? @tool-calls*))
                                       (on-message-received {:type :finish :finish-reason finish-reason})))))))
                           (when-let [usage (:usage data)]
                             (on-usage-updated (parse-usage usage))))

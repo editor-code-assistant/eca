@@ -27,7 +27,7 @@
     (is (match?
          {:error true
           :contents [{:type :text
-                      :text "Exit code 1"}
+                      :text "Exit code: 1"}
                      {:type :text
                       :text "Stderr:\nSome error"}]}
          (with-redefs [fs/exists? (constantly true)
@@ -41,7 +41,11 @@
     (is (match?
          {:error false
           :contents [{:type :text
-                      :text "Some text"}]}
+                      :text "Exit code: 0"}
+                     {:type :text
+                      :text "Stderr:\nOther text"}
+                     {:type :text
+                      :text "Stdout:\nSome text"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
            ((get-in f.tools.shell/definitions ["shell_command" :handler])
@@ -53,9 +57,11 @@
     (is (match?
          {:error false
           :contents [{:type :text
-                      :text "Some text"}]}
+                      :text "Exit code: 0"}
+                     {:type :text
+                      :text "Stdout:\nSome text"}]}
          (with-redefs [fs/exists? (constantly true)
-                       p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
+                       p/process (constantly (future {:exit 0 :out "Some text"}))]
            ((get-in f.tools.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/project/foo/src")}
@@ -86,9 +92,11 @@
       (is (match?
            {:error false
             :contents [{:type :text
-                        :text "also ok"}]}
+                        :text "Exit code: 0"}
+                       {:type :text
+                        :text "Stdout:\nalso ok"}]}
            (with-redefs [fs/exists? (constantly true)
-                         p/process (constantly (reset! proc (future {:exit 0 :err "ok" :out "also ok"})))]
+                         p/process (constantly (reset! proc (future {:exit 0 :out "also ok"})))]
              ((get-in f.tools.shell/definitions ["shell_command" :handler])
               {"command" "ls -lh"}
               {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -117,7 +125,9 @@
     (are [command] (match?
                     {:error false
                      :contents [{:type :text
-                                 :text "Some output"}]}
+                                 :text "Exit code: 0"}
+                                {:type :text
+                                 :text "Stdout:\nSome output"}]}
                     (with-redefs [fs/exists? (constantly true)
                                   p/process (constantly (future {:exit 0 :out "Some output"}))]
                       ((get-in f.tools.shell/definitions ["shell_command" :handler])

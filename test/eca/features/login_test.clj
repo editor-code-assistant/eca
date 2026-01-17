@@ -22,7 +22,7 @@
                          :send-msg! send-msg!})
 
       (testing "should ask to choose a provider"
-        (is (= "Choose a provider:\n- github-copilot\n- google\n"
+        (is (= "Inform the provider:\n\n- github-copilot\n- google\n"
                (last @msg-log)))))
 
     (testing "user is confused"
@@ -34,7 +34,7 @@
                          :send-msg! send-msg!})
 
       (testing "should ask to choose a provider and provide instructions"
-        (is (= "Choose a provider:\n- github-copilot\n- google\n"
+        (is (= "Inform the provider:\n\n- github-copilot\n- google\n"
                (last @msg-log)))
 
         (testing "state didn't change"
@@ -55,7 +55,8 @@
                            :send-msg! send-msg!}))
 
       (testing "should proceed to the next step"
-        (is (re-find #"(?m)Open your browser at `https://mock.github.com/login/device` and authenticate using the code: `.+`\nThen type anything in the chat and send it to continue the authentication."
+        (println @msg-log)
+        (is (re-find #"(?m)Open your browser at:\n\nhttps://mock.github.com/login/device\n\nAuthenticate using the code: `.+`\nThen type anything in the chat and send it to continue the authentication."
                      (last @msg-log)))
 
         (testing "state is update to reflect in-progress login"

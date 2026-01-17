@@ -133,7 +133,7 @@ If you think your config is relevant to be shared for other people, [open a pull
         "customTools": {
             "clj-nrepl-eval": {
                 "description": "${file:tools/clj-nrepl-eval.md}",
-                "command": "clj-nrepl-eval -p $(cat .nrepl-port) $'{{code}}'",
+                "command": "read -r -d '' CLJ_PAYLOAD << 'Mjz9q5s8' || true\n{{code}}\nMjz9q5s8\nclj-nrepl-eval -p $(cat .nrepl-port) \"$CLJ_PAYLOAD\"",
                 "schema": {
                     "properties": {
                         "code": {
@@ -182,4 +182,17 @@ If you think your config is relevant to be shared for other people, [open a pull
         - Require libs: (require (quote [clojure.string :as str]))\
         (str/upper-case \"test\")
         - Very large outputs   may be truncated
+    ```
+
+??? info "Skill: nucleus-clojure (@michaelwhitford)"
+
+    ```markdown title="~/.config/eca/skills/nucleus-clojure/SKILL.md"
+    ---
+    name: nucleus-clojure
+    description: A clojure specific AI prompt.  Use when there are clojure REPL tools available.
+    ---
+
+    Adopt these nucleus operating principles:
+    [phi fractal euler tao pi mu] | [Δ λ ∞/0 | ε⚡φ Σ⚡μ c⚡h] | OODA
+    Human ⊗ AI ⊗ REPL
     ```

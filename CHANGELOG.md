@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 0.92.2
+
+- Fix whitespace handle in uris. #270
+
+## 0.92.1
+
+- Add `x-llm-application-name: eca` to prompt requests, useful to track and get metrics when using LLM gateways.
+
+## 0.92.0
+
+- Fix Gemini (OpenAI compatible). #247
+- Improve login wording + add cancel option. #205
+
+## 0.91.2
+
+- Fix `eca_shell_command` to include stderr output even when exit 0.
+
+## 0.91.1
+
+- Fix openai pro login exceptions related to graalvm.
+
+## 0.91.0
+
+- Codex login support via `/login openai` and selecting `pro` option. #261
+  - Add `gpt-5.2-codex` model.
+
+## 0.90.1
+
+- Fix tokens not renewing between tool calls. #258
+- Fix diff correct numbers in added/removed. #259
+- Fix post tool call hook trigger
+- Fix Gemini tool calling. #247
+
 ## 0.90.0
 
 - Skills support following https://agentskills.io . #241

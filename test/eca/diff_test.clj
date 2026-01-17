@@ -47,6 +47,32 @@
       (is (some #{"+c"} lines) "diff should include +c line")
       (is (some #{"+d"} lines) "diff should include +d line"))))
 
+(deftest diff-bug-259-test
+  (testing "replacing one line with many lines should count correctly (bug #259)"
+    (let [original (string/join "\n" ["line1" "line-to-remove" "line3"])
+          revised (string/join "\n" (concat ["line1"]
+                                            (map #(str "new-line-" %) (range 1 29))
+                                            ["line3"]))
+          {:keys [added removed diff]} (diff/diff original revised "file.txt")
+          lines (split-diff-lines diff)]
+      (is (= 28 added) "28 lines were added")
+      (is (= 1 removed) "1 line was removed, not 28")
+      (is (some #{"-line-to-remove"} lines) "diff should include removed line")
+      (is (some #{"+new-line-1"} lines) "diff should include first new line")
+      (is (some #{"+new-line-28"} lines) "diff should include last new line")))
+
+  (testing "replacing many lines with one line should count correctly"
+    (let [original (string/join "\n" (concat ["line1"]
+                                             (map #(str "old-line-" %) (range 1 11))
+                                             ["line3"]))
+          revised (string/join "\n" ["line1" "replacement" "line3"])
+          {:keys [added removed diff]} (diff/diff original revised "file.txt")
+          lines (split-diff-lines diff)]
+      (is (= 1 added) "1 line was added")
+      (is (= 10 removed) "10 lines were removed")
+      (is (some #{"-old-line-1"} lines) "diff should include first removed line")
+      (is (some #{"+replacement"} lines) "diff should include replacement line"))))
+
 (deftest unified-diff-counts-test
   (testing "counts added and removed lines from unified diff"
     (let [example-diff (string/join "\n" ["--- original.txt"
