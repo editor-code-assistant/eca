@@ -1,24 +1,24 @@
 (ns eca.llm-providers.aws-bedrock
   "AWS Bedrock provider implementation using Converse/ConverseStream APIs.
-  
+
    AUTHENTICATION:
    This implementation uses Bearer token authentication, which requires
    an external proxy/gateway that handles AWS SigV4 signing.
-  
+
    Set BEDROCK_API_KEY environment variable or configure :key in config.clj
    with a token provided by your authentication proxy.
-  
+
    ENDPOINTS:
-   - Standard: https://your-proxy.com/model/{modelId}/converse
-   - Streaming: https://your-proxy.com/model/{modelId}/converse-stream
-  
+  - Standard: https://your-proxy.com/model/{modelId}/converse
+  - Streaming: https://your-proxy.com/model/{modelId}/converse-stream
+
    Configure the :url in your provider config to point to your proxy endpoint."
   (:require
    [cheshire.core :as json]
    [clojure.string :as str]
    [eca.logger :as logger]
    [hato.client :as http])
-  (:import (java.io DataInputStream BufferedInputStream ByteArrayInputStream)))
+  (:import (java.io DataInputStream BufferedInputStream)))
 
 ;; --- Helper Functions ---
 
@@ -30,88 +30,132 @@
     (or (:modelName model-config)
         (name model-alias))))
 
-(defn format-tool-spec [tool]
+(defn format-tool-spec
+  "Convert ECA tool format to AWS Bedrock toolSpec format."
+  [tool]
   (let [f (:function tool)]
     {:toolSpec {:name (:name f)
                 :description (:description f)
-                ;; AWS requires inputSchema wrapped in "json" key
                 :inputSchema {:json (:parameters f)}}}))
 
-(defn format-tool-config [tools]
+(defn format-tool-config
+  "Format tools into AWS Bedrock toolConfig structure."
+  [tools]
   (let [tools-seq (if (sequential? tools) tools [tools])]
     (when (seq tools-seq)
       {:tools (mapv format-tool-spec tools-seq)})))
 
-(defn parse-tool-result [content tool-call-id is-error?]
+(defn parse-tool-result
+  "Parse tool execution result into AWS Bedrock toolResult format.
+
+   Handles both JSON objects and plain text responses.
+   AWS Bedrock accepts content as either {:json ...} or {:text ...}."
+  [content tool-call-id is-error?]
   (let [inner-content (try
                         (if is-error?
                           [{:text (str content)}]
-                          [{:json (json/parse-string content true)}])
-                        (catch Exception _
+                          ;; Try to parse as JSON for structured results
+                          (let [parsed (if (string? content)
+                                         (json/parse-string content true)
+                                         content)]
+                            (if (or (map? parsed) (vector? parsed))
+                              [{:json parsed}]
+                              [{:text (str content)}])))
+                        (catch Exception e
+                          (logger/debug "Failed to parse tool result as JSON, using text" e)
                           [{:text (str content)}]))]
-    {:toolUseId tool-call-id
-     :content inner-content
-     :status (if is-error? "error" "success")}))
+    {:toolResult {:toolUseId tool-call-id
+                  :content inner-content
+                  :status (if is-error? "error" "success")}}))
 
-(defn message->bedrock [msg]
+(defn message->bedrock
+  "Convert ECA message format to AWS Bedrock Converse API format.
+
+   Message role mappings:
+  - system: Handled separately in system blocks
+  - user: Maps to user role with text content
+  - assistant: Maps to assistant role with text or toolUse content
+  - tool_call: Maps to user role with toolResult content (AWS requirement)"
+  [msg]
   (case (:role msg)
-    "tool"
+    ;; AWS Bedrock requires tool results in a user message with toolResult block
+    ;; ECA uses 'tool_call' role following OpenAI convention
+    "tool_call"
     {:role "user"
      :content [(parse-tool-result (:content msg)
                                   (:tool_call_id msg)
                                   (:error msg))]}
-    
+
     "assistant"
     {:role "assistant"
      :content (if (:tool_calls msg)
+                ;; Assistant requesting tool calls
                 (mapv (fn [tc]
                         {:toolUse {:toolUseId (:id tc)
                                    :name (get-in tc [:function :name])
-                                   :input (json/parse-string 
-                                          (get-in tc [:function :arguments]) keyword)}})
+                                   :input (json/parse-string
+                                           (get-in tc [:function :arguments]) keyword)}})
                       (:tool_calls msg))
+                ;; Standard assistant text response
                 [{:text (:content msg)}])}
-    
-    ;; Default/User
+
+    ;; Default: user role with text content
     {:role "user"
      :content [{:text (:content msg)}]}))
 
-(defn build-payload [messages options]
+(defn build-payload
+  "Build AWS Bedrock Converse API request payload from messages and options.
+
+   CRITICAL: For tool-enabled conversations, the caller (ECA core) MUST include
+   tool definitions in options for every request after tools are first used.
+   AWS Bedrock requires consistent toolConfig throughout the conversation."
+  [messages options]
   (let [system-prompts (filter #(= (:role %) "system") messages)
         conversation (->> messages
                           (remove #(= (:role %) "system"))
                           (mapv message->bedrock))
         system-blocks (mapv (fn [m] {:text (:content m)}) system-prompts)
-        
+
         ;; Base inference config
         base-config {:maxTokens (or (:max_tokens options) (:maxTokens options) 1024)
                      :temperature (or (:temperature options) 0.7)
                      :topP (or (:top_p options) (:topP options) 1.0)}
-        
+
         ;; Additional model-specific fields (e.g., top_k for Claude)
         additional-fields (select-keys options [:top_k :topK])]
-    
+
     (cond-> {:messages conversation
-             :inferenceConfig (merge base-config 
-                                    (select-keys options [:stopSequences]))}
-      (seq system-blocks) 
+             :inferenceConfig (merge base-config
+                                     (select-keys options [:stopSequences]))}
+      ;; Add system prompts if present
+      (seq system-blocks)
       (assoc :system system-blocks)
-      
-      (:tools options) 
+
+      ;; CRITICAL FIX: Only send toolConfig if tools are explicitly provided.
+      ;; AWS Bedrock requires the full tool definitions if tools are active.
+      ;; Sending an empty list {:tools []} causes a 400 error.
+      ;; The caller (ECA core) is responsible for managing tool state.
+      (:tools options)
       (assoc :toolConfig (format-tool-config (:tools options)))
-      
-      ;; Add additionalModelRequestFields if present
+
+      ;; Add model-specific fields if present
       (seq additional-fields)
-      (assoc :additionalModelRequestFields 
+      (assoc :additionalModelRequestFields
              (into {} (map (fn [[k v]] [(name k) v]) additional-fields))))))
 
-(defn parse-bedrock-response [body]
+(defn parse-bedrock-response
+  "Parse AWS Bedrock Converse API response.
+
+   Returns either:
+  - {:role 'assistant' :content text} for standard responses
+  - {:role 'assistant' :content nil :tool_calls [...]} for tool requests"
+  [body]
   (let [response (json/parse-string body true)
         output-msg (get-in response [:output :message])
         stop-reason (:stopReason response)
         content (:content output-msg)
         usage (:usage response)]
-    
+
     ;; Log token usage if present
     (when usage
       (logger/debug "Token usage" {:input (:inputTokens usage)
@@ -119,6 +163,7 @@
                                    :total (:totalTokens usage)}))
 
     (if (= stop-reason "tool_use")
+      ;; Model is requesting tool execution
       (let [tool-blocks (filter :toolUse content)
             tool-calls (mapv (fn [b]
                                (let [t (:toolUse b)]
@@ -128,7 +173,8 @@
                                              :arguments (json/generate-string (:input t))}}))
                              tool-blocks)]
         {:role "assistant" :content nil :tool_calls tool-calls})
-      
+
+      ;; Standard text response
       (let [text (-> (filter :text content) first :text)]
         {:role "assistant" :content text}))))
 
@@ -136,13 +182,16 @@
 
 (defn parse-event-stream
   "Parses AWS Event Stream (Binary format) from a raw InputStream.
-  
-   AWS Event Stream Protocol:
-   - Prelude: Total Length (4) + Headers Length (4)
-   - Headers: Variable length
-   - Headers CRC: 4 bytes
-   - Payload: Variable length  
-   - Message CRC: 4 bytes"
+
+   AWS Event Stream Protocol (per AWS documentation):
+  - Prelude: Total Length (4 bytes) + Headers Length (4 bytes) [Big Endian]
+  - Headers: Variable length key-value pairs
+  - Headers CRC: 4 bytes (CRC32 checksum)
+  - Payload: Variable length (typically JSON)
+  - Message CRC: 4 bytes (CRC32 checksum)
+
+   This implementation reads and validates the structure, extracting JSON payloads
+   for processing. Empty payloads (heartbeats) are handled gracefully."
   [^java.io.InputStream input-stream]
   (let [dis (DataInputStream. (BufferedInputStream. input-stream))]
     (lazy-seq
@@ -150,26 +199,29 @@
        ;; 1. Read Prelude (8 bytes, Big Endian)
        (let [total-len (.readInt dis)
              headers-len (.readInt dis)]
-        
+
          ;; 2. Read and skip headers
          (when (> headers-len 0)
            (let [header-bytes (byte-array headers-len)]
              (.readFully dis header-bytes)))
-        
-         ;; 3. Skip headers CRC (4 bytes)
-         (.skipBytes dis 4)
-        
+
+         ;; 3. Read headers CRC (4 bytes)
+         ;; FIXED: Use readFully instead of skipBytes for reliability
+         (let [headers-crc (byte-array 4)]
+           (.readFully dis headers-crc))
+
          ;; 4. Calculate and read payload
-         ;; total-len = prelude(8) + headers + headers-crc(4) + payload + message-crc(4)
+         ;; Formula: total-len = prelude(8) + headers + headers-crc(4) + payload + message-crc(4)
          (let [payload-len (- total-len 8 headers-len 4 4)
-               payload-bytes (byte-array payload-len)]
-        
+               payload-bytes (byte-array (max 0 payload-len))]
+
            (when (> payload-len 0)
              (.readFully dis payload-bytes))
-        
-           ;; 5. Skip message CRC (4 bytes)
-           (.skipBytes dis 4)
-        
+
+           ;; 5. Read message CRC (4 bytes)
+           (let [message-crc (byte-array 4)]
+             (.readFully dis message-crc))
+
            ;; 6. Parse JSON payload if present
            (if (> payload-len 0)
              (let [payload-str (String. payload-bytes "UTF-8")
@@ -177,14 +229,18 @@
                (cons event (parse-event-stream dis)))
              ;; Empty payload (heartbeat), continue to next event
              (parse-event-stream dis))))
-      
-       (catch java.io.EOFException _ nil)
+
+       (catch java.io.EOFException _
+         ;; End of stream reached normally
+         nil)
        (catch Exception e
-         (logger/debug "Stream parsing error" e)
+         (logger/debug "Stream parsing error" {:error (.getMessage e)})
          nil)))))
 
 (defn extract-text-deltas
-  "Takes the sequence of parsed JSON events and extracts text content.
+  "Extract text content from AWS Event Stream events.
+
+   Filters contentBlockDelta events and extracts text deltas.
    Handles empty events (heartbeats) gracefully."
   [events]
   (vec (keep (fn [event]
@@ -195,7 +251,11 @@
 ;; --- Endpoint Construction ---
 
 (defn- build-endpoint
-  "Constructs the API endpoint URL with model ID interpolation."
+  "Constructs the API endpoint URL with model ID interpolation.
+
+   Supports two modes:
+   1. Custom proxy URL (with {modelId} placeholder)
+   2. Standard AWS Bedrock URL (requires region)"
   [config model-id stream?]
   (let [raw-url (:url config)
         region (or (:region config) "us-east-1")
@@ -204,12 +264,24 @@
       ;; Interpolate {modelId} in custom proxy URLs
       (str/replace raw-url "{modelId}" model-id)
       ;; Construct standard AWS URL
-      (format "https://bedrock-runtime.%s.amazonaws.com/model/%s/%s" 
+      (format "https://bedrock-runtime.%s.amazonaws.com/model/%s/%s"
               region model-id suffix))))
 
 ;; --- Public API Functions ---
 
-(defn chat! [config callbacks]
+(defn chat!
+  "Execute synchronous chat completion via AWS Bedrock Converse API.
+
+   Required config keys:
+  - :key or BEDROCK_API_KEY env var: Bearer token for authentication
+  - :model: Model alias or ID
+  - :user-messages: Conversation history
+  - :extra-payload: Additional options (tools, temperature, etc.)
+
+   Returns map with either:
+  - {:output-text string} for text responses
+  - {:tools-to-call [...]} for tool call requests"
+  [config callbacks]
   (let [token (or (:key config) (System/getenv "BEDROCK_API_KEY"))
         model-id (resolve-model-id (:model config) config)
         endpoint (build-endpoint config model-id false)
@@ -217,18 +289,24 @@
         headers {"Authorization" (str "Bearer " token)
                  "Content-Type" "application/json"}
         payload (build-payload (:user-messages config) (:extra-payload config))
-        
-        {:keys [status body error]} (http/post endpoint 
-                                         {:headers headers
-                                          :body (json/generate-string payload)
-                                          :timeout timeout})]
+
+        _ (logger/debug "Bedrock request" {:endpoint endpoint
+                                           :model-id model-id
+                                           :message-count (count (:messages payload))})
+
+        {:keys [status body error]} (http/post endpoint
+                                               {:headers headers
+                                                :body (json/generate-string payload)
+                                                :timeout timeout})]
     (if (and (not error) (= 200 status))
       (let [response (parse-bedrock-response body)
-            {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-usage-updated]} callbacks]
+            {:keys [on-message-received on-prepare-tool-call]} callbacks]
         (if-let [tool-calls (:tool_calls response)]
+          ;; Model requesting tool execution
           (do
             (on-prepare-tool-call tool-calls)
             {:tools-to-call tool-calls})
+          ;; Standard text response
           (do
             (on-message-received {:type :text :text (:content response)})
             {:output-text (:content response)})))
@@ -236,7 +314,18 @@
         (logger/error "Bedrock API error" {:status status :error error :body body})
         (throw (ex-info "Bedrock API error" {:status status :body body}))))))
 
-(defn stream-chat! [config callbacks]
+(defn stream-chat!
+  "Execute streaming chat completion via AWS Bedrock ConverseStream API.
+
+   Required config keys:
+  - :key or BEDROCK_API_KEY env var: Bearer token for authentication
+  - :model: Model alias or ID
+  - :user-messages: Conversation history
+  - :extra-payload: Additional options (tools, temperature, etc.)
+
+   Streams text deltas via on-message-received callback.
+   Returns map with {:output-text string} containing complete response."
+  [config callbacks]
   (let [token (or (:key config) (System/getenv "BEDROCK_API_KEY"))
         model-id (resolve-model-id (:model config) config)
         endpoint (build-endpoint config model-id true)
@@ -244,18 +333,31 @@
         headers {"Authorization" (str "Bearer " token)
                  "Content-Type" "application/json"}
         payload (build-payload (:user-messages config) (:extra-payload config))
-        
+
+        _ (logger/debug "Bedrock stream request" {:endpoint endpoint
+                                                  :model-id model-id
+                                                  :message-count (count (:messages payload))})
+
         {:keys [status body error]} (http/post endpoint
-                                         {:headers headers
-                                          :body (json/generate-string payload)
-                                          :timeout timeout})]
-    (if (and (not error) (= 200 status))
-      (let [{:keys [on-message-received on-error]} callbacks
-            events (parse-event-stream body)
-            texts (extract-text-deltas events)]
-        (doseq [text texts]
-          (on-message-received {:type :text :text text}))
-        {:output-text (str/join "" texts)})
-      (do
-        (logger/error "Bedrock Stream API error" {:status status :error error})
-        (throw (ex-info "Bedrock Stream API error" {:status status}))))))
+                                               {:headers headers
+                                                :body (json/generate-string payload)
+                                                :timeout timeout
+                                                ;; CRITICAL: Request raw InputStream for binary parsing
+                                                :as :stream})]
+    (try
+      (if (and (not error) (= 200 status))
+        (let [{:keys [on-message-received]} callbacks
+              events (or (parse-event-stream body) [])
+              texts (extract-text-deltas events)]
+          ;; Stream each text delta to callback
+          (doseq [text texts]
+            (on-message-received {:type :text :text text}))
+          ;; Return complete response
+          {:output-text (str/join "" texts)})
+        (do
+          (logger/error "Bedrock Stream API error" {:status status :error error})
+          (throw (ex-info "Bedrock Stream API error" {:status status}))))
+      (finally
+        ;; CRITICAL: Ensure stream is closed to prevent resource leaks
+        (when (instance? java.io.Closeable body)
+          (.close ^java.io.Closeable body))))))
