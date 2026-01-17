@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (OpenAI Chat) - Configurable reasoning history via `keepHistoryReasoning` (model-level, default: prune)
+
 ## 0.92.1
 
 - Add `x-llm-application-name: eca` to prompt requests, useful to track and get metrics when using LLM gateways.
