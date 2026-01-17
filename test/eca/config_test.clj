@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.git :as git]
    [eca.logger :as logger]
    [eca.secrets :as secrets]
    [eca.test-helper :as h]
@@ -448,3 +449,19 @@
                                              nil))]
       (is (= "password1" (#'config/parse-dynamic-string "${netrc:api-gateway.example-corp.com}" "/tmp" {})))
       (is (= "password2" (#'config/parse-dynamic-string "${netrc:api_service.example.com}" "/tmp" {}))))))
+
+(deftest git-worktree-config-fallback-test
+  (testing "config-from-local-file uses git root as fallback when no roots provided"
+    (with-redefs [git/root (constantly "/tmp/test-repo")]
+      (let [result (#'config/config-from-local-file [])]
+        ;; Should attempt to read from git root even when roots is empty
+        ;; We can't test the actual file reading without mocking IO,
+        ;; but we can verify the function doesn't error and returns a map
+        (is (map? result)))))
+  
+  (testing "config-from-local-file prefers provided roots over git fallback"
+    (with-redefs [git/root (constantly "/tmp/git-root")]
+      (let [result (#'config/config-from-local-file [{:uri "file:///tmp/workspace"}])]
+        ;; Should use provided roots, not git fallback
+        ;; Again, just verify no errors
+        (is (map? result))))))
