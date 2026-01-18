@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve error handling on chat messages, avoiding stuck and losing chat history. #272
+
 ## 0.92.2
 
 - Fix whitespace handle in uris. #270

@@ -1274,21 +1274,10 @@
                                        (assoc chat-ctx :on-finished-side-effect on-finished-side-effect)))
       nil)))
 
-;; preRequest hook handling moved into prompt-messages!
-;; This helper removed.  Logic centralized for all prompt types.
-
-(defn prompt
-  [{:keys [message model behavior contexts chat-id]}
-   db*
-   messenger
-   config
-   metrics]
-  (let [message (string/trim message)
-        provided-chat-id chat-id
-        chat-id (or chat-id
-                    (let [new-id (str (random-uuid))]
-                      (swap! db* assoc-in [:chats new-id] {:id new-id})
-                      new-id))
+(defn ^:private prompt*
+  [{:keys [model]}
+   {:keys [chat-id contexts message behavior behavior-config db* messenger config metrics] :as base-chat-ctx}]
+  (let [provided-chat-id chat-id
         ;; Snapshot DB to detect new/resumed chat BEFORE hooks mutate it
         [db0 _] (swap-vals! db* assoc-in [:chat-start-fired chat-id] true)
         existing-chat-before-prompt (get-in db0 [:chats chat-id])
@@ -1317,15 +1306,10 @@
               (when-let [additional-contexts (seq (keep #(get-in % [:parsed :additionalContext]) @hook-results*))]
                 (swap! db* assoc-in [:chats chat-id :startup-context]
                        (string/join "\n\n" additional-contexts)))
-            ;; Mark chatStart as fired for this chat in this server run
+              ;; Mark chatStart as fired for this chat in this server run
               (swap! db* assoc-in [:chat-start-fired chat-id] true)))
         ;; Re-read DB after potential chatStart modifications
         db @db*
-        raw-behavior (or behavior
-                         (-> config :chat :defaultBehavior) ;; legacy
-                         (-> config :defaultBehavior))
-        selected-behavior (config/validate-behavior-name raw-behavior config)
-        behavior-config (get-in config [:behavior selected-behavior])
         ;; Simple model selection without behavior switching logic
         full-model (or model
                        (:defaultModel behavior-config)
@@ -1353,7 +1337,7 @@
                                                        rules
                                                        skills
                                                        repo-map*
-                                                       selected-behavior
+                                                       behavior
                                                        config
                                                        chat-id
                                                        all-tools
@@ -1368,43 +1352,59 @@
                                                            expanded-prompt-contexts
                                                            image-contents))}]
         [provider model] (string/split full-model #"/" 2)
-        chat-ctx {:chat-id chat-id
-                  :message message
-                  :contexts contexts
-                  :behavior selected-behavior
-                  :behavior-config behavior-config
-                  :instructions instructions
-                  :user-messages user-messages
-                  :full-model full-model
-                  :provider provider
-                  :model model
-                  :db* db*
-                  :metrics metrics
-                  :config config
-                  :user-content-id (new-content-id)
-                  :messenger messenger}
+        chat-ctx (merge base-chat-ctx
+                        {:instructions instructions
+                         :user-messages user-messages
+                         :full-model full-model
+                         :provider provider
+                         :model model
+                         :messenger messenger})
         decision (message->decision message db config)]
     ;; Show original prompt to user, but LLM receives the modified version
     (send-content! chat-ctx :user {:type :text
                                    :content-id (:user-content-id chat-ctx)
                                    :text (str message "\n")})
+    (case (:type decision)
+      :mcp-prompt (send-mcp-prompt! decision chat-ctx)
+      :eca-command (handle-command! decision chat-ctx)
+      :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
+    (metrics/count-up! "prompt-received"
+                       {:full-model full-model
+                        :behavior behavior}
+                       metrics)
+    {:chat-id chat-id
+     :model full-model
+     :status :prompting}))
+
+(defn prompt
+  [{:keys [message behavior chat-id contexts] :as params} db* messenger config metrics]
+  (let [raw-behavior (or behavior
+                         (-> config :chat :defaultBehavior) ;; legacy
+                         (-> config :defaultBehavior))
+        chat-id (or chat-id
+                    (let [new-id (str (random-uuid))]
+                      (swap! db* assoc-in [:chats new-id] {:id new-id})
+                      new-id))
+        selected-behavior (config/validate-behavior-name raw-behavior config)
+        base-chat-ctx {:metrics metrics
+                       :config config
+                       :contexts contexts
+                       :db* db*
+                       :messenger messenger
+                       :user-content-id (new-content-id)
+                       :message (string/trim message)
+                       :chat-id chat-id
+                       :behavior selected-behavior
+                       :behavior-config (get-in config [:behavior selected-behavior])}]
     (try
-      (case (:type decision)
-        :mcp-prompt (send-mcp-prompt! decision chat-ctx)
-        :eca-command (handle-command! decision chat-ctx)
-        :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
-      (metrics/count-up! "prompt-received"
-                         {:full-model full-model
-                          :behavior behavior}
-                         metrics)
-      {:chat-id chat-id
-       :model full-model
-       :status :prompting}
+      (prompt* params base-chat-ctx)
       (catch Exception e
-        (send-content! chat-ctx :system {:type :text :text (str "Error: " (ex-message e))})
-        (finish-chat-prompt! :idle chat-ctx)
+        (logger/error e)
+        (send-content! base-chat-ctx :system {:type :text
+                                              :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+        (finish-chat-prompt! :idle base-chat-ctx)
         {:chat-id chat-id
-         :model full-model
+         :model "error"
          :status :error}))))
 
 (defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
