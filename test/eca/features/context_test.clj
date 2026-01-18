@@ -321,22 +321,22 @@
                 :path b-file
                 :content b-content}])
              (#'f.context/parse-agents-file a-file)))))))
-  (testing "Missing referenced file is ignored"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo"
-                     "- check @missing.md for missing things")
-          missing-file (h/file-path "/fake/missing.md")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
-                                                    a-file a-content
-                                                    missing-file nil))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}])
-             (#'f.context/parse-agents-file a-file))))))
+(testing "Missing referenced file is ignored"
+  (let [a-file (h/file-path "/fake/AGENTS.md")
+        a-content (multi-str
+                   "- do foo"
+                   "- check @missing.md for missing things")
+        missing-file (h/file-path "/fake/missing.md")]
+    (with-redefs [llm-api/refine-file-context (fn [p _l]
+                                                (condp = p
+                                                  a-file a-content
+                                                  missing-file nil))]
+      (is (match?
+           (m/in-any-order
+            [{:type :agents-file
+              :path a-file
+              :content a-content}])
+           (#'f.context/parse-agents-file a-file))))))
 
 (deftest contexts-str-from-prompt-test
   (testing "not context mention"
@@ -359,4 +359,18 @@
              :path "/path/to/file"
              :lines-range {:start 1 :end 4}
              :content "Some content"}]
-           (f.context/contexts-str-from-prompt "check @/path/to/file:L1-L4" (h/db)))))))
+           (f.context/contexts-str-from-prompt "check @/path/to/file:L1-L4" (h/db))))))
+  (testing "directory"
+    (with-redefs [fs/readable? (constantly true)
+                  fs/directory? (fn [path]
+                                  (= "/path/to/folder" path))
+                  fs/glob (constantly ["/path/to/folder/foo.txt" "/path/to/folder/bar.s"])
+                  llm-api/refine-file-context (constantly "Some content")]
+      (is (match?
+           [{:type :file
+             :path "/path/to/folder/foo.txt"
+             :content "Some content"}
+            {:type :file
+             :path "/path/to/folder/bar.s"
+             :content "Some content"}]
+           (f.context/contexts-str-from-prompt "check @/path/to/folder" (h/db)))))))

@@ -126,11 +126,11 @@
   "Extract all contexts (@something) and refine them.
    Parse lines if present in contexts like @/path/to/file:L1-L4"
   [prompt db]
-  (let [;; Capture @<path> with optional :L<start>-L<end>
+  (let [ ;; Capture @<path> with optional :L<start>-L<end>
         context-pattern #"@([^\s:]+)(?::L(\d+)-L(\d+))?"
         matches (re-seq context-pattern prompt)
         raw-contexts (mapv (fn [[_ path s e]]
-                             (assoc-some {:type "file"
+                             (assoc-some {:type (if (fs/directory? path) "directory" "file")
                                           :path path}
                                          :lines-range (when (and s e)
                                                         {:start (Integer/parseInt s)

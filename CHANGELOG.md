@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improve error handling on chat messages, avoiding stuck and losing chat history. #272
+- Fix directories not working in user prompt. #273
 
 ## 0.92.2
 
