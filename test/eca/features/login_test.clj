@@ -56,7 +56,7 @@
 
       (testing "should proceed to the next step"
         (println @msg-log)
-        (is (re-find #"(?m)Open your browser at:\n\nhttps://mock.github.com/login/device\n\nAuthenticate using the code: `.+`\nThen type anything in the chat and send it to continue the authentication."
+        (is (re-find #"(?m)Then, open your browser at:\n\nhttps://mock.github.com/login/device\n\nAuthenticate using the code: `.+`\nThen type anything in the chat and send it to continue the authentication."
                      (last @msg-log)))
 
         (testing "state is update to reflect in-progress login"
