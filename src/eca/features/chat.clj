@@ -119,13 +119,13 @@
                                                     :text  "Renewing auth token"}))
     :on-error (fn [error-msg]
                 (send-content! chat-ctx :system {:type :text :text error-msg})
-                (finish-chat-prompt! :idle chat-ctx)
+                (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))
                 (throw (ex-info "Auth token renew failed" {})))}
    chat-ctx))
 
 (defn ^:private assert-chat-not-stopped! [{:keys [chat-id db*] :as chat-ctx}]
   (when (identical? :stopping (get-in @db* [:chats chat-id :status]))
-    (finish-chat-prompt! :idle chat-ctx)
+    (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))
     (logger/info logger-tag "Chat prompt stopped:" chat-id)
     (throw (ex-info "Chat prompt stopped" {:silent? true
                                            :chat-id chat-id}))))
@@ -1147,7 +1147,7 @@
                                                          {:type :text
                                                           :text (str "API limit reached. Tokens: "
                                                                      (json/generate-string (:tokens msg)))})
-                                                        (finish-chat-prompt! :idle chat-ctx))
+                                                        (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
                                      :finish (do (add-to-history! {:role "assistant"
                                                                    :content [{:type :text :text @received-msgs*}]})
                                                  (finish-chat-prompt! :idle chat-ctx))))
@@ -1185,7 +1185,7 @@
                            nil))
             :on-error (fn [{:keys [message exception]}]
                         (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
-                        (finish-chat-prompt! :idle chat-ctx))}))))))
+                        (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))}))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
@@ -1402,7 +1402,7 @@
         (logger/error e)
         (send-content! base-chat-ctx :system {:type :text
                                               :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
-        (finish-chat-prompt! :idle base-chat-ctx)
+        (finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
         {:chat-id chat-id
          :model "error"
          :status :error}))))
@@ -1472,7 +1472,7 @@
         (transition-tool-call! db* chat-ctx tool-call-id :stop-requested
                                {:reason {:code :user-prompt-stop
                                          :text "Tool call rejected because of user prompt stop"}}))
-      (finish-chat-prompt! :stopping chat-ctx))))
+      (finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect)))))
 
 (defn delete-chat
   [{:keys [chat-id]} db* config metrics]
