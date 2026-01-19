@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.93.1
+
 - Fix chat title generation regression.
 
 ## 0.93.0
