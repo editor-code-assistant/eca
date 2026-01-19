@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.93.2
+
 - Fix `/compact` removing chat history when prompt is stopped or some error happens. #142
 
 ## 0.93.1
