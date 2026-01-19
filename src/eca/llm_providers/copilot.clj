@@ -71,7 +71,8 @@
     (swap! db* assoc-in [:chats chat-id :login-provider] provider)
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
                                           :device-code device-code})
-    (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate using the code: `%s`\nThen type anything in the chat and send it to continue the authentication."
+    (send-msg! "First, make sure you have Copilot enabled in you Github account: https://github.com/settings/copilot/features")
+    (send-msg! (format "\nThen, open your browser at:\n\n%s\n\nAuthenticate using the code: `%s`\nThen type anything in the chat and send it to continue the authentication."
                        url
                        user-code))))
 
