@@ -368,9 +368,9 @@
                   llm-api/refine-file-context (constantly "Some content")]
       (is (match?
            [{:type :file
-             :path "/path/to/folder/foo.txt"
+             :path (h/file-path "/path/to/folder/foo.txt")
              :content "Some content"}
             {:type :file
-             :path "/path/to/folder/bar.s"
+             :path (h/file-path "/path/to/folder/bar.s")
              :content "Some content"}]
            (f.context/contexts-str-from-prompt "check @/path/to/folder" (h/db)))))))
