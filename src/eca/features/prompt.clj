@@ -173,7 +173,7 @@
    (->base-selmer-ctx all-tools db)))
 
 (defn chat-title-prompt [behavior config]
-  (get-config-prompt :chat-title behavior config))
+  (get-config-prompt :chatTitle behavior config))
 
 (defn compact-prompt [additional-input all-tools behavior config db]
   (selmer/render

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix chat title generation regression.
+
 ## 0.93.0
 
 - Improve copilot login to mention to enable model at Copilot settings page.
