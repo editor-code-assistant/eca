@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.93.0
+
 - Improve copilot login to mention to enable model at Copilot settings page.
 - New config API for prompts:
   - Support override any tool description via `prompts tools <toolName>` #271
