@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve copilot login to mention to enable model at Copilot settings page.
+
 ## 0.92.3
 
 - Improve error handling on chat messages, avoiding stuck and losing chat history. #272

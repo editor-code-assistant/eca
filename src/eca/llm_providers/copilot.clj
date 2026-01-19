@@ -75,7 +75,7 @@
                        url
                        user-code))))
 
-(defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider] :as ctx}]
+(defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider send-msg!] :as ctx}]
   (let [access-token (oauth-access-token (get-in @db* [:auth provider :device-code]))
         {:keys [api-key expires-at]} (oauth-renew-token access-token)]
     (swap! db* update-in [:auth provider] merge {:step :login/done
@@ -83,7 +83,8 @@
                                                  :api-key api-key
                                                  :expires-at expires-at})
 
-    (f.login/login-done! ctx)))
+    (f.login/login-done! ctx)
+    (send-msg! "\nMake sure to enable the model you want use at: https://github.com/settings/copilot/features")))
 
 (defmethod f.login/login-step ["github-copilot" :login/renew-token] [{:keys [db* provider] :as ctx}]
   (let [access-token (get-in @db* [:auth provider :access-token])
