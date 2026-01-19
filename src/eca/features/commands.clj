@@ -207,7 +207,7 @@
                        existing-files))
                  "Credential files: None found"))))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model all-tools instructions user-messages metrics]}]
+(defn handle-command! [command args {:keys [chat-id db* config messenger full-model behavior all-tools instructions user-messages metrics]}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
         skills (f.skills/all config (:workspace-folders db))]
@@ -215,7 +215,7 @@
       "init" {:type :send-prompt
               :on-finished-side-effect (fn []
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
-              :prompt (f.prompt/init-prompt all-tools db)}
+              :prompt (f.prompt/init-prompt all-tools behavior db config)}
       "compact" (do
                   (swap! db* assoc-in [:chats chat-id :compacting?] true)
                   {:type :send-prompt
@@ -253,7 +253,7 @@
                                                   :role :system
                                                   :content (merge {:type :usage}
                                                                   usage)})))
-                   :prompt (f.prompt/compact-prompt (string/join " " args) all-tools config db)})
+                   :prompt (f.prompt/compact-prompt (string/join " " args) all-tools behavior config db)})
       "login" (do
                 (messenger/chat-content-received
                  messenger

@@ -3,6 +3,14 @@
 ## Unreleased
 
 - Improve copilot login to mention to enable model at Copilot settings page.
+- New config API for prompts:
+  - Support override any tool description via `prompts tools <toolName>` #271
+  - Support override `/init` system prompt via `prompts init`
+  - Support override `/compact` system prompt via `prompts compact`
+  - Support override chat title system prompt via `prompts chatTitle`
+  - Deprecate `systemPrompt` in favor of `prompts chat`
+  - Deprecate `completion systemPrompt` in favor of `prompts completion`
+  - Deprecate `rewrite systemPrompt` in favor of `prompts rewrite`
 
 ## 0.92.3
 

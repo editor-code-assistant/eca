@@ -162,9 +162,15 @@
                         (mapv #(assoc % :origin :native) (native-tools db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
                        (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
+                       (mapv (fn [tool]
+                               (update tool :description
+                                       (fn [desc]
+                                         (or (get-in config [:behavior behavior :prompts :tools (:full-name tool)])
+                                             (get-in config [:prompts :tools (:full-name tool)])
+                                             desc)))))
                        (filterv (fn [tool]
                                   (and (not (tool-disabled? tool disabled-tools))
-                             ;; check for enabled-fn if present
+                                       ;; check for enabled-fn if present
                                        ((or (:enabled-fn tool) (constantly true))
                                         {:behavior behavior
                                          :db db

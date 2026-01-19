@@ -85,9 +85,9 @@
                                   "gemini-3-flash-preview" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultBehavior "agent"
-   :behavior {"agent" {:systemPrompt "${classpath:prompts/agent_behavior.md}"
+   :behavior {"agent" {:prompts {:chat "${classpath:prompts/agent_behavior.md}"}
                        :disabledTools ["preview_file_change"]}
-              "plan" {:systemPrompt "${classpath:prompts/plan_behavior.md}"
+              "plan" {:prompts {:chat "${classpath:prompts/plan_behavior.md}"}
                       :disabledTools ["edit_file" "write_file" "move_file"]
                       :toolCall {:approval {:allow {"eca__shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
@@ -106,6 +106,12 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
+   :prompts {:chat "${classpath:prompts/agent_behavior.md}" ;; default to agent
+             :chatTitle "${classpath:prompts/title.md}"
+             :compact "${classpath:prompts/compact.md}"
+             :init "${classpath:prompts/init.md}"
+             :completion "${classpath:prompts/inline_completion.md}"
+             :rewrite "${classpath:prompts/rewrite.md}"}
    :hooks {}
    :rules []
    :commands []
@@ -136,13 +142,10 @@
                               "Add more contexts in `@`"
                               ""
                               "")
-   :compactPrompt "${classpath:prompts/compact.md}"
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}
-   :completion {:model "openai/gpt-4.1"
-                :systemPrompt "${classpath:prompts/inline_completion.md}"}
-   :rewrite {:systemPrompt "${classpath:prompts/rewrite.md}"}
+   :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :env "prod"})
 

@@ -1103,7 +1103,7 @@
                                                :model model
                                                :model-capabilities
                                                (assoc model-capabilities :reason? false :tools false :web-search false)
-                                               :instructions (f.prompt/title-prompt)
+                                               :instructions (f.prompt/chat-title-prompt behavior config)
                                                :user-messages user-messages
                                                :config config
                                                :provider-auth provider-auth})]

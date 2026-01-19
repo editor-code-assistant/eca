@@ -20,12 +20,6 @@
 
 (def ^:private load-builtin-prompt (memoize load-builtin-prompt*))
 
-(defn ^:private init-prompt-template* [] (slurp (io/resource "prompts/init.md")))
-(def ^:private init-prompt-template (memoize init-prompt-template*))
-
-(defn ^:private title-prompt-template* [] (slurp (io/resource "prompts/title.md")))
-(def ^:private title-prompt-template (memoize title-prompt-template*))
-
 (defn ^:private codex-prompt* [] (slurp (io/resource "prompts/codex.md")))
 (def codex-prompt (memoize codex-prompt*))
 
@@ -36,21 +30,29 @@
 
 (def ^:private compact-prompt-template (memoize compact-prompt-template*))
 
+(defn ^:private get-config-prompt [key behavior config]
+  (or (get-in config [:behavior behavior :prompts key])
+      (get-in config [:prompts key])))
+
 (defn ^:private eca-chat-prompt [behavior config]
-  (let [behavior-config (get-in config [:behavior behavior])
-        prompt (:systemPrompt behavior-config)
-        legacy-prompt-file (:systemPromptFile behavior-config)]
+  (let [config-prompt (get-config-prompt :chat behavior config)
+        behavior-config (get-in config [:behavior behavior])
+        legacy-config-prompt (:systemPrompt behavior-config)
+        legacy-config-prompt-file (:systemPromptFile behavior-config)]
     (cond
-      prompt
-      prompt
+      legacy-config-prompt
+      legacy-config-prompt
+
+      config-prompt
+      config-prompt
 
       ;; behavior with absolute path
-      (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
-      (slurp legacy-prompt-file)
+      (and legacy-config-prompt-file (string/starts-with? legacy-config-prompt-file "/"))
+      (slurp legacy-config-prompt-file)
 
       ;; Built-in or resource path
-      legacy-prompt-file
-      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" "")))
+      legacy-config-prompt-file
+      (load-builtin-prompt (some-> legacy-config-prompt-file (string/replace-first #"prompts/" "")))
 
       ;; Fallback for unknown behavior
       :else
@@ -131,10 +133,14 @@
 
 (defn build-rewrite-instructions [text path full-text range all-tools config db]
   (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
-        prompt (-> config :rewrite :systemPrompt)
+        legacy-config-prompt (-> config :rewrite :systemPrompt)
+        config-prompt (get-config-prompt :rewrite nil config)
         prompt-str (cond
-                     prompt
-                     prompt
+                     legacy-config-prompt
+                     legacy-config-prompt
+
+                     config-prompt
+                     config-prompt
 
                      ;; Absolute path
                      (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
@@ -161,19 +167,20 @@
                                   full-text
                                   "```"))}))))
 
-(defn init-prompt [all-tools db]
+(defn init-prompt [all-tools behavior db config]
   (selmer/render
-   (init-prompt-template)
+   (get-config-prompt :init behavior config)
    (->base-selmer-ctx all-tools db)))
 
-(defn title-prompt []
-  (title-prompt-template))
+(defn chat-title-prompt [behavior config]
+  (get-config-prompt :chat-title behavior config))
 
-(defn compact-prompt [additional-input all-tools config db]
+(defn compact-prompt [additional-input all-tools behavior config db]
   (selmer/render
-   (or (:compactPrompt config)
-        ;; legacy
-       (compact-prompt-template (:compactPromptFile config)))
+   (or (:compactPrompt config) ;; legacy
+       (get-config-prompt :compact behavior config)
+       (compact-prompt-template (:compactPromptFile config)) ;; legacy
+       )
    (merge
     (->base-selmer-ctx all-tools db)
     {:additionalUserInput (if additional-input
@@ -181,19 +188,23 @@
                             "")})))
 
 (defn inline-completion-prompt [config]
-  (let [legacy-prompt-file (get-in config [:completion :systemPromptFile])
-        prompt (get-in config [:completion :systemPrompt])]
+  (let [legacy-config-file-prompt (get-in config [:completion :systemPromptFile])
+        legacy-config-prompt (get-in config [:completion :systemPrompt])
+        config-prompt (get-config-prompt :completion nil config)]
     (cond
-      prompt
-      prompt
+      legacy-config-prompt
+      legacy-config-prompt
+
+      config-prompt
+      config-prompt
 
       ;; Absolute path
-      (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
-      (slurp legacy-prompt-file)
+      (and legacy-config-file-prompt (string/starts-with? legacy-config-file-prompt "/"))
+      (slurp legacy-config-file-prompt)
 
       ;; Resource path
       :else
-      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))))
+      (load-builtin-prompt (some-> legacy-config-file-prompt (string/replace-first #"prompts/" ""))))))
 
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))
