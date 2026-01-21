@@ -719,6 +719,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             defaultModel?: string;
             disabledTools?: string[];
             enabledSkills?: string[];
+            autoCompactPercentage?: number;
             toolCall?: {
                 approval?: {
                     byDefault?: 'ask' | 'allow' | 'deny';
@@ -772,7 +773,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }};
         defaultBehavior?: string;
         welcomeMessage?: string;
-        compactPromptFile?: string;
+        autoCompactPercentage?: number;
         index?: {
             ignoreFiles: [{
                 type: string;
@@ -858,7 +859,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       }
       "defaultBehavior": "agent",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
-      "compactPromptFile": "prompts/compact.md",
+      "autoCompactPercentage": 85,
       "index" : {
         "ignoreFiles" : [ {
           "type" : "gitignore"

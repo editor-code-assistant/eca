@@ -23,5 +23,6 @@
                  :required ["summary"]}
     :handler #'compact-chat
     :enabled-fn (fn [{:keys [db chat-id]}]
-                  (get-in db [:chats chat-id :compacting?] false))
+                  (or (get-in db [:chats chat-id :compacting?] false)
+                      (get-in db [:chats chat-id :auto-compacting?] false)))
     :summary-fn (constantly "Compacting...")}})

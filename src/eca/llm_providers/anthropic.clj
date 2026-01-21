@@ -264,6 +264,7 @@
                                   "max_tokens" (on-message-received {:type :limit-reached
                                                                      :tokens (:usage data)})
                                   nil))
+              "error" (on-error {:message (format "\nAnthropic error response: %s" (:error data))})
               nil)))]
     (base-request!
      {:rid (llm-util/gen-rid)
@@ -337,7 +338,6 @@
       (throw (ex-info (format "Anthropic refresh token failed: %s" (pr-str body))
                       {:status status
                        :body body})))))
-
 
 (def ^:private create-api-key-url
   "https://api.anthropic.com/api/oauth/claude_cli/create_api_key")

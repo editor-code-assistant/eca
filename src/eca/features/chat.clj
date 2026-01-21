@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.chat-compact :as f.chat-compact]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
    [eca.features.hooks :as f.hooks]
@@ -32,6 +33,20 @@
 
 (defn default-model [db config]
   (llm-api/default-model db config))
+
+(defn ^:private auto-compact? [chat-id behavior full-model config db]
+  (when (and (not (get-in db [:chats chat-id :compacting?]))
+             (not (get-in db [:chats chat-id :auto-compacting?])))
+    (let [compact-threshold (or (get-in config [:behavior behavior :autoCompactPercentage])
+                                (get-in config [:autoCompactPercentage]))
+          limit-tokens (get-in db [:models full-model :limit :context])
+          current-tokens (+ (or (get-in db [:chats chat-id :total-input-tokens]) 0)
+                            (or (get-in db [:chats chat-id :total-output-tokens]) 0)
+                            (or (get-in db [:chats chat-id :total-input-cache-creation-tokens]) 0)
+                            (or (get-in db [:chats chat-id :total-input-cache-read-tokens]) 0))]
+      (when (and compact-threshold current-tokens limit-tokens)
+        (let [current-percentage (* (/ current-tokens limit-tokens) 100)]
+          (>= current-percentage compact-threshold))))))
 
 (defn ^:private send-content! [{:keys [messenger chat-id]} role content]
   (messenger/chat-content-received
@@ -824,8 +839,38 @@
       hook-rejected? (assoc :hook-continue hook-continue
                             :hook-stop-reason hook-stop-reason))))
 
-(defn ^:private on-tools-called! [{:keys [db* config chat-id behavior messenger metrics] :as chat-ctx}
-                                  received-msgs* add-to-history!]
+(declare prompt-messages!)
+
+(defn ^:private trigger-auto-compact!
+  "Trigger auto-compact: send compact prompt, then resume the original task."
+  [{:keys [db* config chat-id behavior] :as chat-ctx}
+   all-tools
+   user-messages]
+  (let [db @db*
+        compact-prompt (f.prompt/compact-prompt nil all-tools behavior config db)]
+    (logger/info logger-tag "Auto-compacting chat" {:chat-id chat-id})
+    (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+    (prompt-messages!
+     [{:role "user" :content "Compact the chat following the template:"}
+      {:role "user" :content compact-prompt}]
+     :eca-command
+     (assoc chat-ctx
+            :on-finished-side-effect
+            (fn []
+              (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
+              (f.chat-compact/compact-side-effect! chat-ctx true)
+              ;; Resume the original task
+              (prompt-messages!
+               (concat [{:role "user"
+                         :content [{:type :text
+                                    :text "Continue with the task. The previous user request was:"}]}]
+                       user-messages)
+               :eca-command
+               chat-ctx))))
+    nil))
+
+(defn ^:private on-tools-called! [{:keys [db* config chat-id behavior full-model messenger metrics] :as chat-ctx}
+                                  received-msgs* add-to-history! user-messages]
   (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
     (fn [tool-calls]
       (assert-chat-not-stopped! chat-ctx)
@@ -1018,8 +1063,11 @@
                                                :text "I rejected one or more tool calls with the following reason"}]})
                   (finish-chat-prompt! :idle chat-ctx)
                   nil)))
-          (do (maybe-renew-auth-token chat-ctx)
-              {:new-messages (get-in @db* [:chats chat-id :messages])}))))))
+          (do
+            (maybe-renew-auth-token chat-ctx)
+            (if (auto-compact? chat-id behavior full-model config @db*)
+              (trigger-auto-compact! chat-ctx all-tools user-messages)
+              {:new-messages (get-in @db* [:chats chat-id :messages])})))))))
 
 (defn ^:private assert-compatible-apis-between-models!
   "Ensure new request is compatible with last api used.
@@ -1053,8 +1101,8 @@
                           (cond
                             stop? (do (finish-chat-prompt! :idle chat-ctx) nil)
                             :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
-                                        ;; preRequest additionalContext should ideally attach to the last user message,
-                                        ;; but some prompt sources may not contain a user role (e.g. prompt templates).
+                                          ;; preRequest additionalContext should ideally attach to the last user message,
+                                          ;; but some prompt sources may not contain a user role (e.g. prompt templates).
                                         context-idx   (or last-user-idx
                                                           (some-> user-messages seq count dec))
                                         rewritten     (if (and modify-allowed? last-user-idx final-prompt)
@@ -1114,78 +1162,85 @@
                   (when (= :idle (get-in @db* [:chats chat-id :status]))
                     (db/update-workspaces-cache! @db* metrics)))))))
         (send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
-        (future* config
-          (llm-api/sync-or-async-prompt!
-           {:model model
-            :provider provider
-            :model-capabilities model-capabilities
-            :user-messages user-messages
-            :instructions  instructions
-            :past-messages  past-messages
-            :config  config
-            :tools all-tools
-            :provider-auth provider-auth
-            :on-first-response-received (fn [& _]
-                                          (assert-chat-not-stopped! chat-ctx)
-                                          (doseq [message user-messages]
-                                            (add-to-history!
-                                             (assoc message :content-id (:user-content-id chat-ctx))))
-                                          (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider config)))
-                                          (send-content! chat-ctx :system {:type :progress
-                                                                           :state :running
-                                                                           :text "Generating"}))
-            :on-usage-updated on-usage-updated
-            :on-message-received (fn [{:keys [type] :as msg}]
-                                   (assert-chat-not-stopped! chat-ctx)
-                                   (case type
-                                     :text (do (swap! received-msgs* str (:text msg))
-                                               (send-content! chat-ctx :assistant {:type :text :text (:text msg)}))
-                                     :url (send-content! chat-ctx :assistant {:type :url :title (:title msg) :url (:url msg)})
-                                     :limit-reached (do (send-content!
-                                                         chat-ctx
-                                                         :system
-                                                         {:type :text
-                                                          :text (str "API limit reached. Tokens: "
-                                                                     (json/generate-string (:tokens msg)))})
-                                                        (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
-                                     :finish (do (add-to-history! {:role "assistant"
-                                                                   :content [{:type :text :text @received-msgs*}]})
-                                                 (finish-chat-prompt! :idle chat-ctx))))
-            :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
-                                    (assert-chat-not-stopped! chat-ctx)
-                                    (let [tool (tool-by-full-name full-name all-tools)]
-                                      (when-not tool
-                                        (logger/warn logger-tag "Tool not found for prepare"
-                                                     {:full-name full-name
-                                                      :available-tools (mapv :full-name all-tools)}))
-                                      (transition-tool-call! db* chat-ctx id :tool-prepare
-                                                             {:name (or (:name tool) full-name)
-                                                              :server (:name (:server tool))
-                                                              :full-name full-name
-                                                              :origin (or (:origin tool) :unknown)
-                                                              :arguments-text arguments-text
-                                                              :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
-            :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history!)
-            :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
-                         (assert-chat-not-stopped! chat-ctx)
-                         (case status
-                           :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
-                                         (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
-                           :thinking (do (swap! reasonings* update-in [id :text] str text)
-                                         (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
-                           :finished (when-let [start-time (get-in @reasonings* [id :start-time])]
-                                       (let [total-time-ms (- (System/currentTimeMillis) start-time)]
-                                         (add-to-history! {:role "reason"
-                                                           :content {:id id
-                                                                     :external-id external-id
-                                                                     :delta-reasoning? delta-reasoning?
-                                                                     :total-time-ms total-time-ms
-                                                                     :text (get-in @reasonings* [id :text])}})
-                                         (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
-                           nil))
-            :on-error (fn [{:keys [message exception]}]
-                        (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
-                        (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))}))))))
+        (if (auto-compact? chat-id behavior full-model config @db*)
+          (trigger-auto-compact! chat-ctx all-tools user-messages)
+          (future* config
+            (try
+              (llm-api/sync-or-async-prompt!
+               {:model model
+                :provider provider
+                :model-capabilities model-capabilities
+                :user-messages user-messages
+                :instructions  instructions
+                :past-messages  past-messages
+                :config  config
+                :tools all-tools
+                :provider-auth provider-auth
+                :on-first-response-received (fn [& _]
+                                              (assert-chat-not-stopped! chat-ctx)
+                                              (doseq [message user-messages]
+                                                (add-to-history!
+                                                 (assoc message :content-id (:user-content-id chat-ctx))))
+                                              (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider config)))
+                                              (send-content! chat-ctx :system {:type :progress
+                                                                               :state :running
+                                                                               :text "Generating"}))
+                :on-usage-updated on-usage-updated
+                :on-message-received (fn [{:keys [type] :as msg}]
+                                       (assert-chat-not-stopped! chat-ctx)
+                                       (case type
+                                         :text (do (swap! received-msgs* str (:text msg))
+                                                   (send-content! chat-ctx :assistant {:type :text :text (:text msg)}))
+                                         :url (send-content! chat-ctx :assistant {:type :url :title (:title msg) :url (:url msg)})
+                                         :limit-reached (do (send-content!
+                                                             chat-ctx
+                                                             :system
+                                                             {:type :text
+                                                              :text (str "API limit reached. Tokens: "
+                                                                         (json/generate-string (:tokens msg)))})
+                                                            (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
+                                         :finish (do (add-to-history! {:role "assistant"
+                                                                       :content [{:type :text :text @received-msgs*}]})
+                                                     (finish-chat-prompt! :idle chat-ctx))))
+                :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
+                                        (assert-chat-not-stopped! chat-ctx)
+                                        (let [tool (tool-by-full-name full-name all-tools)]
+                                          (when-not tool
+                                            (logger/warn logger-tag "Tool not found for prepare"
+                                                         {:full-name full-name
+                                                          :available-tools (mapv :full-name all-tools)}))
+                                          (transition-tool-call! db* chat-ctx id :tool-prepare
+                                                                 {:name (or (:name tool) full-name)
+                                                                  :server (:name (:server tool))
+                                                                  :full-name full-name
+                                                                  :origin (or (:origin tool) :unknown)
+                                                                  :arguments-text arguments-text
+                                                                  :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
+                :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history! user-messages)
+                :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
+                             (assert-chat-not-stopped! chat-ctx)
+                             (case status
+                               :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
+                                             (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
+                               :thinking (do (swap! reasonings* update-in [id :text] str text)
+                                             (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
+                               :finished (when-let [start-time (get-in @reasonings* [id :start-time])]
+                                           (let [total-time-ms (- (System/currentTimeMillis) start-time)]
+                                             (add-to-history! {:role "reason"
+                                                               :content {:id id
+                                                                         :external-id external-id
+                                                                         :delta-reasoning? delta-reasoning?
+                                                                         :total-time-ms total-time-ms
+                                                                         :text (get-in @reasonings* [id :text])}})
+                                             (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
+                               nil))
+                :on-error (fn [{:keys [message exception]}]
+                            (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
+                            (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))})
+              (catch Exception e
+                (logger/error e)
+                (send-content! chat-ctx :system {:type :text :text (str "Error: " (ex-message e))})
+                (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}

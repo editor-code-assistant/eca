@@ -5,6 +5,7 @@
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.chat-compact :as f.chat-compact]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
@@ -207,7 +208,7 @@
                        existing-files))
                  "Credential files: None found"))))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model behavior all-tools instructions user-messages metrics]}]
+(defn handle-command! [command args {:keys [chat-id db* config messenger full-model behavior all-tools instructions user-messages metrics] :as chat-ctx}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
         skills (f.skills/all config (:workspace-folders db))]
@@ -220,39 +221,7 @@
                   (swap! db* assoc-in [:chats chat-id :compacting?] true)
                   {:type :send-prompt
                    :on-finished-side-effect (fn []
-                                              ;; Replace chat history with summary
-                                              (swap! db* (fn [db]
-                                                           (assoc-in db [:chats chat-id :messages]
-                                                                     [{:role "user"
-                                                                       :content [{:type :text
-                                                                                  :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                                                             (get-in db [:chats chat-id :last-summary]))}]}])))
-
-                                              ;; Zero chat usage
-                                              (swap! db* assoc-in [:chats chat-id :total-input-tokens] nil)
-                                              (swap! db* assoc-in [:chats chat-id :total-output-tokens] nil)
-                                              (swap! db* assoc-in [:chats chat-id :total-input-cache-creation-tokens] nil)
-                                              (swap! db* assoc-in [:chats chat-id :total-input-cache-read-tokens] nil)
-                                              (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
-                                              (messenger/chat-content-received
-                                               messenger
-                                               {:chat-id chat-id
-                                                :role :system
-                                                :content {:type :text
-                                                          :text "Compacted chat to:\n\n"}})
-                                              (messenger/chat-content-received
-                                               messenger
-                                               {:chat-id chat-id
-                                                :role :assistant
-                                                :content {:type :text
-                                                          :text (get-in @db* [:chats chat-id :last-summary])}})
-                                              (when-let [usage (shared/usage-msg->usage {:input-tokens 0 :output-tokens 0} full-model {:chat-id chat-id :db* db*})]
-                                                (messenger/chat-content-received
-                                                 messenger
-                                                 {:chat-id chat-id
-                                                  :role :system
-                                                  :content (merge {:type :usage}
-                                                                  usage)})))
+                                              (f.chat-compact/compact-side-effect! chat-ctx false))
                    :prompt (f.prompt/compact-prompt (string/join " " args) all-tools behavior config db)})
       "login" (do
                 (messenger/chat-content-received

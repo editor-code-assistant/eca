@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Auto compact via percentage defined in `autoCompactPercentage`. #257
+- Mention in chat some missing Anthropic responses errors when happens.
+
 ## 0.93.2
 
 - Fix `/compact` removing chat history when prompt is stopped or some error happens. #142
