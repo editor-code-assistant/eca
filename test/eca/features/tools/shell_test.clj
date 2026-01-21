@@ -272,9 +272,11 @@
   (testing "Returns correct cache directory path"
     (let [workspaces [{:uri "file:///path/to/workspace"}]
           dir (#'f.tools.shell/shell-output-cache-dir workspaces)
-          dir-str (str dir)]
-      (is (string/includes? dir-str ".cache/eca"))
-      (is (string/includes? dir-str "shell-output")))))
+          dir-str (str dir)
+          ;; Normalize to forward slashes for cross-platform test
+          normalized-str (string/replace dir-str "\\" "/")]
+      (is (string/includes? normalized-str ".cache/eca"))
+      (is (string/includes? normalized-str "shell-output")))))
 
 (deftest eca-shell-output-cache-file-test
   (testing "Returns true for paths in the ECA shell output cache directory"
