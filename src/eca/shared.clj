@@ -109,6 +109,24 @@
         (format "%.2f" (+ input-cost
                           (* output-tokens output-token-cost)))))))
 
+(defn usage-sumary [chat-id full-model db]
+  (let [last-input-tokens (get-in db [:chats chat-id :last-input-tokens] 0)
+        last-output-tokens (get-in db [:chats chat-id :last-output-tokens] 0)
+        last-input-cache-creation-tokens (get-in db [:chats chat-id :last-input-cache-creation-tokens] 0)
+        last-input-cache-read-tokens (get-in db [:chats chat-id :last-input-cache-read-tokens] 0)
+        total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
+        total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] 0)
+        total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] 0)
+        total-output-tokens (get-in db [:chats chat-id :total-output-tokens] 0)
+        model-capabilities (get-in db [:models full-model])]
+    (assoc-some {:session-tokens (+ last-input-tokens
+                                    last-input-cache-read-tokens
+                                    last-input-cache-creation-tokens
+                                    last-output-tokens)}
+                :limit (:limit model-capabilities)
+                :last-message-cost (tokens->cost last-input-tokens last-input-cache-creation-tokens last-input-cache-read-tokens last-output-tokens model-capabilities)
+                :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities))))
+
 (defn usage-msg->usage
   "How this works:
     - tokens: the last message from API already contain the total
@@ -119,25 +137,17 @@
    full-model
    {:keys [chat-id db*]}]
   (when (and output-tokens input-tokens)
+    (swap! db* assoc-in [:chats chat-id :last-input-tokens] input-tokens)
+    (swap! db* assoc-in [:chats chat-id :last-output-tokens] output-tokens)
     (swap! db* update-in [:chats chat-id :total-input-tokens] (fnil + 0) input-tokens)
     (swap! db* update-in [:chats chat-id :total-output-tokens] (fnil + 0) output-tokens)
     (when input-cache-creation-tokens
+      (swap! db* assoc-in [:chats chat-id :last-input-cache-creation-tokens] input-cache-creation-tokens)
       (swap! db* update-in [:chats chat-id :total-input-cache-creation-tokens] (fnil + 0) input-cache-creation-tokens))
     (when input-cache-read-tokens
+      (swap! db* assoc-in [:chats chat-id :last-input-cache-read-tokens] input-cache-read-tokens)
       (swap! db* update-in [:chats chat-id :total-input-cache-read-tokens] (fnil + 0) input-cache-read-tokens))
-    (let [db @db*
-          total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
-          total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] nil)
-          total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] nil)
-          total-output-tokens (get-in db [:chats chat-id :total-output-tokens] 0)
-          model-capabilities (get-in db [:models full-model])]
-      (assoc-some {:session-tokens (+ input-tokens
-                                      (or input-cache-read-tokens 0)
-                                      (or input-cache-creation-tokens 0)
-                                      output-tokens)}
-                  :limit (:limit model-capabilities)
-                  :last-message-cost (tokens->cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities)
-                  :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))))
+    (usage-sumary chat-id full-model @db*)))
 
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]
