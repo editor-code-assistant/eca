@@ -4,6 +4,7 @@
 
 - Auto compact via percentage defined in `autoCompactPercentage`. #257
 - Mention in chat some missing Anthropic responses errors when happens.
+- Do not remove conversation history visually when compacting chat.
 
 ## 0.93.2
 

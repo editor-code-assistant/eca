@@ -17,7 +17,6 @@
   (swap! db* assoc-in [:chats chat-id :total-output-tokens] nil)
   (swap! db* assoc-in [:chats chat-id :total-input-cache-creation-tokens] nil)
   (swap! db* assoc-in [:chats chat-id :total-input-cache-read-tokens] nil)
-  (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id
