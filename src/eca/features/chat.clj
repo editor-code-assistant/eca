@@ -104,19 +104,20 @@
                   %))))))
 
 (defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
-  (swap! db* assoc-in [:chats chat-id :status] status)
-  (f.hooks/trigger-if-matches! :postRequest
-                               (merge (f.hooks/chat-hook-data @db* chat-id (:behavior chat-ctx))
-                                      {:prompt message})
-                               {:on-before-action (partial notify-before-hook-action! chat-ctx)
-                                :on-after-action (partial notify-after-hook-action! chat-ctx)}
-                               @db*
-                               config)
-  (send-content! chat-ctx :system
-                 {:type :progress
-                  :state :finished})
-  (when-not (get-in @db* [:chats chat-id :created-at])
-    (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis)))
+  (when-not (get-in @db* [:chats chat-id :auto-compacting?])
+    (swap! db* assoc-in [:chats chat-id :status] status)
+    (f.hooks/trigger-if-matches! :postRequest
+                                 (merge (f.hooks/chat-hook-data @db* chat-id (:behavior chat-ctx))
+                                        {:prompt message})
+                                 {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                  :on-after-action (partial notify-after-hook-action! chat-ctx)}
+                                 @db*
+                                 config)
+    (send-content! chat-ctx :system
+                   {:type :progress
+                    :state :finished})
+    (when-not (get-in @db* [:chats chat-id :created-at])
+      (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
   (when on-finished-side-effect
     (on-finished-side-effect))
   (db/update-workspaces-cache! @db* metrics))
@@ -849,7 +850,7 @@
     (prompt-messages!
      [{:role "user" :content "Compact the chat following the template:"}
       {:role "user" :content compact-prompt}]
-     :eca-command
+     :auto-compact
      (assoc chat-ctx
             :on-finished-side-effect
             (fn []
@@ -861,7 +862,7 @@
                          :content [{:type :text
                                     :text "Continue with the task. The previous user request was:"}]}]
                        user-messages)
-               :eca-command
+               :auto-compact
                chat-ctx))))
     nil))
 
