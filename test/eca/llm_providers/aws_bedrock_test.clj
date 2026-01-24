@@ -116,6 +116,24 @@
         (is (= "Thinking" (get-in event-vec [0 :contentBlockDelta :delta :text])))
         (is (= "test_func" (get-in event-vec [1 :contentBlockDelta :delta :toolUse :name])))))))
 
+(deftest test-extract-tool-calls-from-stream
+  (testing "Extracts tool calls from streaming events"
+    (let [events [{:contentBlockDelta {:delta {:toolUse {:toolUseId "1" :name "func1" :input {"a" 1}}}}}
+                  {:contentBlockDelta {:delta {:toolUse {:toolUseId "2" :name "func2" :input {"b" 2}}}}}]
+          tool-calls (bedrock/extract-tool-calls-from-stream events)]
+      (is (= 2 (count tool-calls)))
+      (is (= "func1" (:name (first tool-calls))))
+      (is (= "func2" (:name (second tool-calls)))))))
+
+(deftest test-extract-tool-calls-from-stream-accumulates
+  (testing "Accumulates partial tool call data across multiple events"
+    (let [events [{:contentBlockDelta {:delta {:toolUse {:toolUseId "1" :name "func1"}}}}
+                  {:contentBlockDelta {:delta {:toolUse {:toolUseId "1" :input {"a" 1}}}}}]
+          tool-calls (bedrock/extract-tool-calls-from-stream events)]
+      (is (= 1 (count tool-calls)))
+      (is (= "func1" (:name (first tool-calls))))
+      (is (= {"a" 1} (:input (first tool-calls)))))))
+
 ;; --- Tests: Response Parsing ---
 
 (deftest test-parse-bedrock-response-text
@@ -152,6 +170,51 @@
 ;;       (with-redefs [http/post (fn [_ opts] (future mock-response))]
 ;;         (let [result-data (bedrock/chat! config callbacks)]
 ;;           (is (= "Done" (:output-text result-data))))))))
+
+;; --- Tests: URL Construction ---
+
+(deftest test-build-endpoint-base-url
+  (testing "Base URL pattern constructs correct endpoints"
+    (let [config {:url "https://api.company.com/model/" :region "us-east-1"}
+          model-id "anthropic.claude-3-sonnet-20240229-v1:0"]
+      (is (= "https://api.company.com/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse"
+             (bedrock/build-endpoint config model-id false)))
+      (is (= "https://api.company.com/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream"
+             (bedrock/build-endpoint config model-id true))))))
+
+(deftest test-build-endpoint-legacy-placeholder
+  (testing "Legacy placeholder URL pattern still works"
+    (let [config {:url "https://proxy.example.com/model/{modelId}/converse" :region "us-west-2"}
+          model-id "anthropic.claude-3-opus-20240229-v1:0"]
+      (is (= "https://proxy.example.com/model/anthropic.claude-3-opus-20240229-v1:0/converse"
+             (bedrock/build-endpoint config model-id false))))))
+
+(deftest test-build-endpoint-standard-aws
+  (testing "Standard AWS Bedrock URL construction"
+    (let [config {:region "eu-west-1"}
+          model-id "anthropic.claude-3-haiku-20240307-v1:0"]
+      (is (= "https://bedrock-runtime.eu-west-1.amazonaws.com/model/eu-west-1.anthropic.claude-3-haiku-20240307-v1:0/converse"
+             (bedrock/build-endpoint config model-id false)))
+      (is (= "https://bedrock-runtime.eu-west-1.amazonaws.com/model/eu-west-1.anthropic.claude-3-haiku-20240307-v1:0/converse-stream"
+             (bedrock/build-endpoint config model-id true))))))
+
+(deftest test-build-endpoint-default-region
+  (testing "Default region handling"
+    (let [config {}  ; No region specified
+          model-id "test-model"]
+      (is (= "https://bedrock-runtime.us-east-1.amazonaws.com/model/us-east-1.test-model/converse"
+             (bedrock/build-endpoint config model-id false))))))
+
+;; --- Integration Test: Provider Dispatch ---
+
+(deftest test-provider-dispatch-integration
+  (testing "AWS Bedrock provider is properly dispatched in llm-api"
+    (let [config {:providers {"bedrock" {:api "bedrock"}}}
+          provider "bedrock"]
+      (is (= :bedrock (:api (eca.llm-api/provider->api-handler provider config)))
+          "Bedrock API should be recognized")
+      (is (fn? (:handler (eca.llm-api/provider->api-handler provider config)))
+          "Bedrock handler should be a function"))))
 
 ;; Note: Streaming integration test is harder to mock cleanly with simple `future`
 ;; because of the lazy-seq InputStream interaction, but the binary parser test above

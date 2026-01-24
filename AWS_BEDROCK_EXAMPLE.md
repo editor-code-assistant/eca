@@ -14,7 +14,7 @@ To use AWS Bedrock with ECA, you need to configure the provider in your ECA conf
     "bedrock": {
       "api": "bedrock",
       "key": "${env:BEDROCK_API_KEY}",
-      "url": "https://your-proxy.example.com/model/{modelId}/converse",
+      "url": "https://your-proxy.example.com/model/",
       "region": "us-east-1",
       "models": {
         "claude-3-sonnet": {
@@ -28,6 +28,38 @@ To use AWS Bedrock with ECA, you need to configure the provider in your ECA conf
   }
 }
 ```
+
+### URL Configuration Options
+
+The AWS Bedrock provider supports multiple URL configuration patterns:
+
+#### Option 1: Base URL (Recommended)
+```json
+{
+  "url": "https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/"
+}
+```
+This will construct URLs like:
+- `https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse`
+- `https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream` (when streaming)
+
+#### Option 2: Legacy Placeholder URL (Backward Compatible)
+```json
+{
+  "url": "https://your-proxy.example.com/model/{modelId}/converse"
+}
+```
+This uses the original placeholder replacement pattern.
+
+#### Option 3: No URL (Standard AWS Bedrock)
+```json
+{
+  "region": "us-east-1"
+  // No url specified
+}
+```
+This will use the standard AWS Bedrock endpoint:
+- `https://bedrock-runtime.us-east-1.amazonaws.com/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse`
 
 ### Environment Variable Setup
 
@@ -71,6 +103,35 @@ The AWS Bedrock provider supports the following parameters:
 - `max_tokens`: Maximum tokens to generate (default: 1024)
 - `stopSequences`: Sequences that stop generation
 - `tools`: Tool specifications for tool use
+- `stream`: Controls streaming behavior (default: true)
+
+## Streaming and Tool Calls
+
+The AWS Bedrock provider fully supports both synchronous and streaming tool calls:
+
+### Synchronous Tool Calls
+```clojure
+(provider/request bedrock-config messages 
+  {:tools [tool-spec]
+   :temperature 0.7})
+```
+
+### Streaming Tool Calls
+```clojure
+(provider/request bedrock-config messages 
+  {:tools [tool-spec]
+   :temperature 0.7
+   :stream true})  ; Streaming enabled by default
+```
+
+When the model requests tool execution, the provider will:
+1. Parse tool use requests from the response
+2. Call the `on-prepare-tool-call` callback with formatted tool calls
+3. Return `{:tools-to-call [...]}` for the caller to execute tools
+4. Handle both text responses and tool requests appropriately
+
+### Streaming Tool Call Events
+The streaming implementation handles AWS Bedrock's binary event stream format and properly accumulates tool call data across multiple delta events, ensuring complete tool specifications are available for execution.
 
 ## Authentication
 

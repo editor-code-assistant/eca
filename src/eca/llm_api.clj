@@ -82,6 +82,8 @@
                          :handler llm-providers.anthropic/chat!}
             "openai-chat" {:api :openai-chat
                            :handler llm-providers.openai-chat/chat-completion!}
+            "bedrock" {:api :bedrock
+                       :handler eca.llm-providers.aws-bedrock/chat!}
             nil)))
 
 (defn ^:private prompt!

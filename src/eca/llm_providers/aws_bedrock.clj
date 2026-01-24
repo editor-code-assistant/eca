@@ -259,24 +259,49 @@
                  (:text delta)))
              events)))
 
+(defn extract-tool-calls-from-stream
+  "Extract tool calls from AWS Event Stream events.
+
+   Handles contentBlockDelta events with toolUse information.
+   Accumulates tool use data across multiple delta events."
+  [events]
+  (let [tool-calls (atom {})]
+    (doseq [event events]
+      (when-let [delta (get-in event [:contentBlockDelta :delta])]
+        (when-let [tool-use (get-in delta [:toolUse])]
+          (let [tool-id (:toolUseId tool-use)
+                existing (get @tool-calls tool-id {})]
+            (swap! tool-calls assoc tool-id
+                   (merge existing tool-use))))))
+    (vec (vals @tool-calls))))
+
 ;; --- Endpoint Construction ---
 
-(defn- build-endpoint
+(defn build-endpoint
   "Constructs the API endpoint URL with model ID interpolation.
 
-   Supports two modes:
-   1. Custom proxy URL (with {modelId} placeholder)
-   2. Standard AWS Bedrock URL (requires region)"
+   Supports three modes:
+   1. Custom proxy URL (with {modelId} placeholder) - legacy mode
+   2. Custom proxy URL (base URL without placeholder) - new mode
+   3. Standard AWS Bedrock URL (requires region)"
   [config model-id stream?]
   (let [raw-url (:url config)
         region (or (:region config) "us-east-1")
-        suffix (if stream? "converse-stream" "converse")]
-    (if raw-url
-      ;; Interpolate {modelId} in custom proxy URLs
+        suffix (if stream? "converse-stream" "converse")
+        full-model-id (str region "." model-id)]
+    (cond
+      ;; Mode 1: Legacy {modelId} placeholder replacement
+      (and raw-url (str/includes? raw-url "{modelId}"))
       (str/replace raw-url "{modelId}" model-id)
-      ;; Construct standard AWS URL
+      
+      ;; Mode 2: New base URL pattern (append region.modelId/suffix)
+      raw-url
+      (str raw-url full-model-id "/" suffix)
+      
+      ;; Mode 3: Standard AWS Bedrock URL
+      :else
       (format "https://bedrock-runtime.%s.amazonaws.com/model/%s/%s"
-              region model-id suffix))))
+              region full-model-id suffix))))
 
 ;; --- Public API Functions ---
 
@@ -357,14 +382,28 @@
                                                 :as :stream})]
     (try
       (if (and (not error) (= 200 status))
-        (let [{:keys [on-message-received]} callbacks
+        (let [{:keys [on-message-received on-prepare-tool-call]} callbacks
               events (or (parse-event-stream body) [])
-              texts (extract-text-deltas events)]
+              texts (extract-text-deltas events)
+              tool-calls (extract-tool-calls-from-stream events)]
+          
           ;; Stream each text delta to callback
           (doseq [text texts]
             (on-message-received {:type :text :text text}))
-          ;; Return complete response
-          {:output-text (str/join "" texts)})
+          
+          ;; Handle tool calls if present
+          (if (seq tool-calls)
+            (let [formatted-tool-calls (mapv (fn [tc]
+                                               {:id (:toolUseId tc)
+                                                :type "function"
+                                                :function {:name (:name tc)
+                                                           :arguments (json/generate-string (:input tc))}})
+                                             tool-calls)]
+              (on-prepare-tool-call formatted-tool-calls)
+              {:tools-to-call formatted-tool-calls})
+            
+            ;; Return complete text response
+            {:output-text (str/join "" texts)}))
         (do
           (logger/error "Bedrock Stream API error" {:status status :error error})
           (throw (ex-info "Bedrock Stream API error" {:status status}))))
