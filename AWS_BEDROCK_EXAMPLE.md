@@ -4,9 +4,16 @@ This document explains how to configure and use the AWS Bedrock provider in ECA.
 
 ## Configuration Examples
 
-Here are comprehensive configuration examples for different AWS Bedrock scenarios:
+The AWS Bedrock provider supports both Converse (synchronous) and ConverseStream (streaming) APIs. By default, streaming is enabled (`stream: true`).
 
-### Example 1: Production Configuration with Proxy
+### Converse vs ConverseStream Configuration
+
+| Configuration | API Endpoint | Streaming | Use Case |
+|---------------|--------------|-----------|----------|
+| `"stream": false` | `/converse` | ❌ Disabled | Synchronous responses, simpler integration |
+| `"stream": true` (default) | `/converse-stream` | ✅ Enabled | Real-time responses, better user experience |
+
+### Example 1: Production Configuration with Proxy (Streaming Default)
 
 ```json
 {
@@ -22,6 +29,7 @@ Here are comprehensive configuration examples for different AWS Bedrock scenario
           "extraPayload": {
             "temperature": 0.7,
             "top_k": 200
+            // stream: true (default - uses /converse-stream)
           }
         },
         "claude-3-opus": {
@@ -29,13 +37,15 @@ Here are comprehensive configuration examples for different AWS Bedrock scenario
           "extraPayload": {
             "temperature": 0.5,
             "max_tokens": 2048
+            // stream: true (default - uses /converse-stream)
           }
         },
         "claude-3-haiku": {
           "modelName": "anthropic.claude-3-haiku-20240307-v1:0",
           "extraPayload": {
-            "stream": false,
+            "stream": false,  // Explicitly disable streaming
             "temperature": 0.3
+            // Uses /converse endpoint
           }
         }
       }
@@ -45,10 +55,10 @@ Here are comprehensive configuration examples for different AWS Bedrock scenario
 ```
 
 **Generated URLs:**
-- Converse: `https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse`
-- ConverseStream: `https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream`
+- `claude-3-sonnet`: `https://api.company.com/.../us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream`
+- `claude-3-haiku`: `https://api.company.com/.../us-east-1.anthropic.claude-3-haiku-20240307-v1:0/converse`
 
-### Example 2: Direct AWS Bedrock Configuration (No Proxy)
+### Example 2: Direct AWS Bedrock (No Proxy, Streaming)
 
 ```json
 {
@@ -60,9 +70,7 @@ Here are comprehensive configuration examples for different AWS Bedrock scenario
       "models": {
         "claude-3-sonnet": {
           "modelName": "anthropic.claude-3-sonnet-20240229-v1:0"
-        },
-        "cohere-command-r": {
-          "modelName": "cohere.command-r-v1:0"
+          // Uses /converse-stream by default
         }
       }
     }
@@ -70,40 +78,31 @@ Here are comprehensive configuration examples for different AWS Bedrock scenario
 }
 ```
 
-**Generated URLs:**
-- Converse: `https://bedrock-runtime.us-west-2.amazonaws.com/model/us-west-2.anthropic.claude-3-sonnet-20240229-v1:0/converse`
-- ConverseStream: `https://bedrock-runtime.us-west-2.amazonaws.com/model/us-west-2.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream`
+**Generated URL:** `https://bedrock-runtime.us-west-2.amazonaws.com/model/us-west-2.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream`
 
-### Example 3: Multi-Region Configuration
+### Example 3: Explicit Converse Configuration
 
 ```json
 {
   "providers": {
-    "bedrock-us-east": {
+    "bedrock": {
       "api": "bedrock",
       "key": "${env:BEDROCK_API_KEY}",
-      "url": "https://proxy.us-east-1.example.com/bedrock/",
-      "region": "us-east-1",
-      "models": {
-        "claude-3-sonnet": {
-          "modelName": "anthropic.claude-3-sonnet-20240229-v1:0"
-        }
-      }
-    },
-    "bedrock-eu-west": {
-      "api": "bedrock",
-      "key": "${env:BEDROCK_API_KEY}",
-      "url": "https://proxy.eu-west-1.example.com/bedrock/",
       "region": "eu-west-1",
       "models": {
-        "claude-3-sonnet": {
-          "modelName": "anthropic.claude-3-sonnet-20240229-v1:0"
+        "cohere-command-r": {
+          "modelName": "cohere.command-r-v1:0",
+          "extraPayload": {
+            "stream": false  // Force /converse endpoint
+          }
         }
       }
     }
   }
 }
 ```
+
+**Generated URL:** `https://bedrock-runtime.eu-west-1.amazonaws.com/model/eu-west-1.cohere.command-r-v1:0/converse`
 
 ### URL Configuration Options
 
@@ -141,25 +140,41 @@ export BEDROCK_API_KEY="your-api-key-here"
 
 Once configured, you can use the AWS Bedrock provider like any other provider in ECA:
 
-### Basic Chat
+### Basic Chat (Streaming Default)
 
 ```clojure
+;; Uses ConverseStream API (streaming enabled by default)
 (provider/request bedrock-config messages {:temperature 0.7})
 ```
 
-### With Tools
+### Explicit Synchronous Chat
 
 ```clojure
+;; Uses Converse API (streaming disabled)
+(provider/request bedrock-config messages 
+  {:temperature 0.7
+   :stream false})
+```
+
+### With Tools (Streaming)
+
+```clojure
+;; Streaming tool calls with ConverseStream
 (provider/request bedrock-config messages 
   {:tools [tool-spec]
    :temperature 0.7
-   :top_k 200})
+   :top_k 200
+   :stream true})  ; Explicit (default behavior)
 ```
 
-### Streaming Responses
+### With Tools (Synchronous)
 
 ```clojure
-(provider/request bedrock-stream-config messages {:temperature 0.7})
+;; Synchronous tool calls with Converse
+(provider/request bedrock-config messages 
+  {:tools [tool-spec]
+   :temperature 0.7
+   :stream false})  ; Force synchronous mode
 ```
 
 ## Supported Parameters
@@ -171,11 +186,40 @@ The AWS Bedrock provider supports the following parameters:
 - `max_tokens`: Maximum tokens to generate (default: 1024)
 - `stopSequences`: Sequences that stop generation
 - `tools`: Tool specifications for tool use
-- `stream`: Controls streaming behavior (default: true)
+- `stream`: Controls API endpoint selection (default: true)
+  - `true`: Uses `/converse-stream` endpoint (streaming)
+  - `false`: Uses `/converse` endpoint (synchronous)
+
+## Converse vs ConverseStream APIs
+
+The AWS Bedrock provider implements both AWS Bedrock APIs with automatic endpoint selection:
+
+### API Endpoint Selection
+
+```mermaid
+flowchart TD
+    A[Request] --> B{stream parameter}
+    B -->|true (default)| C[/converse-stream]
+    B -->|false| D[/converse]
+    C --> E[Streaming Response]
+    D --> F[Synchronous Response]
+```
+
+### Converse API (Synchronous)
+- **Endpoint**: `/converse`
+- **Behavior**: Returns complete response when generation finishes
+- **Use Case**: Simple integrations, batch processing
+- **Configuration**: `"stream": false`
+
+### ConverseStream API (Streaming)
+- **Endpoint**: `/converse-stream`
+- **Behavior**: Streams response deltas via binary event stream
+- **Use Case**: Real-time applications, better user experience
+- **Configuration**: `"stream": true` (default)
 
 ## Streaming and Tool Calls
 
-The AWS Bedrock provider fully supports both synchronous and streaming tool calls:
+Both APIs fully support tool calls:
 
 ### Synchronous Tool Calls
 ```clojure
