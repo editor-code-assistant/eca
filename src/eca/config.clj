@@ -350,7 +350,8 @@
     [:customTools]
     [:customTools :ANY :schema :properties]
     [:mcpServers]
-    ;; Behavior-specific toolCall
+    [:prompts :tools]
+    [:behavior :ANY :prompts :tools]
     [:behavior :ANY :toolCall :approval :allow]
     [:behavior :ANY :toolCall :approval :allow :ANY :argsMatchers]
     [:behavior :ANY :toolCall :approval :ask]

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix tools prompt override not working via config.
+
 ## 0.94.0
 
 - Mention in chat some missing Anthropic responses errors when happens.
