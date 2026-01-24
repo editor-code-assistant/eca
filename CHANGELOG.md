@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.94.1
+
 - Fix tools prompt override not working via config.
 
 ## 0.94.0
