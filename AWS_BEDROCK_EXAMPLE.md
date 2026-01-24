@@ -31,9 +31,9 @@ To use AWS Bedrock with ECA, you need to configure the provider in your ECA conf
 
 ### URL Configuration Options
 
-The AWS Bedrock provider supports multiple URL configuration patterns:
+The AWS Bedrock provider supports two URL configuration patterns:
 
-#### Option 1: Base URL (Recommended)
+#### Option 1: Custom Proxy URL (Recommended)
 ```json
 {
   "url": "https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/"
@@ -43,15 +43,7 @@ This will construct URLs like:
 - `https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse`
 - `https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream` (when streaming)
 
-#### Option 2: Legacy Placeholder URL (Backward Compatible)
-```json
-{
-  "url": "https://your-proxy.example.com/model/{modelId}/converse"
-}
-```
-This uses the original placeholder replacement pattern.
-
-#### Option 3: No URL (Standard AWS Bedrock)
+#### Option 2: Standard AWS Bedrock URL
 ```json
 {
   "region": "us-east-1"

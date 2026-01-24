@@ -280,26 +280,19 @@
 (defn build-endpoint
   "Constructs the API endpoint URL with model ID interpolation.
 
-   Supports three modes:
-   1. Custom proxy URL (with {modelId} placeholder) - legacy mode
-   2. Custom proxy URL (base URL without placeholder) - new mode
-   3. Standard AWS Bedrock URL (requires region)"
+   Supports two modes:
+   1. Custom proxy URL (base URL without placeholder)
+   2. Standard AWS Bedrock URL (requires region)"
   [config model-id stream?]
   (let [raw-url (:url config)
         region (or (:region config) "us-east-1")
         suffix (if stream? "converse-stream" "converse")
         full-model-id (str region "." model-id)]
-    (cond
-      ;; Mode 1: Legacy {modelId} placeholder replacement
-      (and raw-url (str/includes? raw-url "{modelId}"))
-      (str/replace raw-url "{modelId}" model-id)
-      
-      ;; Mode 2: New base URL pattern (append region.modelId/suffix)
-      raw-url
+    (if raw-url
+      ;; Custom proxy URL: append region.modelId/suffix
       (str raw-url full-model-id "/" suffix)
       
-      ;; Mode 3: Standard AWS Bedrock URL
-      :else
+      ;; Standard AWS Bedrock URL
       (format "https://bedrock-runtime.%s.amazonaws.com/model/%s/%s"
               region full-model-id suffix))))
 

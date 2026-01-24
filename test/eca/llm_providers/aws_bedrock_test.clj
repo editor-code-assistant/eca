@@ -182,12 +182,7 @@
       (is (= "https://api.company.com/model/us-east-1.anthropic.claude-3-sonnet-20240229-v1:0/converse-stream"
              (bedrock/build-endpoint config model-id true))))))
 
-(deftest test-build-endpoint-legacy-placeholder
-  (testing "Legacy placeholder URL pattern still works"
-    (let [config {:url "https://proxy.example.com/model/{modelId}/converse" :region "us-west-2"}
-          model-id "anthropic.claude-3-opus-20240229-v1:0"]
-      (is (= "https://proxy.example.com/model/anthropic.claude-3-opus-20240229-v1:0/converse"
-             (bedrock/build-endpoint config model-id false))))))
+
 
 (deftest test-build-endpoint-standard-aws
   (testing "Standard AWS Bedrock URL construction"
