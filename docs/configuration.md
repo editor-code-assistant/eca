@@ -424,7 +424,9 @@ You can configure in multiple different ways:
 
 ## Behaviors / prompts
 
-ECA allows to totally customize the prompt sent to LLM via the `behavior` config, allowing to have multiple behaviors for different tasks or workflows.
+ECA allows to totally customize the prompt sent to LLM via the `prompts` config, but you can use the `behavior` config allowing to have multiple behaviors for different tasks or workflows.
+
+You can even customize the tool description via `prompts tools <toolName>`.
 
 === "Example: my-behavior"
 
@@ -432,7 +434,21 @@ ECA allows to totally customize the prompt sent to LLM via the `behavior` config
     {
       "behavior": {
         "my-behavior": {
-          "systemPrompt": "${file:/path/to/my-behavior-prompt.md}"
+          "prompts": {
+            "chat": "${file:/path/to/my-behavior-prompt.md}"
+          }
+        }
+      }
+    }
+    ```
+
+=== "Example: Overriding a tool description"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "prompts": {
+        "tools": {
+          "eca__edit_file": "${file:/path/to/my-tool-prompt.md}"
         }
       }
     }
@@ -621,8 +637,10 @@ You can configure which model and system prompt ECA will use during its inline c
     ```javascript title="~/.config/eca/config.json"
     {
       "completion": {
-        "model": "github-copilot/gpt-4.1",
-        "systemPrompt": "${file:/path/to/my-prompt.md}"
+        "model": "github-copilot/gpt-4.1"
+      }
+      "prompts": {
+        "completion": "${file:/path/to/my-prompt.md}"
       }
     }
     ```
@@ -636,8 +654,10 @@ Configure the model and system prompt used for ECA's rewrite feature via the `re
     ```javascript title="~/.config/eca/config.json"
     {
       "rewrite": {
-        "model": "github-copilot/gpt-4.1",
-        "systemPrompt": "${file:/path/to/my-prompt.md}"
+        "model": "github-copilot/gpt-4.1"
+      },
+      "prompts": {
+        "rewrite": "${file:/path/to/my-prompt.md}"
       }
     }
     ```
@@ -695,11 +715,11 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         enabledSkills?: string[];
         disabledTools?: string[],
         commands?: [{path: string;}];
-        behavior?: {[key: string]: {
-            systemPrompt?: string;
+        behavior?: {[key: string]: { 
             defaultModel?: string;
             disabledTools?: string[];
             enabledSkills?: string[];
+            autoCompactPercentage?: number;
             toolCall?: {
                 approval?: {
                     byDefault?: 'ask' | 'allow' | 'deny';
@@ -707,6 +727,15 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                     ask?: {[key: string]: {argsMatchers?: {[key: string]: string[]}}};
                     deny?: {[key: string]: {argsMatchers?: {[key: string]: string[]}}};
                 };
+            };
+            prompts?:{
+                chat?: string;
+                chatTitle?: string;
+                compact?: string;
+                init?: string;
+                completion?: string;
+                rewrite?: string;
+                tools?: {[name: string]: string};
             };
         }};
         customTools?: {[key: string]: {
@@ -744,7 +773,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }};
         defaultBehavior?: string;
         welcomeMessage?: string;
-        compactPromptFile?: string;
+        autoCompactPercentage?: number;
         index?: {
             ignoreFiles: [{
                 type: string;
@@ -754,13 +783,20 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                 maxEntriesPerDir?: number;
             };
         };
+        prompts?: {
+            chat?: string;
+            chatTitle?: string;
+            compact?: string;
+            init?: string;
+            completion?: string;
+            rewrite?: string;
+            tools?: {[name: string]: string};
+        };
         completion?: {
             model?: string;
-            systemPrompt?: string;
         };
         rewrite?: {
             model?: string;
-            systemPrompt?: string;
         };
         otlp?: {[key: string]: string};
         netrcFile?: string;
@@ -807,9 +843,9 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
       "behavior" {
-        "agent": {"systemPrompt": "${classpath:prompts/agent_behavior.md}",
+        "agent": {"prompts": {"chat": "${classpath:prompts/agent_behavior.md}"},
                   "disabledTools": ["preview_file_change"]},
-        "plan": {"systemPrompt": "${classpath:prompts/plan_behavior.md}",
+        "plan": {"prompts": {"chat": "${classpath:prompts/plan_behavior.md}"},
                   "disabledTools": ["edit_file", "write_file", "move_file"],
                   "toolCall": {"approval": {"deny": {"eca__shell_command":
                                                      {"argsMatchers": {"command" [".*>.*",
@@ -823,7 +859,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       }
       "defaultBehavior": "agent",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
-      "compactPromptFile": "prompts/compact.md",
+      "autoCompactPercentage": 85,
       "index" : {
         "ignoreFiles" : [ {
           "type" : "gitignore"
@@ -833,12 +869,16 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
           "maxEntriesPerDir": 50
         }
       },
-      "completion": {
-        "model": "openai/gpt-4.1",
-        "systemPrompt": "${classpath:prompts/inline_completion.md}"
+      "prompts": {
+        "chat": "${classpath:prompts/agent_behavior.md}", // default to agent
+        "chatTitle": "${classpath:prompts/title.md}",
+        "compact": "${classpath:prompts/compact.md}",
+        "init": "${classpath:prompts/init.md}",
+        "completion": "${classpath:prompts/inline_completion.md}",
+        "rewrite": "${classpath:prompts/rewrite.md}"
       },
-      "rewrite": {
-        "systemPrompt": "${classpath:prompts/rewrite.md}"
+      "completion": {
+        "model": "openai/gpt-4.1"
       }
     }
     ```

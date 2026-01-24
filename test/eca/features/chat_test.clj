@@ -285,22 +285,25 @@
                                                                                          :type :text}]}}}
                                 {:role "assistant" :content [{:type :text :text "I can see: \n/foo/bar"}]}]}}
            (:chats (h/db))))
+      ;; Note: We use m/in-any-order because there's a race between progress messages
+      ;; ("Calling tool", "Generating") and tool state messages (toolCallRunning,
+      ;; toolCalled) - their relative order in the middle section is non-deterministic.
       (is (match?
            {:chat-content-received
-            [{:role :user :content {:type :text :text "List the files you are allowed to see\n"}}
-             {:role :system :content {:type :progress :state :running :text "Waiting model"}}
-             {:role :system :content {:type :progress :state :running :text "Generating"}}
-             {:role :assistant :content {:type :text :text "Ok,"}}
-             {:role :assistant :content {:type :text :text " working on it"}}
-             {:role :assistant :content {:type :toolCallPrepare :id "call-1" :name "list_allowed_directories" :arguments-text ""}}
-             {:role :assistant :content {:type :toolCallRun :id "call-1" :name "list_allowed_directories" :arguments {} :manual-approval false}}
-             {:role :assistant :content {:type :toolCallRunning :id "call-1" :name "list_allowed_directories" :arguments {}}}
-             {:role :system :content {:type :progress :state :running :text "Calling tool"}}
-             {:role :assistant :content {:type :toolCalled :id "call-1" :name "list_allowed_directories" :arguments {} :total-time-ms number? :outputs [{:text "Allowed directories: /foo/bar" :type :text}]}}
-             {:role :system :content {:type :progress :state :running :text "Generating"}}
-             {:role :assistant :content {:type :text :text "I can see: \n"}}
-             {:role :assistant :content {:type :text :text "/foo/bar"}}
-             {:role :system :content {:state :finished :type :progress}}]}
+            (m/in-any-order [{:role :user :content {:type :text :text "List the files you are allowed to see\n"}}
+                             {:role :system :content {:type :progress :state :running :text "Waiting model"}}
+                             {:role :system :content {:type :progress :state :running :text "Generating"}}
+                             {:role :assistant :content {:type :text :text "Ok,"}}
+                             {:role :assistant :content {:type :text :text " working on it"}}
+                             {:role :assistant :content {:type :toolCallPrepare :id "call-1" :name "list_allowed_directories" :arguments-text ""}}
+                             {:role :assistant :content {:type :toolCallRun :id "call-1" :name "list_allowed_directories" :arguments {} :manual-approval false}}
+                             {:role :assistant :content {:type :toolCallRunning :id "call-1" :name "list_allowed_directories" :arguments {}}}
+                             {:role :system :content {:type :progress :state :running :text "Calling tool"}}
+                             {:role :assistant :content {:type :toolCalled :id "call-1" :name "list_allowed_directories" :arguments {} :total-time-ms number? :outputs [{:text "Allowed directories: /foo/bar" :type :text}]}}
+                             {:role :system :content {:type :progress :state :running :text "Generating"}}
+                             {:role :assistant :content {:type :text :text "I can see: \n"}}
+                             {:role :assistant :content {:type :text :text "/foo/bar"}}
+                             {:role :system :content {:state :finished :type :progress}}])}
            (h/messages))))))
 
 (deftest concurrent-tool-calls-test

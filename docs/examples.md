@@ -67,7 +67,7 @@ If you think your config is relevant to be shared for other people, [open a pull
         "behavior": {
             "reviewer": {
                 "defaultModel": "openai/gpt-5.1",
-                "systemPrompt": "${file:prompts/reviewer.md}"}
+                "prompts": {"chat": "${file:prompts/reviewer.md}"}}
             },
             "dangerous": {
                 "defaultModel": "deepseek/deepseek-chat",

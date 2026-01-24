@@ -2,13 +2,20 @@
   (:require
    [cheshire.core :as json]
    [eca.client-http :as client])
-  (:import [io.netty.buffer Unpooled]
-           [io.netty.handler.codec.http DefaultFullHttpResponse FullHttpRequest HttpHeaders HttpResponseStatus HttpResponseStatus HttpVersion]
-           [java.nio.charset StandardCharsets]
-           [org.littleshoot.proxy HttpFiltersAdapter HttpFiltersSource ProxyAuthenticator]
-           [org.littleshoot.proxy.impl DefaultHttpProxyServer]))
+  (:import
+   [io.netty.buffer Unpooled]
+   [io.netty.handler.codec.http
+    DefaultFullHttpResponse
+    FullHttpRequest
+    HttpHeaders
+    HttpResponseStatus
+    HttpResponseStatus
+    HttpVersion]
+   [java.nio.charset StandardCharsets]
+   [org.littleshoot.proxy HttpFiltersAdapter HttpFiltersSource ProxyAuthenticator]
+   [org.littleshoot.proxy.impl DefaultHttpProxyServer]))
 
-(defn ^HttpFiltersSource proxy-filters-handler-make
+(defn proxy-filters-handler-make
   "Creates a LittleProxy `HttpFiltersSource` that intercepts HTTP requests,
   normalizes them into a simple map, passes them to HANDLER-FN, and converts
   the handler's return value into an HTTP response.
@@ -27,7 +34,7 @@
 
   Buffer limits are set so the proxy can accept request bodies up to
   32 KB and does not buffer responses."
-  [handler-fn]
+  ^HttpFiltersSource [handler-fn]
   (proxy [HttpFiltersSource] []
     (filterRequest [original-request ctx]
       (proxy [HttpFiltersAdapter] [original-request]
@@ -129,7 +136,7 @@
       :port (.getPort (.getListenAddress px))})))
 
 (def ^:dynamic ^String *proxy-host*
- "Dynamic var for the host of a temporary proxy from `with-proxy`."
+  "Dynamic var for the host of a temporary proxy from `with-proxy`."
   nil)
 
 (def ^:dynamic *proxy-port*

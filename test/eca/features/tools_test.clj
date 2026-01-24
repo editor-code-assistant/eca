@@ -64,7 +64,56 @@
          (with-redefs [f.tools.filesystem/definitions {"directory_tree" {:description "Only in {{workspaceRoots}}"
                                                                          :parameters {}}}]
            (f.tools/all-tools "123" "agent" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
-                              {}))))))
+                              {})))))
+  (testing "Override native tool description via global prompts config"
+    (let [config {:prompts {:tools {"eca__directory_tree" "Custom global description"}}}
+          tools (f.tools/all-tools "123" "agent" {} config)
+          tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
+      (is (= "Custom global description" (:description tool)))))
+  (testing "Override native tool description via behavior-specific prompts config"
+    (let [config {:behavior {"agent" {:prompts {:tools {"eca__directory_tree" "Custom agent description"}}}}}
+          tools (f.tools/all-tools "123" "agent" {} config)
+          tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
+      (is (= "Custom agent description" (:description tool)))))
+  (testing "Behavior-specific prompts takes precedence over global prompts"
+    (let [config {:prompts {:tools {"eca__directory_tree" "Global description"}}
+                  :behavior {"agent" {:prompts {:tools {"eca__directory_tree" "Agent description"}}}}}
+          tools (f.tools/all-tools "123" "agent" {} config)
+          tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
+      (is (= "Agent description" (:description tool)))))
+  (testing "Different behaviors can have different tool descriptions"
+    (let [config {:behavior {"agent" {:prompts {:tools {"eca__directory_tree" "Agent description"}}}
+                             "plan" {:prompts {:tools {"eca__directory_tree" "Plan description"}}
+                                     :disabledTools ["edit_file" "write_file" "move_file"]}}}
+          agent-tools (f.tools/all-tools "123" "agent" {} config)
+          plan-tools (f.tools/all-tools "123" "plan" {} config)
+          agent-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) agent-tools)
+          plan-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) plan-tools)]
+      (is (= "Agent description" (:description agent-tool)))
+      (is (= "Plan description" (:description plan-tool)))))
+  (testing "Override MCP tool description via global prompts config"
+    (let [db {:mcp-clients {"myMCP" {:version "1.0"
+                                     :tools [{:name "my_tool"
+                                              :description "Original MCP description"
+                                              :parameters {"type" "object"}}]}}}
+          config {:prompts {:tools {"myMCP__my_tool" "Custom MCP description"}}}
+          tools (f.tools/all-tools "123" "agent" db config)
+          tool (some #(when (= "myMCP__my_tool" (:full-name %)) %) tools)]
+      (is (= "Custom MCP description" (:description tool)))))
+  (testing "Falls back to original description when no override specified"
+    (let [config {:prompts {:tools {"eca__some_other_tool" "Override for other tool"}}}
+          tools (f.tools/all-tools "123" "agent" {} config)
+          tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
+      (is (string? (:description tool)))
+      (is (not= "Override for other tool" (:description tool)))))
+  (testing "Falls back to global when behavior has no override for specific tool"
+    (let [config {:prompts {:tools {"eca__directory_tree" "Global description"}}
+                  :behavior {"agent" {:prompts {:tools {"eca__read_file" "Agent read_file description"}}}}}
+          tools (f.tools/all-tools "123" "agent" {} config)
+          dir-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)
+          read-tool (some #(when (= "eca__read_file" (:full-name %)) %) tools)]
+      (is (= "Global description" (:description dir-tool)))
+      (is (= "Agent read_file description" (:description read-tool))))))
 
 (deftest get-disabled-tools-test
   (testing "merges global and behavior-specific disabled tools"

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 0.94.0
+
+- Mention in chat some missing Anthropic responses errors when happens.
+- Auto compact via percentage defined in `autoCompactPercentage`. #257
+- Do not remove conversation history visually when compacting chat.
+
+## 0.93.2
+
+- Fix `/compact` removing chat history when prompt is stopped or some error happens. #142
+
+## 0.93.1
+
+- Fix chat title generation regression.
+
+## 0.93.0
+
+- Improve copilot login to mention to enable model at Copilot settings page.
+- New config API for prompts:
+  - Support override any tool description via `prompts tools <toolName>` #271
+  - Support override `/init` system prompt via `prompts init`
+  - Support override `/compact` system prompt via `prompts compact`
+  - Support override chat title system prompt via `prompts chatTitle`
+  - Deprecate `systemPrompt` in favor of `prompts chat`
+  - Deprecate `completion systemPrompt` in favor of `prompts completion`
+  - Deprecate `rewrite systemPrompt` in favor of `prompts rewrite`
+
+## 0.92.3
+
+- Improve error handling on chat messages, avoiding stuck and losing chat history. #272
+- Fix directories not working in user prompt. #273
+
 ## 0.92.2
 
 - Fix whitespace handle in uris. #270

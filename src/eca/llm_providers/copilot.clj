@@ -4,6 +4,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.shared :refer [multi-str]]
    [hato.client :as http]))
 
 (def ^:private client-id "Iv1.b507a08c87ecfe98")
@@ -71,11 +72,13 @@
     (swap! db* assoc-in [:chats chat-id :login-provider] provider)
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
                                           :device-code device-code})
-    (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate using the code: `%s`\nThen type anything in the chat and send it to continue the authentication."
-                       url
-                       user-code))))
+    (send-msg! (multi-str
+                "First, make sure you have Copilot enabled in you Github account: https://github.com/settings/copilot/features"
+                (format "Then, open your browser at:\n\n%s\n\nAuthenticate using the code: `%s`\nThen type anything in the chat and send it to continue the authentication."
+                        url
+                        user-code)))))
 
-(defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider] :as ctx}]
+(defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider send-msg!] :as ctx}]
   (let [access-token (oauth-access-token (get-in @db* [:auth provider :device-code]))
         {:keys [api-key expires-at]} (oauth-renew-token access-token)]
     (swap! db* update-in [:auth provider] merge {:step :login/done
@@ -83,7 +86,8 @@
                                                  :api-key api-key
                                                  :expires-at expires-at})
 
-    (f.login/login-done! ctx)))
+    (f.login/login-done! ctx)
+    (send-msg! "\nMake sure to enable the model you want use at: https://github.com/settings/copilot/features")))
 
 (defmethod f.login/login-step ["github-copilot" :login/renew-token] [{:keys [db* provider] :as ctx}]
   (let [access-token (get-in @db* [:auth provider :access-token])
