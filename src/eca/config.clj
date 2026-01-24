@@ -336,7 +336,8 @@
   {:kebab-case-key
    [[:providers]]
    :keywordize-val
-   [[:providers :ANY :httpClient]]
+   [[:providers :ANY :httpClient]
+    [:providers :ANY :models :ANY :reasoningHistory]]
    :stringfy-key
    [[:behavior]
     [:providers]

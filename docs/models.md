@@ -73,7 +73,7 @@ Schema:
 | `models`                              | map     | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload`         | map     | Extra payload sent in body to LLM                                                                            | No       |
 | `models <model> modelName`            | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
-| `models <model> keepHistoryReasoning` | boolean | Keep `reason` messages in conversation history. Default: `false`                                             | No       |
+| `models <model> reasoningHistory`     | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
 | `fetchModels`                         | boolean | Enable automatic model discovery from `/models` endpoint (OpenAI-compatible providers)                       | No       |
 
 _* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
@@ -121,32 +121,19 @@ Examples:
 
     This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
 
-=== "History reasoning"
-	`keepHistoryReasoning` - Determines whether the model's internal reasoning chain is persisted in the conversation history for subsequent turns.
+=== "Reasoning in conversation history"
+	`reasoningHistory` - Controls whether and how the model's reasoning (thinking blocks, reasoning_content) is included in conversation history sent to the model.
+	This **only applies** to `openai_chat` API and it controls both tag-based thinking and the preservation of  `reasoning_content`.
 
-	- **Standard Behavior**: Most models expect reasoning blocks (e.g., `<think>` tags or `reasoning_content`) to be removed in subsequent requests to save tokens and avoid bias.
-	- **Usage**: Enable this for models that explicitly support "preserved thinking," or if you want to experiment with letting the model see its previous thought process (with XML-based reasoning).
-	- **Example**: See [GLM-4.7 with Preserved thinking](https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking).
+	**Available modes:**
 
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "z-ai": {
-          "api": "openai-chat",
-          "url": "https://api.z.ai/api/paas/v4/",
-          "key": "your-api-key",
-          "models": {
-            "GLM-4.7": {
-              "keepHistoryReasoning": true,  // Preserves reasoning
-              "extraPayload": {"clear_thinking": false} // Preserved thinking (see https://docs.z.ai/guides/capabilities/thinking-mode#preserved-thinking)
-			  }
-          }
-        }
-      }
-    }
-    ```
+	- **`"all"`** (default, safe choice) - Send all reasoning blocks back to the model. The model can see its full chain of thought from previous turns. This is the safest option.
+	- **`"turn"`** - Send only reasoning from the current conversation turn (after the last user message). Previous reasoning is discarded before sending to the API.
+	- **`"off"`** - Never send reasoning blocks to the model. All reasoning is discarded before API calls.
 
-    Default: `false`.
+	**Note:** Reasoning is always shown to you in the UI and stored in chat history—this setting only controls what gets sent to the model in API requests.
+
+    Default: `"all"`.
 
 === "Dynamic model discovery"
 
