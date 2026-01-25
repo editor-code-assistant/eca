@@ -110,14 +110,14 @@
                           (* output-tokens output-token-cost)))))))
 
 (defn usage-sumary [chat-id full-model db]
-  (let [last-input-tokens (get-in db [:chats chat-id :last-input-tokens] 0)
-        last-output-tokens (get-in db [:chats chat-id :last-output-tokens] 0)
-        last-input-cache-creation-tokens (get-in db [:chats chat-id :last-input-cache-creation-tokens] 0)
-        last-input-cache-read-tokens (get-in db [:chats chat-id :last-input-cache-read-tokens] 0)
-        total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
-        total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] 0)
-        total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] 0)
-        total-output-tokens (get-in db [:chats chat-id :total-output-tokens] 0)
+  (let [last-input-tokens (or (get-in db [:chats chat-id :last-input-tokens]) 0)
+        last-output-tokens (or (get-in db [:chats chat-id :last-output-tokens]) 0)
+        last-input-cache-creation-tokens (or (get-in db [:chats chat-id :last-input-cache-creation-tokens]) 0)
+        last-input-cache-read-tokens (or (get-in db [:chats chat-id :last-input-cache-read-tokens]) 0)
+        total-input-tokens (or (get-in db [:chats chat-id :total-input-tokens]) 0)
+        total-input-cache-creation-tokens (or (get-in db [:chats chat-id :total-input-cache-creation-tokens]) 0)
+        total-input-cache-read-tokens (or (get-in db [:chats chat-id :total-input-cache-read-tokens]) 0)
+        total-output-tokens (or (get-in db [:chats chat-id :total-output-tokens]) 0)
         model-capabilities (get-in db [:models full-model])]
     (assoc-some {:session-tokens (+ last-input-tokens
                                     last-input-cache-read-tokens
