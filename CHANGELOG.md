@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix autocompact not cleaning tokens in memory and thinking it should auto compact again.
+
 ## 0.94.1
 
 - Fix tools prompt override not working via config.

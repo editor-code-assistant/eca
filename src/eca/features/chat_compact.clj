@@ -13,6 +13,10 @@
                                                  (get-in db [:chats chat-id :last-summary]))}]}])))
 
   ;; Zero chat usage
+  (swap! db* assoc-in [:chats chat-id :last-input-tokens] nil)
+  (swap! db* assoc-in [:chats chat-id :last-output-tokens] nil)
+  (swap! db* assoc-in [:chats chat-id :last-input-cache-creation-tokens] nil)
+  (swap! db* assoc-in [:chats chat-id :last-input-cache-read-tokens] nil)
   (swap! db* assoc-in [:chats chat-id :total-input-tokens] nil)
   (swap! db* assoc-in [:chats chat-id :total-output-tokens] nil)
   (swap! db* assoc-in [:chats chat-id :total-input-cache-creation-tokens] nil)
