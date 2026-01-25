@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.95.0
+
 - (OpenAI Chat) - Configurable reasoning history via `reasoningHistory` (model-level, default: all)
 - Fix exception in autocompact that could happen some times.
 
