@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.94.2
+
 - Fix autocompact not cleaning tokens in memory and thinking it should auto compact again.
 
 ## 0.94.1
