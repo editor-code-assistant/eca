@@ -693,7 +693,8 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
             thinkTagEnd?: string;
             models: {[key: string]: {
               modelName?: string;
-              extraPayload?: {[key: string]: any}
+              extraPayload?: {[key: string]: any};
+              reasoningHistory?: "all" | "turn" | "off";
             }};
         }};
         defaultModel?: string;

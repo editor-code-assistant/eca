@@ -97,6 +97,7 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         extra-payload (:extraPayload model-config)
+        reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
         {:keys [handler]} (provider->api-handler provider config)
@@ -123,6 +124,7 @@
           :web-search web-search
           :extra-payload (merge {:parallel_tool_calls true}
                                 extra-payload)
+          :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
           :auth-type auth-type}
@@ -157,6 +159,7 @@
           :tools tools
           :extra-payload (merge {:parallel_tool_calls true}
                                 extra-payload)
+          :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
           :extra-headers {"openai-intent" "conversation-panel"
@@ -179,6 +182,7 @@
           :tools tools
           :think-tag-start "<thought>"
           :think-tag-end "</thought>"
+          :reasoning-history reasoning-history
           :extra-payload (merge {:parallel_tool_calls false}
                                 (when reason?
                                   {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
@@ -221,6 +225,7 @@
             :url-relative-path url-relative-path
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
+            :reasoning-history reasoning-history
             :http-client http-client
             :api-url api-url
             :api-key api-key}

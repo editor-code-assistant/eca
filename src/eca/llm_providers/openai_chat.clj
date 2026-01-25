@@ -384,18 +384,26 @@
     (reset! reasoning-state* {:id nil :type nil :content "" :buffer ""})))
 
 (defn ^:private prune-history
-  "Ensure DeepSeek-style reasoning_content is discarded from history but kept for the active turn.
-   Only drops 'reason' messages WITH :delta-reasoning? before the last user message.
-   Think-tag based reasoning (without :delta-reasoning?) is preserved and transformed to assistant messages."
-  [messages]
-  (if-let [last-user-idx (llm-util/find-last-user-msg-idx messages)]
-    (->> messages
-         (keep-indexed (fn [i m]
-                         (when-not (and (= "reason" (:role m))
-                                        (get-in m [:content :delta-reasoning?])
-                                        (< i last-user-idx))
-                           m)))
-         vec)
+  "Discard reasoning messages from history based on reasoning-history mode.
+
+   Parameters:
+   - messages: the conversation history
+   - reasoning-history: controls reasoning retention
+     - :all  - preserve all reasoning in history (safe default)
+     - :turn - preserve reasoning only in the current turn (after last user message)
+     - :off  - discard all reasoning messages"
+  [messages reasoning-history]
+  (case reasoning-history
+    :all messages
+    :off (filterv #(not= "reason" (:role %)) messages)
+    :turn (if-let [last-user-idx (llm-util/find-last-user-msg-idx messages)]
+            (->> messages
+                 (keep-indexed (fn [i m]
+                                 (when-not (and (= "reason" (:role m))
+                                                (< i last-user-idx))
+                                   m)))
+                 vec)
+            messages)
     messages))
 
 (defn chat-completion!
@@ -406,14 +414,14 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end http-client]}
+           think-tag-start think-tag-end reasoning-history http-client]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
         stream? (boolean callbacks)
         system-messages (when instructions [{:role "system" :content instructions}])
         ;; Pipeline: prune history -> normalize -> merge adjacent assistants -> filter
-        all-messages (prune-history (vec (concat past-messages user-messages)))
+        all-messages (prune-history (vec (concat past-messages user-messages)) reasoning-history)
         messages (vec (concat
                        system-messages
                        (normalize-messages all-messages supports-image? think-tag-start think-tag-end)))
@@ -473,7 +481,7 @@
                                        tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
                                   (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
-                                    (let [pruned-messages (prune-history new-messages)
+                                    (let [pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
                                                                   (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end)))

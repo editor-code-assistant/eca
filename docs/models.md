@@ -61,19 +61,20 @@ You just need to add your provider to `providers` and make sure add the required
 
 Schema:
 
-| Option                        | Type   | Description                                                                                                  | Required |
-|-------------------------------|--------|--------------------------------------------------------------------------------------------------------------|----------|
-| `api`                         | string | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
-| `url`                         | string | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
-| `key`                         | string | API key (with support for `${env:MY_KEY}` or `{netrc:api.my-provider.com}`                                   | No*      |
-| `completionUrlRelativePath`   | string | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
-| `thinkTagStart`               | string | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
-| `thinkTagEnd`                 | string | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
-| `httpClient`                  | map    | Allow customize the http-client for this provider requests, like changing http version                       | No       |
-| `models`                      | map    | Key: model name, value: its config                                                                           | Yes      |
-| `models <model> extraPayload` | map    | Extra payload sent in body to LLM                                                                            | No       |
-| `models <model> modelName`    | string | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
-| `fetchModels`                 | boolean | Enable automatic model discovery from `/models` endpoint (OpenAI-compatible providers) | No |
+| Option                                | Type    | Description                                                                                                  | Required |
+|---------------------------------------|---------|--------------------------------------------------------------------------------------------------------------|----------|
+| `api`                                 | string  | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
+| `url`                                 | string  | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
+| `key`                                 | string  | API key (with support for `${env:MY_KEY}` or `{netrc:api.my-provider.com}`                                   | No*      |
+| `completionUrlRelativePath`           | string  | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
+| `thinkTagStart`                       | string  | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
+| `thinkTagEnd`                         | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
+| `httpClient`                          | map     | Allow customize the http-client for this provider requests, like changing http version                       | No       |
+| `models`                              | map     | Key: model name, value: its config                                                                           | Yes      |
+| `models <model> extraPayload`         | map     | Extra payload sent in body to LLM                                                                            | No       |
+| `models <model> modelName`            | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
+| `models <model> reasoningHistory`     | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
+| `fetchModels`                         | boolean | Enable automatic model discovery from `/models` endpoint (OpenAI-compatible providers)                       | No       |
 
 _* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
 
@@ -119,6 +120,20 @@ Examples:
     ```
 
     This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
+
+=== "Reasoning in conversation history"
+	`reasoningHistory` - Controls whether and how the model's reasoning (thinking blocks, reasoning_content) is included in conversation history sent to the model.
+	This **only applies** to `openai_chat` API and it controls both tag-based thinking and the preservation of  `reasoning_content`.
+
+	**Available modes:**
+
+	- **`"all"`** (default, safe choice) - Send all reasoning blocks back to the model. The model can see its full chain of thought from previous turns. This is the safest option.
+	- **`"turn"`** - Send only reasoning from the current conversation turn (after the last user message). Previous reasoning is discarded before sending to the API.
+	- **`"off"`** - Never send reasoning blocks to the model. All reasoning is discarded before API calls.
+
+	**Note:** Reasoning is always shown to you in the UI and stored in chat history—this setting only controls what gets sent to the model in API requests.
+
+    Default: `"all"`.
 
 === "Dynamic model discovery"
 
@@ -211,7 +226,7 @@ Notes:
     3. Type the chosen method
     4. Authenticate in your browser, copy the code.
     5. Paste and send the code and done!
-    
+
 === "Codex / Openai"
 
     1. Login to Openai via the chat command `/login`.
