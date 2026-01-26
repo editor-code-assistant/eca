@@ -27,15 +27,9 @@
     :role :system
     :content {:type :text
               :text (if auto-compact?
-                      "Auto-compacted chat to:\n\n"
-                      "Compacted chat to:\n\n")}})
-  (messenger/chat-content-received
-   messenger
-   {:chat-id chat-id
-    :role :assistant
-    :content {:type :text
-              :text (get-in @db* [:chats chat-id :last-summary])}})
-  (when-let [usage (shared/usage-msg->usage {:input-tokens 0 :output-tokens 0} full-model {:chat-id chat-id :db* db*})]
+                      "Auto-compacted chat"
+                      "Compacted chat")}})
+  (when-let [usage (shared/usage-sumary chat-id full-model @db*)]
     (messenger/chat-content-received
      messenger
      {:chat-id chat-id
