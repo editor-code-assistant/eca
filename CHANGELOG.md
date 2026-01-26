@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `/resume` duplicating chats. #278
+
 ## 0.96.0
 
 - Add `/skill-create` command to create a ECA skill from a prompt. #277

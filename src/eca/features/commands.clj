@@ -5,6 +5,7 @@
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.chat-compact :as f.chat-compact]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
@@ -12,7 +13,6 @@
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
-   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str update-some]])
@@ -283,6 +283,8 @@
                    :else
                    (let [chat (get chats selected-chat-id)]
                      (swap! db* assoc-in [:chats chat-id] chat)
+                     (swap! db* update-in [:chats] #(dissoc % selected-chat-id))
+                     (db/update-workspaces-cache! @db* metrics)
                      {:type :chat-messages
                       :chats {chat-id {:title (:title chat)
                                        :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
