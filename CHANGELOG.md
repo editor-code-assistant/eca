@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.96.1
+
 - Fix `/resume` duplicating chats. #278
 - Reduce noise in auto-compaction, not mentioning the summary. #280
 
