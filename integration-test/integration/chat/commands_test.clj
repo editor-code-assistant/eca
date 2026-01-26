@@ -24,6 +24,7 @@
             :commands [{:name "init" :arguments []}
                        {:name "login" :arguments [{:name "provider-id"}]}
                        {:name "skills" :arguments []}
+                       {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "resume" :arguments [{:name "chat-id"}]}
@@ -39,6 +40,7 @@
       (is (match?
            {:chatId nil
             :commands [{:name "login" :arguments [{:name "provider-id"}]}
+                       {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "config" :arguments []}]}
