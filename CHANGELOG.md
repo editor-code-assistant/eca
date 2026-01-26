@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `/skill-create` command to create a ECA skill from a prompt. #277
+
 ## 0.95.0
 
 - (OpenAI Chat) - Configurable reasoning history via `reasoningHistory` (model-level, default: all)

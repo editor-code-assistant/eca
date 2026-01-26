@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.logger :as logger]
    [eca.shared :refer [multi-str] :as shared]
@@ -171,6 +172,15 @@
   (selmer/render
    (get-config-prompt :init behavior config)
    (->base-selmer-ctx all-tools db)))
+
+(defn skill-create-prompt [skill-name user-prompt all-tools behavior db config]
+  (selmer/render
+   (get-config-prompt :skillCreate behavior config)
+   (merge
+    (->base-selmer-ctx all-tools db)
+    {:skillFilePath (str (fs/file (f.skills/global-skills-dir) skill-name "SKILL.md"))
+     :skillName skill-name
+     :userPrompt user-prompt})))
 
 (defn chat-title-prompt [behavior config]
   (get-config-prompt :chatTitle behavior config))

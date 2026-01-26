@@ -1307,24 +1307,30 @@
                      content))))
 
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
-  (let [{:keys [type on-finished-side-effect] :as result} (f.commands/handle-command! command args chat-ctx)]
-    (case type
-      :chat-messages (do
-                       (doseq [[chat-id {:keys [messages title]}] (:chats result)]
-                         (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
-                           (send-chat-contents! messages new-chat-ctx)
-                           (when title
-                             (send-content! new-chat-ctx :system (assoc-some
-                                                                  {:type :metadata}
-                                                                  :title title)))))
-                       (finish-chat-prompt! :idle chat-ctx))
-      :new-chat-status (finish-chat-prompt! (:status result) chat-ctx)
-      :send-prompt (let [prompt-contents (:prompt result)]
-                     ;; Keep original slash command in :message for hooks (already in parent chat-ctx)
-                     (prompt-messages! [{:role "user" :content prompt-contents}]
-                                       :eca-command
-                                       (assoc chat-ctx :on-finished-side-effect on-finished-side-effect)))
-      nil)))
+  (try
+    (let [{:keys [type on-finished-side-effect] :as result} (f.commands/handle-command! command args chat-ctx)]
+      (case type
+        :chat-messages (do
+                         (doseq [[chat-id {:keys [messages title]}] (:chats result)]
+                           (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
+                             (send-chat-contents! messages new-chat-ctx)
+                             (when title
+                               (send-content! new-chat-ctx :system (assoc-some
+                                                                    {:type :metadata}
+                                                                    :title title)))))
+                         (finish-chat-prompt! :idle chat-ctx))
+        :new-chat-status (finish-chat-prompt! (:status result) chat-ctx)
+        :send-prompt (let [prompt-contents (:prompt result)]
+                       ;; Keep original slash command in :message for hooks (already in parent chat-ctx)
+                       (prompt-messages! [{:role "user" :content prompt-contents}]
+                                         :eca-command
+                                         (assoc chat-ctx :on-finished-side-effect on-finished-side-effect)))
+        nil))
+    (catch Exception e
+      (logger/error e)
+      (send-content! chat-ctx :system {:type :text
+                                       :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+      (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))))
 
 (defn ^:private prompt*
   [{:keys [model]}

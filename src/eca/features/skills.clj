@@ -52,10 +52,13 @@
        :body body
        :dir (str (fs/canonicalize (fs/parent skill-file)))})))
 
-(defn ^:private global-skills []
+(defn global-skills-dir []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
-                            (io/file (config/get-property "user.home") ".config"))
-        skills-dir (io/file xdg-config-home "eca" "skills")]
+                            (io/file (config/get-property "user.home") ".config"))]
+    (io/file xdg-config-home "eca" "skills")))
+
+(defn ^:private global-skills []
+  (let [skills-dir (global-skills-dir)]
     (when (fs/exists? skills-dir)
       (keep skill-file->skill
             (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))

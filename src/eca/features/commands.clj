@@ -12,6 +12,7 @@
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str update-some]])
@@ -93,8 +94,13 @@
                        :arguments [{:name "provider-id"}]}
                       {:name "skills"
                        :type :native
-                       :description "List available skills."
+                       :description "List available skills"
                        :arguments []}
+                      {:name "skill-create"
+                       :type :native
+                       :description "Create a skill considering a user request"
+                       :arguments [{:name "name" :description "The skill name"}
+                                   {:name "prompt" :description "What to consider as this skill content"}]}
                       {:name "costs"
                        :type :native
                        :description "Total costs of the current chat session."
@@ -303,6 +309,10 @@
                           skills)]
                  {:type :chat-messages
                   :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
+      "skill-create" (let [skill-name (first args)
+                           user-prompt (second args)]
+                       {:type :send-prompt
+                        :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools behavior db config)})
       "config" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages
