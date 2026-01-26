@@ -6,7 +6,6 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.features.chat-compact :as f.chat-compact]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
@@ -227,7 +226,7 @@
                   (swap! db* assoc-in [:chats chat-id :compacting?] true)
                   {:type :send-prompt
                    :on-finished-side-effect (fn []
-                                              (f.chat-compact/compact-side-effect! chat-ctx false))
+                                              (shared/compact-side-effect! chat-ctx false))
                    :prompt (f.prompt/compact-prompt (string/join " " args) all-tools behavior config db)})
       "login" (do
                 (messenger/chat-content-received

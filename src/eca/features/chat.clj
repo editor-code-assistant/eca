@@ -6,7 +6,6 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.features.chat-compact :as f.chat-compact]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
    [eca.features.hooks :as f.hooks]
@@ -855,7 +854,7 @@
             :on-finished-side-effect
             (fn []
               (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-              (f.chat-compact/compact-side-effect! chat-ctx true)
+              (shared/compact-side-effect! chat-ctx true)
               ;; Resume the original task
               (prompt-messages!
                (concat [{:role "user"
