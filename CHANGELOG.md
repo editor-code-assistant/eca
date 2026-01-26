@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.96.0
+
 - Add `/skill-create` command to create a ECA skill from a prompt. #277
 
 ## 0.95.0
