@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support update list of mcp tools when requested from server via list_changed notification.
+
 ## 0.96.1
 
 - Fix `/resume` duplicating chats. #278

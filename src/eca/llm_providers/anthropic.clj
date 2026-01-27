@@ -242,13 +242,15 @@
                                                                     :full-name (:name content-block)
                                                                     :arguments (json/parse-string (:input-json content-block))}))
                                                                (vals @content-block*))]
-                                               (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
+                                               (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
                                                  (let [messages (-> (normalize-messages new-messages supports-image?)
                                                                     add-cache-to-last-message)]
                                                    (reset! content-block* {})
                                                    (base-request!
                                                     {:rid (llm-util/gen-rid)
-                                                     :body (assoc body :messages messages)
+                                                     :body (assoc body
+                                                                  :messages messages
+                                                                  :tools (->tools tools web-search))
                                                      :api-url api-url
                                                      :api-key api-key
                                                      :http-client http-client

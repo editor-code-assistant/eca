@@ -480,7 +480,7 @@
                                                      k))
                                        tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
-                                  (when-let [{:keys [new-messages]} (on-tools-called tools-to-call)]
+                                  (when-let [{:keys [new-messages tools]} (on-tools-called tools-to-call)]
                                     (let [pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
@@ -489,7 +489,9 @@
                                       (reset! tool-calls* {})
                                       (base-chat-request!
                                        {:rid new-rid
-                                        :body (assoc body :messages new-messages-list)
+                                        :body (assoc-some body
+                                                          :messages new-messages-list
+                                                          :tools (when (seq tools) (->tools tools)))
                                         :on-tools-called-wrapper on-tools-called-wrapper
                                         :extra-headers extra-headers
                                         :http-client http-client

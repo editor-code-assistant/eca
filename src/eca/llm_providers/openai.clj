@@ -121,13 +121,15 @@
                                            c)))))))
         messages))
 
-(defn ^:private ->tools [tools]
-  (mapv (fn [tool]
-          {:type "function"
-           :name (:full-name tool)
-           :description (:description tool)
-           :parameters (:parameters tool)})
-        tools))
+(defn ^:private ->tools [tools web-search codex?]
+  (cond->
+   (mapv (fn [tool]
+           {:type "function"
+            :name (:full-name tool)
+            :description (:description tool)
+            :parameters (:parameters tool)})
+         tools)
+    web-search (conj (when-not codex? {:type "web_search_preview"}))))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search extra-payload auth-type http-client]}
@@ -135,8 +137,7 @@
   (let [codex? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
-        tools (cond-> (->tools tools)
-                web-search (conj (when-not codex? {:type "web_search_preview"})))
+        tools (->tools tools web-search codex?)
         stream? (boolean callbacks)
         body (deep-merge
               (assoc-some
@@ -239,10 +240,12 @@
                                      :output-tokens (-> response :usage :output_tokens)
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
-                  (when-let [{:keys [new-messages]} (on-tools-called tool-calls)]
+                  (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
                     (base-responses-request!
                      {:rid (llm-util/gen-rid)
-                      :body (assoc body :input (normalize-messages new-messages supports-image?))
+                      :body (assoc body
+                                   :input (normalize-messages new-messages supports-image?)
+                                   :tools (->tools tools web-search codex?))
                       :api-url api-url
                       :url-relative-path url-relative-path
                       :api-key api-key
@@ -330,8 +333,6 @@
       (throw (ex-info (format "OpenAI refresh token failed: %s" (pr-str body))
                       {:status status
                        :body body})))))
-
-
 
 (defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)

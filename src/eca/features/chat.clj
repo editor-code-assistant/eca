@@ -867,8 +867,8 @@
 
 (defn ^:private on-tools-called! [{:keys [db* config chat-id behavior full-model messenger metrics] :as chat-ctx}
                                   received-msgs* add-to-history! user-messages]
-  (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
-    (fn [tool-calls]
+  (fn [tool-calls]
+    (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
       (assert-chat-not-stopped! chat-ctx)
       (when-not (string/blank? @received-msgs*)
         (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
@@ -1039,31 +1039,34 @@
                                                 :ex-data (ex-data t)
                                                 :message (.getMessage t)
                                                 :cause (.getCause t)})))))))
-        (if-let [rejection-info @rejected-tool-call-info*]
-          (let [reason-code
-                (if (map? rejection-info) (:code rejection-info) rejection-info)
-                hook-continue
-                (when (map? rejection-info) (:hook-continue rejection-info))
-                hook-stop-reason
-                (when (map? rejection-info) (:hook-stop-reason rejection-info))]
-            (if (= :hook-rejected reason-code)
-              (if (false? hook-continue)
+        (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
+          (if-let [rejection-info @rejected-tool-call-info*]
+            (let [reason-code
+                  (if (map? rejection-info) (:code rejection-info) rejection-info)
+                  hook-continue
+                  (when (map? rejection-info) (:hook-continue rejection-info))
+                  hook-stop-reason
+                  (when (map? rejection-info) (:hook-stop-reason rejection-info))]
+              (if (= :hook-rejected reason-code)
+                (if (false? hook-continue)
+                  (do (send-content! chat-ctx :system {:type :text
+                                                       :text (or hook-stop-reason "Tool rejected by hook")})
+                      (finish-chat-prompt! :idle chat-ctx) nil)
+                  {:tools all-tools
+                   :new-messages (get-in @db* [:chats chat-id :messages])})
                 (do (send-content! chat-ctx :system {:type :text
-                                                     :text (or hook-stop-reason "Tool rejected by hook")})
-                    (finish-chat-prompt! :idle chat-ctx) nil)
-                {:new-messages (get-in @db* [:chats chat-id :messages])})
-              (do (send-content! chat-ctx :system {:type :text
-                                                   :text "Tell ECA what to do differently for the rejected tool(s)"})
-                  (add-to-history! {:role "user"
-                                    :content [{:type :text
-                                               :text "I rejected one or more tool calls with the following reason"}]})
-                  (finish-chat-prompt! :idle chat-ctx)
-                  nil)))
-          (do
-            (maybe-renew-auth-token chat-ctx)
-            (if (auto-compact? chat-id behavior full-model config @db*)
-              (trigger-auto-compact! chat-ctx all-tools user-messages)
-              {:new-messages (get-in @db* [:chats chat-id :messages])})))))))
+                                                     :text "Tell ECA what to do differently for the rejected tool(s)"})
+                    (add-to-history! {:role "user"
+                                      :content [{:type :text
+                                                 :text "I rejected one or more tool calls with the following reason"}]})
+                    (finish-chat-prompt! :idle chat-ctx)
+                    nil)))
+            (do
+              (maybe-renew-auth-token chat-ctx)
+              (if (auto-compact? chat-id behavior full-model config @db*)
+                (trigger-auto-compact! chat-ctx all-tools user-messages)
+                {:tools all-tools
+                 :new-messages (get-in @db* [:chats chat-id :messages])}))))))))
 
 (defn ^:private assert-compatible-apis-between-models!
   "Ensure new request is compatible with last api used.
@@ -1200,7 +1203,8 @@
                                                      (finish-chat-prompt! :idle chat-ctx))))
                 :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                         (assert-chat-not-stopped! chat-ctx)
-                                        (let [tool (tool-by-full-name full-name all-tools)]
+                                        (let [all-tools (f.tools/all-tools chat-id behavior @db* config)
+                                              tool (tool-by-full-name full-name all-tools)]
                                           (when-not tool
                                             (logger/warn logger-tag "Tool not found for prepare"
                                                          {:full-name full-name

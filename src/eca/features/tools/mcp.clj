@@ -121,7 +121,8 @@
                                              (logger/info logger-tag (format "[%s] %s" server-name msg))))
       stdio-transport)))
 
-(defn ^:private ->client ^McpSyncClient [name transport init-timeout workspaces]
+(defn ^:private ->client ^McpSyncClient [name transport init-timeout workspaces
+                                         {:keys [on-tools-change]}]
   (-> (McpClient/sync transport)
       (.requestTimeout (Duration/ofHours 10)) ;; required any value for initializationTimeout work
       (.initializationTimeout (Duration/ofSeconds init-timeout))
@@ -131,6 +132,9 @@
       (.roots ^List (mapv #(McpSchema$Root. (:uri %) (:name %)) workspaces))
       (.loggingConsumer (fn [^McpSchema$LoggingMessageNotification notification]
                           (logger/info logger-tag (str "[MCP-" name "]") (.data notification))))
+      (.toolsChangeConsumer (fn [^List tools]
+                              (logger/info logger-tag (format "[%s] Tools list changed, received %d tools" name (count tools)))
+                              (on-tools-change tools)))
       (.build)))
 
 (defn ^:private ->server [mcp-name server-config status db]
@@ -159,15 +163,17 @@
     :else
     nil))
 
+(defn ^:private tool-client->tool [^McpSchema$Tool tool-client obj-mapper]
+  {:name (.name tool-client)
+   :description (.description tool-client)
+   ;; We convert to json to then read so we have a clojure map
+   ;; TODO avoid this converting to clojure map directly
+   :parameters (json/parse-string (.writeValueAsString obj-mapper (.inputSchema tool-client)) true)})
+
 (defn ^:private list-server-tools [^ObjectMapper obj-mapper ^McpSyncClient client]
   (try
     (when (.tools (.getServerCapabilities client))
-      (mapv (fn [^McpSchema$Tool tool-client]
-              {:name (.name tool-client)
-               :description (.description tool-client)
-               ;; We convert to json to then read so we have a clojure map
-               ;; TODO avoid this converting to clojure map directly
-               :parameters (json/parse-string (.writeValueAsString obj-mapper (.inputSchema tool-client)) true)})
+      (mapv #(tool-client->tool % obj-mapper)
             (.tools (.listTools client))))
     (catch Exception e
       (logger/warn logger-tag "Could not list tools:" (.getMessage e))
@@ -284,7 +290,13 @@
       (let [obj-mapper (ObjectMapper.)
             init-timeout (:mcpTimeoutSeconds config)
             transport (->transport name server-config workspaces db)
-            client (->client name transport init-timeout workspaces)]
+            on-tools-change (fn [tools-client]
+                              (let [tools (mapv #(tool-client->tool % obj-mapper)
+                                                tools-client)]
+                                (swap! db* assoc-in [:mcp-clients name :tools] tools)
+                                (on-server-updated (->server name server-config :running @db*))))
+            client (->client name transport init-timeout workspaces
+                             {:on-tools-change on-tools-change})]
         (on-server-updated (->server name server-config :starting db))
         (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
         (try

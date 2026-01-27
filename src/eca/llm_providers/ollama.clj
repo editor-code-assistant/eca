@@ -151,12 +151,13 @@
                              done_reason
                              (if-let [tool-call (get @tool-calls* rid)]
                                  ;; TODO support multiple tool calls
-                               (when-let [{:keys [new-messages]} (on-tools-called [tool-call])]
+                               (when-let [{:keys [new-messages tools]} (on-tools-called [tool-call])]
                                  (swap! tool-calls* dissoc rid)
                                  (base-chat-request!
                                   {:rid (llm-util/gen-rid)
                                    :url url
-                                   :body (assoc body :messages (normalize-messages new-messages))
+                                   :body (assoc body :messages (normalize-messages new-messages)
+                                                :tools (->tools tools))
                                    :on-error on-error
                                    :on-stream handle-stream}))
                                (on-message-received {:type :finish
