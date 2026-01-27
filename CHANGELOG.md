@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.97.0
+
 - Support update list of mcp tools when requested from server via list_changed notification.
 
 ## 0.96.1
