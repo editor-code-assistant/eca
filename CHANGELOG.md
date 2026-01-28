@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.97.3
+
 - Fix non sse remote mcps not working.
 
 ## 0.97.2
