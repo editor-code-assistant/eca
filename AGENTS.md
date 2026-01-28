@@ -27,3 +27,4 @@ ECA Agent Guide (AGENTS.md)
 - Tests:
   - Use `clojure.test` + `nubank/matcher-combinators`; keep tests deterministic.
   - Put shared test helpers under `test/eca/test_helper.clj`.
+- Use java class typing to avoid GraalVM reflection issues

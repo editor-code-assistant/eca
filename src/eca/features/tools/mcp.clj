@@ -80,8 +80,13 @@
     ;; HTTP transport (SSE or Streamable, inferred from URL)
     (let [url (replace-env-vars (:url server-config))
           sse? (string/includes? url "/sse")
+          config-headers (:headers server-config)
           customizer (reify McpSyncHttpClientRequestCustomizer
                        (customize [_this builder _method _endpoint _body _context]
+                         ;; First apply configured static headers
+                         (doseq [[header-name header-value] config-headers]
+                           (.header builder (name header-name) (replace-env-vars (str header-value))))
+                         ;; Then apply OAuth token if present (can override static Authorization)
                          (when-let [access-token (get-in db [:mcp-auth server-name :access-token])]
                            (.header builder "Authorization" (str "Bearer " access-token)))))]
       (if sse?
@@ -262,15 +267,18 @@
         workspaces (:workspace-folders @db*)
         server-config (get-in config [:mcpServers name])
         url (:url server-config)
+        ;; Skip OAuth entirely if Authorization header is configured
+        has-static-auth? (some-> server-config :headers :Authorization some?)
         mcp-auth (get-in @db* [:mcp-auth name])
         has-token? (some? (:access-token mcp-auth))
         token-expired? (token-expired? (:expires-at mcp-auth))
         ;; Try to refresh if token exists but is expired
         refresh-succeeded? (when (and has-token? token-expired?)
                              (try-refresh-token! name db* url metrics))
-        ;; Only get oauth-info if we don't have a token or refresh failed
-        needs-oauth? (or (not has-token?)
-                         (and token-expired? (not refresh-succeeded?)))
+        ;; Only get oauth-info if we don't have a token or refresh failed, and no static auth header
+        needs-oauth? (and (not has-static-auth?)
+                          (or (not has-token?)
+                              (and token-expired? (not refresh-succeeded?))))
         oauth-info (when (and url needs-oauth?)
                      (oauth/oauth-info (replace-env-vars url)))]
     (if oauth-info

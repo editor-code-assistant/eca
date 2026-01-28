@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Do not try to oauth remote mcp servers if they have Authorization header.
+
 ## 0.97.1
 
 - Fix regression in last release MCPs not being started properly.
