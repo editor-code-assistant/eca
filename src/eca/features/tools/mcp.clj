@@ -163,7 +163,7 @@
     :else
     nil))
 
-(defn ^:private tool-client->tool [^McpSchema$Tool tool-client obj-mapper]
+(defn ^:private tool-client->tool [^McpSchema$Tool tool-client ^ObjectMapper obj-mapper]
   {:name (.name tool-client)
    :description (.description tool-client)
    ;; We convert to json to then read so we have a clojure map
