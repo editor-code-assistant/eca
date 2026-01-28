@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.97.1
+
 - Fix regression in last release MCPs not being started properly.
 
 ## 0.97.0
