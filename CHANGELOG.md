@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.97.2
+
 - Do not try to oauth remote mcp servers if they have Authorization header.
 
 ## 0.97.1
