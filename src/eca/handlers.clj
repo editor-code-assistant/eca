@@ -9,7 +9,6 @@
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
-   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
@@ -21,7 +20,6 @@
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
     (let [config (config/all @db*)]
-      (logger/debug "Considered config: " config)
       (swap! db* assoc
              :client-info (:client-info params)
              :workspace-folders (:workspace-folders params)

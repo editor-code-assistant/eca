@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix non sse remote mcps not working.
+
 ## 0.97.2
 
 - Do not try to oauth remote mcp servers if they have Authorization header.

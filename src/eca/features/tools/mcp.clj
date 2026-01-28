@@ -59,11 +59,12 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
-(defn ^:private split-sse-url
-  "Split an SSE URL into base URI and endpoint path.
+(defn ^:private split-url
+  "Split a URL into base URI and endpoint path.
    Examples:
    - 'https://api.example.com/v1/sse' -> ['https://api.example.com', '/v1/sse']
-   - 'https://mcp.example.com/sse?key=abc' -> ['https://mcp.example.com', '/sse?key=abc']"
+   - 'https://mcp.example.com/sse?key=abc' -> ['https://mcp.example.com', '/sse?key=abc']
+   - 'https://api.z.ai/api/mcp/web_reader/mcp' -> ['https://api.z.ai', '/api/mcp/web_reader/mcp']"
   [^String url]
   (let [uri (java.net.URI. url)
         scheme (.getScheme uri)
@@ -90,15 +91,16 @@
                          (when-let [access-token (get-in db [:mcp-auth server-name :access-token])]
                            (.header builder "Authorization" (str "Bearer " access-token)))))]
       (if sse?
-        (let [[base-uri sse-endpoint] (split-sse-url url)]
+        (let [[base-uri sse-endpoint] (split-url url)]
           (logger/info logger-tag (format "Creating SSE transport for server '%s' - base: %s, endpoint: %s" server-name base-uri sse-endpoint))
           (-> (HttpClientSseClientTransport/builder base-uri)
               (.sseEndpoint sse-endpoint)
               (.httpRequestCustomizer customizer)
               (.build)))
-        (do
-          (logger/info logger-tag (format "Creating HTTP transport for server '%s' at URL: %s" server-name url))
-          (-> (HttpClientStreamableHttpTransport/builder url)
+        (let [[base-uri endpoint] (split-url url)]
+          (logger/info logger-tag (format "Creating HTTP transport for server '%s' - base: %s, endpoint: %s" server-name base-uri endpoint))
+          (-> (HttpClientStreamableHttpTransport/builder base-uri)
+              (.endpoint endpoint)
               (.httpRequestCustomizer customizer)
               (.build)))))
 
@@ -266,6 +268,7 @@
   (let [db @db*
         workspaces (:workspace-folders @db*)
         server-config (get-in config [:mcpServers name])
+        _ (on-server-updated (->server name server-config :starting db))
         url (:url server-config)
         ;; Skip OAuth entirely if Authorization header is configured
         has-static-auth? (some-> server-config :headers :Authorization some?)
@@ -305,7 +308,6 @@
                                 (on-server-updated (->server name server-config :running @db*))))
             client (->client name transport init-timeout workspaces
                              {:on-tools-change on-tools-change})]
-        (on-server-updated (->server name server-config :starting db))
         (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
         (try
           (.initialize client)
