@@ -127,7 +127,8 @@
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
-          :auth-type auth-type}
+          :auth-type auth-type
+          :account-id (:account-id provider-auth)}
          callbacks)
 
         (= "anthropic" provider)

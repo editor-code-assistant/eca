@@ -21,12 +21,22 @@
 (def ^:private responses-path "/v1/responses")
 (def ^:private codex-url "https://chatgpt.com/backend-api/codex/responses")
 
-(defn ^:private jtw-token->account-id [api-key]
-  (let [[_ base64] (string/split api-key #"\.")
-        payload (some-> base64
-                        oauth/<-base64
-                        json/parse-string)]
-    (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])))
+(defn ^:private jwt-payload->account-id
+  "Extract account ID from JWT payload, checking multiple locations like opencode does."
+  [payload]
+  (or (get payload "chatgpt_account_id")
+      (get-in payload ["https://api.openai.com/auth" "chatgpt_account_id"])
+      (get-in payload ["organizations" 0 "id"])))
+
+(defn ^:private jwt-token->account-id
+  "Extract account ID from a JWT token string."
+  [token]
+  (when (string? token)
+    (let [[_ base64] (string/split token #"\.")
+          payload (some-> base64
+                          oauth/<-base64
+                          json/parse-string)]
+      (jwt-payload->account-id payload))))
 
 (defn ^:private response-body->result [body]
   {:output-text (reduce
@@ -34,16 +44,18 @@
                  ""
                  (:content (last (:output body))))})
 
-(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key on-error on-stream http-client]}]
+(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client]}]
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
               (str api-url (or url-relative-path responses-path)))
+        ;; Use persisted account-id first, fall back to extracting from JWT
+        resolved-account-id (or account-id (jwt-token->account-id api-key))
         headers (client/merge-llm-headers
                  (assoc-some
                   {"Authorization" (str "Bearer " api-key)
                    "Content-Type" "application/json"}
-                  "chatgpt-account-id" (jtw-token->account-id api-key)
+                  "ChatGPT-Account-Id" resolved-account-id
                   "OpenAI-Beta" (when oauth? "responses=experimental"),
                   "Originator" (when oauth? "codex_cli_rs")
                   "Session-ID" (when oauth? (str (random-uuid)))))
@@ -129,10 +141,10 @@
             :description (:description tool)
             :parameters (:parameters tool)})
          tools)
-    web-search (conj (when-not codex? {:type "web_search_preview"}))))
+    (and web-search (not codex?)) (conj {:type "web_search_preview"})))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                                max-output-tokens past-messages tools web-search extra-payload auth-type http-client]}
+                                max-output-tokens past-messages tools web-search extra-payload auth-type account-id http-client]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [codex? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
@@ -249,6 +261,7 @@
                       :api-url api-url
                       :url-relative-path url-relative-path
                       :api-key api-key
+                      :account-id account-id
                       :http-client http-client
                       :auth-type auth-type
                       :on-error on-error
@@ -270,6 +283,7 @@
       :api-url api-url
       :url-relative-path url-relative-path
       :api-key api-key
+      :account-id account-id
       :http-client http-client
       :auth-type auth-type
       :on-error on-error
@@ -295,6 +309,12 @@
 (def ^:private oauth-token-url
   "https://auth.openai.com/oauth/token")
 
+(defn ^:private extract-account-id
+  "Extract account ID from token response, trying id_token first, then access_token."
+  [{:keys [id_token access_token]}]
+  (or (jwt-token->account-id id_token)
+      (jwt-token->account-id access_token)))
+
 (defn ^:private oauth-authorize [server-url code verifier]
   (let [{:keys [status body]} (http/post
                                oauth-token-url
@@ -310,6 +330,7 @@
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
        :access-token (:access_token body)
+       :account-id (extract-account-id body)
        :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
       (throw (ex-info (format "OpenAI token exchange failed: %s" (pr-str body))
                       {:status status
@@ -351,11 +372,12 @@
       (oauth/start-oauth-server!
        {:port local-server-port
         :on-success (fn [{:keys [code]}]
-                      (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize server-url code verifier)]
+                      (let [{:keys [access-token refresh-token account-id expires-at]} (oauth-authorize server-url code verifier)]
                         (swap! db* update-in [:auth provider] merge {:step :login/done
                                                                      :type :auth/oauth
                                                                      :refresh-token refresh-token
                                                                      :api-key access-token
+                                                                     :account-id account-id
                                                                      :expires-at expires-at})
                         (send-msg! "")
                         (f.login/login-done! ctx))
@@ -383,11 +405,15 @@
     (send-msg! (format "Invalid API key '%s'" input))))
 
 (defmethod f.login/login-step ["openai" :login/renew-token] [{:keys [db* provider] :as ctx}]
-  (let [{:keys [refresh-token]} (get-in @db* [:auth provider])
-        {:keys [refresh-token access-token expires-at]} (oauth-refresh refresh-token)]
+  (let [current-auth (get-in @db* [:auth provider])
+        existing-account-id (:account-id current-auth)
+        {:keys [refresh-token access-token expires-at]} (oauth-refresh (:refresh-token current-auth))
+        ;; Try to extract new account-id from refreshed tokens, fallback to existing
+        new-account-id (or (jwt-token->account-id access-token) existing-account-id)]
     (swap! db* update-in [:auth provider] merge {:step :login/done
                                                  :type :auth/oauth
                                                  :refresh-token refresh-token
                                                  :api-key access-token
+                                                 :account-id new-account-id
                                                  :expires-at expires-at})
     (f.login/login-done! ctx :silent? true)))

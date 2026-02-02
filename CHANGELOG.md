@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix openai request when using non codex models but using openai subscription.
+
 ## 0.97.3
 
 - Fix non sse remote mcps not working.

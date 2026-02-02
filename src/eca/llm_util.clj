@@ -1,8 +1,8 @@
 (ns eca.llm-util
   (:require
-   [clojure.string :as string]
    [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
+   [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.secrets :as secrets]
@@ -86,7 +86,7 @@
         [:auth/token key])
       (when-let [key (:api-key provider-auth)]
         [:auth/oauth key])
-      #_(when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
+      (when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
         [:auth/token key])
       ;; legacy
       (when-let [key (some-> (get-in config [:providers (name provider) :keyRc])
