@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support moonshot models via anthropic API.
+
 ## 0.97.4
 
 - Fix openai request when using non codex models but using openai subscription.

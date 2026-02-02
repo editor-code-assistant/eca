@@ -54,6 +54,20 @@
       (is (match?
            [["foo.bar" {:type "foo.bar"}]
             ["foo.baz" {:type "foo.baz"}]]
+           (llm-util/event-data-seq r)))))
+  (testing "when no extra space after event: (moonshot/kimi format)"
+    (with-open [r (io/reader (ByteArrayInputStream. (.getBytes (str "event:content_block_start\n"
+                                                                    "data:{\"type\":\"content_block_start\",\"index\":0}\n"
+                                                                    "\n"
+                                                                    "event:content_block_delta\n"
+                                                                    "data:{\"type\":\"content_block_delta\",\"index\":0}\n"
+                                                                    "\n"
+                                                                    "event:message_delta\n"
+                                                                    "data:{\"type\":\"message_delta\"}"))))]
+      (is (match?
+           [["content_block_start" {:type "content_block_start" :index 0}]
+            ["content_block_delta" {:type "content_block_delta" :index 0}]
+            ["message_delta" {:type "message_delta"}]]
            (llm-util/event-data-seq r))))))
 
 (deftest provider-api-key-with-key-rc-test

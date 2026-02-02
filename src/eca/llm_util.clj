@@ -46,7 +46,8 @@
                     (if (= data-str "[DONE]")
                       (recur event-line) ; skip [DONE]
                       (let [event-type (if event-line
-                                         (subs event-line 7)
+                                         ;; Handle both "event: foo" and "event:foo" formats
+                                         (string/triml (subs event-line 6))
                                          (-> (json/parse-string data-str true)
                                              :type))]
                         (cons [event-type (json/parse-string data-str true)]
