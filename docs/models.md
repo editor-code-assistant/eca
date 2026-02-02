@@ -226,6 +226,33 @@ Notes:
     3. Type the chosen method
     4. Authenticate in your browser, copy the code.
     5. Paste and send the code and done!
+    
+=== "Azure OpenAI"
+
+    1. Login via the chat command `/login`.
+    2. Type 'azure' and send it.
+    3. Specify your API key.
+    4. Specify your API url with your resource, ex: 'https://your-resource-name.openai.azure.com'.
+    5. Inform at least a model, ex: `gpt-5`
+    6. Done, it should be saved to your global config.
+
+    or manually via config:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "azure": {
+          "api": "openai-responses",
+          "url": "https://your-resource-name.openai.azure.com",
+          "key": "your-api-key",
+          "completionUrlRelativePath": "/openai/responses?api-version=2025-04-01-preview",
+          "models": {
+            "gpt-5": {}
+           }
+        }
+      }
+    }
+    ```
 
 === "Codex / Openai"
 
@@ -234,6 +261,35 @@ Notes:
     3. Type the chosen method
     4. Authenticate in your browser, copy the code.
     5. Paste and send the code and done!
+    
+=== "DeepSeek"
+
+    [DeepSeek](https://deepseek.com) offers powerful reasoning and coding models:
+
+    1. Login via the chat command `/login`.
+    2. Type 'deepseek' and send it.
+    3. Specify your Deepseek API key.
+    4. Inform at least a model, ex: `deepseek-chat`
+    5. Done, it should be saved to your global config.
+
+    or manually via config:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "deepseek": {
+          "api": "openai-chat",
+          "url": "https://api.deepseek.com",
+          "key": "your-api-key",
+          "models": {
+            "deepseek-chat": {},
+            "deepseek-coder": {},
+            "deepseek-reasoner": {}
+           }
+        }
+      }
+    }
+    ```
 
 === "Github Copilot"
 
@@ -263,6 +319,47 @@ Notes:
             "gpt-5": {},
             "deepseek-r1": {}
            }
+        }
+      }
+    }
+    ```
+    
+=== "LM Studio"
+
+    This config works with LM studio:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "lmstudio": {
+            "api": "openai-chat",
+            "url": "http://localhost:1234",
+            "completionUrlRelativePath": "/v1/chat/completions",
+            "httpClient": {
+                "version": "http-1.1"
+            },
+            "models": {
+                "your-model": {}
+            }
+        }
+      }
+    }
+    ```
+    
+=== "Moonshot"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "moonshot": {
+          "api": "anthropic",
+          "url": "https://api.kimi.com/coding",
+          "key": "your-api-key",
+          "models": {
+            "kimi-k2.5": {},
+            "kimi-k2-thinking": {},
+            "kimi-for-coding": {}
+          }
         }
       }
     }
@@ -297,62 +394,6 @@ Notes:
     }
     ```
 
-=== "DeepSeek"
-
-    [DeepSeek](https://deepseek.com) offers powerful reasoning and coding models:
-
-    1. Login via the chat command `/login`.
-    2. Type 'deepseek' and send it.
-    3. Specify your Deepseek API key.
-    4. Inform at least a model, ex: `deepseek-chat`
-    5. Done, it should be saved to your global config.
-
-    or manually via config:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "deepseek": {
-          "api": "openai-chat",
-          "url": "https://api.deepseek.com",
-          "key": "your-api-key",
-          "models": {
-            "deepseek-chat": {},
-            "deepseek-coder": {},
-            "deepseek-reasoner": {}
-           }
-        }
-      }
-    }
-    ```
-
-=== "Azure OpenAI"
-
-    1. Login via the chat command `/login`.
-    2. Type 'azure' and send it.
-    3. Specify your API key.
-    4. Specify your API url with your resource, ex: 'https://your-resource-name.openai.azure.com'.
-    5. Inform at least a model, ex: `gpt-5`
-    6. Done, it should be saved to your global config.
-
-    or manually via config:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "azure": {
-          "api": "openai-responses",
-          "url": "https://your-resource-name.openai.azure.com",
-          "key": "your-api-key",
-          "completionUrlRelativePath": "/openai/responses?api-version=2025-04-01-preview",
-          "models": {
-            "gpt-5": {}
-           }
-        }
-      }
-    }
-    ```
-
 === "Z.ai"
 
     1. Login via the chat command `/login`.
@@ -374,28 +415,6 @@ Notes:
             "GLM-4.5": {},
             "GLM-4.5-Air": {}
            }
-        }
-      }
-    }
-    ```
-
-=== "LM Studio"
-
-    This config works with LM studio:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "lmstudio": {
-            "api": "openai-chat",
-            "url": "http://localhost:1234",
-            "completionUrlRelativePath": "/v1/chat/completions",
-            "httpClient": {
-                "version": "http-1.1"
-            },
-            "models": {
-                "your-model": {}
-            }
         }
       }
     }
