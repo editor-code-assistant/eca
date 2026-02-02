@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.97.4
+
 - Fix openai request when using non codex models but using openai subscription.
 
 ## 0.97.3
