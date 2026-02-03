@@ -180,8 +180,8 @@
                          {:role "assistant"
                           :content [{:type "thinking"
                                      :signature "enc-123"
-                                     :thinking "I should say hello"}]}
-                         {:role "assistant" :content [{:type "text" :text "hello there!"}]}
+                                     :thinking "I should say hello"}
+                                    {:type "text" :text "hello there!"}]}
                          {:role "user" :content [{:type "text" :text "how are you?"}]}]
               :system (m/pred vector?)}
              (llm.mocks/get-req-body :reasoning-1)))))))
@@ -270,10 +270,9 @@
                          {:role "assistant"
                           :content [{:type "thinking"
                                      :signature "enc-123"
-                                     :thinking "I should call tool eca__directory_tree"}]}
-                         {:role "assistant" :content [{:type "text" :text "I will list files"}]}
-                         {:role "assistant"
-                          :content [{:type "tool_use"
+                                     :thinking "I should call tool eca__directory_tree"}
+                                    {:type "text" :text "I will list files"}
+                                    {:type "tool_use"
                                      :id "tool-1"
                                      :name "eca__directory_tree"
                                      :input {:path (h/project-path->canon-path "resources")}}]}
