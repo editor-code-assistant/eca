@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remove the need to use codex instructions for codex sub, replacing with ECA prompt like all other providers.
+
 ## 0.97.6
 
 - Improve Anthropic API to support more models like kimi-k2.5.

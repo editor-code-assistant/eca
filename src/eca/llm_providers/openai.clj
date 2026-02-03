@@ -6,7 +6,6 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
-   [eca.features.prompt :as f.prompt]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
@@ -158,9 +157,7 @@
                          (concat [{:role "system" :content instructions}] input)
                          input)
                 :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
-                :instructions (if codex?
-                                (f.prompt/codex-prompt)
-                                instructions)
+                :instructions instructions
                 :tools tools
                 :include (when reason?
                            ["reasoning.encrypted_content"])

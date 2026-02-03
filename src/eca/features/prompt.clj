@@ -21,9 +21,6 @@
 
 (def ^:private load-builtin-prompt (memoize load-builtin-prompt*))
 
-(defn ^:private codex-prompt* [] (slurp (io/resource "prompts/codex.md")))
-(def codex-prompt (memoize codex-prompt*))
-
 (defn ^:private compact-prompt-template* [file-path]
   (if (fs/relative? file-path)
     (slurp (io/resource file-path))
