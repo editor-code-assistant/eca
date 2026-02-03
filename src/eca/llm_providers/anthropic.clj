@@ -157,6 +157,37 @@
                                             c))))))))
         past-messages))
 
+(defn ^:private merge-adjacent-assistants
+  "Merge consecutive assistant messages into a single message.
+   This is required when thinking blocks precede tool_use blocks -
+   they must be in the same assistant message for Anthropic-compatible APIs
+   (like Kimi) that require reasoning_content alongside tool calls."
+  [messages]
+  (reduce
+   (fn [acc msg]
+     (let [prev (peek acc)]
+       (if (and (= "assistant" (:role prev))
+                (= "assistant" (:role msg)))
+         ;; Merge: combine content arrays
+         (let [prev-content (:content prev)
+               msg-content (:content msg)
+               combined (cond
+                          (and (vector? prev-content) (vector? msg-content))
+                          (vec (concat prev-content msg-content))
+
+                          (vector? prev-content)
+                          (conj prev-content {:type "text" :text (str msg-content)})
+
+                          (vector? msg-content)
+                          (into [{:type "text" :text (str prev-content)}] msg-content)
+
+                          :else
+                          [{:type "text" :text (str prev-content "\n" msg-content)}])]
+           (conj (pop acc) {:role "assistant" :content combined}))
+         (conj acc msg))))
+   []
+   messages))
+
 (defn ^:private add-cache-to-last-message [messages]
   ;; TODO add cache_control to last non thinking message
   (shared/update-last
@@ -174,8 +205,9 @@
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload supports-image? http-client]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
-  (let [messages (concat (normalize-messages past-messages supports-image?)
-                         (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
+  (let [messages (-> (concat (normalize-messages past-messages supports-image?)
+                            (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
+                     merge-adjacent-assistants)
         stream? (boolean callbacks)
         body (deep-merge
               (assoc-some
@@ -244,6 +276,7 @@
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
                                                  (let [messages (-> (normalize-messages new-messages supports-image?)
+                                                                    merge-adjacent-assistants
                                                                     add-cache-to-last-message)]
                                                    (reset! content-block* {})
                                                    (base-request!
