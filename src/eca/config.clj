@@ -124,7 +124,8 @@
                                  "eca__directory_tree" {}
                                  "eca__grep" {}
                                  "eca__editor_diagnostics" {}
-                                 "eca__skill" {}}
+                                 "eca__skill" {}
+                                 "eca__spawn_agent" {}}
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}

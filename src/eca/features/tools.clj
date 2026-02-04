@@ -4,6 +4,7 @@
   (:require
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
@@ -147,17 +148,34 @@
           f.tools.editor/definitions
           f.tools.chat/definitions
           f.tools.skill/definitions
+          (f.tools.agent/definitions db config)
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
   (mapv #(assoc % :server {:name "eca"}) (vals (native-definitions db config))))
 
+(defn ^:private filter-subagent-tools
+  "Filter tools for subagent execution.
+   - Only allow tools specified in the agent definition
+   - Always exclude spawn_agent to prevent nesting"
+  [tools agent-def]
+  (let [allowed-tools (set (:tools agent-def))]
+    (->> tools
+         ;; Always exclude spawn_agent to prevent nesting
+         (remove #(= "spawn_agent" (:name %)))
+         ;; If agent has tool restrictions, apply them
+         (filterv #(or (empty? allowed-tools)
+                       (contains? allowed-tools (:name %)))))))
+
 (defn all-tools
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers.
-   Removes denied tools."
+   Removes denied tools.
+   When chat is a subagent (has :agent-def), filters tools based on agent definition."
   [chat-id behavior db config]
   (let [disabled-tools (get-disabled-tools config behavior)
+        ;; presence of :agent-def indicates this is a subagent
+        agent-def (get-in db [:chats chat-id :agent-def])
         all-tools (->> (concat
                         (mapv #(assoc % :origin :native) (native-tools db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
@@ -175,7 +193,11 @@
                                         {:behavior behavior
                                          :db db
                                          :chat-id chat-id
-                                         :config config})))))]
+                                         :config config})))))
+        ;; Apply subagent tool filtering if applicable
+        all-tools (if agent-def
+                    (filter-subagent-tools all-tools agent-def)
+                    all-tools)]
     (remove (fn [tool]
               (= :deny (approval all-tools tool {} db config behavior)))
             all-tools)))
@@ -207,6 +229,7 @@
                                                            :config config
                                                            :messenger messenger
                                                            :behavior behavior
+                                                           :metrics metrics
                                                            :chat-id chat-id
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
@@ -278,10 +301,11 @@
 
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  [name arguments server db ask-approval?]
+  [name arguments server db ask-approval? tool-call-id]
   (try
     (tools.util/tool-call-details-before-invocation name arguments server {:db db
-                                                                           :ask-approval? ask-approval?})
+                                                                           :ask-approval? ask-approval?
+                                                                           :tool-call-id tool-call-id})
     (catch Exception e
       ;; Avoid failling tool call because of error on getting details.
       (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
