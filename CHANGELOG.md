@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.98.0
+
 - Add support for adding `extraHeaders` to models configuration.
 
 ## 0.97.7
