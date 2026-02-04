@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.98.1
+
  - Fix openai-chat tool calls freezing when providers emit duplicate/invalid tool_calls[].id values.
 
 ## 0.98.0
