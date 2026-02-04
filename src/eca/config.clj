@@ -343,6 +343,7 @@
    [[:behavior]
     [:providers]
     [:providers :ANY :models]
+    [:providers :ANY :models :ANY :extraHeaders]
     [:toolCall :approval :allow]
     [:toolCall :approval :allow :ANY :argsMatchers]
     [:toolCall :approval :ask]

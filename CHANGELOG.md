@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add support for adding `extraHeaders` to models configuration.
+
 ## 0.97.7
 
 - Remove the need to use codex instructions for codex sub, replacing with ECA prompt like all other providers.

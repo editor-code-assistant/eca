@@ -68,17 +68,19 @@
                       :max_uses 10
                       :cache_control {:type "ephemeral"}})))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client]}]
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers]}]
   (let [url (str api-url (or url-relative-path messages-path))
         reason-id (str (random-uuid))
         oauth? (= :auth/oauth auth-type)
         headers (client/merge-llm-headers
-                 (assoc-some
-                  {"anthropic-version" "2023-06-01"
-                   "Content-Type" "application/json"}
-                  "x-api-key" (when-not oauth? api-key)
-                  "Authorization" (when oauth? (str "Bearer " api-key))
-                  "anthropic-beta" (when oauth? "oauth-2025-04-20")))
+                 (merge
+                  (assoc-some
+                   {"anthropic-version" "2023-06-01"
+                    "Content-Type" "application/json"}
+                   "x-api-key" (when-not oauth? api-key)
+                   "Authorization" (when oauth? (str "Bearer " api-key))
+                   "anthropic-beta" (when oauth? "oauth-2025-04-20"))
+                  extra-headers))
         response* (atom nil)
         on-error (if on-stream
                    on-error
@@ -203,7 +205,7 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload supports-image? http-client]}
+           tools web-search extra-payload extra-headers supports-image? http-client]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
   (let [messages (-> (concat (normalize-messages past-messages supports-image?)
                             (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
@@ -287,6 +289,7 @@
                                                      :api-url api-url
                                                      :api-key api-key
                                                      :http-client http-client
+                                                     :extra-headers extra-headers
                                                      :auth-type auth-type
                                                      :url-relative-path url-relative-path
                                                      :content-block* (atom nil)
@@ -307,6 +310,7 @@
       :api-url api-url
       :api-key api-key
       :http-client http-client
+      :extra-headers extra-headers
       :auth-type auth-type
       :url-relative-path url-relative-path
       :content-block* (atom nil)
