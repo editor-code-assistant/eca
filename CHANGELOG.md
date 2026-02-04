@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+ - Fix openai-chat tool calls freezing when providers emit duplicate/invalid tool_calls[].id values.
+
 ## 0.98.0
 
 - Add support for adding `extraHeaders` to models configuration.

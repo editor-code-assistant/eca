@@ -15,6 +15,9 @@
 
 (def ^:private chat-completions-path "/chat/completions")
 
+(defn ^:private new-internal-tool-call-id []
+  (str (random-uuid)))
+
 (defn ^:private parse-usage [usage]
   (let [input-cache-read-tokens (-> usage :prompt_tokens_details :cached_tokens)]
     {:input-tokens (if input-cache-read-tokens
@@ -73,15 +76,29 @@
         tool-turn-id (when (seq (:tool_calls message)) (str (random-uuid)))
         tools-to-call (->> (:tool_calls message)
                            (map-indexed (fn [idx tool-call]
-                                          (cond-> {:index idx
-                                                   :id (:id tool-call)
-                                                   :full-name (:name (:function tool-call))
-                                                   :arguments (json/parse-string (:arguments (:function tool-call)))}
-                                            tool-turn-id (assoc :tool-turn-id tool-turn-id)
-                                            ;; Preserve Google Gemini thought signatures
-                                            (get-in tool-call [:extra_content :google :thought_signature])
-                                            (assoc :external-id
-                                                   (get-in tool-call [:extra_content :google :thought_signature]))))))
+                                          (let [full-name (:name (:function tool-call))
+                                                args-text (:arguments (:function tool-call))]
+                                            (try
+                                              (cond-> {:index idx
+                                                       ;; Provider-supplied tool_call_id is not safe to use as internal
+                                                       ;; identity (can be duplicated / contain spaces, etc).
+                                                       :id (new-internal-tool-call-id)
+                                                       :llm-tool-call-id (:id tool-call)
+                                                       :full-name full-name
+                                                       :arguments (json/parse-string args-text)}
+                                                tool-turn-id (assoc :tool-turn-id tool-turn-id)
+                                                ;; Preserve Google Gemini thought signatures
+                                                (get-in tool-call [:extra_content :google :thought_signature])
+                                                (assoc :external-id
+                                                       (get-in tool-call [:extra_content :google :thought_signature])))
+                                              (catch Exception e
+                                                (logger/warn logger-tag
+                                                             (format "Failed to parse JSON arguments for tool '%s': %s"
+                                                                     full-name
+                                                                     (ex-message e)))
+                                                nil)))))
+                           (remove nil?)
+                           vec)
         ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
         reasoning-content (:reasoning_content message)]
     {:usage (parse-usage usage)
@@ -145,17 +162,18 @@
    - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)"
   [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
   (case role
-    "tool_call" {:role "assistant"
-                 :tool_calls [(cond-> {:id       (:id content)
-                                       :type     "function"
-                                       :function {:name      (:full-name content)
-                                                  :arguments (json/generate-string (:arguments content))}}
-                                ;; Preserve Google Gemini thought signatures if present
-                                (:external-id content)
-                                (assoc-in [:extra_content :google :thought_signature]
-                                          (:external-id content)))]}
+    "tool_call" (let [tool-call-id (or (:llm-tool-call-id content) (:id content))]
+                  {:role "assistant"
+                   :tool_calls [(cond-> {:id       tool-call-id
+                                         :type     "function"
+                                         :function {:name      (:full-name content)
+                                                    :arguments (json/generate-string (:arguments content))}}
+                                 ;; Preserve Google Gemini thought signatures if present
+                                 (:external-id content)
+                                 (assoc-in [:extra_content :google :thought_signature]
+                                           (:external-id content)))]})
     "tool_call_output" {:role "tool"
-                        :tool_call_id (:id content)
+                        :tool_call_id (or (:llm-tool-call-id content) (:id content))
                         :content (llm-util/stringfy-tool-result content)}
     "user" {:role "user"
             :content (extract-content content supports-image?)}
@@ -474,7 +492,7 @@
                                   (on-reason {:status :started :id new-reason-id})))
         find-existing-tool-key (fn [tool-calls index id]
                                  ;; Find existing tool call by id match, or by index when delta has no id
-                                 (some (fn [[k v]] (when (or (some-> id (= (:id v)))
+                                 (some (fn [[k v]] (when (or (some-> id (= (:llm-tool-call-id v)))
                                                              (and (nil? id)
                                                                   (some-> index (= (:index v)))))
                                                      k))
@@ -566,8 +584,9 @@
                                                                        ;; Providers may omit tool_calls[].index; preserve
                                                                        ;; stream arrival order for a stable UX fallback.
                                                                        created? (assoc :stream-order (count tool-calls))
+                                                                       created? (assoc :id (new-internal-tool-call-id))
                                                                        (some? index) (assoc :index index)
-                                                                       (and id (nil? (:id existing))) (assoc :id id)
+                                                                       (and id (nil? (:llm-tool-call-id existing))) (assoc :llm-tool-call-id id)
                                                                        (and name (nil? (:full-name existing))) (assoc :full-name name)
                                                                        args (update :arguments-text (fnil str "") args)
                                                                        ;; Store thought signature for Google Gemini
