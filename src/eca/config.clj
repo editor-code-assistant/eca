@@ -131,7 +131,8 @@
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}
-              :shellCommand {:summaryMaxLength 25}}
+              :shellCommand {:summaryMaxLength 25}
+              :outputTruncation {:lines 2000 :sizeKb 50}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}

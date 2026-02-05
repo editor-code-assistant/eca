@@ -211,7 +211,8 @@
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
                                                            :state-transition-fn state-transition-fn})
-                           (f.mcp/call-tool! tool-name arguments {:db db}))))]
+                           (f.mcp/call-tool! tool-name arguments {:db db})))
+                       (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name full-name :error (:error result)} metrics)
         (if-let [r (:rollback-changes result)]

@@ -3,7 +3,10 @@
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
-   [clojure.string :as string]))
+   [clojure.string :as string]
+   [eca.logger :as logger])
+  (:import
+   [java.io File]))
 
 (set! *warn-on-reflection* true)
 
@@ -35,3 +38,42 @@
   (io/file (global-dir)
            (workspaces-hash workspaces uri->filename-fn)
            filename))
+
+(def ^:private logger-tag "[CACHE]")
+(def ^:private tool-call-outputs-dir-name "toolCallOutputs")
+
+(defn tool-call-outputs-dir
+  "Returns the File object for the tool call outputs cache directory."
+  ^File []
+  (io/file (global-dir) tool-call-outputs-dir-name))
+
+(defn save-tool-call-output!
+  "Saves the full tool call output text to a cache file.
+   Returns the absolute path of the saved file as a string."
+  ^String [^String tool-call-id ^String text]
+  (let [dir (tool-call-outputs-dir)
+        file (io/file dir (str tool-call-id ".txt"))]
+    (io/make-parents file)
+    (spit file text)
+    (str (.getAbsolutePath file))))
+
+(def ^:private seven-days-ms (* 7 24 60 60 1000))
+
+(defn cleanup-tool-call-outputs!
+  "Deletes tool call output cache files older than 7 days.
+   Runs silently, logging warnings on errors."
+  []
+  (try
+    (let [dir (tool-call-outputs-dir)]
+      (when (fs/exists? dir)
+        (let [now (System/currentTimeMillis)
+              files (fs/list-dir dir)]
+          (doseq [f files]
+            (try
+              (let [last-modified (.lastModified ^File (fs/file f))]
+                (when (> (- now last-modified) seven-days-ms)
+                  (fs/delete f)))
+              (catch Exception e
+                (logger/warn logger-tag "Failed to delete old tool call output file:" (str f) (.getMessage ^Exception e))))))))
+    (catch Exception e
+      (logger/warn logger-tag "Failed to cleanup tool call outputs directory:" (.getMessage ^Exception e)))))
