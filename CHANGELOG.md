@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.98.4
+
 - Add claude-opus-4-6 model.
 
 ## 0.98.3
