@@ -148,7 +148,7 @@
                      :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
-   :autoCompactPercentage 85
+   :autoCompactPercentage 75
    :env "prod"})
 
 (defn ^:private parse-dynamic-string

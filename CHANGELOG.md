@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Lower default `autoCompactPercentage` from 85 -> 75.
+
 ## 0.98.1
 
  - Fix openai-chat tool calls freezing when providers emit duplicate/invalid tool_calls[].id values.
