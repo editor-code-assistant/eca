@@ -267,12 +267,13 @@
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
-(defn tool-call-summary [all-tools full-name args config]
+(defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
                                                     all-tools)))]
     (try
       (summary-fn {:args args
-                   :config config})
+                   :config config
+                   :db db})
       (catch Exception e
         (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
         nil))))

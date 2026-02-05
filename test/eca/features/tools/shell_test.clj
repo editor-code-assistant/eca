@@ -145,3 +145,43 @@
       "pwd"
       "date"
       "env")))
+
+(deftest shell-command-summary-test
+  (let [summary-fn (get-in f.tools.shell/definitions ["shell_command" :summary-fn])
+        config {:toolCall {:shellCommand {:summaryMaxLength 80}}}
+        db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
+    (testing "strips cd prefix when path matches a workspace root"
+      (is (= "Running 'clojure -M:test'"
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " && clojure -M:test")}
+                          :config config
+                          :db db}))))
+    (testing "strips cd prefix with semicolon separator"
+      (is (= "Running 'clojure -M:test'"
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " ; clojure -M:test")}
+                          :config config
+                          :db db}))))
+    (testing "does not strip cd prefix when path is not a workspace root"
+      (is (= (format "Running 'cd %s && clojure -M:test'" (h/file-path "/other/dir"))
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/other/dir") " && clojure -M:test")}
+                          :config config
+                          :db db}))))
+    (testing "handles command without cd prefix"
+      (is (= "Running 'ls -la'"
+             (summary-fn {:args {"command" "ls -la"}
+                          :config config
+                          :db db}))))
+    (testing "handles no command argument"
+      (is (= "Running shell command"
+             (summary-fn {:args {}
+                          :config config
+                          :db db}))))
+    (testing "truncates long commands"
+      (is (= "Running 'aaaaaaaaaa...'"
+             (summary-fn {:args {"command" "aaaaaaaaaaaaaaaaaaa"}
+                          :config {:toolCall {:shellCommand {:summaryMaxLength 10}}}
+                          :db db}))))
+    (testing "handles nil db gracefully"
+      (is (= (format "Running 'cd %s && clojure -M:test'" (h/file-path "/project/foo"))
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " && clojure -M:test")}
+                          :config config
+                          :db nil}))))))

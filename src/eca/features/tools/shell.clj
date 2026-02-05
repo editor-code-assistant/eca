@@ -110,9 +110,25 @@
                                            [{:type :text
                                              :text (str "Stdout:\n" out)}])))}))))))
 
-(defn shell-command-summary [{:keys [args config]}]
-  (let [max-length (get-in config [:toolCall :shellCommand :summaryMaxLength])]
-    (if-let [command (get args "command")]
+(defn ^:private strip-workspace-cd-prefix
+  "Strips a leading 'cd <workspace-root> && ' or 'cd <workspace-root> ; ' prefix
+   from a command string when the path matches one of the workspace roots."
+  [command workspace-folders]
+  (if-let [match (re-find #"^cd\s+(\S+)\s*(?:&&|;)\s*" command)]
+    (let [cd-path (second match)
+          workspace-roots (into #{}
+                                (keep (comp #(some-> % shared/uri->filename) :uri))
+                                workspace-folders)]
+      (if (contains? workspace-roots cd-path)
+        (subs command (count (first match)))
+        command))
+    command))
+
+(defn shell-command-summary [{:keys [args config db]}]
+  (let [max-length (get-in config [:toolCall :shellCommand :summaryMaxLength])
+        workspace-folders (:workspace-folders db)]
+    (if-let [command (some-> (get args "command")
+                             (strip-workspace-cd-prefix workspace-folders))]
       (if (> (count command) max-length)
         (format "Running '%s...'" (subs command 0 max-length))
         (format "Running '%s'" command))

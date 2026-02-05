@@ -5,6 +5,7 @@
 - Truncate tool call outputs automatically to avoid hit context size limit. #284
   - Save output to eca cache folde and tell LLM where the full content is.
   - Add `toolCall outputTruncation` config to customize size or lines.
+- Improve shell command summary by stripping `cd <workspace-root> &&` prefix.
 
 ## 0.98.5
 
