@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.98.2
+
 - Lower default `autoCompactPercentage` from 85 -> 75.
 - Add `x-initiator` to `github-copilot` requests, improving the usage of premium requests counter. #138
 
