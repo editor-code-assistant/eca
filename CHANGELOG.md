@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix "approve and remember" tool call when checking files outside workspace.
+- Improve MCP server shutdown. #287
 
 ## 0.98.2
 
