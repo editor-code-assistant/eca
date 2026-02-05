@@ -119,8 +119,13 @@
     (str "Creating file " (fs/file-name (fs/file path)))
     "Creating file"))
 
-(defn ^:private run-ripgrep [path pattern include]
-  (let [cmd (cond-> ["rg" "--files-with-matches" "--no-heading"]
+(defn ^:private run-ripgrep [path pattern include output-mode]
+  (let [mode-flags (case output-mode
+                     "content" ["-n" "--no-heading"]
+                     "count" ["--count" "--no-heading"]
+                     ;; files_with_matches (default)
+                     ["--files-with-matches" "--no-heading"])
+        cmd (cond-> (into ["rg"] mode-flags)
               include (concat ["--glob" include])
               :always (concat ["-e" pattern path]))]
     (->> (apply shell/sh cmd)
@@ -128,13 +133,18 @@
          (string/split-lines)
          (filterv #(not (string/blank? %))))))
 
-(defn ^:private run-grep [path pattern ^String include]
+(defn ^:private run-grep [path pattern ^String include output-mode]
   (let [include-patterns (if (and include (.contains include "{"))
                            (let [pattern-match (re-find #"\*\.\{(.+)\}" include)]
                              (when pattern-match
                                (map #(str "*." %) (clojure.string/split (second pattern-match) #","))))
                            [include])
-        cmd (cond-> ["grep" "-E" "-l" "-r" "--exclude-dir=.*"]
+        mode-flag (case output-mode
+                    "content" "-n"
+                    "count" "-c"
+                    ;; files_with_matches (default)
+                    "-l")
+        cmd (cond-> ["grep" "-E" mode-flag "-r" "--exclude-dir=.*"]
               (and include (> (count include-patterns) 1)) (concat (mapv #(str "--include=" %) include-patterns))
               include (concat [(str "--include=" include)])
               :always (concat [pattern path]))]
@@ -143,7 +153,7 @@
          (string/split-lines)
          (filterv #(not (string/blank? %))))))
 
-(defn ^:private run-java-grep [path pattern include]
+(defn ^:private run-java-grep [path pattern include output-mode]
   (let [include-pattern (when include
                           (re-pattern (str ".*\\.("
                                            (-> include
@@ -152,7 +162,32 @@
                                                (string/replace #"," "|"))
                                            ")$")))
         pattern-regex (re-pattern pattern)]
-    (letfn [(search [dir]
+    (letfn [(search-file [file]
+              (try
+                (with-open [rdr (io/reader (fs/file file))]
+                  (let [file-path (str (fs/canonicalize file))]
+                    (loop [lines (line-seq rdr)
+                           line-num 1
+                           matches []
+                           match-count 0]
+                      (if (seq lines)
+                        (if (re-find pattern-regex (first lines))
+                          (recur (rest lines)
+                                 (inc line-num)
+                                 (conj matches {:file file-path
+                                                :line-num line-num
+                                                :content (first lines)})
+                                 (inc match-count))
+                          (recur (rest lines) (inc line-num) matches match-count))
+                        ;; Return based on output-mode
+                        (when (pos? match-count)
+                          (case output-mode
+                            "content" (mapv #(str (:file %) ":" (:line-num %) ":" (:content %)) matches)
+                            "count" [(str file-path ":" match-count)]
+                            ;; files_with_matches (default)
+                            [file-path]))))))
+                (catch Exception _ nil)))
+            (search [dir]
               (keep
                (fn [file]
                  (cond
@@ -162,17 +197,12 @@
                    (and (not (fs/directory? file))
                         (or (nil? include-pattern)
                             (re-matches include-pattern (fs/file-name file))))
-                   (try
-                     (with-open [rdr (io/reader (fs/file file))]
-                       (loop [lines (line-seq rdr)]
-                         (when (seq lines)
-                           (if (re-find pattern-regex (first lines))
-                             (str (fs/canonicalize file))
-                             (recur (rest lines))))))
-                     (catch Exception _ nil))))
+                   (search-file file)))
                (fs/list-dir dir)))]
       (when (fs/exists? path)
         (flatten (search path))))))
+
+(def ^:private valid-output-modes #{"files_with_matches" "content" "count"})
 
 (defn ^:private grep
   "Searches for files containing patterns using regular expressions.
@@ -183,32 +213,39 @@
    2. grep - standard Unix tool fallback
    3. Pure Java implementation - slow, but cross-platform fallback
 
-   Returns matching file paths, prioritizing by modification time when possible.
+   Supports three output modes:
+   - files_with_matches (default): Returns matching file paths only
+   - content: Returns matching lines with file path and line numbers
+   - count: Returns match counts per file
+
    Validates that the search path is within allowed workspace directories."
   [arguments _]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]
                                                        ["pattern" #(and % (not (string/blank? %))) "Invalid content regex pattern '$pattern'"]
                                                        ["include" #(or (nil? %) (not (string/blank? %))) "Invalid file pattern '$include'"]
-                                                       ["max_results" #(or (nil? %) number?) "Invalid number '$max_results'"]]))
+                                                       ["max_results" #(or (nil? %) number?) "Invalid number '$max_results'"]
+                                                       ["output_mode" #(or (nil? %) (valid-output-modes %))
+                                                        "Invalid output_mode '$output_mode'. Must be one of: files_with_matches, content, count"]]))
       (let [path (get arguments "path")
             pattern (get arguments "pattern")
             include (get arguments "include")
             max-results (or (get arguments "max_results") 1000)
-            paths
+            output-mode (or (get arguments "output_mode") "files_with_matches")
+            results
             (->> (cond
                    (tools.util/command-available? "rg" "--version")
-                   (run-ripgrep path pattern include)
+                   (run-ripgrep path pattern include output-mode)
 
                    (tools.util/command-available? "grep" "--version")
-                   (run-grep path pattern include)
+                   (run-grep path pattern include output-mode)
 
                    :else
-                   (run-java-grep path pattern include))
+                   (run-java-grep path pattern include output-mode))
                  (take max-results))]
         ;; TODO sort by modification time.
-        (if (seq paths)
-          (tools.util/single-text-content (string/join "\n" paths))
+        (if (seq results)
+          (tools.util/single-text-content (string/join "\n" results))
           (tools.util/single-text-content "No files found for given pattern" :error)))))
 
 (defn grep-summary [{:keys [args]}]
@@ -398,7 +435,10 @@
                               "include" {:type "string"
                                          :description "File pattern to include in the search (e.g. \"*.clj\", \"*.{clj,cljs}\")"}
                               "max_results" {:type "integer"
-                                             :description "Maximum number of results to return (default: 1000)"}}
+                                             :description "Maximum number of results to return (default: 1000)"}
+                              "output_mode" {:type "string"
+                                             :enum ["files_with_matches" "content" "count"]
+                                             :description "Output format: 'content' shows matching lines with context, 'files_with_matches' shows only file paths (default), 'count' shows match counts per file"}}
                  :required ["path" "pattern"]}
     :handler #'grep
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])

@@ -209,6 +209,46 @@
            ((get-in f.tools.filesystem/definitions ["grep" :handler])
             {"path" (h/file-path "/project/foo")
              "pattern" "some-cool-content"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "invalid output_mode"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Invalid output_mode 'invalid'. Must be one of: files_with_matches, content, count"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in f.tools.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" ".*"
+             "output_mode" "invalid"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "ripgrep content mode"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "/project/foo/bla.txt:10:matching line content"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "rg" command))
+                       shell/sh (constantly {:out "/project/foo/bla.txt:10:matching line content"})]
+           ((get-in f.tools.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "matching"
+             "output_mode" "content"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "ripgrep count mode"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "/project/foo/bla.txt:5\n/project/foo/qux.txt:3"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "rg" command))
+                       shell/sh (constantly {:out "/project/foo/bla.txt:5\n/project/foo/qux.txt:3"})]
+           ((get-in f.tools.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "some-content"
+             "output_mode" "count"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
 
 (deftest edit-file-test

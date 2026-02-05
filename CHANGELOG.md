@@ -4,6 +4,7 @@
 
 - Fix "approve and remember" tool call when checking files outside workspace.
 - Improve MCP server shutdown. #287
+- Improve grep tool to support different output modes. #289
 
 ## 0.98.2
 
