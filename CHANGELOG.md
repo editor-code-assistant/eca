@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.98.5
+
 - Add openai via subscription `gpt-5.3-codex` model.
 
 ## 0.98.4
