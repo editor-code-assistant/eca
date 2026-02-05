@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add claude-opus-4-6 model.
+
 ## 0.98.3
 
 - Fix "approve and remember" tool call when checking files outside workspace.
