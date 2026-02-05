@@ -71,11 +71,11 @@
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                     (get-in config [:behavior behavior :toolCall :approval]))]
     (cond
-      (and require-approval-fn (require-approval-fn args {:db db}))
-      :ask
-
       remember-to-approve?
       :allow
+
+      (and require-approval-fn (require-approval-fn args {:db db}))
+      :ask
 
       (some #(approval-matches? % (:name server) name args native-tools) deny)
       :deny

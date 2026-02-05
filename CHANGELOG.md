@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix "approve and remember" tool call when checking files outside workspace.
+
 ## 0.98.2
 
 - Lower default `autoCompactPercentage` from 85 -> 75.
