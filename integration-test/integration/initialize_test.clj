@@ -40,7 +40,8 @@
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/gpt-5.2"
-                "openai/gpt-5.2-codex"]]
+                "openai/gpt-5.2-codex"
+                "openai/gpt-5.3-codex"]]
     (testing "initialize request with default config"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
@@ -108,7 +109,8 @@
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/gpt-5.2"
-                "openai/gpt-5.2-codex"]]
+                "openai/gpt-5.2-codex"
+                "openai/gpt-5.3-codex"]]
     (testing "initialize request with custom providers"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}

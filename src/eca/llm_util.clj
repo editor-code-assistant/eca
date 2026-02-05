@@ -83,11 +83,11 @@
   (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))
 
 (defn provider-api-key [provider provider-auth config]
-  (or (when-let [key (not-empty (get-in config [:providers (name provider) :key]))]
+  (or #_(when-let [key (not-empty (get-in config [:providers (name provider) :key]))]
         [:auth/token key])
       (when-let [key (:api-key provider-auth)]
         [:auth/oauth key])
-      (when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
+      #_(when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
         [:auth/token key])
       ;; legacy
       (when-let [key (some-> (get-in config [:providers (name provider) :keyRc])

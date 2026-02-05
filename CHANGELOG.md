@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add openai via subscription `gpt-5.3-codex` model.
+
 ## 0.98.4
 
 - Add claude-opus-4-6 model.
