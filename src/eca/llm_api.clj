@@ -166,13 +166,16 @@
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
-          :extra-headers (merge {"openai-intent" "conversation-panel"
-                                 "x-request-id" (str (random-uuid))
-                                 "vscode-sessionid" ""
-                                 "vscode-machineid" ""
-                                 "Copilot-Vision-Request" "true"
-                                 "copilot-integration-id" "vscode-chat"}
-                                extra-headers)}
+          :extra-headers (fn [{:keys [body]}]
+                           (let [user-initiator? (= "user" (-> body :messages last :role))]
+                             (merge {"openai-intent" "conversation-panel"
+                                     "x-request-id" (str (random-uuid))
+                                     "x-initiator" (if user-initiator? "user" "agent")
+                                     "vscode-sessionid" ""
+                                     "vscode-machineid" ""
+                                     "Copilot-Vision-Request" "true"
+                                     "copilot-integration-id" "vscode-chat"}
+                                    extra-headers)))}
          callbacks)
 
         (= "google" provider)

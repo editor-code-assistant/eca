@@ -116,6 +116,9 @@
   [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream
            on-tools-called-wrapper http-client]}]
   (let [url (str api-url (or url-relative-path chat-completions-path))
+        extra-headers (if (fn? extra-headers)
+                        (extra-headers {:body body})
+                        extra-headers)
         on-error (if on-stream
                    on-error
                    (fn [error-data]
@@ -169,9 +172,9 @@
                                          :function {:name      (:full-name content)
                                                     :arguments (json/generate-string (:arguments content))}}
                                  ;; Preserve Google Gemini thought signatures if present
-                                 (:external-id content)
-                                 (assoc-in [:extra_content :google :thought_signature]
-                                           (:external-id content)))]})
+                                  (:external-id content)
+                                  (assoc-in [:extra_content :google :thought_signature]
+                                            (:external-id content)))]})
     "tool_call_output" {:role "tool"
                         :tool_call_id (or (:llm-tool-call-id content) (:id content))
                         :content (llm-util/stringfy-tool-result content)}
