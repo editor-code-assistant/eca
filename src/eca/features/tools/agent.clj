@@ -35,10 +35,20 @@
   [tool-call-id]
   (str "subagent-" tool-call-id))
 
+(defn ^:private stop-subagent-chat!
+  "Stop a running subagent chat and clean up its state from db."
+  [db* messenger metrics subagent-chat-id agent-name]
+  (let [prompt-stop (requiring-resolve 'eca.features.chat/prompt-stop)]
+    (try
+      (prompt-stop {:chat-id subagent-chat-id} db* messenger metrics)
+      (catch Exception e
+        (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e))))))
+  (swap! db* update :chats dissoc subagent-chat-id))
+
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
    Spawns a subagent to perform a focused task and returns the result."
-  [arguments {:keys [db* config messenger metrics chat-id behavior tool-call-id]}]
+  [arguments {:keys [db* config messenger metrics chat-id behavior tool-call-id call-state-fn]}]
   (let [agent-name (get arguments "agent")
         task (get arguments "task")
         db @db*
@@ -98,36 +108,38 @@
          metrics)))
 
     ;; Wait for subagent to complete by polling status
-    ;; TODO: In future, use a proper callback/promise mechanism
-    (loop [wait-count 0]
-      (let [status (get-in @db* [:chats subagent-chat-id* :status])]
-        (cond
-          ;; Completed
-          (#{:idle :error} status)
-          (let [messages (get-in @db* [:chats subagent-chat-id* :messages] [])
-                summary (extract-final-summary messages)
-                turn-count (get-in @db* [:chats subagent-chat-id* :current-turn] 0)]
-            (logger/info logger-tag (format "Agent '%s' completed after %d turns" agent-name turn-count))
-            ;; Cleanup subagent chat
-            (swap! db* update :chats dissoc subagent-chat-id*)
-            {:error false
-             :contents [{:type :text
-                         :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]})
+    (let [stopped-result (fn []
+                           (logger/info logger-tag (format "Agent '%s' stopped by parent chat" agent-name))
+                           (stop-subagent-chat! db* messenger metrics subagent-chat-id* agent-name)
+                           {:error true
+                            :contents [{:type :text
+                                        :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]
+      (try
+        (loop []
+          (let [status (get-in @db* [:chats subagent-chat-id* :status])]
+            (cond
+              ;; Parent chat stopped — propagate stop to subagent
+              (= :stopping (:status (call-state-fn)))
+              (stopped-result)
 
-          ;; Timeout after ~5 minutes
-          (> wait-count 300)
-          (do
-            (logger/warn logger-tag (format "Agent '%s' timed out" agent-name))
-            (swap! db* update :chats dissoc subagent-chat-id*)
-            {:error true
-             :contents [{:type :text
-                         :text (format "Agent '%s' timed out after 10 minutes" agent-name)}]})
+              ;; Subagent completed
+              (#{:idle :error} status)
+              (let [messages (get-in @db* [:chats subagent-chat-id* :messages] [])
+                    summary (extract-final-summary messages)
+                    turn-count (get-in @db* [:chats subagent-chat-id* :current-turn] 0)]
+                (logger/info logger-tag (format "Agent '%s' completed after %d turns" agent-name turn-count))
+                (swap! db* update :chats dissoc subagent-chat-id*)
+                {:error false
+                 :contents [{:type :text
+                             :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]})
 
-          ;; Keep waiting
-          :else
-          (do
-            (Thread/sleep 1000)
-            (recur (inc wait-count))))))))
+              ;; Keep waiting
+              :else
+              (do
+                (Thread/sleep 1000)
+                (recur)))))
+        (catch InterruptedException _
+          (stopped-result))))))
 
 (defn ^:private build-description
   "Build tool description with available agents listed."
@@ -158,7 +170,13 @@
                     "Spawning agent"))}})
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
-  [_name _arguments _server {:keys [tool-call-id]}]
-  (when tool-call-id
+  [_name arguments _server {:keys [db config chat-id tool-call-id]}]
+  (let [agent-name (get arguments "agent")
+        agent-def (when agent-name
+                    (f.agents/get-agent agent-name config (:workspace-folders db)))
+        parent-model (get-in db [:chats chat-id :model])
+        subagent-model (or (:model agent-def) parent-model)]
     {:type :subagent
-     :subagent-chat-id (subagent-chat-id tool-call-id)}))
+     :subagent-chat-id (when tool-call-id
+                         (subagent-chat-id tool-call-id))
+     :model subagent-model}))

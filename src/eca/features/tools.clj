@@ -303,9 +303,11 @@
 
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  [name arguments server db ask-approval? tool-call-id]
+  [name arguments server db config chat-id ask-approval? tool-call-id]
   (try
     (tools.util/tool-call-details-before-invocation name arguments server {:db db
+                                                                           :config config
+                                                                           :chat-id chat-id
                                                                            :ask-approval? ask-approval?
                                                                            :tool-call-id tool-call-id})
     (catch Exception e

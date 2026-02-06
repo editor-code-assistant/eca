@@ -1047,8 +1047,9 @@ interface SubagentDetails {
     /**
      * The chatId of this running subagent, useful to link other chat/ContentReceived
      * messages to this tool call.
+     * Available from toolCallRun afterwards
      */
-    subagentChatId: string;
+    subagentChatId?: string;
 }
 
 /**

@@ -917,7 +917,7 @@
                           _ (swap! db* assoc-in [:chats chat-id :tool-calls id :arguments] arguments)
                           tool-call (assoc tool-call :arguments arguments)
                           ask? (= :ask decision)
-                          details (f.tools/tool-call-details-before-invocation name arguments server @db* ask? id)
+                          details (f.tools/tool-call-details-before-invocation name arguments server @db* config chat-id ask? id)
                           summary (f.tools/tool-call-summary all-tools full-name arguments config @db*)]
                       (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                         (transition-tool-call! db* chat-ctx id :tool-run {:approved?* approved?*
