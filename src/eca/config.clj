@@ -46,6 +46,7 @@
                          :requiresAuth? true
                          :models {"gpt-5.2" {}
                                   "gpt-5.2-codex" {}
+                                  "gpt-5.3-codex" {}
                                   "gpt-5-mini" {}
                                   "gpt-5-nano" {}
                                   "gpt-4.1" {}}}
@@ -54,6 +55,7 @@
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
                             :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5-20250929"}
+                                     "claude-opus-4.6" {:modelName "claude-opus-4-6"}
                                      "claude-opus-4.5" {:modelName "claude-opus-4-5-20251101"}
                                      "claude-opus-4.1" {:modelName "claude-opus-4-1-20250805"}
                                      "claude-haiku-4.5" {:modelName "claude-haiku-4-5-20251001"}}}
@@ -64,6 +66,7 @@
                                  :models {"claude-haiku-4.5" {}
                                           "claude-opus-4.1" {}
                                           "claude-opus-4.5" {}
+                                          "claude-opus-4.6" {}
                                           "claude-sonnet-4.5" {}
                                           "gpt-5.2" {}
                                           "gpt-5.1" {}
@@ -129,7 +132,8 @@
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}
-              :shellCommand {:summaryMaxLength 25}}
+              :shellCommand {:summaryMaxLength 25}
+              :outputTruncation {:lines 2000 :sizeKb 50}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}
@@ -149,7 +153,7 @@
                      :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
-   :autoCompactPercentage 85
+   :autoCompactPercentage 75
    :env "prod"})
 
 (defn ^:private parse-dynamic-string
@@ -344,6 +348,7 @@
    [[:behavior]
     [:providers]
     [:providers :ANY :models]
+    [:providers :ANY :models :ANY :extraHeaders]
     [:toolCall :approval :allow]
     [:toolCall :approval :allow :ANY :argsMatchers]
     [:toolCall :approval :ask]

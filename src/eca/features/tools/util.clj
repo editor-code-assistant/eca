@@ -5,6 +5,7 @@
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -118,3 +119,58 @@
          (format "INVALID_ARGS: missing required params: %s"
                  (->> missing (map #(str "`" % "`")) (string/join ", ")))
          :error)))))
+
+(defn ^:private contents->text
+  "Concatenates all text contents from a tool result's :contents into a single string."
+  [contents]
+  (reduce
+   (fn [^StringBuilder sb content]
+     (when (= :text (:type content))
+       (.append sb ^String (:text content))
+       (.append sb "\n"))
+     sb)
+   (StringBuilder.)
+   contents))
+
+(defn ^:private exceeds-truncation-limits?
+  "Returns true if the text exceeds either the line limit or size limit."
+  [^String text max-lines max-size-kb]
+  (let [size-kb (/ (alength (.getBytes text "UTF-8")) 1024.0)
+        line-count (loop [idx 0 count 1]
+                     (let [next-idx (.indexOf text "\n" (int idx))]
+                       (if (or (= -1 next-idx) (> count max-lines))
+                         count
+                         (recur (inc next-idx) (inc count)))))]
+    (or (> line-count max-lines)
+        (> size-kb max-size-kb))))
+
+(defn ^:private truncate-text-to-lines
+  "Truncates text to the given number of lines."
+  [^String text max-lines]
+  (let [lines (string/split-lines text)]
+    (if (<= (count lines) max-lines)
+      text
+      (string/join "\n" (take max-lines lines)))))
+
+(defn maybe-truncate-output
+  "Checks if a tool call result exceeds configured output truncation limits.
+   When truncation is needed:
+   - Saves the full output to ~/.cache/eca/toolCallOutputs/{toolCallId}.txt
+   - Truncates the output text to the configured line limit
+   - Appends a notice with the saved file path and instructions.
+   Returns the (possibly truncated) result."
+  [result config tool-call-id]
+  (let [max-lines (get-in config [:toolCall :outputTruncation :lines])
+        max-size-kb (get-in config [:toolCall :outputTruncation :sizeKb])]
+    (if (or (nil? max-lines) (nil? max-size-kb) (:error result))
+      result
+      (let [full-text (str (contents->text (:contents result)))]
+        (if (exceeds-truncation-limits? full-text max-lines max-size-kb)
+          (let [saved-path (cache/save-tool-call-output! tool-call-id full-text)
+                truncated (truncate-text-to-lines full-text max-lines)
+                notice (str "\n\n[OUTPUT TRUNCATED] The tool call succeeded but the output was truncated. "
+                            "Full output saved to: " saved-path "\n"
+                            "Use Grep to search the full content or Read with offset/limit to view specific sections.")]
+            (assoc result :contents [{:type :text
+                                      :text (str truncated notice)}]))
+          result)))))

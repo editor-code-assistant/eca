@@ -430,9 +430,18 @@
         resource (.readResource ^McpSyncClient mcp-client (McpSchema$ReadResourceRequest. uri))]
     {:contents (mapv ->resource-content (.contents resource))}))
 
-(defn shutdown! [db*]
+(defn shutdown!
+  "Shutdown MCP servers in parallel waiting max 5s in total."
+  [db*]
   (try
-    (doseq [[_name {:keys [client]}] (:mcp-clients @db*)]
-      (.closeGracefully ^McpSyncClient client))
+    (let [clients (vals (:mcp-clients @db*))
+          futures (doall
+                    (pmap (fn [{:keys [^McpSyncClient client]}]
+                            (future
+                              (try (.closeGracefully client)
+                                   (catch Exception _ nil))))
+                          clients))]
+      (doseq [f futures]
+        (try (deref f 5000 nil) (catch Exception _ nil))))
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))

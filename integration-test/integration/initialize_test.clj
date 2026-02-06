@@ -15,10 +15,12 @@
   (let [models ["anthropic/claude-haiku-4.5"
                 "anthropic/claude-opus-4.1"
                 "anthropic/claude-opus-4.5"
+                "anthropic/claude-opus-4.6"
                 "anthropic/claude-sonnet-4.5"
                 "github-copilot/claude-haiku-4.5"
                 "github-copilot/claude-opus-4.1"
                 "github-copilot/claude-opus-4.5"
+                "github-copilot/claude-opus-4.6"
                 "github-copilot/claude-sonnet-4.5"
                 "github-copilot/gemini-2.5-pro"
                 "github-copilot/gemini-3-flash-preview"
@@ -38,7 +40,8 @@
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/gpt-5.2"
-                "openai/gpt-5.2-codex"]]
+                "openai/gpt-5.2-codex"
+                "openai/gpt-5.3-codex"]]
     (testing "initialize request with default config"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
@@ -79,10 +82,12 @@
   (let [models ["anthropic/claude-haiku-4.5"
                 "anthropic/claude-opus-4.1"
                 "anthropic/claude-opus-4.5"
+                "anthropic/claude-opus-4.6"
                 "anthropic/claude-sonnet-4.5"
                 "github-copilot/claude-haiku-4.5"
                 "github-copilot/claude-opus-4.1"
                 "github-copilot/claude-opus-4.5"
+                "github-copilot/claude-opus-4.6"
                 "github-copilot/claude-sonnet-4.5"
                 "github-copilot/gemini-2.5-pro"
                 "github-copilot/gemini-3-flash-preview"
@@ -104,7 +109,8 @@
                 "openai/gpt-5-mini"
                 "openai/gpt-5-nano"
                 "openai/gpt-5.2"
-                "openai/gpt-5.2-codex"]]
+                "openai/gpt-5.2-codex"
+                "openai/gpt-5.3-codex"]]
     (testing "initialize request with custom providers"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}

@@ -54,11 +54,11 @@
       (logger/warn logger-tag "Error getting model:" (ex-message e))
       [])))
 
-(defn ^:private base-chat-request! [{:keys [rid url body on-error on-stream]}]
+(defn ^:private base-chat-request! [{:keys [rid url body on-error on-stream extra-headers]}]
   (let [reason-id (str (random-uuid))
         reasoning?* (atom false)
         response* (atom nil)
-        headers (client/merge-llm-headers {})
+        headers (client/merge-llm-headers (merge {} extra-headers))
         on-error (if on-stream
                    on-error
                    (fn [error-data]
@@ -119,7 +119,7 @@
              }))
         messages))
 
-(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools]}
+(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
                      on-reason extra-payload] :as callbacks}]
   (let [messages (concat
@@ -158,6 +158,7 @@
                                    :url url
                                    :body (assoc body :messages (normalize-messages new-messages)
                                                 :tools (->tools tools))
+                                   :extra-headers extra-headers
                                    :on-error on-error
                                    :on-stream handle-stream}))
                                (on-message-received {:type :finish
@@ -184,5 +185,6 @@
      {:rid (llm-util/gen-rid)
       :url url
       :body body
+      :extra-headers extra-headers
       :on-error on-error
       :on-stream on-stream-fn})))

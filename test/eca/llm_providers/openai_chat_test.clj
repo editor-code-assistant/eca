@@ -146,6 +146,22 @@
           thinking-start-tag
           thinking-end-tag))))
 
+  (testing "Tool call transformation prefers :llm-tool-call-id when present"
+    (is (match?
+         {:role "assistant"
+          :tool_calls [{:id "external-456"
+                        :type "function"
+                        :function {:name "foo__get_weather"}}]}
+         (#'llm-providers.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "internal-123"
+                     :llm-tool-call-id "external-456"
+                     :full-name "foo__get_weather"
+                     :arguments {:location "NYC"}}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
   (testing "Tool call output transformation"
     (is (match?
          {:role "tool"
@@ -155,6 +171,19 @@
           {:role "tool_call_output"
            :content {:id "call-123"
                      :output {:contents [{:type :text :text "Sunny, 75°F"}]}}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool call output transformation prefers :llm-tool-call-id when present"
+    (is (match?
+         {:role "tool"
+          :tool_call_id "external-456"}
+         (#'llm-providers.openai-chat/transform-message
+          {:role "tool_call_output"
+           :content {:id "internal-123"
+                     :llm-tool-call-id "external-456"
+                     :output {:contents [{:type :text :text "ok"}]}}}
           true
           thinking-start-tag
           thinking-end-tag))))
@@ -189,6 +218,58 @@
           true
           thinking-start-tag
           thinking-end-tag)))))
+
+(deftest normalize-messages-llm-tool-call-id-test
+  (testing "Outgoing normalization uses :llm-tool-call-id for tool_call + tool_call_output"
+    (is (match?
+         [{:role "user"}
+          {:role "assistant"
+           :tool_calls [{:id "external-1"
+                         :function {:name "eca__list_files"
+                                    :arguments "{}"}}]}
+          {:role "tool"
+           :tool_call_id "external-1"}]
+         (#'llm-providers.openai-chat/normalize-messages
+          [{:role "user" :content "List"}
+           {:role "tool_call"
+            :content {:id "internal-1"
+                      :llm-tool-call-id "external-1"
+                      :full-name "eca__list_files"
+                      :arguments {}}}
+           {:role "tool_call_output"
+            :content {:id "internal-1"
+                      :llm-tool-call-id "external-1"
+                      :output {:contents [{:type :text :text "file1"}]}}}]
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
+
+(deftest response-body->result-internal-tool-call-id-test
+  (testing "Non-stream tool calls use internal :id and preserve provider tool_call_id in :llm-tool-call-id"
+    (let [ids* (atom ["turn-uuid" "tool-uuid" "reason-uuid"])
+          result (with-redefs [random-uuid (fn []
+                                             (let [id (first @ids*)]
+                                               (swap! ids* rest)
+                                               id))]
+                   (#'llm-providers.openai-chat/response-body->result
+                    {:choices [{:message {:role "assistant"
+                                          :content ""
+                                          :tool_calls [{:id " functions.eca__shell_command:56"
+                                                        :type "function"
+                                                        :function {:name "eca__shell_command"
+                                                                   :arguments "{\"command\":\"echo hi\"}"}}]}}]
+                     :usage {:prompt_tokens 1 :completion_tokens 1}}
+                    (fn [& _] nil)))
+          tool-call (first (:tools-to-call result))]
+      (is (match?
+           {:id "tool-uuid"
+            :llm-tool-call-id " functions.eca__shell_command:56"
+            :full-name "eca__shell_command"
+            :arguments {"command" "echo hi"}
+            :tool-turn-id "turn-uuid"}
+           tool-call))
+      (is (= "reason-uuid" (:reason-id result)))
+      (is (not= (:id tool-call) (:llm-tool-call-id tool-call))))))
 
 (deftest merge-adjacent-assistants-test
   (testing "All adjacent assistant messages are merged (even without reasoning_content)"

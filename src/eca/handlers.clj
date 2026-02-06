@@ -1,5 +1,6 @@
 (ns eca.handlers
   (:require
+   [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
@@ -73,6 +74,8 @@
     (config/listen-for-changes! db*))
   (future
     (f.tools/init-servers! db* messenger config metrics))
+  (future
+    (cache/cleanup-tool-call-outputs!))
   ;; Trigger sessionStart hook after initialization
   (f.hooks/trigger-if-matches! :sessionStart
                                (f.hooks/base-hook-data @db*)

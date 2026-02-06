@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.99.0
+
+- Truncate tool call outputs automatically to avoid hit context size limit. #284
+  - Save output to eca cache folde and tell LLM where the full content is.
+  - Add `toolCall outputTruncation` config to customize size or lines.
+- Improve shell command summary by stripping `cd <workspace-root> &&` prefix.
+
+## 0.98.5
+
+- Add openai via subscription `gpt-5.3-codex` model.
+
+## 0.98.4
+
+- Add claude-opus-4-6 model.
+
+## 0.98.3
+
+- Fix "approve and remember" tool call when checking files outside workspace.
+- Improve MCP server shutdown. #287
+- Improve grep tool to support different output modes. #289
+
+## 0.98.2
+
+- Lower default `autoCompactPercentage` from 85 -> 75.
+- Add `x-initiator` to `github-copilot` requests, improving the usage of premium requests counter. #138
+
+## 0.98.1
+
+ - Fix openai-chat tool calls freezing when providers emit duplicate/invalid tool_calls[].id values.
+
+## 0.98.0
+
+- Add support for adding `extraHeaders` to models configuration.
+
 ## 0.97.7
 
 - Remove the need to use codex instructions for codex sub, replacing with ECA prompt like all other providers.

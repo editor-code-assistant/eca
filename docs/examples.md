@@ -126,6 +126,12 @@ If you think your config is relevant to be shared for other people, [open a pull
     </return>
     ```
 
+??? info "Skill: brepl (Clojure REPL eval)"
+
+    Add the content of [this skill](https://github.com/licht1stein/brepl/blob/8b7fed1a64e979d465594d1488c0fc1652424a26/.claude/skills/brepl/SKILL.md) to 
+    `~/.config/eca/skills/brepl/SKILL.md`
+
+
 ??? info "Custom tool: clj-nrepl-eval (@michaelwhitford)"
 
     ```javascript title="config.json"

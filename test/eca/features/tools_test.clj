@@ -153,6 +153,8 @@
       (is (= :ask (f.tools/approval all-tools plan-tool {} {} {} nil))))
     (testing "tool was remembered to approve by user"
       (is (= :allow (f.tools/approval all-tools plan-tool {} {:tool-calls {"plan" {:remember-to-approve? true}}} {} nil))))
+    (testing "remember-to-approve takes precedence over require-approval-fn"
+      (is (= :allow (f.tools/approval all-tools shell-tool {} {:tool-calls {"shell" {:remember-to-approve? true}}} {} nil))))
     (testing "if legacy-manual-approval present, considers it"
       (is (= :ask (f.tools/approval all-tools request-tool {} {} {:toolCall {:manualApproval true}} nil))))
     (testing "if approval config is provided"

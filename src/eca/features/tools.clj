@@ -72,11 +72,11 @@
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                     (get-in config [:behavior behavior :toolCall :approval]))]
     (cond
-      (and require-approval-fn (require-approval-fn args {:db db}))
-      :ask
-
       remember-to-approve?
       :allow
+
+      (and require-approval-fn (require-approval-fn args {:db db}))
+      :ask
 
       (some #(approval-matches? % (:name server) name args native-tools) deny)
       :deny
@@ -234,7 +234,8 @@
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
                                                            :state-transition-fn state-transition-fn})
-                           (f.mcp/call-tool! tool-name arguments {:db db}))))]
+                           (f.mcp/call-tool! tool-name arguments {:db db})))
+                       (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name full-name :error (:error result)} metrics)
         (if-let [r (:rollback-changes result)]
@@ -289,12 +290,13 @@
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
-(defn tool-call-summary [all-tools full-name args config]
+(defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
                                                     all-tools)))]
     (try
       (summary-fn {:args args
-                   :config config})
+                   :config config
+                   :db db})
       (catch Exception e
         (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
         nil))))

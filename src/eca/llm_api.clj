@@ -97,6 +97,7 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         extra-payload (:extraPayload model-config)
+        extra-headers (:extraHeaders model-config)
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
@@ -124,6 +125,7 @@
           :web-search web-search
           :extra-payload (merge {:parallel_tool_calls true}
                                 extra-payload)
+          :extra-headers extra-headers
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
@@ -143,6 +145,7 @@
           :tools tools
           :web-search web-search
           :extra-payload extra-payload
+          :extra-headers extra-headers
           :api-url api-url
           :api-key api-key
           :auth-type auth-type}
@@ -163,12 +166,16 @@
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
-          :extra-headers {"openai-intent" "conversation-panel"
-                          "x-request-id" (str (random-uuid))
-                          "vscode-sessionid" ""
-                          "vscode-machineid" ""
-                          "Copilot-Vision-Request" "true"
-                          "copilot-integration-id" "vscode-chat"}}
+          :extra-headers (fn [{:keys [body]}]
+                           (let [user-initiator? (= "user" (-> body :messages last :role))]
+                             (merge {"openai-intent" "conversation-panel"
+                                     "x-request-id" (str (random-uuid))
+                                     "x-initiator" (if user-initiator? "user" "agent")
+                                     "vscode-sessionid" ""
+                                     "vscode-machineid" ""
+                                     "Copilot-Vision-Request" "true"
+                                     "copilot-integration-id" "vscode-chat"}
+                                    extra-headers)))}
          callbacks)
 
         (= "google" provider)
@@ -188,6 +195,7 @@
                                 (when reason?
                                   {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
                                 extra-payload)
+          :extra-headers extra-headers
           :api-url api-url
           :api-key api-key}
          callbacks)
@@ -202,7 +210,8 @@
           :user-messages user-messages
           :past-messages past-messages
           :tools tools
-          :extra-payload extra-payload}
+          :extra-payload extra-payload
+          :extra-headers extra-headers}
          callbacks)
 
         (and (or (:fetchModels provider-config)
@@ -223,6 +232,7 @@
             :past-messages past-messages
             :tools tools
             :extra-payload extra-payload
+            :extra-headers extra-headers
             :url-relative-path url-relative-path
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end

@@ -43,7 +43,7 @@
                  ""
                  (:content (last (:output body))))})
 
-(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client]}]
+(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client extra-headers]}]
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
@@ -51,13 +51,15 @@
         ;; Use persisted account-id first, fall back to extracting from JWT
         resolved-account-id (or account-id (jwt-token->account-id api-key))
         headers (client/merge-llm-headers
-                 (assoc-some
-                  {"Authorization" (str "Bearer " api-key)
-                   "Content-Type" "application/json"}
-                  "ChatGPT-Account-Id" resolved-account-id
-                  "OpenAI-Beta" (when oauth? "responses=experimental"),
-                  "Originator" (when oauth? "codex_cli_rs")
-                  "Session-ID" (when oauth? (str (random-uuid)))))
+                 (merge
+                  (assoc-some
+                   {"Authorization" (str "Bearer " api-key)
+                    "Content-Type" "application/json"}
+                   "ChatGPT-Account-Id" resolved-account-id
+                   "OpenAI-Beta" (when oauth? "responses=experimental"),
+                   "Originator" (when oauth? "codex_cli_rs")
+                   "Session-ID" (when oauth? (str (random-uuid))))
+                  extra-headers))
         on-error (if on-stream
                    on-error
                    (fn [error-data]
@@ -143,7 +145,7 @@
     (and web-search (not codex?)) (conj {:type "web_search_preview"})))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                                max-output-tokens past-messages tools web-search extra-payload auth-type account-id http-client]}
+                                max-output-tokens past-messages tools web-search extra-payload extra-headers auth-type account-id http-client]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [codex? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
@@ -260,6 +262,7 @@
                       :api-key api-key
                       :account-id account-id
                       :http-client http-client
+                      :extra-headers extra-headers
                       :auth-type auth-type
                       :on-error on-error
                       :on-stream handle-stream})
@@ -282,6 +285,7 @@
       :api-key api-key
       :account-id account-id
       :http-client http-client
+      :extra-headers extra-headers
       :auth-type auth-type
       :on-error on-error
       :on-stream on-stream-fn})))

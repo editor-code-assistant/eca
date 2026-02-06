@@ -918,7 +918,7 @@
                           tool-call (assoc tool-call :arguments arguments)
                           ask? (= :ask decision)
                           details (f.tools/tool-call-details-before-invocation name arguments server @db* ask? id)
-                          summary (f.tools/tool-call-summary all-tools full-name arguments config)]
+                          summary (f.tools/tool-call-summary all-tools full-name arguments config @db*)]
                       (when-not (#{:stopping :cleanup} (:status (get-tool-call-state @db* chat-id id)))
                         (transition-tool-call! db* chat-ctx id :tool-run {:approved?* approved?*
                                                                           :future-cleanup-complete?* (promise)
@@ -1238,7 +1238,7 @@
                                                                   :full-name full-name
                                                                   :origin (or (:origin tool) :unknown)
                                                                   :arguments-text arguments-text
-                                                                  :summary (f.tools/tool-call-summary all-tools full-name nil config)})))
+                                                                  :summary (f.tools/tool-call-summary all-tools full-name nil config @db*)})))
                 :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
                              (assert-chat-not-stopped! chat-ctx)
