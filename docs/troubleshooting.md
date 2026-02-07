@@ -4,17 +4,27 @@
 
 All supported editors have options to set the __server args__ to help with that and options to check the server logs.
 
-To access the server logs:
+To change and access the logs:
 
 === "Emacs"
+    
+    `(setq eca-extra-args '("--log-level" "debug"))`
 
     `M-x` `eca-show-stderr`
     
 === "VsCode"
 
+    ```javascript title="your-json-preferences"
+    {
+      "eca.serverArgs": "--log-level debug"
+    }
+    ```
+
     Check the output channel `ECA stderr`.
    
 === "IntelliJ"
+    
+    Add to `Tools` > `ECA` > `Server args`: `--log-level debug`
 
     Via action 'ECA: Show server logs'.
     
