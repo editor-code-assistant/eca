@@ -317,8 +317,8 @@
 
 (defn tool-call-details-after-invocation
   "Return the tool call details after invoking the tool."
-  [name arguments details result]
-  (tools.util/tool-call-details-after-invocation name arguments details result))
+  [name arguments details result ctx]
+  (tools.util/tool-call-details-after-invocation name arguments details result ctx))
 
 (defn tool-call-destroy-resource!
   "Destroy the resource in the tool call named `name`."

@@ -874,7 +874,7 @@
   ;; presence of :agent-def indicates this is a subagent
   (when-let [agent-def (get-in @db* [:chats chat-id :agent-def])]
     (let [max-turns (:max-turns agent-def 25)
-          new-db (swap! db* update-in [:chats chat-id :current-turn] (fnil inc 0))
+          new-db (swap! db* update-in [:chats chat-id :current-turn] (fnil inc 1))
           new-turn (get-in new-db [:chats chat-id :current-turn])]
       (>= new-turn max-turns))))
 
@@ -952,7 +952,11 @@
                                                                      metrics
                                                                      (partial get-tool-call-state @db* chat-id id)
                                                                      (partial transition-tool-call! db* chat-ctx id))
-                                          details (f.tools/tool-call-details-after-invocation name arguments details result)
+                                          details (f.tools/tool-call-details-after-invocation name arguments details result
+                                                                                                                                  {:db @db*
+                                                                                                                                   :config config
+                                                                                                                                   :chat-id chat-id
+                                                                                                                                   :tool-call-id id})
                                           {:keys [start-time]} (get-tool-call-state @db* chat-id id)
                                           total-time-ms (- (System/currentTimeMillis) start-time)]
                                       (add-to-history! {:role "tool_call"
@@ -1152,6 +1156,7 @@
                         user-messages)]
     (when user-messages
       (swap! db* assoc-in [:chats chat-id :status] :running)
+      (swap! db* assoc-in [:chats chat-id :model] full-model)
       (let [_ (maybe-renew-auth-token chat-ctx)
             db @db*
             past-messages (get-in db [:chats chat-id :messages] [])

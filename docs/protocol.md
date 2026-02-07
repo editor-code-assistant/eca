@@ -1050,6 +1050,21 @@ interface SubagentDetails {
      * Available from toolCallRun afterwards
      */
     subagentChatId?: string;
+
+    /**
+     *  The model this subagent is using.
+     */
+    model: string;
+
+    /**
+     * The max number of turns this subagent is limited.
+     */
+    maxTurns: number;
+
+    /**
+     * The current turn.
+     */
+    turn: number;
 }
 
 /**

@@ -4,16 +4,15 @@
    [clojure.string :as str]
    [eca.features.agents :as f.agents]
    [eca.features.tools.util :as tools.util]
-   [eca.logger :as logger]))
+   [eca.logger :as logger]
+   [eca.messenger :as messenger]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[AGENT-TOOL]")
 
-(defn ^:private build-task-prompt
-  [task max-turns]
-  (format "%s\n\nIMPORTANT: You have a maximum of %d turns to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
-          task max-turns))
+(defn ^:private max-turns [agent-def]
+  (or (:max-turns agent-def) 25))
 
 (defn ^:private extract-final-summary
   "Extract the final assistant message as summary from chat messages."
@@ -30,10 +29,31 @@
              (str/join "\n")))
       "Agent completed without producing output.")))
 
-(defn subagent-chat-id
+(defn ->subagent-chat-id
   "Generate a deterministic subagent chat id from the tool-call-id."
   [tool-call-id]
   (str "subagent-" tool-call-id))
+
+(defn ^:private send-turn-progress!
+  "Send a toolCallRunning notification with current turn progress to the parent chat."
+  [messenger chat-id tool-call-id agent-name subagent-chat-id turn max-turns model arguments]
+  (messenger/chat-content-received
+   messenger
+   {:chat-id chat-id
+    :role :assistant
+    :content {:type :toolCallRunning
+              :id tool-call-id
+              :name "spawn_agent"
+              :server "eca"
+              :origin "native"
+              :summary (format "Running agent '%s'" agent-name)
+              :arguments arguments
+              :details {:type :subagent
+                        :subagent-chat-id subagent-chat-id
+                        :model model
+                        :agent-name agent-name
+                        :turn turn
+                        :max-turns max-turns}}}))
 
 (defn ^:private stop-subagent-chat!
   "Stop a running subagent chat and clean up its state from db."
@@ -54,7 +74,6 @@
         db @db*
 
         ;; Check for nesting - prevent subagents from spawning other subagents
-        ;; (presence of :agent-def indicates this is a subagent)
         _ (when (get-in db [:chats chat-id :agent-def])
             (throw (ex-info "Agents cannot spawn other agents (nesting not allowed)"
                             {:agent-name agent-name
@@ -73,32 +92,29 @@
                                :available (map :name available)}))))
 
         ;; Create subagent chat session using deterministic id based on tool-call-id
-        subagent-chat-id* (subagent-chat-id tool-call-id)
+        subagent-chat-id (->subagent-chat-id tool-call-id)
 
-        ;; Determine model (inherit from parent if not specified)
         parent-model (get-in db [:chats chat-id :model])
         subagent-model (or (:model agent-def) parent-model)]
 
     (logger/info logger-tag (format "Spawning agent '%s' for task: %s" agent-name task))
 
-    ;; Initialize subagent chat in db
-    ;; Note: presence of :agent-def indicates this is a subagent
-    (let [max-turns (:max-turns agent-def 25)]
-      (swap! db* assoc-in [:chats subagent-chat-id*]
-             {:id subagent-chat-id*
+    (let [max-turns (max-turns agent-def)]
+      (swap! db* assoc-in [:chats subagent-chat-id]
+             {:id subagent-chat-id
               :parent-chat-id chat-id
               :agent-name agent-name
               :agent-def agent-def
               :max-turns max-turns
-              :current-turn 0})
+              :current-turn 1})
 
       ;; Require chat ns here to avoid circular dependency
       (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
-            task-prompt (build-task-prompt task max-turns)]
-        ;; Start subagent execution
+            task-prompt (format "%s\n\nIMPORTANT: You have a maximum of %d turns to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
+                                task max-turns)]
         (chat-prompt
          {:message task-prompt
-          :chat-id subagent-chat-id*
+          :chat-id subagent-chat-id
           :model subagent-model
           :behavior behavior
           :contexts []}
@@ -110,13 +126,19 @@
     ;; Wait for subagent to complete by polling status
     (let [stopped-result (fn []
                            (logger/info logger-tag (format "Agent '%s' stopped by parent chat" agent-name))
-                           (stop-subagent-chat! db* messenger metrics subagent-chat-id* agent-name)
+                           (stop-subagent-chat! db* messenger metrics subagent-chat-id agent-name)
                            {:error true
                             :contents [{:type :text
                                         :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]
       (try
-        (loop []
-          (let [status (get-in @db* [:chats subagent-chat-id* :status])]
+        (loop [last-turn 0]
+          (let [db @db*
+                status (get-in db [:chats subagent-chat-id :status])
+                current-turn (get-in db [:chats subagent-chat-id :current-turn] 1)]
+            ;; Send turn progress when turn advances
+            (when (> current-turn last-turn)
+              (send-turn-progress! messenger chat-id tool-call-id agent-name
+                                   subagent-chat-id current-turn (max-turns agent-def) subagent-model arguments))
             (cond
               ;; Parent chat stopped — propagate stop to subagent
               (= :stopping (:status (call-state-fn)))
@@ -124,11 +146,13 @@
 
               ;; Subagent completed
               (#{:idle :error} status)
-              (let [messages (get-in @db* [:chats subagent-chat-id* :messages] [])
-                    summary (extract-final-summary messages)
-                    turn-count (get-in @db* [:chats subagent-chat-id* :current-turn] 0)]
-                (logger/info logger-tag (format "Agent '%s' completed after %d turns" agent-name turn-count))
-                (swap! db* update :chats dissoc subagent-chat-id*)
+              (let [messages (get-in db [:chats subagent-chat-id :messages] [])
+                    summary (extract-final-summary messages)]
+                (logger/info logger-tag (format "Agent '%s' completed after %d turns" agent-name current-turn))
+                (swap! db* (fn [db]
+                             (-> db
+                                 (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-turn] current-turn)
+                                 (update :chats dissoc subagent-chat-id))))
                 {:error false
                  :contents [{:type :text
                              :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]})
@@ -137,7 +161,7 @@
               :else
               (do
                 (Thread/sleep 1000)
-                (recur)))))
+                (recur (long (max last-turn current-turn)))))))
         (catch InterruptedException _
           (stopped-result))))))
 
@@ -175,8 +199,18 @@
         agent-def (when agent-name
                     (f.agents/get-agent agent-name config (:workspace-folders db)))
         parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or (:model agent-def) parent-model)]
+        subagent-model (or (:model agent-def) parent-model)
+        subagent-chat-id (when tool-call-id
+                           (->subagent-chat-id tool-call-id))]
     {:type :subagent
-     :subagent-chat-id (when tool-call-id
-                         (subagent-chat-id tool-call-id))
-     :model subagent-model}))
+     :subagent-chat-id subagent-chat-id
+     :model subagent-model
+     :agent-name agent-name
+     :turn (get-in db [:chats subagent-chat-id :current-turn] 1)
+     :max-turns (max-turns agent-def)}))
+
+(defmethod tools.util/tool-call-details-after-invocation :spawn_agent
+  [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]
+  (let [final-turn (get-in db [:chats chat-id :tool-calls tool-call-id :subagent-final-turn]
+                           (or (:turn before-details) 1))]
+    (assoc before-details :turn final-turn)))

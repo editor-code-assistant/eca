@@ -20,7 +20,7 @@
 
 (defmulti tool-call-details-after-invocation
   "Return the tool call details after invoking the tool."
-  (fn [name _arguments _before-details _result] (keyword name)))
+  (fn [name _arguments _before-details _result _ctx] (keyword name)))
 
 (defn ^:private json-outputs-if-any [result]
   (when-let [jsons (->> (:contents result)
@@ -40,7 +40,7 @@
     {:type :jsonOutputs
      :jsons jsons}))
 
-(defmethod tool-call-details-after-invocation :default [_name _arguments before-details result]
+(defmethod tool-call-details-after-invocation :default [_name _arguments before-details result _ctx]
   (or before-details
       (json-outputs-if-any result)))
 
