@@ -35,13 +35,13 @@
 (defmethod tools.util/tool-call-details-before-invocation :file_write [name args server ctx]
   (clojure-edit-details-before-invocation name args server ctx true))
 
-(defmethod tools.util/tool-call-details-after-invocation :clojure_edit [_name arguments details result]
-  (tools.util/tool-call-details-after-invocation :file_edit arguments details result))
+(defmethod tools.util/tool-call-details-after-invocation :clojure_edit [_name arguments details result ctx]
+  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
 
-(defmethod tools.util/tool-call-details-after-invocation :clojure_edit_replace_sexp [_name arguments details result]
-  (tools.util/tool-call-details-after-invocation :file_edit arguments details result))
+(defmethod tools.util/tool-call-details-after-invocation :clojure_edit_replace_sexp [_name arguments details result ctx]
+  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
 
-(defmethod tools.util/tool-call-details-after-invocation :file_edit [_name arguments _details result]
+(defmethod tools.util/tool-call-details-after-invocation :file_edit [_name arguments _details result _ctx]
   (when-not (:error result)
     (when-let [diff (some->> result :contents (filter #(= :text (:type %))) first :text)]
       (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
@@ -51,7 +51,7 @@
          :linesRemoved removed
          :diff diff}))))
 
-(defmethod tools.util/tool-call-details-after-invocation :file_write [_name arguments _details result]
+(defmethod tools.util/tool-call-details-after-invocation :file_write [_name arguments _details result _ctx]
   (when-not (:error result)
     (when-let [diff (some->> result :contents
                              (filter #(= :text (:type %)))

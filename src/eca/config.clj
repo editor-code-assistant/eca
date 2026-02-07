@@ -88,9 +88,11 @@
                                   "gemini-3-flash-preview" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultBehavior "agent"
-   :behavior {"agent" {:prompts {:chat "${classpath:prompts/agent_behavior.md}"}
+   :behavior {"agent" {:mode :primary
+                       :prompts {:chat "${classpath:prompts/agent_behavior.md}"}
                        :disabledTools ["preview_file_change"]}
-              "plan" {:prompts {:chat "${classpath:prompts/plan_behavior.md}"}
+              "plan" {:mode :primary
+                      :prompts {:chat "${classpath:prompts/plan_behavior.md}"}
                       :disabledTools ["edit_file" "write_file" "move_file"]
                       :toolCall {:approval {:allow {"eca__shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
@@ -127,7 +129,8 @@
                                  "eca__directory_tree" {}
                                  "eca__grep" {}
                                  "eca__editor_diagnostics" {}
-                                 "eca__skill" {}}
+                                 "eca__skill" {}
+                                 "eca__spawn_agent" {}}
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}
@@ -207,6 +210,14 @@
   (parse-dynamic-string-values initial-config* (io/file ".")))
 
 (def ^:private fallback-behavior "agent")
+
+(defn primary-behavior-names
+  "Returns the names of behaviors that are not subagents (mode is nil or \"primary\")."
+  [config]
+  (->> (:behavior config)
+       (remove (fn [[_ v]] (= "subagent" (:mode v))))
+       (map key)
+       distinct))
 
 (defn validate-behavior-name
   "Validates if a behavior exists in config. Returns the behavior if valid,

@@ -33,11 +33,16 @@
       (get-in config [:prompts key])))
 
 (defn ^:private eca-chat-prompt [behavior config]
-  (let [config-prompt (get-config-prompt :chat behavior config)
-        behavior-config (get-in config [:behavior behavior])
+  (let [behavior-config (get-in config [:behavior behavior])
+        subagent-prompt (and (= "subagent" (:mode behavior-config))
+                             (:systemPrompt behavior-config))
+        config-prompt (get-config-prompt :chat behavior config)
         legacy-config-prompt (:systemPrompt behavior-config)
         legacy-config-prompt-file (:systemPromptFile behavior-config)]
     (cond
+      subagent-prompt
+      subagent-prompt
+
       legacy-config-prompt
       legacy-config-prompt
 

@@ -28,7 +28,8 @@
                   "operation" "replace"
                   "content" "b\nc"}
                  nil
-                 {:error false :contents [{:type :text :text example-diff}]})))))
+                 {:error false :contents [{:type :text :text example-diff}]}
+                 nil)))))
 
 (deftest tool-call-details-after-invocation-clojure-mcp-clojure-edit-replace-sexp-test
   (testing "Tool call details for the Clojure MCP clojure_edit_replace_sexp tool"
@@ -44,7 +45,8 @@
                   "new_form" "b\nc"
                   "replace_all" false}
                  nil
-                 {:error false :contents [{:type :text :text example-diff}]})))))
+                 {:error false :contents [{:type :text :text example-diff}]}
+                 nil)))))
 
 (deftest tool-call-details-after-invocation-clojure-mcp-file-edit-test
   (testing "Tool call details for the Clojure MCP file_edit tool"
@@ -59,7 +61,8 @@
                   "old_string" "a"
                   "new_string" "b\nc"}
                  nil
-                 {:error false :contents [{:type :text :text example-diff}]})))))
+                 {:error false :contents [{:type :text :text example-diff}]}
+                 nil)))))
 
 (deftest tool-call-details-after-invocation-clojure-mcp-file-write-test
   (testing "Tool call details for the Clojure MCP file_write tool"
@@ -77,4 +80,5 @@
                   :contents [{:type :text
                               :text (string/join "\n"
                                                  ["Clojure file updated: /home/alice/my-org/my-proj/project.clj"
-                                                  "Changes:" example-diff])}]})))))
+                                                  "Changes:" example-diff])}]}
+                 nil)))))

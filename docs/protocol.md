@@ -524,6 +524,12 @@ interface ChatContentReceivedParams {
      * The chat session identifier this content belongs to
      */
     chatId: string;
+    
+    /**
+     * If this chat is a subagent, the parent chat id.
+     * Useful for clients to associate subagent messages with the parent conversation.
+     */
+    parentChatId?: string;
 
     /**
      * The content received from the LLM
@@ -1000,7 +1006,7 @@ interface ChatToolCallRejectedContent {
 
 type ToolCallOrigin = 'mcp' | 'native';
 
-type ToolCallDetails = FileChangeDetails | JsonOutputsDetails;
+type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails;
 
 interface FileChangeDetails {
     type: 'fileChange';
@@ -1033,6 +1039,33 @@ interface JsonOutputsDetails {
      * The list of json outputs of this tool call properly formatted.
      */
     jsons: string[];
+}
+
+interface SubagentDetails {
+    type: 'subagent';
+
+    /**
+     * The chatId of this running subagent, useful to link other chat/ContentReceived
+     * messages to this tool call.
+     * Available from toolCallRun afterwards
+     */
+    subagentChatId?: string;
+
+    /**
+     *  The model this subagent is using.
+     */
+    model: string;
+
+    /**
+     * The max number of steps this subagent is limited.
+     * When not set, the subagent runs with no step limit (infinite interaction).
+     */
+    maxSteps?: number;
+
+    /**
+     * The current step.
+     */
+    step: number;
 }
 
 /**
