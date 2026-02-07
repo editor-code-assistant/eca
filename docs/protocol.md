@@ -1057,14 +1057,15 @@ interface SubagentDetails {
     model: string;
 
     /**
-     * The max number of turns this subagent is limited.
+     * The max number of steps this subagent is limited.
+     * When not set, the subagent runs with no step limit (infinite interaction).
      */
-    maxTurns: number;
+    maxSteps?: number;
 
     /**
-     * The current turn.
+     * The current step.
      */
-    turn: number;
+    step: number;
 }
 
 /**

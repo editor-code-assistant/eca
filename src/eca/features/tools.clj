@@ -148,7 +148,7 @@
           f.tools.editor/definitions
           f.tools.chat/definitions
           f.tools.skill/definitions
-          (f.tools.agent/definitions db config)
+          (f.tools.agent/definitions config)
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
@@ -156,16 +156,9 @@
 
 (defn ^:private filter-subagent-tools
   "Filter tools for subagent execution.
-   - Only allow tools specified in the agent definition
-   - Always exclude spawn_agent to prevent nesting"
-  [tools agent-def]
-  (let [allowed-tools (set (:tools agent-def))]
-    (->> tools
-         ;; Always exclude spawn_agent to prevent nesting
-         (remove #(= "spawn_agent" (:name %)))
-         ;; If agent has tool restrictions, apply them
-         (filterv #(or (empty? allowed-tools)
-                       (contains? allowed-tools (:name %)))))))
+   Excludes spawn_agent to prevent nesting."
+  [tools]
+  (filterv #(not= "spawn_agent" (:name %)) tools))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
@@ -196,7 +189,7 @@
                                          :config config})))))
         ;; Apply subagent tool filtering if applicable
         all-tools (if agent-def
-                    (filter-subagent-tools all-tools agent-def)
+                    (filter-subagent-tools all-tools)
                     all-tools)]
     (remove (fn [tool]
               (= :deny (approval all-tools tool {} db config behavior)))

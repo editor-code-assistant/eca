@@ -2,7 +2,6 @@
   "Tool for spawning subagents to perform focused tasks in isolated context."
   (:require
    [clojure.string :as str]
-   [eca.features.agents :as f.agents]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]))
@@ -11,8 +10,26 @@
 
 (def ^:private logger-tag "[AGENT-TOOL]")
 
-(defn ^:private max-turns [agent-def]
-  (or (:max-turns agent-def) 25))
+(defn ^:private all-agents
+  [config]
+  (->> (:behavior config)
+       (keep (fn [[behavior-name behavior-config]]
+               (when (and (= "subagent" (:mode behavior-config))
+                          (:description behavior-config))
+                 {:name behavior-name
+                  :description (:description behavior-config)
+                  :model (:defaultModel behavior-config)
+                  :max-steps (:maxSteps behavior-config)
+                  :system-prompt (:systemPrompt behavior-config)
+                  :tool-call (:toolCall behavior-config)})))
+       vec))
+
+(defn ^:private get-agent
+  [agent-name config]
+  (first (filter #(= agent-name (:name %)) (all-agents config))))
+
+(defn ^:private max-steps [agent-def]
+  (:max-steps agent-def))
 
 (defn ^:private extract-final-summary
   "Extract the final assistant message as summary from chat messages."
@@ -29,14 +46,14 @@
              (str/join "\n")))
       "Agent completed without producing output.")))
 
-(defn ->subagent-chat-id
+(defn ^:private ->subagent-chat-id
   "Generate a deterministic subagent chat id from the tool-call-id."
   [tool-call-id]
   (str "subagent-" tool-call-id))
 
-(defn ^:private send-turn-progress!
-  "Send a toolCallRunning notification with current turn progress to the parent chat."
-  [messenger chat-id tool-call-id agent-name subagent-chat-id turn max-turns model arguments]
+(defn ^:private send-step-progress!
+  "Send a toolCallRunning notification with current step progress to the parent chat."
+  [messenger chat-id tool-call-id agent-name subagent-chat-id step max-steps model arguments]
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id
@@ -52,8 +69,8 @@
                         :subagent-chat-id subagent-chat-id
                         :model model
                         :agent-name agent-name
-                        :turn turn
-                        :max-turns max-turns}}}))
+                        :step step
+                        :max-steps max-steps}}}))
 
 (defn ^:private stop-subagent-chat!
   "Stop a running subagent chat and clean up its state from db."
@@ -68,7 +85,7 @@
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
    Spawns a subagent to perform a focused task and returns the result."
-  [arguments {:keys [db* config messenger metrics chat-id behavior tool-call-id call-state-fn]}]
+  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn]}]
   (let [agent-name (get arguments "agent")
         task (get arguments "task")
         db @db*
@@ -80,9 +97,9 @@
                              :parent-chat-id chat-id})))
 
         ;; Load agent definition
-        agent-def (f.agents/get-agent agent-name config (:workspace-folders db))
+        agent-def (get-agent agent-name config)
         _ (when-not agent-def
-            (let [available (f.agents/all config (:workspace-folders db))]
+            (let [available (all-agents config)]
               (throw (ex-info (format "Agent '%s' not found. Available agents: %s"
                                       agent-name
                                       (if (seq available)
@@ -99,24 +116,26 @@
 
     (logger/info logger-tag (format "Spawning agent '%s' for task: %s" agent-name task))
 
-    (let [max-turns (max-turns agent-def)]
+    (let [max-steps (max-steps agent-def)]
       (swap! db* assoc-in [:chats subagent-chat-id]
-             {:id subagent-chat-id
-              :parent-chat-id chat-id
-              :agent-name agent-name
-              :agent-def agent-def
-              :max-turns max-turns
-              :current-turn 1})
+             (cond-> {:id subagent-chat-id
+                      :parent-chat-id chat-id
+                      :agent-name agent-name
+                      :agent-def agent-def
+                      :current-step 1}
+               max-steps (assoc :max-steps max-steps)))
 
       ;; Require chat ns here to avoid circular dependency
       (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
-            task-prompt (format "%s\n\nIMPORTANT: You have a maximum of %d turns to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
-                                task max-turns)]
+            task-prompt (if max-steps
+                          (format "%s\n\nIMPORTANT: You have a maximum of %d steps to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
+                                  task max-steps)
+                          task)]
         (chat-prompt
          {:message task-prompt
           :chat-id subagent-chat-id
           :model subagent-model
-          :behavior behavior
+          :behavior agent-name
           :contexts []}
          db*
          messenger
@@ -131,14 +150,14 @@
                             :contents [{:type :text
                                         :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]
       (try
-        (loop [last-turn 0]
+        (loop [last-step 0]
           (let [db @db*
                 status (get-in db [:chats subagent-chat-id :status])
-                current-turn (get-in db [:chats subagent-chat-id :current-turn] 1)]
-            ;; Send turn progress when turn advances
-            (when (> current-turn last-turn)
-              (send-turn-progress! messenger chat-id tool-call-id agent-name
-                                   subagent-chat-id current-turn (max-turns agent-def) subagent-model arguments))
+                current-step (get-in db [:chats subagent-chat-id :current-step] 1)]
+            ;; Send step progress when step advances
+            (when (> current-step last-step)
+              (send-step-progress! messenger chat-id tool-call-id agent-name
+                                   subagent-chat-id current-step (max-steps agent-def) subagent-model arguments))
             (cond
               ;; Parent chat stopped — propagate stop to subagent
               (= :stopping (:status (call-state-fn)))
@@ -148,10 +167,10 @@
               (#{:idle :error} status)
               (let [messages (get-in db [:chats subagent-chat-id :messages] [])
                     summary (extract-final-summary messages)]
-                (logger/info logger-tag (format "Agent '%s' completed after %d turns" agent-name current-turn))
+                (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step))
                 (swap! db* (fn [db]
                              (-> db
-                                 (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-turn] current-turn)
+                                 (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
                                  (update :chats dissoc subagent-chat-id))))
                 {:error false
                  :contents [{:type :text
@@ -161,15 +180,15 @@
               :else
               (do
                 (Thread/sleep 1000)
-                (recur (long (max last-turn current-turn)))))))
+                (recur (long (max last-step current-step)))))))
         (catch InterruptedException _
           (stopped-result))))))
 
 (defn ^:private build-description
   "Build tool description with available agents listed."
-  [db config]
+  [config]
   (let [base-description (tools.util/read-tool-description "spawn_agent")
-        agents (f.agents/all config (:workspace-folders db))
+        agents (all-agents config)
         agents-section (str "\n\nAvailable agents:\n"
                             (->> agents
                                  (map (fn [{:keys [name description]}]
@@ -178,9 +197,9 @@
     (str base-description agents-section)))
 
 (defn definitions
-  [db config]
+  [config]
   {"spawn_agent"
-   {:description (build-description db config)
+   {:description (build-description config)
     :parameters {:type "object"
                  :properties {"agent" {:type "string"
                                        :description "Name of the agent to spawn"}
@@ -197,7 +216,7 @@
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
   (let [agent-name (get arguments "agent")
         agent-def (when agent-name
-                    (f.agents/get-agent agent-name config (:workspace-folders db)))
+                    (get-agent agent-name config))
         parent-model (get-in db [:chats chat-id :model])
         subagent-model (or (:model agent-def) parent-model)
         subagent-chat-id (when tool-call-id
@@ -206,11 +225,11 @@
      :subagent-chat-id subagent-chat-id
      :model subagent-model
      :agent-name agent-name
-     :turn (get-in db [:chats subagent-chat-id :current-turn] 1)
-     :max-turns (max-turns agent-def)}))
+     :step (get-in db [:chats subagent-chat-id :current-step] 1)
+     :max-steps (max-steps agent-def)}))
 
 (defmethod tools.util/tool-call-details-after-invocation :spawn_agent
   [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]
-  (let [final-turn (get-in db [:chats chat-id :tool-calls tool-call-id :subagent-final-turn]
-                           (or (:turn before-details) 1))]
-    (assoc before-details :turn final-turn)))
+  (let [final-step (get-in db [:chats chat-id :tool-calls tool-call-id :subagent-final-step]
+                           (or (:step before-details) 1))]
+    (assoc before-details :step final-step)))

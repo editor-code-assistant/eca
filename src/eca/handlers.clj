@@ -44,7 +44,7 @@
                                                     (config/notify-fields-changed-only!
                                                      {:chat
                                                       {:models (sort (keys models))
-                                                       :behaviors (distinct (keys (:behavior config)))
+                                                       :behaviors (config/primary-behavior-names config)
                                                        :select-model (f.chat/default-model db config)
                                                        :select-behavior (config/validate-behavior-name
                                                                          (or (:defaultBehavior (:chat config)) ;;legacy

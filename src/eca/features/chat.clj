@@ -866,28 +866,30 @@
                chat-ctx))))
     nil))
 
-(defn ^:private check-subagent-max-turns!
-  "Check if subagent has reached max turns. Increments turn count.
-   Returns true if max turns reached, false otherwise.
+(defn ^:private check-subagent-max-steps!
+  "Check if subagent has reached max steps. Increments step count.
+   Returns true if max steps reached, false otherwise.
+   When max-steps is nil, the subagent runs with no step limit.
    Only applies to subagents (chats with :agent-def)."
   [db* chat-id]
   ;; presence of :agent-def indicates this is a subagent
   (when-let [agent-def (get-in @db* [:chats chat-id :agent-def])]
-    (let [max-turns (:max-turns agent-def 25)
-          new-db (swap! db* update-in [:chats chat-id :current-turn] (fnil inc 1))
-          new-turn (get-in new-db [:chats chat-id :current-turn])]
-      (>= new-turn max-turns))))
+    (let [max-steps (:max-steps agent-def)
+          new-db (swap! db* update-in [:chats chat-id :current-step] (fnil inc 1))
+          new-step (get-in new-db [:chats chat-id :current-step])]
+      (when max-steps
+        (>= new-step max-steps)))))
 
 (defn ^:private on-tools-called! [{:keys [db* config chat-id behavior full-model messenger metrics] :as chat-ctx}
                                   received-msgs* add-to-history! user-messages]
   (fn [tool-calls]
     (let [all-tools (f.tools/all-tools chat-id behavior @db* config)
-          max-turns-reached? (check-subagent-max-turns! db* chat-id)]
+          max-steps-reached? (check-subagent-max-steps! db* chat-id)]
       (assert-chat-not-stopped! chat-ctx)
-      ;; Check subagent max turns - if reached, finish without executing more tools
-      (if max-turns-reached?
+      ;; Check subagent max steps - if reached, finish without executing more tools
+      (if max-steps-reached?
         (do
-          (logger/info logger-tag "Subagent reached max turns, finishing" {:chat-id chat-id})
+          (logger/info logger-tag "Subagent reached max steps, finishing" {:chat-id chat-id})
           (when-not (string/blank? @received-msgs*)
             (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]}))
           (finish-chat-prompt! :idle chat-ctx)
