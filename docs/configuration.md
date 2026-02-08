@@ -1,6 +1,6 @@
 # Configuration
 
-Check all available configs and its default values [here](#all-configs).
+Check the [config.json schema](./config.json) to validate and autocomplete in your editor.
 
 Also, check [Examples](./examples.md) which contains examples of users ECA configs.
 
@@ -676,135 +676,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
 }
 ```
 
-## All configs
-
-=== "Schema"
-
-    ```typescript
-    interface Config {
-        providers?: {[key: string]: {
-            api?: 'openai-responses' | 'openai-chat' | 'anthropic';
-            fetchModels?: boolean;
-            url?: string;
-            key?: string; // when provider supports api key.
-            keyRc?: string; // credential file lookup in format [login@]machine[:port]
-            completionUrlRelativePath?: string;
-            thinkTagStart?: string;
-            thinkTagEnd?: string;
-            models: {[key: string]: {
-              modelName?: string;
-              extraPayload?: {[key: string]: any};
-              reasoningHistory?: "all" | "turn" | "off";
-            }};
-        }};
-        defaultModel?: string;
-        hooks?: {[key: string]: {
-                type: 'sessionStart' | 'sessionEnd' | 'chatStart' | 'chatEnd' |
-                      'preRequest' | 'postRequest' | 'preToolCall' | 'postToolCall';
-                matcher?: string; // regex for server__tool-name, only *ToolCall hooks
-                visible?: boolean;
-                runOnError?: boolean; // postToolCall only
-                actions: {
-                    type: 'shell';
-                    shell?: string; // inline script
-                    file?: string;  // path to script file
-                    timeout?: number; // ms, default 30000
-                }[];
-            };
-        };
-        rules?: [{path: string;}];
-        enabledSkills?: string[];
-        disabledTools?: string[],
-        commands?: [{path: string;}];
-        behavior?: {[key: string]: { 
-            defaultModel?: string;
-            disabledTools?: string[];
-            enabledSkills?: string[];
-            autoCompactPercentage?: number;
-            toolCall?: {
-                approval?: {
-                    byDefault?: 'ask' | 'allow' | 'deny';
-                    allow?: {[key: string]: {argsMatchers?: {[key: string]: string[]}}};
-                    ask?: {[key: string]: {argsMatchers?: {[key: string]: string[]}}};
-                    deny?: {[key: string]: {argsMatchers?: {[key: string]: string[]}}};
-                };
-            };
-            prompts?:{
-                chat?: string;
-                chatTitle?: string;
-                compact?: string;
-                init?: string;
-                completion?: string;
-                rewrite?: string;
-                tools?: {[name: string]: string};
-            };
-        }};
-        customTools?: {[key: string]: {
-            description: string;
-            command: string;
-            schema: {
-                properties: {[key: string]: {
-                    type: string;
-                    description: string;
-                }};
-                required: string[];
-            };
-        }};
-        toolCall?: {
-          approval?: {
-            byDefault: 'ask' | 'allow';
-            allow?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}},
-            ask?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}},
-            deny?: {{key: string}: {argsMatchers?: {{[key]: string}: string[]}}},
-          };
-          readFile?: {
-            maxLines?: number;
-          };
-          shellCommand?: {
-            summaryMaxLength?: number,
-          };
-        };
-        mcpTimeoutSeconds?: number;
-        lspTimeoutSeconds?: number;
-        mcpServers?: {[key: string]: {
-            url?: string; // for remote http-stremable servers
-            command?: string; // for stdio servers
-            args?: string[];
-            disabled?: boolean;
-        }};
-        defaultBehavior?: string;
-        welcomeMessage?: string;
-        autoCompactPercentage?: number;
-        index?: {
-            ignoreFiles: [{
-                type: string;
-            }];
-            repoMap?: {
-                maxTotalEntries?: number;
-                maxEntriesPerDir?: number;
-            };
-        };
-        prompts?: {
-            chat?: string;
-            chatTitle?: string;
-            compact?: string;
-            init?: string;
-            completion?: string;
-            rewrite?: string;
-            tools?: {[name: string]: string};
-        };
-        completion?: {
-            model?: string;
-        };
-        rewrite?: {
-            model?: string;
-        };
-        otlp?: {[key: string]: string};
-        netrcFile?: string;
-    }
-    ```
-
-=== "Default values"
+## Default config values
 
     ```javascript
     {

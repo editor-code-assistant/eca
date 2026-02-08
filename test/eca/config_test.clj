@@ -1,6 +1,7 @@
 (ns eca.config-test
   (:require
    [babashka.fs :as fs]
+   [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
@@ -448,3 +449,24 @@
                                              nil))]
       (is (= "password1" (#'config/parse-dynamic-string "${netrc:api-gateway.example-corp.com}" "/tmp" {})))
       (is (= "password2" (#'config/parse-dynamic-string "${netrc:api_service.example.com}" "/tmp" {}))))))
+
+(deftest config-schema-test
+  (testing "docs/config.json is a valid JSON schema"
+    (let [schema (json/parse-string (slurp (io/file "docs" "config.json")))]
+      (is (= "http://json-schema.org/draft-07/schema#" (get schema "$schema")))
+      (is (= "https://eca.dev/config.json" (get schema "$id")))
+      (is (= "ECA Configuration" (get schema "title")))
+      (is (map? (get schema "properties")))
+      (is (map? (get schema "definitions")))))
+
+  (testing "update-global-config! includes $schema in written config"
+    (let [temp-dir (fs/create-temp-dir)
+          config-file (io/file (str temp-dir) "config.json")]
+      (try
+        (with-redefs [config/global-config-file (constantly config-file)]
+          (config/update-global-config! {:defaultModel "anthropic/claude-sonnet-4.5"})
+          (let [written-config (json/parse-string (slurp config-file))]
+            (is (= "https://eca.dev/config.json" (get written-config "$schema")))
+            (is (= "anthropic/claude-sonnet-4.5" (get written-config "defaultModel")))))
+        (finally
+          (fs/delete-tree temp-dir))))))

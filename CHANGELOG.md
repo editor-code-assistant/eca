@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add config.json schema. #293
+
 ## 0.99.0
 
 - Truncate tool call outputs automatically to avoid hit context size limit. #284
