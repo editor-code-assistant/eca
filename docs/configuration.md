@@ -113,7 +113,7 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 By default, ECA asks to call any non read-only tool (default [here](https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96)), but that can easily be configured in several ways via the `toolCall.approval` config.
 
-You can configure the default behavior with `byDefault` and/or configure a tool in `ask`, `allow` or `deny` configs.
+You can configure the default approval with `byDefault` and/or configure a tool in `ask`, `allow` or `deny` configs.
 
 Check some examples:
 
@@ -195,7 +195,7 @@ Check some examples:
     }
     ```
 
-Also check the `plan` behavior which is safer.
+Also check the `plan` agent which is safer.
 
 __The `manualApproval` setting was deprecated and replaced by the `approval` one without breaking changes__
 
@@ -320,10 +320,10 @@ Check the examples:
 
 === "Enable/disable specific skills"
 
-    It's possible to control which skills LLM have access globally or for a specific behavior.
+    It's possible to control which skills LLM have access globally or for a specific agent.
     You just need to define a tool call approval for the `eca__skill` for a specific skill `name`:
     
-    Example disabling all skills but one for a behavior
+    Example disabling all skills but one for an agent
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -334,7 +334,7 @@ Check the examples:
           }
         }
       },
-      "behavior": {
+      "agent": {
         "reviewer": {
           "toolCall": {
             "approval": {
@@ -352,7 +352,7 @@ You can have more directories and contents like `scripts/`, `references/`, `asse
 
 ## Rules
 
-Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
+Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM responses.
 Rules are text files (typically `.md`, but any format works):
 
 There are 3 possible ways to configure rules following this order of priority:
@@ -422,20 +422,20 @@ You can configure in multiple different ways:
 
     ECA will make available a `/my-custom-prompt` command after creating that file.
 
-## Behaviors / prompts
+## Agents / prompts
 
-ECA allows to totally customize the prompt sent to LLM via the `prompts` config, but you can use the `behavior` config allowing to have multiple behaviors for different tasks or workflows.
+ECA allows to totally customize the prompt sent to LLM via the `prompts` config, but you can use the `agent` config allowing to have multiple agents for different tasks or workflows.
 
 You can even customize the tool description via `prompts tools <toolName>`.
 
-=== "Example: my-behavior"
+=== "Example: my-agent"
 
     ```javascript title="~/.config/eca/config.json"
     {
-      "behavior": {
-        "my-behavior": {
+      "agent": {
+        "my-agent": {
           "prompts": {
-            "chat": "${file:/path/to/my-behavior-prompt.md}"
+            "chat": "${file:/path/to/my-agent-prompt.md}"
           }
         }
       }
@@ -488,11 +488,11 @@ Hooks are shell actions that run before or after specific events, useful for not
 Hooks receive JSON via stdin with event data (top-level keys `snake_case`, nested data preserves case). Common fields:
 
 - All hooks: `hook_name`, `hook_type`, `workspaces`, `db_cache_path`
-- Chat hooks add: `chat_id`, `behavior`
+- Chat hooks add: `chat_id`, `agent`, `behavior` (deprecated alias)
 - Tool hooks add: `tool_name`, `server`, `tool_input`, `approval` (pre) or `tool_response`, `error` (post)
 - `chatStart` adds: `resumed` (boolean)
 
-Hooks can output JSON to control behavior:
+Hooks can output JSON to control execution:
 
 ```javascript
 {
@@ -715,10 +715,10 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "mcpTimeoutSeconds" : 60,
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
-      "behavior" {
-        "agent": {"prompts": {"chat": "${classpath:prompts/agent_behavior.md}"},
+      "agent" {
+        "build": {"prompts": {"chat": "${classpath:prompts/build_agent.md}"},
                   "disabledTools": ["preview_file_change"]},
-        "plan": {"prompts": {"chat": "${classpath:prompts/plan_behavior.md}"},
+        "plan": {"prompts": {"chat": "${classpath:prompts/plan_agent.md}"},
                   "disabledTools": ["edit_file", "write_file", "move_file"],
                   "toolCall": {"approval": {"deny": {"eca__shell_command":
                                                      {"argsMatchers": {"command" [".*>.*",
@@ -730,7 +730,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                                                                                   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                                   ".*bash.*-c.*>.*"]}}}}}}
       }
-      "defaultBehavior": "agent",
+      "defaultAgent": "build",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
       "autoCompactPercentage": 85,
       "index" : {
@@ -743,7 +743,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }
       },
       "prompts": {
-        "chat": "${classpath:prompts/agent_behavior.md}", // default to agent
+        "chat": "${classpath:prompts/build_agent.md}", // default to build agent
         "chatTitle": "${classpath:prompts/title.md}",
         "compact": "${classpath:prompts/compact.md}",
         "init": "${classpath:prompts/init.md}",

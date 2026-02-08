@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add config.json schema. #293
+- Deprecate `behavior` in favor of `agent`.
 
 ## 0.99.0
 

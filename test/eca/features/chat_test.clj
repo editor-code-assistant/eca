@@ -646,11 +646,11 @@
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
-          behavior :default
+          agent-name :default
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :allow)
                     f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
                        :arguments {:foo "bar"}
                        :approval-override nil
@@ -671,11 +671,11 @@
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
-          behavior :default
+          agent-name :default
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :ask)
                     f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
                        :approval-override nil
@@ -694,11 +694,11 @@
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
-          behavior :default
+          agent-name :default
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :deny)
                     f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
                        :approval-override nil
@@ -720,7 +720,7 @@
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
                                               :actions [{:type "shell" :command "echo 'approval override'"}]}}})
-          behavior :default
+          agent-name :default
           chat-id "test-chat"
           hook-call-count (atom 0)]
       (with-redefs [f.tools/approval (constantly :allow)
@@ -730,7 +730,7 @@
                                                     (when-let [on-after (:on-after-action callbacks)]
                                                       (on-after {:parsed {:approval "ask"}
                                                                  :exit 0}))))]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (= 1 @hook-call-count))
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
@@ -751,7 +751,7 @@
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
                                               :actions [{:type "shell" :command "exit 2"}]}}})
-          behavior :default
+          agent-name :default
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :allow)
                     f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
@@ -760,7 +760,7 @@
                                                       (on-after {:parsed {:additionalContext "Hook rejected"}
                                                                  :exit 2
                                                                  :raw-error "Command failed"}))))]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
                        :approval-override nil
@@ -784,7 +784,7 @@
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
                                               :actions [{:type "shell" :command "echo 'modify args'"}]}}})
-          behavior :default
+          agent-name :default
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :allow)
                     f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
@@ -792,7 +792,7 @@
                                                     (when-let [on-after (:on-after-action callbacks)]
                                                       (on-after {:parsed {:updatedInput {:baz "qux"}}
                                                                  :exit 0}))))]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config behavior chat-id)]
+        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
                        :arguments {:foo "bar" :baz "qux"}
                        :approval-override nil

@@ -6,7 +6,7 @@
    [eca.test-helper :as h]))
 
 (deftest build-instructions-test
-  (testing "Should create instructions with rules, contexts, and agent behavior"
+  (testing "Should create instructions with rules, contexts, and build agent"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
                             {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
                             {:type :repoMap}
@@ -16,9 +16,9 @@
           skills [{:name "review-pr" :description "Review a PR"}
                   {:name "lint-fix" :description "Fix a lint"}]
           fake-repo-map (delay "TREE")
-          behavior "agent"
+          agent-name "build"
           config {}
-          result (prompt/build-chat-instructions refined-contexts rules skills fake-repo-map behavior config nil [] (h/db))]
+          result (prompt/build-chat-instructions refined-contexts rules skills fake-repo-map agent-name config nil [] (h/db))]
       (is (string/includes? result "You are ECA"))
       (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))
@@ -32,7 +32,7 @@
       (is (string/includes? result "<resource uri=\"custom://my-resource\">some-cool-content</resource>"))
       (is (string/includes? result "</contexts>"))
       (is (string? result))))
-  (testing "Should create instructions with rules, contexts, and plan behavior"
+  (testing "Should create instructions with rules, contexts, and plan agent"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
                             {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
                             {:type :repoMap}
@@ -42,9 +42,9 @@
           skills [{:name "review-pr" :description "Review a PR"}
                   {:name "lint-fix" :description "Fix a lint"}]
           fake-repo-map (delay "TREE")
-          behavior "plan"
+          agent-name "plan"
           config {}
-          result (prompt/build-chat-instructions refined-contexts rules skills fake-repo-map behavior config nil [] (h/db))]
+          result (prompt/build-chat-instructions refined-contexts rules skills fake-repo-map agent-name config nil [] (h/db))]
       (is (string/includes? result "You are ECA"))
       (is (string/includes? result "<rules description=\"Rules defined by user\">"))
       (is (string/includes? result "<rule name=\"rule1\">First rule</rule>"))

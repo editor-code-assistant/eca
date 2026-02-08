@@ -33,10 +33,10 @@
 (defn default-model [db config]
   (llm-api/default-model db config))
 
-(defn ^:private auto-compact? [chat-id behavior full-model config db]
+(defn ^:private auto-compact? [chat-id agent-name full-model config db]
   (when (and (not (get-in db [:chats chat-id :compacting?]))
              (not (get-in db [:chats chat-id :auto-compacting?])))
-    (let [compact-threshold (or (get-in config [:behavior behavior :autoCompactPercentage])
+    (let [compact-threshold (or (get-in config [:agent agent-name :autoCompactPercentage])
                                 (get-in config [:autoCompactPercentage]))
           {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)]
       (when (and compact-threshold session-tokens (:context limit))
@@ -106,7 +106,7 @@
   (when-not (get-in @db* [:chats chat-id :auto-compacting?])
     (swap! db* assoc-in [:chats chat-id :status] status)
     (f.hooks/trigger-if-matches! :postRequest
-                                 (merge (f.hooks/chat-hook-data @db* chat-id (:behavior chat-ctx))
+                                 (merge (f.hooks/chat-hook-data @db* chat-id (:agent chat-ctx))
                                         {:prompt message})
                                  {:on-before-action (partial notify-before-hook-action! chat-ctx)
                                   :on-after-action (partial notify-after-hook-action! chat-ctx)}
@@ -182,7 +182,7 @@
       (if-let [result (f.hooks/run-hook-action! action
                                                 action-name
                                                 :preRequest
-                                                (merge (f.hooks/chat-hook-data db chat-id (:behavior chat-ctx))
+                                                (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
                                                        {:prompt (:final-prompt state)})
                                                 db)]
         (let [{:keys [parsed raw-output raw-error exit]} result
@@ -271,7 +271,7 @@
         chat-id (:chat-id chat-ctx)]
     (f.hooks/trigger-if-matches!
      :postToolCall
-     (merge (f.hooks/chat-hook-data @db* chat-id (:behavior chat-ctx))
+     (merge (f.hooks/chat-hook-data @db* chat-id (:agent chat-ctx))
             {:tool-name (:name tool-call-state)
              :server (:server tool-call-state)
              :tool-input (:arguments tool-call-state)
@@ -765,7 +765,7 @@
 
    The on-before-hook-action and on-after-hook-action callbacks are optional (default to noops)
    and are used for UI notifications. In tests, these can be omitted."
-  [{:keys [full-name arguments]} all-tools db config behavior chat-id
+  [{:keys [full-name arguments]} all-tools db config agent-name chat-id
    & [{:keys [on-before-hook-action on-after-hook-action]
        :or {on-before-hook-action (fn [_] nil)
             on-after-hook-action (fn [_] nil)}}]]
@@ -775,7 +775,7 @@
         server-name (:name server)
 
         ;; 1. Determine initial config-based approval
-        initial-approval (f.tools/approval all-tools tool arguments db config behavior)
+        initial-approval (f.tools/approval all-tools tool arguments db config agent-name)
 
         ;; 2. Run hooks to collect modifications and approval overrides
         hook-state* (atom {:hook-results []
@@ -787,7 +787,7 @@
 
         _ (f.hooks/trigger-if-matches!
            :preToolCall
-           (merge (f.hooks/chat-hook-data db chat-id behavior)
+           (merge (f.hooks/chat-hook-data db chat-id agent-name)
                   {:tool-name name
                    :server server-name
                    :tool-input arguments
@@ -839,11 +839,11 @@
 
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task."
-  [{:keys [db* config chat-id behavior] :as chat-ctx}
+  [{:keys [db* config chat-id agent] :as chat-ctx}
    all-tools
    user-messages]
   (let [db @db*
-        compact-prompt (f.prompt/compact-prompt nil all-tools behavior config db)]
+        compact-prompt (f.prompt/compact-prompt nil all-tools agent config db)]
     (logger/info logger-tag "Auto-compacting chat" {:chat-id chat-id})
     (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
     (prompt-messages!
@@ -865,10 +865,10 @@
                chat-ctx))))
     nil))
 
-(defn ^:private on-tools-called! [{:keys [db* config chat-id behavior full-model messenger metrics] :as chat-ctx}
+(defn ^:private on-tools-called! [{:keys [db* config chat-id agent full-model messenger metrics] :as chat-ctx}
                                   received-msgs* add-to-history! user-messages]
   (fn [tool-calls]
-    (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
+    (let [all-tools (f.tools/all-tools chat-id agent @db* config)]
       (assert-chat-not-stopped! chat-ctx)
       (when-not (string/blank? @received-msgs*)
         (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
@@ -879,7 +879,7 @@
                       {:keys [origin name server]}                   (tool-by-full-name full-name all-tools)
                       server-name                                    (:name server)
                       decision-plan                                  (decide-tool-call-action
-                                                                      tool-call all-tools @db* config behavior chat-id
+                                                                      tool-call all-tools @db* config agent chat-id
                                                                       {:on-before-hook-action (partial notify-before-hook-action! chat-ctx)
                                                                        :on-after-hook-action  (partial notify-after-hook-action! chat-ctx)})
                       {:keys [decision arguments hook-rejected? reason hook-continue
@@ -922,7 +922,7 @@
                                                                  arguments
                                                                  chat-id
                                                                  id
-                                                                 behavior
+                                                                 agent
                                                                  db*
                                                                  config
                                                                  messenger
@@ -1039,7 +1039,7 @@
                                                 :ex-data (ex-data t)
                                                 :message (.getMessage t)
                                                 :cause (.getCause t)})))))))
-        (let [all-tools (f.tools/all-tools chat-id behavior @db* config)]
+        (let [all-tools (f.tools/all-tools chat-id agent @db* config)]
           (if-let [rejection-info @rejected-tool-call-info*]
             (let [reason-code
                   (if (map? rejection-info) (:code rejection-info) rejection-info)
@@ -1063,7 +1063,7 @@
                     nil)))
             (do
               (maybe-renew-auth-token chat-ctx)
-              (if (auto-compact? chat-id behavior full-model config @db*)
+              (if (auto-compact? chat-id agent full-model config @db*)
                 (trigger-auto-compact! chat-ctx all-tools user-messages)
                 {:tools all-tools
                  :new-messages (get-in @db* [:chats chat-id :messages])}))))))))
@@ -1086,11 +1086,11 @@
 
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
-   source-type controls hook behavior.
+   source-type controls hook agent.
    Run preRequest hooks before any heavy lifting.
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
-   {:keys [db* config chat-id provider model full-model behavior instructions metrics message] :as chat-ctx}]
+   {:keys [db* config chat-id provider model full-model agent instructions metrics message] :as chat-ctx}]
   (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
@@ -1134,7 +1134,7 @@
             past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
-            all-tools (f.tools/all-tools chat-id behavior @db* config)
+            all-tools (f.tools/all-tools chat-id agent @db* config)
             received-msgs* (atom "")
             reasonings* (atom {})
             add-to-history! (fn [msg]
@@ -1150,7 +1150,7 @@
                                                :model model
                                                :model-capabilities
                                                (assoc model-capabilities :reason? false :tools false :web-search false)
-                                               :instructions (f.prompt/chat-title-prompt behavior config)
+                                               :instructions (f.prompt/chat-title-prompt agent config)
                                                :user-messages user-messages
                                                :config config
                                                :provider-auth provider-auth})]
@@ -1161,7 +1161,7 @@
                   (when (= :idle (get-in @db* [:chats chat-id :status]))
                     (db/update-workspaces-cache! @db* metrics)))))))
         (send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
-        (if (auto-compact? chat-id behavior full-model config @db*)
+        (if (auto-compact? chat-id agent full-model config @db*)
           (trigger-auto-compact! chat-ctx all-tools user-messages)
           (future* config
             (try
@@ -1203,7 +1203,7 @@
                                                      (finish-chat-prompt! :idle chat-ctx))))
                 :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                         (assert-chat-not-stopped! chat-ctx)
-                                        (let [all-tools (f.tools/all-tools chat-id behavior @db* config)
+                                        (let [all-tools (f.tools/all-tools chat-id agent @db* config)
                                               tool (tool-by-full-name full-name all-tools)]
                                           (when-not tool
                                             (logger/warn logger-tag "Tool not found for prepare"
@@ -1337,7 +1337,7 @@
 
 (defn ^:private prompt*
   [{:keys [model]}
-   {:keys [chat-id contexts message behavior behavior-config db* messenger config metrics] :as base-chat-ctx}]
+   {:keys [chat-id contexts message agent agent-config db* messenger config metrics] :as base-chat-ctx}]
   (let [provided-chat-id chat-id
         ;; Snapshot DB to detect new/resumed chat BEFORE hooks mutate it
         [db0 _] (swap-vals! db* assoc-in [:chat-start-fired chat-id] true)
@@ -1371,12 +1371,12 @@
               (swap! db* assoc-in [:chat-start-fired chat-id] true)))
         ;; Re-read DB after potential chatStart modifications
         db @db*
-        ;; Simple model selection without behavior switching logic
+        ;; Simple model selection without agent switching logic
         full-model (or model
-                       (:defaultModel behavior-config)
+                       (:defaultModel agent-config)
                        (default-model db config))
         rules (f.rules/all config (:workspace-folders db))
-        all-tools (f.tools/all-tools chat-id behavior @db* config)
+        all-tools (f.tools/all-tools chat-id agent @db* config)
         skills (->> (f.skills/all config (:workspace-folders db))
                     (remove
                      (fn [skill]
@@ -1385,7 +1385,7 @@
                                                   {"name" (:name skill)}
                                                   db
                                                   config
-                                                  behavior)))))
+                                                  agent)))))
         _ (when (seq contexts)
             (send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
                                                                             :state :running
@@ -1398,7 +1398,7 @@
                                                        rules
                                                        skills
                                                        repo-map*
-                                                       behavior
+                                                       agent
                                                        config
                                                        chat-id
                                                        all-tools
@@ -1431,22 +1431,23 @@
       :prompt-message (prompt-messages! user-messages :prompt-message chat-ctx))
     (metrics/count-up! "prompt-received"
                        {:full-model full-model
-                        :behavior behavior}
+                        :agent agent}
                        metrics)
     {:chat-id chat-id
      :model full-model
      :status :prompting}))
 
 (defn prompt
-  [{:keys [message behavior chat-id contexts] :as params} db* messenger config metrics]
-  (let [raw-behavior (or behavior
-                         (-> config :chat :defaultBehavior) ;; legacy
-                         (-> config :defaultBehavior))
+  [{:keys [message agent behavior chat-id contexts] :as params} db* messenger config metrics]
+  (let [raw-agent (or agent
+                      behavior ;; backward compat: accept old 'behavior' param
+                      (-> config :chat :defaultAgent) ;; legacy
+                      (-> config :defaultAgent))
         chat-id (or chat-id
                     (let [new-id (str (random-uuid))]
                       (swap! db* assoc-in [:chats new-id] {:id new-id})
                       new-id))
-        selected-behavior (config/validate-behavior-name raw-behavior config)
+        selected-agent (config/validate-agent-name raw-agent config)
         base-chat-ctx {:metrics metrics
                        :config config
                        :contexts contexts
@@ -1455,8 +1456,8 @@
                        :user-content-id (new-content-id)
                        :message (string/trim message)
                        :chat-id chat-id
-                       :behavior selected-behavior
-                       :behavior-config (get-in config [:behavior selected-behavior])}]
+                       :agent selected-agent
+                       :agent-config (get-in config [:agent selected-agent])}]
     (try
       (prompt* params base-chat-ctx)
       (catch Exception e

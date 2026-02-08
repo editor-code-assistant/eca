@@ -56,8 +56,8 @@
       (is (match?
            {:chat {:models models
                    :selectModel "anthropic/claude-sonnet-4.5"
-                   :behaviors ["agent" "plan"]
-                   :selectBehavior "plan"
+                   :agents ["build" "plan"]
+                   :selectAgent "plan"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated)))))
 
@@ -131,7 +131,7 @@
       (is (match?
            {:chat {:models models
                    :selectModel "my-custom/bar-2"
-                   :behaviors ["agent" "plan"]
-                   :selectBehavior "agent"
+                   :agents ["build" "plan"]
+                   :selectAgent "build"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated))))))

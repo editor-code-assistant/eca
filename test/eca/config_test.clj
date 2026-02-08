@@ -128,42 +128,42 @@
                                           "models" {"gpt-5" {}}
                                           "httpClient" {"version" "http1.1"}}}})))))
 
-(deftest validate-behavior-test
-  (testing "valid behavior returns as-is"
-    (let [config {:behavior {"agent" {} "plan" {} "custom" {}}}]
-      (is (= "agent" (config/validate-behavior-name "agent" config)))
-      (is (= "plan" (config/validate-behavior-name "plan" config)))
-      (is (= "custom" (config/validate-behavior-name "custom" config)))))
+(deftest validate-agent-test
+  (testing "valid agent returns as-is"
+    (let [config {:agent {"build" {} "plan" {} "custom" {}}}]
+      (is (= "build" (config/validate-agent-name "build" config)))
+      (is (= "plan" (config/validate-agent-name "plan" config)))
+      (is (= "custom" (config/validate-agent-name "custom" config)))))
 
-  (testing "nil behavior returns fallback"
-    (let [config {:behavior {"agent" {} "plan" {}}}]
-      (is (= "agent" (config/validate-behavior-name nil config)))))
+  (testing "nil agent returns fallback"
+    (let [config {:agent {"build" {} "plan" {}}}]
+      (is (= "build" (config/validate-agent-name nil config)))))
 
-  (testing "empty string behavior returns fallback"
-    (let [config {:behavior {"agent" {} "plan" {}}}]
-      (is (= "agent" (config/validate-behavior-name "" config)))))
+  (testing "empty string agent returns fallback"
+    (let [config {:agent {"build" {} "plan" {}}}]
+      (is (= "build" (config/validate-agent-name "" config)))))
 
-  (testing "unknown behavior returns fallback"
-    (let [config {:behavior {"agent" {} "plan" {}}}]
+  (testing "unknown agent returns fallback"
+    (let [config {:agent {"build" {} "plan" {}}}]
       (with-redefs [logger/warn (fn [_ _] nil)]
-        (is (= "agent" (config/validate-behavior-name "nonexistent" config))))))
+        (is (= "build" (config/validate-agent-name "nonexistent" config))))))
 
-  (testing "behavior validation with various configs"
-    ;; Config with only agent behavior
-    (let [config {:behavior {"agent" {}}}]
-      (is (= "agent" (config/validate-behavior-name "plan" config))))
+  (testing "agent validation with various configs"
+    ;; Config with only build agent
+    (let [config {:agent {"build" {}}}]
+      (is (= "build" (config/validate-agent-name "plan" config))))
 
-    ;; Config with custom behaviors only
-    (let [config {:behavior {"custom1" {} "custom2" {}}}]
+    ;; Config with custom agents only
+    (let [config {:agent {"custom1" {} "custom2" {}}}]
       (with-redefs [logger/warn (fn [_ _] nil)]
-        (is (= "agent" (config/validate-behavior-name "plan" config)))
-        (is (= "custom1" (config/validate-behavior-name "custom1" config)))
-        (is (= "custom2" (config/validate-behavior-name "custom2" config)))))
+        (is (= "build" (config/validate-agent-name "plan" config)))
+        (is (= "custom1" (config/validate-agent-name "custom1" config)))
+        (is (= "custom2" (config/validate-agent-name "custom2" config)))))
 
-    ;; Empty behavior config
-    (let [config {:behavior {}}]
+    ;; Empty agent config
+    (let [config {:agent {}}]
       (with-redefs [logger/warn (fn [_ _] nil)]
-        (is (= "agent" (config/validate-behavior-name "anything" config)))))))
+        (is (= "build" (config/validate-agent-name "anything" config)))))))
 
 (deftest diff-keeping-vectors-test
   (testing "like clojure.data/diff"
