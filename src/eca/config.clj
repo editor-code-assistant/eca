@@ -457,11 +457,14 @@
       (swap! db* update :last-config-notified shared/deep-merge config-to-notify)
       (messenger/config-updated messenger config-to-notify))))
 
+(def ^:private config-schema-url "https://eca.dev/config.json")
+
 (defn update-global-config! [config]
   (let [global-config-file (global-config-file)
         current-config (normalize-fields normalization-rules (config-from-global-file))
         new-config (deep-merge current-config
                                (normalize-fields normalization-rules config))
+        new-config (assoc new-config "$schema" config-schema-url)
         new-config-json (json/generate-string new-config {:pretty true})]
     (io/make-parents global-config-file)
     (spit global-config-file new-config-json)))
