@@ -402,6 +402,17 @@
     (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
         (update :chat dissoc :defaultBehavior))))
 
+(defn ^:private md-agents
+  "Discovers markdown-defined agents from agents/ directories.
+   Uses requiring-resolve to avoid circular dependency with eca.features.agents."
+  [roots]
+  (try
+    (let [all-md-agents (requiring-resolve 'eca.features.agents/all-md-agents)]
+      (all-md-agents roots))
+    (catch Exception e
+      (logger/warn logger-tag "Error loading markdown agents:" (.getMessage e))
+      {})))
+
 (defn ^:private all* [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
@@ -417,7 +428,15 @@
             (-> $
                 (merge-config (when-not pure-config? (config-from-global-file)))
                 (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))
-        migrate-legacy-config)))
+        migrate-legacy-config
+        ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
+        (as-> config
+              (let [md-agent-configs (when-not pure-config?
+                                      (md-agents (:workspace-folders db)))]
+                (if (seq md-agent-configs)
+                  (update config :agent (fn [existing]
+                                          (merge md-agent-configs existing)))
+                  config))))))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
 
