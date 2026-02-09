@@ -49,6 +49,14 @@
         (assoc (or metadata {}) :body (string/trim (string/join "\n" body-lines))))
       {:body (string/trim content)})))
 
+(defn global-config-dir
+  "Returns the global ECA config directory as a java.io.File.
+   Respects XDG_CONFIG_HOME, defaults to ~/.config/eca."
+  ^java.io.File []
+  (let [xdg-config-home (or (System/getenv "XDG_CONFIG_HOME")
+                            (io/file (System/getProperty "user.home") ".config"))]
+    (io/file xdg-config-home "eca")))
+
 (def windows-os?
   (.contains (System/getProperty "os.name") "Windows"))
 

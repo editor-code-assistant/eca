@@ -2,7 +2,6 @@
   (:require
    [babashka.fs :as fs]
    [clojure.string :as string]
-   [eca.config :as config]
    [eca.features.index :as f.index]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
@@ -68,7 +67,7 @@
                                     (when (fs/readable? agent-file)
                                       (fs/canonicalize agent-file))))
                                 (:workspace-folders db))
-        global-agent-file (let [agent-file (fs/path (config/global-config-dir) agent-file)]
+        global-agent-file (let [agent-file (fs/path (shared/global-config-dir) agent-file)]
                             (when (fs/readable? agent-file)
                               (fs/canonicalize agent-file)))]
     (->> (concat local-agent-files

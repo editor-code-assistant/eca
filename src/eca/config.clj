@@ -16,6 +16,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.features.agents :as f.agents]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
@@ -232,19 +233,14 @@
 
 (def ^:private config-from-custom (memoize config-from-custom*))
 
-(defn global-config-dir ^File []
-  (let [xdg-config-home (or (get-env "XDG_CONFIG_HOME")
-                            (io/file (get-property "user.home") ".config"))]
-    (io/file xdg-config-home "eca")))
-
 (defn global-config-file ^File []
-  (io/file (global-config-dir) "config.json"))
+  (io/file (shared/global-config-dir) "config.json"))
 
 (defn ^:private config-from-global-file []
   (let [config-file (global-config-file)]
     (when (.exists config-file)
       (some-> (safe-read-json-string (slurp config-file) (var *global-config-error*))
-              (parse-dynamic-string-values (global-config-dir))))))
+              (parse-dynamic-string-values (shared/global-config-dir))))))
 
 (defn ^:private config-from-local-file [roots]
   (reduce
@@ -402,17 +398,6 @@
     (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
         (update :chat dissoc :defaultBehavior))))
 
-(defn ^:private md-agents
-  "Discovers markdown-defined agents from agents/ directories.
-   Uses requiring-resolve to avoid circular dependency with eca.features.agents."
-  [roots]
-  (try
-    (let [all-md-agents (requiring-resolve 'eca.features.agents/all-md-agents)]
-      (all-md-agents roots))
-    (catch Exception e
-      (logger/warn logger-tag "Error loading markdown agents:" (.getMessage e))
-      {})))
-
 (defn ^:private all* [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
@@ -432,7 +417,7 @@
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                      (md-agents (:workspace-folders db)))]
+                                       (f.agents/all-md-agents (:workspace-folders db)))]
                 (if (seq md-agent-configs)
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs existing)))

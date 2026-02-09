@@ -6,7 +6,6 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
-   [eca.config :as config]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -57,7 +56,7 @@
 
 (defn ^:private global-md-agents
   []
-  (let [agents-dir (io/file (config/global-config-dir) "agents")]
+  (let [agents-dir (io/file (shared/global-config-dir) "agents")]
     (when (fs/exists? agents-dir)
       (keep agent-md-file->agent
             (fs/glob agents-dir "*.md" {:follow-links true})))))
