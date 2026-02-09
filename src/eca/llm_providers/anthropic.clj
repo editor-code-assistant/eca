@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
-   [eca.shared :as shared :refer [assoc-some deep-merge multi-str]]
+   [eca.shared :as shared :refer [assoc-some deep-merge join-api-url multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -69,7 +69,7 @@
                       :cache_control {:type "ephemeral"}})))
 
 (defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers]}]
-  (let [url (str api-url (or url-relative-path messages-path))
+  (let [url (join-api-url api-url (or url-relative-path messages-path))
         reason-id (str (random-uuid))
         oauth? (= :auth/oauth auth-type)
         headers (client/merge-llm-headers

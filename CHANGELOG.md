@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add config.json schema. #293
+- Use `models.dev` as the only dynamic model source for configured providers, with `fetchModels: false` as an opt-out to use only static config models. #292
 - Deprecate `behavior` in favor of `agent`.
 
 ## 0.99.0

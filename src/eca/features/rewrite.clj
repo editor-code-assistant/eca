@@ -24,6 +24,8 @@
   (let [db @db*
         full-model (or (get-in config [:rewrite :model])
                        (llm-api/default-model db config))
+        _ (when-not full-model
+            (throw (ex-info llm-api/no-available-model-error-msg {})))
         [provider model] (string/split full-model #"/" 2)
         model-capabilities (get-in db [:models full-model])
         full-text (when path (llm-api/refine-file-context path nil))

@@ -23,6 +23,10 @@
                       f.tools/all-tools (:all-tools-mock mocks)
                       f.tools/approval (constantly :allow)]
           (h/config! {:env "test"})
+          (swap! (h/db*) update :models
+                 (fn [models]
+                   (merge {"openai/gpt-5.2" {:tools true}}
+                          (or models {}))))
           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))

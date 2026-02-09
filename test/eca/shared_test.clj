@@ -140,3 +140,37 @@
     (is (= "a*****f" (shared/obfuscate "abcdef" :preserve-num 1)))
       ;; preserve-num larger than half the length is capped
     (is (= "abc*****def" (shared/obfuscate "abcdef" :preserve-num 10)))))
+
+(deftest normalize-model-name-test
+  (testing "normalizes to lowercase kebab-case"
+    (is (= "gemini-2.5-pro" (shared/normalize-model-name "Gemini-2.5-Pro"))))
+  (testing "collapses extra spaces and trims"
+    (is (= "gpt-5.2" (shared/normalize-model-name "GPT-5.2"))))
+  (testing "keeps slash segments for keyword namespaced values"
+    (is (= "aa/bb" (shared/normalize-model-name :aa/bb))))
+  (testing "returns nil for nil input"
+    (is (nil? (shared/normalize-model-name nil))))
+  (testing "returns nil for non-string non-keyword input"
+    (is (nil? (shared/normalize-model-name 42)))))
+
+(deftest normalize-api-url-test
+  (testing "trims and removes trailing slash"
+    (is (= "https://api.example.com/v1"
+           (shared/normalize-api-url "  https://api.example.com/v1/  "))))
+  (testing "returns nil when nil"
+    (is (nil? (shared/normalize-api-url nil)))))
+
+(deftest join-api-url-test
+  (testing "joins base and path with single slash"
+    (is (= "https://api.example.com/chat/completions"
+           (shared/join-api-url "https://api.example.com/" "/chat/completions"))))
+  (testing "works when path is missing leading slash"
+    (is (= "https://api.example.com/chat/completions"
+           (shared/join-api-url "https://api.example.com" "chat/completions"))))
+  (testing "returns normalized base when extra-path is nil or blank"
+    (is (= "https://api.example.com"
+           (shared/join-api-url "https://api.example.com/" nil)))
+    (is (= "https://api.example.com"
+           (shared/join-api-url "https://api.example.com/" "   "))))
+  (testing "returns nil when base is blank"
+    (is (nil? (shared/join-api-url "   " "/chat/completions")))))

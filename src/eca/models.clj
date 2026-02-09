@@ -1,7 +1,7 @@
 (ns eca.models
   (:require
-   [cheshire.core :as json]
    [clojure.string :as string]
+   [eca.client-http :as client]
    [eca.config :as config]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-util :as llm-util]
@@ -13,16 +13,36 @@
 
 (def ^:private logger-tag "[MODELS]")
 
-(defn ^:private models-dev* []
+(def ^:private models-dev-api-url "https://models.dev/api.json")
+(def ^:private models-dev-timeout-ms 5000)
+
+(defn ^:private fetch-models-dev-data []
+  (let [{:keys [status body]} (http/get models-dev-api-url
+                                        {:throw-exceptions? false
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout models-dev-timeout-ms
+                                         :as :json-string-keys})]
+    (if (= 200 status)
+      body
+      (throw (ex-info (format "models.dev request failed with status %s" status)
+                      {:status status})))))
+
+;; clojure.core/memoize does NOT cache thrown exceptions.
+;; If fetch throws, the next call will retry the HTTP request.
+;; Once it succeeds, the result is cached for the process lifetime.
+(def ^:private models-dev-fetch-memoized (memoize fetch-models-dev-data))
+
+(defn ^:private models-dev []
   (try
-    (let [response (slurp "https://models.dev/api.json")
-          data (json/parse-string response)]
-      data)
+    (let [data (models-dev-fetch-memoized)]
+      (if (map? data)
+        data
+        (do
+          (logger/warn logger-tag " Unexpected models.dev payload shape. Ignoring payload.")
+          {})))
     (catch Exception e
       (logger/error logger-tag " Error fetching models from models.dev:" (.getMessage e))
       {})))
-
-(def ^:private models-dev (memoize models-dev*))
 
 (def ^:private one-million 1000000)
 
@@ -80,78 +100,128 @@
         (and (llm-util/provider-api-url provider config)
              (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))
 
-(def ^:private models-endpoint-path "/models")
-
-(defn ^:private fetch-compatible-models
-  "Fetches models from an /models endpoint (both Anthropic and OpenAI).
-   Returns a map of model-id -> {} (empty config, to be enriched later).
-   On any error, logs a warning and returns nil."
-  [{:keys [api-url api-key provider]}]
-  (when api-url
-    (let [url (str api-url models-endpoint-path)
-          rid (llm-util/gen-rid)
-          headers (cond-> {"Content-Type" "application/json"}
-                    api-key (assoc "Authorization" (str "Bearer " api-key)))]
-      (try
-        (llm-util/log-request logger-tag rid url nil headers)
-        (let [{:keys [status body]} (http/get url
-                                              {:headers headers
-                                               :throw-exceptions? false
-                                               :as :json
-                                               :timeout 10000})]
-          (if (= 200 status)
-            (do
-              (llm-util/log-response logger-tag rid "models" body)
-              (let [models-data (:data body)]
-                (when (seq models-data)
-                  (reduce
-                   (fn [acc model]
-                     (let [model-id (:id model)]
-                       (if model-id
-                         (assoc acc model-id {})
-                         acc)))
-                   {}
-                   models-data))))
-            (logger/warn logger-tag
-                         (format "Provider '%s': /models endpoint returned status %s"
-                                 provider status))))
-        (catch Exception e
-          (logger/warn logger-tag
-                       (format "Provider '%s': Failed to fetch models from %s: %s"
-                               provider url (ex-message e))))))))
-
-(defn ^:private provider-with-fetch-models?
-  "Returns true if provider should fetch models dynamically (fetchModels = true)."
-  [provider-config]
-  (and (:api provider-config)
-       (true? (:fetchModels provider-config))))
-
-(defn ^:private fetch-dynamic-provider-models
-  "For providers that support dynamic model discovery,
-   attempts to fetch available models from the API.
-   Returns a map of {provider-name -> {model-id -> model-config}}."
-  [config db]
-  (reduce
-   (fn [acc [provider provider-config]]
-     (if (provider-with-fetch-models? provider-config)
-       (let [api-url (llm-util/provider-api-url provider config)
-             [_auth-type api-key] (llm-util/provider-api-key provider
-                                                             (get-in db [:auth provider])
-                                                             config)
-             fetched-models (fetch-compatible-models
-                             {:api-url api-url
-                              :api-key api-key
-                              :provider provider})]
-         (if (seq fetched-models)
-           (do
-             (logger/info logger-tag
-                          (format "Provider '%s': Discovered %d models from /models endpoint"
-                                  provider (count fetched-models)))
-             (assoc acc provider fetched-models))
-           acc))
-       acc))
+(defn ^:private models-dev-providers-by-url
+  "Returns a map of models.dev API base URL -> models.dev provider config."
+  [models-dev-data]
+  (reduce-kv
+   (fn [acc _provider models-dev-provider]
+     (let [api-url (shared/normalize-api-url (get models-dev-provider "api"))]
+       (if (and (string? api-url)
+                (not (string/blank? api-url)))
+         (assoc acc api-url models-dev-provider)
+         acc)))
    {}
-   (:providers config)))
+   models-dev-data))
+
+(defn ^:private models-dev-provider-index
+  "Builds lookup index for models.dev providers."
+  [models-dev-data]
+  {:by-id models-dev-data
+   :by-url (models-dev-providers-by-url models-dev-data)})
+
+(defn ^:private models-dev-provider-without-api?
+  [provider-config]
+  (string/blank? (shared/normalize-api-url (get provider-config "api"))))
+
+(defn ^:private resolve-models-dev-provider
+  "Resolve models.dev provider config by URL first, then by provider id key
+   only when models.dev provider has no API URL."
+  [provider provider-api-url {:keys [by-id by-url]}]
+  (or (get by-url provider-api-url)
+      (when-let [provider-by-id (get by-id provider)]
+        (when (models-dev-provider-without-api? provider-by-id)
+          provider-by-id))))
+
+(defn ^:private using-models-dev-provider-id-fallback?
+  [provider provider-api-url {:keys [by-id by-url]}]
+  (and (nil? (get by-url provider-api-url))
+       (when-let [provider-by-id (get by-id provider)]
+         (models-dev-provider-without-api? provider-by-id))))
+
+(defn ^:private add-models-from-models-dev?
+  "Returns true when provider should load model catalog from models.dev.
+   Opt-out with fetchModels=false."
+  [provider provider-config config models-dev-index]
+  (let [provider-api-url (llm-util/provider-api-url provider config)
+        fetch-models (:fetchModels provider-config)]
+    (boolean
+     (and (:api provider-config)
+          (not= false fetch-models)
+          (resolve-models-dev-provider provider provider-api-url models-dev-index)))))
+
+(defn ^:private deprecated-model?
+  [model-config]
+  (= "deprecated"
+     (some-> (get model-config "status")
+             string/lower-case)))
+
+(defn ^:private parse-models-dev-model-entry
+  [model-key]
+  (when (and (string? model-key)
+             (not (string/blank? model-key)))
+    [model-key {}]))
+
+(defn ^:private warn-invalid-models-dev-entry! [provider model-key]
+  (logger/warn logger-tag
+               (format "Provider '%s': Ignoring models.dev model entry '%s' with invalid key/model fields"
+                       provider model-key)))
+
+(defn ^:private parse-models-dev-provider-models
+  "Builds provider model config map from models.dev payload.
+   Uses models.dev model key for selection."
+  [provider provider-models]
+  (when (map? provider-models)
+    (not-empty
+     (reduce-kv
+      (fn [acc model-key model-config]
+        (cond
+          (not (map? model-config))
+          (do
+            (warn-invalid-models-dev-entry! provider model-key)
+            acc)
+
+          (deprecated-model? model-config)
+          acc
+
+          :else
+          (if-let [[model-name parsed-config]
+                   (parse-models-dev-model-entry model-key)]
+            (assoc acc model-name parsed-config)
+            (do
+              (warn-invalid-models-dev-entry! provider model-key)
+              acc))))
+      {}
+      provider-models))))
+
+(defn ^:private fetch-models-dev-provider-models
+  "Loads models from models.dev for providers with matching API URL.
+   Fallbacks to provider id key when URL is unavailable in models.dev.
+   Returns a map of {provider-name -> {model-name -> model-config}}."
+  [config]
+  (let [models-dev-data (models-dev)
+        models-dev-index (models-dev-provider-index models-dev-data)]
+    (reduce
+     (fn [acc [provider provider-config]]
+       (if-not (add-models-from-models-dev? provider provider-config config models-dev-index)
+         acc
+         (let [provider-api-url (llm-util/provider-api-url provider config)
+               models-dev-provider (resolve-models-dev-provider
+                                    provider provider-api-url models-dev-index)
+               provider-models (some->> (get models-dev-provider "models")
+                                        (parse-models-dev-provider-models provider))]
+           (when (using-models-dev-provider-id-fallback? provider provider-api-url models-dev-index)
+             (logger/info logger-tag
+                          (format "Provider '%s': Using models.dev provider-id fallback (url '%s' not matched)"
+                                  provider provider-api-url)))
+           (if provider-models
+             (do
+               (logger/info logger-tag
+                            (format "Provider '%s': Loaded %d models from models.dev"
+                                    provider (count provider-models)))
+               (assoc acc provider provider-models))
+             acc))))
+     {}
+     (:providers config))))
 
 (defn ^:private build-model-capabilities
   "Build capabilities for a single model, looking up from known models database."
@@ -181,31 +251,41 @@
 
 (defn ^:private merge-provider-models
   "Merges static config models with dynamically fetched models.
-   Static config takes precedence (allows user overrides)."
+   Static config takes precedence (allows user overrides), while preserving
+   dynamic defaults for the same model (for example modelName aliases)."
   [static-models dynamic-models]
-  (merge dynamic-models static-models))
+  (merge-with merge dynamic-models static-models))
+
+(defn ^:private fetch-provider-model-catalogs
+  [config]
+  {:models-dev (fetch-models-dev-provider-models config)})
+
+(defn ^:private build-all-supported-models
+  [known-models config models-dev-provider-models]
+  (reduce
+   (fn [p [provider provider-config]]
+     (let [static-models (:models provider-config)
+           dynamic-models (get models-dev-provider-models provider)
+           merged-models (merge-provider-models static-models dynamic-models)]
+       (merge p
+              (reduce
+               (fn [m [model model-config]]
+                 (let [[full-model capabilities] (build-model-capabilities
+                                                  known-models provider model model-config)]
+                   (assoc m full-model capabilities)))
+               {}
+               merged-models))))
+   {}
+   (:providers config)))
 
 (defn sync-models! [db* config on-models-updated]
-  (let [all-models (all)
+  (let [known-models (all)
         db @db*
-        ;; Fetch dynamic models for providers that support it
-        dynamic-provider-models (fetch-dynamic-provider-models config db)
-        ;; Build all supported models from config + dynamic sources
-        all-supported-models (reduce
-                              (fn [p [provider provider-config]]
-                                (let [static-models (:models provider-config)
-                                      dynamic-models (get dynamic-provider-models provider)
-                                      merged-models (merge-provider-models static-models dynamic-models)]
-                                  (merge p
-                                         (reduce
-                                          (fn [m [model model-config]]
-                                            (let [[full-model capabilities] (build-model-capabilities
-                                                                             all-models provider model model-config)]
-                                              (assoc m full-model capabilities)))
-                                          {}
-                                          merged-models))))
-                              {}
-                              (:providers config))
+        {:keys [models-dev]} (fetch-provider-model-catalogs config)
+        all-supported-models (build-all-supported-models
+                              known-models
+                              config
+                              models-dev)
         ollama-api-url (llm-util/provider-api-url "ollama" config)
         ollama-models (mapv
                        (fn [{:keys [model] :as ollama-model}]

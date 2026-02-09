@@ -169,3 +169,20 @@
                     :netrcFile "/nonexistent/file"}
             result (llm-util/provider-api-key "openai" nil config)]
         (is (nil? result))))))
+
+(deftest provider-api-url-test
+  (testing "normalizes provider url from config"
+    (with-redefs [config/get-env (constantly nil)]
+      (is (= "https://api.example.com/v1"
+             (llm-util/provider-api-url
+              "openai"
+              {:providers {"openai" {:url "  https://api.example.com/v1/  "}}})))))
+
+  (testing "normalizes provider url from env"
+    (with-redefs [config/get-env (fn [k] (when (= k "OPENAI_API_URL") " https://api.example.com/v1/ "))]
+      (is (= "https://api.example.com/v1"
+             (llm-util/provider-api-url "openai" {:providers {"openai" {}}})))))
+
+  (testing "returns nil for blank url"
+    (with-redefs [config/get-env (constantly nil)]
+      (is (nil? (llm-util/provider-api-url "openai" {:providers {"openai" {:url "   "}}})))))) 

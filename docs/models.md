@@ -75,7 +75,7 @@ Schema:
 | `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
 | `models <model> modelName`        | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
 | `models <model> reasoningHistory` | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
-| `fetchModels`                     | boolean | Enable automatic model discovery from `/models` endpoint (OpenAI-compatible providers)                       | No       |
+| `fetchModels`                     | boolean | Enable/disable automatic model loading from `models.dev` (enabled by default when `api` is set)              | No       |
 
 _* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
 
@@ -137,9 +137,12 @@ Examples:
 
     Default: `"all"`.
 
-=== "Dynamic model discovery"
+=== "Dynamic model discovery (models.dev)"
 
-    For OpenAI-compatible providers, set `fetchModels: true` to automatically discover available models:
+    For providers with `api` configured, ECA loads models from `models.dev` by default.
+    Matching is done by provider `url` (against `models.dev` `api` field). If a models.dev provider has no `api` field (for example `anthropic`), ECA falls back to provider id key.
+
+    Set `fetchModels: false` to disable dynamic loading and use only models from your config:
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -148,13 +151,13 @@ Examples:
           "api": "openai-chat",
           "url": "https://openrouter.ai/api/v1",
           "key": "your-api-key",
-          "fetchModels": true
+          "fetchModels": false
         }
       }
     }
     ```
 
-    Static `models` config overrides discovered models, allowing customization.
+    Static `models` config overrides/extends discovered models, allowing customization.
 
 ### API Types
 

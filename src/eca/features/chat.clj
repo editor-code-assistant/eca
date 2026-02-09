@@ -1371,10 +1371,16 @@
               (swap! db* assoc-in [:chat-start-fired chat-id] true)))
         ;; Re-read DB after potential chatStart modifications
         db @db*
-        ;; Simple model selection without agent switching logic
+        ;; Respect explicit model; otherwise, if agent default is missing from
+        ;; available models, fallback to deterministic default-model resolution.
         full-model (or model
-                       (:defaultModel agent-config)
-                       (default-model db config))
+                       (let [agent-default-model (:defaultModel agent-config)]
+                         (if (and agent-default-model
+                                  (contains? (:models db) agent-default-model))
+                           agent-default-model
+                           (default-model db config))))
+        _ (when-not full-model
+            (throw (ex-info llm-api/no-available-model-error-msg {})))
         rules (f.rules/all config (:workspace-folders db))
         all-tools (f.tools/all-tools chat-id agent @db* config)
         skills (->> (f.skills/all config (:workspace-folders db))

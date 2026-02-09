@@ -19,7 +19,7 @@
     (is (match?
          {:pureConfig true
           :providers {"github-copilot" {:key nil
-                                        :models {"gpt-5" {}}}}}
+                                        :models {"gpt-5.2" {}}}}}
          (#'config/all* {}))))
   (testing "deep merging initializationOptions with initial config"
     (reset! config/initialization-config* {:pureConfig true
@@ -27,7 +27,7 @@
     (is (match?
          {:pureConfig true
           :providers {"github-copilot" {:key "123"
-                                        :models {"gpt-5" {}}}}}
+                                        :models {"gpt-5.2" {}}}}}
          (#'config/all* {}))))
   (testing "providers and models are updated correctly"
     (reset! config/initialization-config* {:pureConfig true
