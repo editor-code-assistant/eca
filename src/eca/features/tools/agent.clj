@@ -12,16 +12,16 @@
 
 (defn ^:private all-agents
   [config]
-  (->> (:behavior config)
-       (keep (fn [[behavior-name behavior-config]]
-               (when (and (= "subagent" (:mode behavior-config))
-                          (:description behavior-config))
-                 {:name behavior-name
-                  :description (:description behavior-config)
-                  :model (:defaultModel behavior-config)
-                  :max-steps (:maxSteps behavior-config)
-                  :system-prompt (:systemPrompt behavior-config)
-                  :tool-call (:toolCall behavior-config)})))
+  (->> (:agent config)
+       (keep (fn [[agent-name agent-config]]
+               (when (and (= "subagent" (:mode agent-config))
+                          (:description agent-config))
+                 {:name agent-name
+                  :description (:description agent-config)
+                  :model (:defaultModel agent-config)
+                  :max-steps (:maxSteps agent-config)
+                  :system-prompt (:systemPrompt agent-config)
+                  :tool-call (:toolCall agent-config)})))
        vec))
 
 (defn ^:private get-agent
@@ -135,7 +135,7 @@
          {:message task-prompt
           :chat-id subagent-chat-id
           :model subagent-model
-          :behavior agent-name
+          :agent agent-name
           :contexts []}
          db*
          messenger
