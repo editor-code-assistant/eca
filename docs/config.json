@@ -37,8 +37,8 @@
       "type": "string",
       "description": "The default agent to use for new chats.",
       "markdownDescription": "The default agent to use for new chats.",
-      "default": "build",
-      "examples": ["build", "plan"]
+      "default": "code",
+      "examples": ["code", "plan"]
     },
     "agent": {
       "type": "object",
@@ -52,7 +52,7 @@
       "type": "string",
       "description": "Deprecated: use 'defaultAgent' instead. Backward compatible alias.",
       "markdownDescription": "Deprecated: use 'defaultAgent' instead. Backward compatible alias.",
-      "examples": ["build", "plan"]
+      "examples": ["code", "plan"]
     },
     "behavior": {
       "type": "object",

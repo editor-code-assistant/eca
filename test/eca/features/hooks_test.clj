@@ -89,7 +89,7 @@
 (deftest tool-input-and-tool-response-test
   (testing "preToolCall uses tool_input (renamed from arguments)"
     (h/reset-components!)
-    (swap! (h/db*) assoc :chats {"chat-1" {:agent "build"}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:agent "code"}})
     (h/config! {:hooks {"test" {:type "preToolCall"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
@@ -97,7 +97,7 @@
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (f.hooks/trigger-if-matches! :preToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "build")
+                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "code")
                                             {:tool-name "read_file"
                                              :server "eca"
                                              :tool-input {:path "/foo"}
@@ -108,7 +108,7 @@
 
   (testing "postToolCall receives tool_input and tool_response"
     (h/reset-components!)
-    (swap! (h/db*) assoc :chats {"chat-1" {:agent "build"}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:agent "code"}})
     (h/config! {:hooks {"test" {:type "postToolCall"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
@@ -116,7 +116,7 @@
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (f.hooks/trigger-if-matches! :postToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "build")
+                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "code")
                                             {:tool-name "read_file"
                                              :server "eca"
                                              :tool-input {:path "/foo"}
@@ -128,7 +128,7 @@
 (deftest stop-hook-active-test
   (testing "postRequest receives stop_hook_active flag"
     (h/reset-components!)
-    (swap! (h/db*) assoc :chats {"chat-1" {:agent "build"}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:agent "code"}})
     (h/config! {:hooks {"test" {:type "postRequest"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
@@ -136,7 +136,7 @@
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (f.hooks/trigger-if-matches! :postRequest
-                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "build")
+                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "code")
                                             {:prompt "test"
                                              :stop-hook-active false})
                                      {} (h/db) (h/config)))
@@ -236,27 +236,27 @@
 (deftest posttoolcall-runonerror-test
   (testing "runOnError=false (default) skips hook on error"
     (h/reset-components!)
-    (swap! (h/db*) assoc :chats {"chat-1" {:agent "build"}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:agent "code"}})
     (h/config! {:hooks {"test" {:type "postToolCall"
                                 :actions [{:type "shell" :shell "echo test"}]}}})
     (let [ran?* (atom false)]
       (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
         (f.hooks/trigger-if-matches! :postToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "build")
+                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "code")
                                             {:tool-name "tool" :server "eca" :error true})
                                      {} (h/db) (h/config)))
       (is (false? @ran?*))))
 
   (testing "runOnError=true runs hook on error"
     (h/reset-components!)
-    (swap! (h/db*) assoc :chats {"chat-1" {:agent "build"}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:agent "code"}})
     (h/config! {:hooks {"test" {:type "postToolCall"
                                 :runOnError true
                                 :actions [{:type "shell" :shell "echo test"}]}}})
     (let [ran?* (atom false)]
       (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
         (f.hooks/trigger-if-matches! :postToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "build")
+                                     (merge (f.hooks/chat-hook-data (h/db) "chat-1" "code")
                                             {:tool-name "tool" :server "eca" :error true})
                                      {} (h/db) (h/config)))
       (is (true? @ran?*)))))

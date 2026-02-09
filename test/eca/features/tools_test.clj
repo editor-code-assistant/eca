@@ -18,7 +18,7 @@
                      :parameters {"type" "object"
                                   :properties {"code" {:type "string"}}}
                      :origin :mcp}])
-         (f.tools/all-tools "123" "build"
+         (f.tools/all-tools "123" "code"
                             {:mcp-clients {"clojureMCP"
                                            {:version "1.0.2"
                                             :tools [{:name "eval"
@@ -33,11 +33,11 @@
                      :description string?
                      :parameters some?
                      :origin :native}])
-         (f.tools/all-tools "123" "build" {} {}))))
+         (f.tools/all-tools "123" "code" {} {}))))
   (testing "Do not include disabled native tools"
     (is (match?
          (m/embeds [(m/mismatch {:name "directory_tree"})])
-         (f.tools/all-tools "123" "build" {} {:disabledTools ["directory_tree"]}))))
+         (f.tools/all-tools "123" "code" {} {:disabledTools ["directory_tree"]}))))
   (testing "Plan mode includes preview tool but excludes mutating tools"
     (let [plan-config {:agent {"plan" {:disabledTools ["edit_file" "write_file" "move_file"]}}}
           plan-tools (f.tools/all-tools "123" "plan" {} plan-config)
@@ -50,11 +50,11 @@
       (is (not (contains? tool-names "edit_file")))
       (is (not (contains? tool-names "write_file")))
       (is (not (contains? tool-names "move_file")))))
-  (testing "Do not include plan edit tool if build agent"
+  (testing "Do not include plan edit tool if code agent"
     (is (match?
          (m/embeds [(m/mismatch {:name "preview_file_change"})
                     {:name "edit_file"}])
-         (f.tools/all-tools "123" "build" {} {}))))
+         (f.tools/all-tools "123" "code" {} {}))))
   (testing "Replace special vars description"
     (is (match?
          (m/embeds [{:name "directory_tree"
@@ -63,33 +63,33 @@
                      :origin :native}])
          (with-redefs [f.tools.filesystem/definitions {"directory_tree" {:description "Only in {{workspaceRoots}}"
                                                                          :parameters {}}}]
-           (f.tools/all-tools "123" "build" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
+           (f.tools/all-tools "123" "code" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
                               {})))))
   (testing "Override native tool description via global prompts config"
     (let [config {:prompts {:tools {"eca__directory_tree" "Custom global description"}}}
-          tools (f.tools/all-tools "123" "build" {} config)
+          tools (f.tools/all-tools "123" "code" {} config)
           tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
       (is (= "Custom global description" (:description tool)))))
   (testing "Override native tool description via agent-specific prompts config"
-    (let [config {:agent {"build" {:prompts {:tools {"eca__directory_tree" "Custom build description"}}}}}
-          tools (f.tools/all-tools "123" "build" {} config)
+    (let [config {:agent {"code" {:prompts {:tools {"eca__directory_tree" "Custom code description"}}}}}
+          tools (f.tools/all-tools "123" "code" {} config)
           tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
-      (is (= "Custom build description" (:description tool)))))
+      (is (= "Custom code description" (:description tool)))))
   (testing "Agent-specific prompts takes precedence over global prompts"
     (let [config {:prompts {:tools {"eca__directory_tree" "Global description"}}
-                  :agent {"build" {:prompts {:tools {"eca__directory_tree" "Build description"}}}}}
-          tools (f.tools/all-tools "123" "build" {} config)
+                  :agent {"code" {:prompts {:tools {"eca__directory_tree" "Code description"}}}}}
+          tools (f.tools/all-tools "123" "code" {} config)
           tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
-      (is (= "Build description" (:description tool)))))
+      (is (= "Code description" (:description tool)))))
   (testing "Different agents can have different tool descriptions"
-    (let [config {:agent {"build" {:prompts {:tools {"eca__directory_tree" "Build description"}}}
+    (let [config {:agent {"code" {:prompts {:tools {"eca__directory_tree" "Code description"}}}
                           "plan" {:prompts {:tools {"eca__directory_tree" "Plan description"}}
                                   :disabledTools ["edit_file" "write_file" "move_file"]}}}
-          build-tools (f.tools/all-tools "123" "build" {} config)
+          code-tools (f.tools/all-tools "123" "code" {} config)
           plan-tools (f.tools/all-tools "123" "plan" {} config)
-          build-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) build-tools)
+          code-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) code-tools)
           plan-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) plan-tools)]
-      (is (= "Build description" (:description build-tool)))
+      (is (= "Code description" (:description code-tool)))
       (is (= "Plan description" (:description plan-tool)))))
   (testing "Override MCP tool description via global prompts config"
     (let [db {:mcp-clients {"myMCP" {:version "1.0"
@@ -97,23 +97,23 @@
                                               :description "Original MCP description"
                                               :parameters {"type" "object"}}]}}}
           config {:prompts {:tools {"myMCP__my_tool" "Custom MCP description"}}}
-          tools (f.tools/all-tools "123" "build" db config)
+          tools (f.tools/all-tools "123" "code" db config)
           tool (some #(when (= "myMCP__my_tool" (:full-name %)) %) tools)]
       (is (= "Custom MCP description" (:description tool)))))
   (testing "Falls back to original description when no override specified"
     (let [config {:prompts {:tools {"eca__some_other_tool" "Override for other tool"}}}
-          tools (f.tools/all-tools "123" "build" {} config)
+          tools (f.tools/all-tools "123" "code" {} config)
           tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
       (is (string? (:description tool)))
       (is (not= "Override for other tool" (:description tool)))))
   (testing "Falls back to global when agent has no override for specific tool"
     (let [config {:prompts {:tools {"eca__directory_tree" "Global description"}}
-                  :agent {"build" {:prompts {:tools {"eca__read_file" "Build read_file description"}}}}}
-          tools (f.tools/all-tools "123" "build" {} config)
+                  :agent {"code" {:prompts {:tools {"eca__read_file" "Code read_file description"}}}}}
+          tools (f.tools/all-tools "123" "code" {} config)
           dir-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)
           read-tool (some #(when (= "eca__read_file" (:full-name %)) %) tools)]
       (is (= "Global description" (:description dir-tool)))
-      (is (= "Build read_file description" (:description read-tool))))))
+      (is (= "Code read_file description" (:description read-tool))))))
 
 (deftest get-disabled-tools-test
   (testing "merges global and agent-specific disabled tools"
@@ -224,8 +224,8 @@
     (testing "build agent does NOT have plan restrictions"
       (let [config {:agent {"plan" {:toolCall {:approval {:deny {"shell_command" {:argsMatchers {"command" [".*>.*" ".*rm.*"]}}}}}}}}]
         ;; Same dangerous commands that are denied in plan mode should be allowed in build mode
-        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "build")))
-        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "cat file.txt > output.txt"} {} config "build")))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "code")))
+        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "cat file.txt > output.txt"} {} config "code")))
         ;; No agent specified (nil) should also not have plan restrictions
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm file.txt"} {} config nil)))))
     (testing "regex patterns match dangerous commands correctly"
@@ -294,7 +294,7 @@
     (testing "same commands work fine in build agent mode (not denied)"
       (are [command] (not= :deny
                            (f.tools/approval all-tools shell-tool
-                                             {"command" command} {} config "build"))
+                                             {"command" command} {} config "code"))
         "echo 'test' > file.txt"
         "rm file.txt"
         "git add ."
@@ -320,7 +320,7 @@
             {}
             "chat-1"
             "call-1"
-            "build"
+            "code"
             (h/db*)
             (h/config)
             (h/messenger)
@@ -349,7 +349,7 @@
             {}
             "chat-1"
             "call-2"
-            "build"
+            "code"
             (h/db*)
             (h/config)
             (h/messenger)
@@ -378,7 +378,7 @@
             {}
             "chat-2"
             "call-3"
-            "build"
+            "code"
             (h/db*)
             (h/config)
             (h/messenger)

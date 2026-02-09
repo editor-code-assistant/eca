@@ -16,7 +16,7 @@
           skills [{:name "review-pr" :description "Review a PR"}
                   {:name "lint-fix" :description "Fix a lint"}]
           fake-repo-map (delay "TREE")
-          agent-name "build"
+          agent-name "code"
           config {}
           result (prompt/build-chat-instructions refined-contexts rules skills fake-repo-map agent-name config nil [] (h/db))]
       (is (string/includes? result "You are ECA"))

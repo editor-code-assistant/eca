@@ -64,9 +64,9 @@
                          :requiresAuth? true
                          :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
-   :defaultAgent "build"
-   :agent {"build" {:prompts {:chat "${classpath:prompts/build_agent.md}"}
-                    :disabledTools ["preview_file_change"]}
+   :defaultAgent "code"
+   :agent {"code" {:prompts {:chat "${classpath:prompts/code_agent.md}"}
+                   :disabledTools ["preview_file_change"]}
            "plan" {:prompts {:chat "${classpath:prompts/plan_agent.md}"}
                       :disabledTools ["edit_file" "write_file" "move_file"]
                       :toolCall {:approval {:allow {"eca__shell_command"
@@ -86,7 +86,7 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
-   :prompts {:chat "${classpath:prompts/build_agent.md}" ;; default to build agent
+   :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"
              :compact "${classpath:prompts/compact.md}"
              :init "${classpath:prompts/init.md}"
@@ -183,7 +183,7 @@
 (defn initial-config []
   (parse-dynamic-string-values initial-config* (io/file ".")))
 
-(def ^:private fallback-agent "build")
+(def ^:private fallback-agent "code")
 
 (defn validate-agent-name
   "Validates if an agent exists in config. Returns the agent name if valid,
@@ -354,22 +354,24 @@
     [:otlp]]})
 
 (defn ^:private migrate-legacy-agent-name
-  "Migrates legacy agent name 'agent' to 'build'."
+  "Migrates legacy agent names 'agent' and 'build' to 'code'."
   [agent-name]
-  (if (= "agent" agent-name) "build" agent-name))
+  (case agent-name
+    ("agent" "build") "code"
+    agent-name))
 
 (defn ^:private migrate-legacy-config
   "Migrates legacy config keys to new names for backward compatibility:
    - 'behavior' config key → 'agent'
    - 'defaultBehavior' → 'defaultAgent'
-   - 'agent' agent name → 'build' (inside agent map)"
+   - 'agent'/'build' agent name → 'code' (inside agent map)"
   [config]
   (cond-> config
     ;; Migrate 'behavior' key → 'agent' (merge, don't overwrite)
     (contains? config :behavior)
     (-> (update :agent (fn [existing]
                          (let [legacy (:behavior config)
-                               ;; Rename "agent" entry to "build" in legacy config
+                               ;; Rename legacy "agent"/"build" entries to "code"
                                migrated (reduce-kv (fn [m k v]
                                                      (assoc m (migrate-legacy-agent-name k) v))
                                                    {}

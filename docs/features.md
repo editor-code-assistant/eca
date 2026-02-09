@@ -12,8 +12,8 @@ Chat is the main feature of ECA, allowing user to talk with LLM to behave like a
 
 Agents affect the prompt passed to LLM and the tools to include, ECA allows you to override or __create your own agents__, the built-in agents are:
 
-- `build`: Make changes to code via file changing tools. (Default) [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/build_agent.md)
-- `plan`: Useful to plan changes and define better LLM plan before changing code via build agent mode, has ability to preview changes (Check below). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_agent.md)
+- `code`: Make changes to code via file changing tools. (Default) [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/code_agent.md)
+- `plan`: Useful to plan changes and define better LLM plan before changing code via code agent mode, has ability to preview changes (Check below). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_agent.md)
 
 ![](./images/features/plan_preview_change.png)
 

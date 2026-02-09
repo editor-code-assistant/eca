@@ -716,8 +716,8 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
       "agent" {
-        "build": {"prompts": {"chat": "${classpath:prompts/build_agent.md}"},
-                  "disabledTools": ["preview_file_change"]},
+        "code": {"prompts": {"chat": "${classpath:prompts/code_agent.md}"},
+                 "disabledTools": ["preview_file_change"]},
         "plan": {"prompts": {"chat": "${classpath:prompts/plan_agent.md}"},
                   "disabledTools": ["edit_file", "write_file", "move_file"],
                   "toolCall": {"approval": {"deny": {"eca__shell_command":
@@ -730,7 +730,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
                                                                                   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                                   ".*bash.*-c.*>.*"]}}}}}}
       }
-      "defaultAgent": "build",
+      "defaultAgent": "code",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
       "autoCompactPercentage": 85,
       "index" : {
@@ -743,7 +743,7 @@ To configure, add your OTLP collector config via `:otlp` map following [otlp aut
         }
       },
       "prompts": {
-        "chat": "${classpath:prompts/build_agent.md}", // default to build agent
+        "chat": "${classpath:prompts/code_agent.md}", // default to code agent
         "chatTitle": "${classpath:prompts/title.md}",
         "compact": "${classpath:prompts/compact.md}",
         "init": "${classpath:prompts/init.md}",

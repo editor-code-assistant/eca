@@ -54,7 +54,7 @@
 
       ;; Fallback for unknown agent
       :else
-      (load-builtin-prompt "build_agent.md"))))
+      (load-builtin-prompt "code_agent.md"))))
 
 (defn contexts-str [refined-contexts repo-map* startup-ctx]
   (multi-str

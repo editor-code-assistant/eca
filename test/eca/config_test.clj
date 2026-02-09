@@ -130,40 +130,40 @@
 
 (deftest validate-agent-test
   (testing "valid agent returns as-is"
-    (let [config {:agent {"build" {} "plan" {} "custom" {}}}]
-      (is (= "build" (config/validate-agent-name "build" config)))
+    (let [config {:agent {"code" {} "plan" {} "custom" {}}}]
+      (is (= "code" (config/validate-agent-name "code" config)))
       (is (= "plan" (config/validate-agent-name "plan" config)))
       (is (= "custom" (config/validate-agent-name "custom" config)))))
 
   (testing "nil agent returns fallback"
-    (let [config {:agent {"build" {} "plan" {}}}]
-      (is (= "build" (config/validate-agent-name nil config)))))
+    (let [config {:agent {"code" {} "plan" {}}}]
+      (is (= "code" (config/validate-agent-name nil config)))))
 
   (testing "empty string agent returns fallback"
-    (let [config {:agent {"build" {} "plan" {}}}]
-      (is (= "build" (config/validate-agent-name "" config)))))
+    (let [config {:agent {"code" {} "plan" {}}}]
+      (is (= "code" (config/validate-agent-name "" config)))))
 
   (testing "unknown agent returns fallback"
-    (let [config {:agent {"build" {} "plan" {}}}]
+    (let [config {:agent {"code" {} "plan" {}}}]
       (with-redefs [logger/warn (fn [_ _] nil)]
-        (is (= "build" (config/validate-agent-name "nonexistent" config))))))
+        (is (= "code" (config/validate-agent-name "nonexistent" config))))))
 
   (testing "agent validation with various configs"
-    ;; Config with only build agent
-    (let [config {:agent {"build" {}}}]
-      (is (= "build" (config/validate-agent-name "plan" config))))
+    ;; Config with only code agent
+    (let [config {:agent {"code" {}}}]
+      (is (= "code" (config/validate-agent-name "plan" config))))
 
     ;; Config with custom agents only
     (let [config {:agent {"custom1" {} "custom2" {}}}]
       (with-redefs [logger/warn (fn [_ _] nil)]
-        (is (= "build" (config/validate-agent-name "plan" config)))
+        (is (= "code" (config/validate-agent-name "plan" config)))
         (is (= "custom1" (config/validate-agent-name "custom1" config)))
         (is (= "custom2" (config/validate-agent-name "custom2" config)))))
 
     ;; Empty agent config
     (let [config {:agent {}}]
       (with-redefs [logger/warn (fn [_ _] nil)]
-        (is (= "build" (config/validate-agent-name "anything" config)))))))
+        (is (= "code" (config/validate-agent-name "anything" config)))))))
 
 (deftest diff-keeping-vectors-test
   (testing "like clojure.data/diff"
