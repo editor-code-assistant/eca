@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve anthropic login wording.
+
 ## 0.100.0
 
 - Add config.json schema. #293
