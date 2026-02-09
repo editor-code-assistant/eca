@@ -65,26 +65,28 @@
                          :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultAgent "code"
-   :agent {"code" {:prompts {:chat "${classpath:prompts/code_agent.md}"}
+   :agent {"code" {:mode :primary
+                   :prompts {:chat "${classpath:prompts/code_agent.md}"}
                    :disabledTools ["preview_file_change"]}
-           "plan" {:prompts {:chat "${classpath:prompts/plan_agent.md}"}
-                      :disabledTools ["edit_file" "write_file" "move_file"]
-                      :toolCall {:approval {:allow {"eca__shell_command"
-                                                    {:argsMatchers {"command" ["pwd"]}}
-                                                    "eca__preview_file_change" {}
-                                                    "eca__grep" {}
-                                                    "eca__read_file" {}
-                                                    "eca__directory_tree" {}}
-                                            :deny {"eca__shell_command"
-                                                   {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
-                                                                              ".*>.*",
-                                                                              ".*\\|\\s*(tee|dd|xargs).*",
-                                                                              ".*\\b(sed|awk|perl)\\s+.*-i.*",
-                                                                              ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
-                                                                              ".*git\\s+(add|commit|push).*",
-                                                                              ".*npm\\s+install.*",
-                                                                              ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-                                                                              ".*bash.*-c.*>.*"]}}}}}}}
+           "plan" {:mode :primary
+                   :prompts {:chat "${classpath:prompts/plan_agent.md}"}
+                   :disabledTools ["edit_file" "write_file" "move_file"]
+                   :toolCall {:approval {:allow {"eca__shell_command"
+                                                 {:argsMatchers {"command" ["pwd"]}}
+                                                 "eca__preview_file_change" {}
+                                                 "eca__grep" {}
+                                                 "eca__read_file" {}
+                                                 "eca__directory_tree" {}}
+                                         :deny {"eca__shell_command"
+                                                {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
+                                                                           ".*>.*",
+                                                                           ".*\\|\\s*(tee|dd|xargs).*",
+                                                                           ".*\\b(sed|awk|perl)\\s+.*-i.*",
+                                                                           ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
+                                                                           ".*git\\s+(add|commit|push).*",
+                                                                           ".*npm\\s+install.*",
+                                                                           ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
+                                                                           ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
    :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"
