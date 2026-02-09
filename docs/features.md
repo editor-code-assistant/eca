@@ -19,7 +19,7 @@ Agents affect the prompt passed to LLM and the tools to include, ECA allows you 
 
 !!! info "Custom agents"
 
-    To create and customize your own agents, check the [config](./configuration.md#).
+    To create and customize your own agents, check the [config](./config/agents.md).
 
 ### Tools
 
@@ -32,11 +32,11 @@ When passing tools to LLM, ECA will always prefix the tool with the server name,
 
 !!! info "Approval / permissions"
 
-    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` agent.
+    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./config/tools.md#approval--permissions) or try the `plan` agent.
 
 #### Native tools
 
-ECA support built-in tools to avoid user extra installation and configuration, these tools are always included on models requests that support tools and can be [disabled via config](./configuration.md) `disabledTools`.
+ECA support built-in tools to avoid user extra installation and configuration, these tools are always included on models requests that support tools and can be [disabled via config](./config/introduction.md) `disabledTools`.
 
 === "Filesystem"
 
@@ -66,7 +66,7 @@ ECA support built-in tools to avoid user extra installation and configuration, t
 
     Besides the built-in native tools, ECA allows you to define your own tools by wrapping any command-line executable. This feature enables you to extend ECA's capabilities to match your specific workflows, such as running custom scripts, interacting with internal services, or using your favorite CLI tools.
 
-    Custom tools are configured in your `config.json` file. For a detailed guide on how to set them up, check the [Custom Tools configuration documentation](./configuration.md#custom-tools).
+    Custom tools are configured in your `config.json` file. For a detailed guide on how to set them up, check the [Custom Tools configuration documentation](./config/tools.md#custom-tools).
 
 ### Contexts
 
@@ -119,7 +119,7 @@ The built-in commands are:
 
 !!! info "Custom commands"
 
-    It's possible to configure custom command prompts, for more details check [its configuration](./configuration.md#custom-command-prompts)
+    It's possible to configure custom command prompts, for more details check [its configuration](./config/commands.md)
 
 #### Login
 
@@ -136,7 +136,7 @@ Following the [skills spec](https://agentskills.io/), ECA supports skills that c
 
 ![](./images/features/skills.png)
 
-For more details, check [skills configuration](./configuration.md#skills).
+For more details, check [skills configuration](./config/skills.md).
 
 ### Hooks
 
@@ -144,7 +144,7 @@ Hooks are actions that can run before or after an specific event, useful to noti
 
 ![](./images/features/hooks.png)
 
-For more details, check [hooks configuration](./configuration.md#hooks).
+For more details, check [hooks configuration](./config/hooks.md).
 
 ## Rewrite
 
@@ -156,7 +156,7 @@ _Tip: weak models work great like `github-copilot/gpt-4.1`, if you prefer faster
 
 ![](./images/features/rewrite.gif)
 
-For rewrite configuration, check [configuration](./configuration.md#rewrite).
+For rewrite configuration, check [configuration](./config/rewrite.md).
 
 ##  Completion (alpha)
 
@@ -164,10 +164,10 @@ Inline code completion
 
 ![](./images/features/inline_completion.png)
 
-For mode details check [configuration](./configuration.md#completion).
+For mode details check [configuration](./config/completion.md).
 
 ## OpenTelemetry integration
 
 ECA has support for [OpenTelemetry](https://opentelemetry.io/)(otlp), if configured, server tasks, tool calls, and more will be metrified via otlp API.
 
-For more details check [its configuration](./configuration.md#opentelemetry-integration).
+For more details check [its configuration](./config/metrics.md).

@@ -8,17 +8,25 @@ repo_url: https://github.com/editor-code-assistant/eca
 nav:
   - Home:
     - Overview: README.md
-    - Configuration: configuration.md
-    - Models: models.md
     - Development: development.md
-    - Protocol: protocol.md
-    - Troubleshooting: troubleshooting.md
+    - Configuration:
+        - Introduction: config/introduction.md
+        - Providers / Models: config/models.md
+        - Tools / Approval: config/tools.md
+        - Skills: config/skills.md
+        - Rules: config/rules.md
+        - Commands: config/commands.md
+        - Agents: config/agents.md
+        - Hooks: config/hooks.md
+        - Completion: config/completion.md
+        - Rewrite: config/rewrite.md
+        - Metrics: config/metrics.md
+        - Examples: config/examples.md
   - Features: features.md
   - Installation: installation.md
-  - Models: models.md
-  - Examples: examples.md
+  - Protocol: protocol.md
+  - Troubleshooting: troubleshooting.md
   - Support Us: https://github.com/sponsors/ericdallo
-  - Changelog: CHANGELOG.md
 
 theme:
   name: material
@@ -28,6 +36,8 @@ theme:
     repo: fontawesome/brands/github
   features:
     - navigation.tabs
+    - navigation.expand
+    - navigation.sections
     - content.code.copy
     - content.code.select
 

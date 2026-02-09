@@ -18,11 +18,11 @@ ECA will return to clients the models configured, either via config or login.
 | :simple-googlegemini: Google                     | √           | √                    | √              | X          | √           |
 | :simple-ollama: Ollama local models              | √           | √                    | X              | X          |             |
 
-### Config
+## Config
 
 Built-in providers have already base initial `providers` configs, so you can change to add models or set its key/url.
 
-For more details, check the [config schema](./configuration.md#all-configs).
+For more details, check the [config schema](./introduction.md).
 
 Example:
 
