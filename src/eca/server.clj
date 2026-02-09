@@ -77,8 +77,12 @@
 (defmethod jsonrpc.server/receive-notification "mcp/startServer" [_ components params]
   (handlers/mcp-start-server (with-config components) params))
 
+(defmethod jsonrpc.server/receive-notification "chat/selectedAgentChanged" [_ components params]
+  (handlers/chat-selected-agent-changed (with-config components) params))
+
+;; Legacy: backward compat for clients using old method name
 (defmethod jsonrpc.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
-  (handlers/chat-selected-behavior-changed (with-config components) params))
+  (handlers/chat-selected-agent-changed (with-config components) params))
 
 (defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
   (handlers/completion-inline (with-config components) params))

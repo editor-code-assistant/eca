@@ -64,13 +64,13 @@
 
 (defn approval
   "Return the approval keyword for the specific tool call: ask, allow or deny.
-   Behavior parameter is required - pass nil for global-only approval rules."
-  [all-tools tool args db config behavior]
+   Agent-name parameter is required - pass nil for global-only approval rules."
+  [all-tools tool args db config agent-name]
   (let [{:keys [server name require-approval-fn]} tool
         remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
         native-tools (filter #(= :native (:origin %)) all-tools)
         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
-                                                    (get-in config [:behavior behavior :toolCall :approval]))]
+                                                    (get-in config [:agent agent-name :toolCall :approval]))]
     (cond
       remember-to-approve?
       :allow
@@ -104,11 +104,11 @@
       :ask)))
 
 (defn ^:private get-disabled-tools
-  "Returns a set of disabled tools, merging global and behavior-specific."
-  [config behavior]
+  "Returns a set of disabled tools, merging global and agent-specific."
+  [config agent-name]
   (set (concat (get config :disabledTools [])
-               (if behavior
-                 (get-in config [:behavior behavior :disabledTools] [])
+               (if agent-name
+                 (get-in config [:agent agent-name :disabledTools] [])
                  []))))
 
 (defn ^:private tool-disabled? [tool disabled-tools]
@@ -116,10 +116,10 @@
       (contains? disabled-tools (:name tool))))
 
 (defn make-tool-status-fn
-  "Returns a function that marks tools as disabled based on config and behavior.
-   If behavior is nil, only uses global disabledTools."
-  [config behavior]
-  (let [disabled-tools (get-disabled-tools config behavior)]
+  "Returns a function that marks tools as disabled based on config and agent.
+   If agent-name is nil, only uses global disabledTools."
+  [config agent-name]
+  (let [disabled-tools (get-disabled-tools config agent-name)]
     (fn [tool]
       (assoc-some tool :disabled (tool-disabled? tool disabled-tools)))))
 
@@ -165,8 +165,8 @@
    (like filesystem and shell tools) and tools provided by MCP servers.
    Removes denied tools.
    When chat is a subagent (has :agent-def), filters tools based on agent definition."
-  [chat-id behavior db config]
-  (let [disabled-tools (get-disabled-tools config behavior)
+  [chat-id agent-name db config]
+  (let [disabled-tools (get-disabled-tools config agent-name)
         ;; presence of :agent-def indicates this is a subagent
         agent-def (get-in db [:chats chat-id :agent-def])
         all-tools (->> (concat
@@ -176,14 +176,14 @@
                        (mapv (fn [tool]
                                (update tool :description
                                        (fn [desc]
-                                         (or (get-in config [:behavior behavior :prompts :tools (:full-name tool)])
+                                         (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
                                              (get-in config [:prompts :tools (:full-name tool)])
                                              desc)))))
                        (filterv (fn [tool]
                                   (and (not (tool-disabled? tool disabled-tools))
                                        ;; check for enabled-fn if present
                                        ((or (:enabled-fn tool) (constantly true))
-                                        {:behavior behavior
+                                        {:agent agent-name
                                          :db db
                                          :chat-id chat-id
                                          :config config})))))
@@ -192,10 +192,10 @@
                     (filter-subagent-tools all-tools)
                     all-tools)]
     (remove (fn [tool]
-              (= :deny (approval all-tools tool {} db config behavior)))
+              (= :deny (approval all-tools tool {} db config agent-name)))
             all-tools)))
 
-(defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id behavior db* config messenger metrics
+(defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
                   ]
@@ -203,7 +203,7 @@
   (let [[server-name tool-name] (string/split full-name #"__")
         arguments (update-keys arguments clojure.core/name)
         db @db*
-        all-tools (all-tools chat-id behavior db config)
+        all-tools (all-tools chat-id agent-name db config)
         tool-meta (some #(when (= full-name (:full-name %)) %) all-tools)
         required-args-error (when-let [parameters (:parameters tool-meta)]
                               (tools.util/required-params-error parameters arguments))]
@@ -221,7 +221,7 @@
                                                            :db* db*
                                                            :config config
                                                            :messenger messenger
-                                                           :behavior behavior
+                                                           :agent agent-name
                                                            :metrics metrics
                                                            :chat-id chat-id
                                                            :tool-call-id tool-call-id
@@ -251,8 +251,8 @@
                                                (update :tools #(mapv tool-status-fn %)))))
 
 (defn init-servers! [db* messenger config metrics]
-  (let [default-behavior (get config :defaultBehavior)
-        tool-status-fn (make-tool-status-fn config default-behavior)]
+  (let [default-agent (get config :defaultAgent)
+        tool-status-fn (make-tool-status-fn config default-agent)]
     (messenger/tool-server-updated messenger {:type :native
                                               :name "ECA"
                                               :status "running"
@@ -319,7 +319,7 @@
   (tools.util/tool-call-destroy-resource! full-name resource-kwd resource))
 
 (defn refresh-tool-servers!
-  "Updates all tool servers (native and MCP) with new behavior status."
+  "Updates all tool servers (native and MCP) with new agent status."
   [tool-status-fn db* messenger config]
   (messenger/tool-server-updated messenger {:type :native
                                             :name "ECA"

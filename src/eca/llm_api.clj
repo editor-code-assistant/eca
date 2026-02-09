@@ -20,6 +20,13 @@
 
 (def ^:private logger-tag "[LLM-API]")
 
+(def no-available-model-error-msg "No available model found. Configure at least one provider model.")
+
+(defn ^:private first-available-model
+  "Returns deterministic first available model from DB."
+  [db]
+  (some->> (:models db) keys sort first))
+
 (defn refine-file-context [path lines-range]
   (cond
     (not (fs/exists? path))
@@ -42,9 +49,11 @@
   - Openai api key set
   - Github copilot login done
   - Ollama first model if running
-  - Anthropic default model."
+  - Anthropic default model.
+
+  Returns nil when there are no available models."
   [db config]
-  (let [[decision model]
+  (let [[initial-decision model-candidate]
         (or (when-let [config-default-model (:defaultModel config)]
               [:config-default-model config-default-model])
             (when (llm-util/provider-api-key "anthropic" (get-in db [:auth "anthropic"]) config)
@@ -55,7 +64,14 @@
               [:api-key-found "github-copilot/gpt-5.2"])
             (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
               [:ollama-running ollama-model])
-            [:default "anthropic/claude-sonnet-4.5"])]
+            [:default "anthropic/claude-sonnet-4.5"])
+        model (if (contains? (:models db) model-candidate)
+                model-candidate
+                (first-available-model db))
+        decision (cond
+                   (= model model-candidate) initial-decision
+                   model :first-available-model
+                   :else :no-available-model)]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
     model))
 
@@ -214,8 +230,8 @@
           :extra-headers extra-headers}
          callbacks)
 
-        (and (or (:fetchModels provider-config)
-                 model-config)
+        (and (or model-config
+                 model-capabilities)
              handler)
         (let [url-relative-path (:completionUrlRelativePath provider-config)
               think-tag-start (:thinkTagStart provider-config)

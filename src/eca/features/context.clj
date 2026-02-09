@@ -61,7 +61,7 @@
    Process any found @paths mentions recursively, supporting both relative and absolute paths.
    Deduplicates files to avoid reading the same file multiple times."
   [db]
-  ;; TODO make it customizable by behavior
+  ;; TODO make it customizable by agent
   (let [agent-file "AGENTS.md"
         local-agent-files (keep (fn [{:keys [uri]}]
                                   (let [agent-file (fs/path (shared/uri->filename uri) agent-file)]

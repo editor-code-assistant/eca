@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
-   [eca.shared :refer [assoc-some deep-merge multi-str]]
+   [eca.shared :refer [assoc-some deep-merge join-api-url multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -47,7 +47,7 @@
   (let [oauth? (= :auth/oauth auth-type)
         url (if oauth?
               codex-url
-              (str api-url (or url-relative-path responses-path)))
+              (join-api-url api-url (or url-relative-path responses-path)))
         ;; Use persisted account-id first, fall back to extracting from JWT
         resolved-account-id (or account-id (jwt-token->account-id api-key))
         headers (client/merge-llm-headers

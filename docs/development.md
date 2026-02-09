@@ -89,7 +89,7 @@ This step-by-step feature implementation help track progress and next steps:
   - [ ] Send user messages via `chat/prompt` request.
   - [ ] Clear chat and Reset chat.
   - [ ] Support receive chat contents via `chat/contentReceived` notification.
-  - [ ] Present and allow user change behaviors and models returned from `initialize` request.
+  - [ ] Present and allow user change agents and models returned from `initialize` request.
   - [ ] Present and add contexts via `chat/queryContext` request
   - [ ] Support tools contents: run/approval/reject via `chat/toolCallApprove` or `chat/toolCallReject`.
   - [ ] Support tools details: showing a file change like a diff.

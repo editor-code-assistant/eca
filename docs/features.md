@@ -6,20 +6,20 @@
 
 Chat is the main feature of ECA, allowing user to talk with LLM to behave like an agent, making changes using tools or just planning changes and next steps with options to rollback messages and changes done by tool call.
 
-### Behaviors
+### Agents
 
-![behaviors](./images/features/chat-behaviors.png){ align=right }
+![agents](./images/features/chat-agents.png){ align=right }
 
-Behavior affect the prompt passed to LLM and the tools to include, ECA allow to override or __create your owns behaviors__, the built-in provider behaviors are:
+Agents affect the prompt passed to LLM and the tools to include, ECA allows you to override or __create your own agents__, the built-in agents are:
 
-- `agent`: Make changes to code via file changing tools. (Default) [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/agent_behavior.md)
-- `plan`: Useful to plan changes and define better LLM plan before changing code via agent mode, has ability to preview changes (Check below). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_behavior.md)
+- `code`: Make changes to code via file changing tools. (Default) [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/code_agent.md)
+- `plan`: Useful to plan changes and define better LLM plan before changing code via code agent mode, has ability to preview changes (Check below). [Prompt here](https://github.com/editor-code-assistant/eca/blob/master/resources/prompts/plan_agent.md)
 
 ![](./images/features/plan_preview_change.png)
 
-!!! info "Custom behaviors"
+!!! info "Custom agents"
 
-    To create and customize your own behaviors, check the [config](./configuration.md#).
+    To create and customize your own agents, check the [config](./configuration.md#).
 
 ### Tools
 
@@ -32,7 +32,7 @@ When passing tools to LLM, ECA will always prefix the tool with the server name,
 
 !!! info "Approval / permissions"
 
-    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` behavior.
+    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./configuration.md) or try the `plan` agent.
 
 #### Native tools
 

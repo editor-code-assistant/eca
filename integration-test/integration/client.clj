@@ -158,10 +158,15 @@
 
 (defn ^:private keyname [key] (str (namespace key) "/" (name key)))
 
+(def ^:private max-await-tries
+  "Maximum number of retries when waiting for a server notification/request.
+   Higher on Windows where JVM-based processes (e.g. MCP servers) start slower."
+  (if (string/starts-with? (System/getProperty "os.name") "Windows") 40 20))
+
 (defn ^:private await-first-and-remove! [client pred coll-type]
   (let [coll* (coll-type client)]
     (loop [tries 0]
-      (if (< tries 20)
+      (if (< tries max-await-tries)
         (if-let [elem (first (filter pred @coll*))]
           (do
             (swap! coll* #(->> % (remove #{elem}) vec))

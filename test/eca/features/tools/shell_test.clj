@@ -133,7 +133,7 @@
                       ((get-in f.tools.shell/definitions ["shell_command" :handler])
                        {"command" command}
                        {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
-                        :behavior "plan"
+                        :agent "plan"
                         :call-state-fn call-state-fn
                         :state-transition-fn state-transition-fn})))
       "git status"

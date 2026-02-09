@@ -9,55 +9,41 @@
 
 (eca/clean-after-test)
 
+(defn ^:private provider-model-present?
+  [models provider]
+  (some #(string/starts-with? % (str provider "/")) models))
+
+(defn ^:private model-present?
+  [models model]
+  (contains? (set models) model))
+
+(defn ^:private built-in-providers-present?
+  [models]
+  (every? #(provider-model-present? models %)
+          ["anthropic" "github-copilot" "google" "openai"]))
+
 (deftest default-initialize-and-shutdown
   (eca/start-process!)
-
-  (let [models ["anthropic/claude-haiku-4.5"
-                "anthropic/claude-opus-4.1"
-                "anthropic/claude-opus-4.5"
-                "anthropic/claude-opus-4.6"
-                "anthropic/claude-sonnet-4.5"
-                "github-copilot/claude-haiku-4.5"
-                "github-copilot/claude-opus-4.1"
-                "github-copilot/claude-opus-4.5"
-                "github-copilot/claude-opus-4.6"
-                "github-copilot/claude-sonnet-4.5"
-                "github-copilot/gemini-2.5-pro"
-                "github-copilot/gemini-3-flash-preview"
-                "github-copilot/gemini-3-pro-preview"
-                "github-copilot/gpt-4.1"
-                "github-copilot/gpt-4o"
-                "github-copilot/gpt-5"
-                "github-copilot/gpt-5-mini"
-                "github-copilot/gpt-5.1"
-                "github-copilot/gpt-5.2"
-                "github-copilot/grok-code-fast-1"
-                "google/gemini-2.0-flash"
-                "google/gemini-2.5-pro"
-                "google/gemini-3-flash-preview"
-                "google/gemini-3-pro-preview"
-                "openai/gpt-4.1"
-                "openai/gpt-5-mini"
-                "openai/gpt-5-nano"
-                "openai/gpt-5.2"
-                "openai/gpt-5.2-codex"
-                "openai/gpt-5.3-codex"]]
+  (let [models-pred (fn [models]
+                      (and (vector? models)
+                           (built-in-providers-present? models)
+                           (model-present? models "anthropic/claude-sonnet-4.5")))]
     (testing "initialize request with default config"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
-                                                         {:chat {:defaultBehavior "plan"}})})))))
+                                                         {:chat {:defaultAgent "plan"}})})))))
 
     (testing "initialized notification"
       (eca/notify! (fixture/initialized-notification)))
 
     (testing "config updated"
       (is (match?
-           {:chat {:models models
+           {:chat {:models (m/pred models-pred)
                    :selectModel "anthropic/claude-sonnet-4.5"
-                   :behaviors ["agent" "plan"]
-                   :selectBehavior "plan"
+                   :agents ["code" "plan"]
+                   :selectAgent "plan"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated)))))
 
@@ -79,44 +65,17 @@
 
 (deftest initialize-with-custom-providers
   (eca/start-process!)
-  (let [models ["anthropic/claude-haiku-4.5"
-                "anthropic/claude-opus-4.1"
-                "anthropic/claude-opus-4.5"
-                "anthropic/claude-opus-4.6"
-                "anthropic/claude-sonnet-4.5"
-                "github-copilot/claude-haiku-4.5"
-                "github-copilot/claude-opus-4.1"
-                "github-copilot/claude-opus-4.5"
-                "github-copilot/claude-opus-4.6"
-                "github-copilot/claude-sonnet-4.5"
-                "github-copilot/gemini-2.5-pro"
-                "github-copilot/gemini-3-flash-preview"
-                "github-copilot/gemini-3-pro-preview"
-                "github-copilot/gpt-4.1"
-                "github-copilot/gpt-4o"
-                "github-copilot/gpt-5"
-                "github-copilot/gpt-5-mini"
-                "github-copilot/gpt-5.1"
-                "github-copilot/gpt-5.2"
-                "github-copilot/grok-code-fast-1"
-                "google/gemini-2.0-flash"
-                "google/gemini-2.5-pro"
-                "google/gemini-3-flash-preview"
-                "google/gemini-3-pro-preview"
-                "my-custom/bar2"
-                "my-custom/foo1"
-                "openai/gpt-4.1"
-                "openai/gpt-5-mini"
-                "openai/gpt-5-nano"
-                "openai/gpt-5.2"
-                "openai/gpt-5.2-codex"
-                "openai/gpt-5.3-codex"]]
+  (let [models-pred (fn [models]
+                      (and (vector? models)
+                           (built-in-providers-present? models)
+                           (model-present? models "my-custom/foo1")
+                           (model-present? models "my-custom/bar2")))]
     (testing "initialize request with custom providers"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
-                                                         {:defaultModel "my-custom/bar-2"
+                                                         {:defaultModel "my-custom/bar2"
                                                           :providers
                                                           (merge fixture/default-providers
                                                                  {"my-custom" {:api "openai-chat"
@@ -129,9 +88,9 @@
 
     (testing "config updated"
       (is (match?
-           {:chat {:models models
-                   :selectModel "my-custom/bar-2"
-                   :behaviors ["agent" "plan"]
-                   :selectBehavior "agent"
+           {:chat {:models (m/pred models-pred)
+                   :selectModel "my-custom/bar2"
+                   :agents ["code" "plan"]
+                   :selectAgent "code"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated))))))

@@ -15,7 +15,7 @@
 
 (def ^:private logger-tag "[PROMPT]")
 
-;; Built-in behavior prompts are now complete files, not templates
+;; Built-in agent prompts are now complete files, not templates
 (defn ^:private load-builtin-prompt* [filename]
   (slurp (io/resource (str "prompts/" filename))))
 
@@ -28,17 +28,17 @@
 
 (def ^:private compact-prompt-template (memoize compact-prompt-template*))
 
-(defn ^:private get-config-prompt [key behavior config]
-  (or (get-in config [:behavior behavior :prompts key])
+(defn ^:private get-config-prompt [key agent-name config]
+  (or (get-in config [:agent agent-name :prompts key])
       (get-in config [:prompts key])))
 
-(defn ^:private eca-chat-prompt [behavior config]
-  (let [behavior-config (get-in config [:behavior behavior])
-        subagent-prompt (and (= "subagent" (:mode behavior-config))
-                             (:systemPrompt behavior-config))
-        config-prompt (get-config-prompt :chat behavior config)
-        legacy-config-prompt (:systemPrompt behavior-config)
-        legacy-config-prompt-file (:systemPromptFile behavior-config)]
+(defn ^:private eca-chat-prompt [agent-name config]
+  (let [agent-config (get-in config [:agent agent-name])
+        subagent-prompt (and (= "subagent" (:mode agent-config))
+                             (:systemPrompt agent-config))
+        config-prompt (get-config-prompt :chat agent-name config)
+        legacy-config-prompt (:systemPrompt agent-config)
+        legacy-config-prompt-file (:systemPromptFile agent-config)]
     (cond
       subagent-prompt
       subagent-prompt
@@ -49,7 +49,7 @@
       config-prompt
       config-prompt
 
-      ;; behavior with absolute path
+      ;; agent with absolute path
       (and legacy-config-prompt-file (string/starts-with? legacy-config-prompt-file "/"))
       (slurp legacy-config-prompt-file)
 
@@ -57,9 +57,9 @@
       legacy-config-prompt-file
       (load-builtin-prompt (some-> legacy-config-prompt-file (string/replace-first #"prompts/" "")))
 
-      ;; Fallback for unknown behavior
+      ;; Fallback for unknown agent
       :else
-      (load-builtin-prompt "agent_behavior.md"))))
+      (load-builtin-prompt "code_agent.md"))))
 
 (defn contexts-str [refined-contexts repo-map* startup-ctx]
   (multi-str
@@ -101,10 +101,10 @@
     {}
     all-tools)))
 
-(defn build-chat-instructions [refined-contexts rules skills repo-map* behavior config chat-id all-tools db]
+(defn build-chat-instructions [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
   (let [selmer-ctx (->base-selmer-ctx all-tools db)]
     (multi-str
-     (selmer/render (eca-chat-prompt behavior config) selmer-ctx)
+     (selmer/render (eca-chat-prompt agent-name config) selmer-ctx)
      (when (seq rules)
        ["## Rules"
         ""
@@ -170,27 +170,27 @@
                                   full-text
                                   "```"))}))))
 
-(defn init-prompt [all-tools behavior db config]
+(defn init-prompt [all-tools agent-name db config]
   (selmer/render
-   (get-config-prompt :init behavior config)
+   (get-config-prompt :init agent-name config)
    (->base-selmer-ctx all-tools db)))
 
-(defn skill-create-prompt [skill-name user-prompt all-tools behavior db config]
+(defn skill-create-prompt [skill-name user-prompt all-tools agent-name db config]
   (selmer/render
-   (get-config-prompt :skillCreate behavior config)
+   (get-config-prompt :skillCreate agent-name config)
    (merge
     (->base-selmer-ctx all-tools db)
     {:skillFilePath (str (fs/file (f.skills/global-skills-dir) skill-name "SKILL.md"))
      :skillName skill-name
      :userPrompt user-prompt})))
 
-(defn chat-title-prompt [behavior config]
-  (get-config-prompt :chatTitle behavior config))
+(defn chat-title-prompt [agent-name config]
+  (get-config-prompt :chatTitle agent-name config))
 
-(defn compact-prompt [additional-input all-tools behavior config db]
+(defn compact-prompt [additional-input all-tools agent-name config db]
   (selmer/render
    (or (:compactPrompt config) ;; legacy
-       (get-config-prompt :compact behavior config)
+       (get-config-prompt :compact agent-name config)
        (compact-prompt-template (:compactPromptFile config)) ;; legacy
        )
    (merge

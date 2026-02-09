@@ -44,55 +44,30 @@
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
                          :key "${env:OPENAI_API_KEY}"
                          :requiresAuth? true
-                         :models {"gpt-5.2" {}
-                                  "gpt-5.2-codex" {}
-                                  "gpt-5.3-codex" {}
+                         :models {"gpt-4.1" {}
+                                  "gpt-5" {}
                                   "gpt-5-mini" {}
-                                  "gpt-5-nano" {}
-                                  "gpt-4.1" {}}}
+                                  "gpt-5.2" {}}}
                "anthropic" {:api "anthropic"
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5-20250929"}
-                                     "claude-opus-4.6" {:modelName "claude-opus-4-6"}
-                                     "claude-opus-4.5" {:modelName "claude-opus-4-5-20251101"}
-                                     "claude-opus-4.1" {:modelName "claude-opus-4-1-20250805"}
-                                     "claude-haiku-4.5" {:modelName "claude-haiku-4-5-20251001"}}}
+                            :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
                                  :requiresAuth? true
-                                 :models {"claude-haiku-4.5" {}
-                                          "claude-opus-4.1" {}
-                                          "claude-opus-4.5" {}
-                                          "claude-opus-4.6" {}
-                                          "claude-sonnet-4.5" {}
-                                          "gpt-5.2" {}
-                                          "gpt-5.1" {}
-                                          "gpt-5" {}
-                                          "gpt-5-mini" {}
-                                          "gpt-4.1" {}
-                                          "gpt-4o" {}
-                                          "grok-code-fast-1" {}
-                                          "gemini-2.5-pro" {}
-                                          "gemini-3-pro-preview" {}
-                                          "gemini-3-flash-preview" {}}}
+                                 :models {"gpt-5.2" {}}}
                "google" {:api "openai-chat"
                          :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
                          :key "${env:GOOGLE_API_KEY}"
                          :requiresAuth? true
-                         :models {"gemini-2.0-flash" {}
-                                  "gemini-2.5-pro" {}
-                                  "gemini-3-pro-preview" {}
-                                  "gemini-3-flash-preview" {}}}
+                         :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
-   :defaultBehavior "agent"
-   :behavior {"agent" {:mode :primary
-                       :prompts {:chat "${classpath:prompts/agent_behavior.md}"}
-                       :disabledTools ["preview_file_change"]}
-              "plan" {:mode :primary
-                      :prompts {:chat "${classpath:prompts/plan_behavior.md}"}
+   :defaultAgent "code"
+   :agent {"code" {:prompts {:chat "${classpath:prompts/code_agent.md}"}
+                   :disabledTools ["preview_file_change"]}
+           "plan" {:prompts {:chat "${classpath:prompts/plan_agent.md}"}
                       :disabledTools ["edit_file" "write_file" "move_file"]
                       :toolCall {:approval {:allow {"eca__shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
@@ -111,7 +86,7 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
-   :prompts {:chat "${classpath:prompts/agent_behavior.md}" ;; default to agent
+   :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"
              :compact "${classpath:prompts/compact.md}"
              :init "${classpath:prompts/init.md}"
@@ -209,25 +184,25 @@
 (defn initial-config []
   (parse-dynamic-string-values initial-config* (io/file ".")))
 
-(def ^:private fallback-behavior "agent")
+(def ^:private fallback-agent "code")
 
-(defn primary-behavior-names
-  "Returns the names of behaviors that are not subagents (mode is nil or \"primary\")."
+(defn primary-agent-names
+  "Returns the names of agents that are not subagents (mode is nil or not \"subagent\")."
   [config]
-  (->> (:behavior config)
+  (->> (:agent config)
        (remove (fn [[_ v]] (= "subagent" (:mode v))))
        (map key)
        distinct))
 
-(defn validate-behavior-name
-  "Validates if a behavior exists in config. Returns the behavior if valid,
-   or the fallback behavior if not."
-  [behavior config]
-  (if (contains? (:behavior config) behavior)
-    behavior
-    (do (logger/warn logger-tag (format "Unknown behavior '%s' specified, falling back to '%s'"
-                                        behavior fallback-behavior))
-        fallback-behavior)))
+(defn validate-agent-name
+  "Validates if an agent exists in config. Returns the agent name if valid,
+   or the fallback agent if not."
+  [agent-name config]
+  (if (contains? (:agent config) agent-name)
+    agent-name
+    (do (logger/warn logger-tag (format "Unknown agent '%s' specified, falling back to '%s'"
+                                        agent-name fallback-agent))
+        fallback-agent)))
 
 (def ^:private ttl-cache-config-ms 5000)
 
@@ -355,7 +330,7 @@
    [[:providers :ANY :httpClient]
     [:providers :ANY :models :ANY :reasoningHistory]]
    :stringfy-key
-   [[:behavior]
+   [[:agent]
     [:providers]
     [:providers :ANY :models]
     [:providers :ANY :models :ANY :extraHeaders]
@@ -369,6 +344,15 @@
     [:customTools :ANY :schema :properties]
     [:mcpServers]
     [:prompts :tools]
+    [:agent :ANY :prompts :tools]
+    [:agent :ANY :toolCall :approval :allow]
+    [:agent :ANY :toolCall :approval :allow :ANY :argsMatchers]
+    [:agent :ANY :toolCall :approval :ask]
+    [:agent :ANY :toolCall :approval :ask :ANY :argsMatchers]
+    [:agent :ANY :toolCall :approval :deny]
+    [:agent :ANY :toolCall :approval :deny :ANY :argsMatchers]
+    ;; Legacy: support old "behavior" config key
+    [:behavior]
     [:behavior :ANY :prompts :tools]
     [:behavior :ANY :toolCall :approval :allow]
     [:behavior :ANY :toolCall :approval :allow :ANY :argsMatchers]
@@ -378,21 +362,60 @@
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
     [:otlp]]})
 
+(defn ^:private migrate-legacy-agent-name
+  "Migrates legacy agent names 'agent' and 'build' to 'code'."
+  [agent-name]
+  (case agent-name
+    ("agent" "build") "code"
+    agent-name))
+
+(defn ^:private migrate-legacy-config
+  "Migrates legacy config keys to new names for backward compatibility:
+   - 'behavior' config key → 'agent'
+   - 'defaultBehavior' → 'defaultAgent'
+   - 'agent'/'build' agent name → 'code' (inside agent map)"
+  [config]
+  (cond-> config
+    ;; Migrate 'behavior' key → 'agent' (merge, don't overwrite)
+    (contains? config :behavior)
+    (-> (update :agent (fn [existing]
+                         (let [legacy (:behavior config)
+                               ;; Rename legacy "agent"/"build" entries to "code"
+                               migrated (reduce-kv (fn [m k v]
+                                                     (assoc m (migrate-legacy-agent-name k) v))
+                                                   {}
+                                                   legacy)]
+                           (merge migrated existing))))
+        (dissoc :behavior))
+
+    ;; Migrate 'defaultBehavior' → 'defaultAgent'
+    (and (contains? config :defaultBehavior)
+         (not (contains? config :defaultAgent)))
+    (-> (assoc :defaultAgent (migrate-legacy-agent-name (:defaultBehavior config)))
+        (dissoc :defaultBehavior))
+
+    ;; Also migrate defaultBehavior when nested under :chat (legacy)
+    (and (get-in config [:chat :defaultBehavior])
+         (not (get-in config [:chat :defaultAgent])))
+    (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
+        (update :chat dissoc :defaultBehavior))))
+
 (defn ^:private all* [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
         merge-config (fn [c1 c2]
                        (deep-merge c1 (normalize-fields normalization-rules c2)))]
-    (as-> {} $
-      (merge-config $ (initial-config))
-      (merge-config $ initialization-config)
-      (merge-config $ (when-not pure-config?
-                        (config-from-envvar)))
-      (if-let [custom-config (config-from-custom)]
-        (merge-config $ (when-not pure-config? custom-config))
-        (-> $
-            (merge-config (when-not pure-config? (config-from-global-file)))
-            (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))))
+    (-> (as-> {} $
+          (merge-config $ (initial-config))
+          (merge-config $ initialization-config)
+          (merge-config $ (when-not pure-config?
+                            (config-from-envvar)))
+          (if-let [custom-config (config-from-custom)]
+            (merge-config $ (when-not pure-config? custom-config))
+            (-> $
+                (merge-config (when-not pure-config? (config-from-global-file)))
+                (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))
+        migrate-legacy-config)))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
 

@@ -3,72 +3,107 @@
   "$id": "https://eca.dev/config.json",
   "title": "ECA Configuration",
   "description": "Configuration schema for ECA (Editor Code Assistant). See https://eca.dev/configuration for full documentation.",
+  "markdownDescription": "Configuration schema for ECA (Editor Code Assistant). See https://eca.dev/configuration for full documentation.",
   "type": "object",
   "additionalProperties": false,
   "allowComments": true,
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "JSON Schema reference for editor validation support."
+      "description": "JSON Schema reference for editor validation support.",
+      "markdownDescription": "JSON Schema reference for editor validation support."
     },
     "providers": {
       "type": "object",
       "description": "LLM provider configurations. Each key is the provider name.",
+      "markdownDescription": "LLM provider configurations. Each key is the provider name.",
       "additionalProperties": {
         "$ref": "#/definitions/provider"
       }
     },
     "defaultModel": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Default model in format 'provider/model'. When null, ECA decides the default model.",
-      "examples": ["anthropic/claude-sonnet-4.5", "openai/gpt-5.2"]
+      "markdownDescription": "Default model in format 'provider/model'. When null, ECA decides the default model.",
+      "examples": [
+        "anthropic/claude-sonnet-4.5",
+        "openai/gpt-5.2"
+      ]
+    },
+    "defaultAgent": {
+      "type": "string",
+      "description": "The default agent to use for new chats.",
+      "markdownDescription": "The default agent to use for new chats.",
+      "default": "code",
+      "examples": ["code", "plan"]
+    },
+    "agent": {
+      "type": "object",
+      "description": "Named agent configurations for different workflows.",
+      "markdownDescription": "Named agent configurations for different workflows.",
+      "additionalProperties": {
+        "$ref": "#/definitions/agent"
+      }
     },
     "defaultBehavior": {
       "type": "string",
-      "description": "The default behavior to use for new chats.",
-      "default": "agent",
-      "examples": ["agent", "plan"]
+      "description": "Deprecated: use 'defaultAgent' instead. Backward compatible alias.",
+      "markdownDescription": "Deprecated: use 'defaultAgent' instead. Backward compatible alias.",
+      "examples": ["code", "plan"]
     },
     "behavior": {
       "type": "object",
-      "description": "Named behavior configurations for different workflows.",
+      "description": "Deprecated: use 'agent' instead. Backward compatible alias.",
+      "markdownDescription": "Deprecated: use 'agent' instead. Backward compatible alias.",
       "additionalProperties": {
-        "$ref": "#/definitions/behavior"
+        "$ref": "#/definitions/agent"
       }
     },
     "hooks": {
       "type": "object",
       "description": "Shell actions that run before or after specific events.",
+      "markdownDescription": "Shell actions that run before or after specific events.",
       "additionalProperties": {
         "$ref": "#/definitions/hook"
       }
     },
     "rules": {
       "type": "array",
-      "description": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM behavior.",
+      "description": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM responses.",
+      "markdownDescription": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM responses.",
       "items": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
-            "description": "Path to a rule file (relative to workspace root or absolute)."
+            "description": "Path to a rule file (relative to workspace root or absolute).",
+            "markdownDescription": "Path to a rule file (relative to workspace root or absolute)."
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "additionalProperties": false
       }
     },
     "enabledSkills": {
       "type": "array",
       "description": "List of regex patterns matching skill names to enable. Defaults to all skills enabled.",
+      "markdownDescription": "List of regex patterns matching skill names to enable. Defaults to all skills enabled.",
       "items": {
         "type": "string"
       },
-      "default": [".*"]
+      "default": [
+        ".*"
+      ]
     },
     "disabledTools": {
       "type": "array",
       "description": "List of tool names to disable globally.",
+      "markdownDescription": "List of tool names to disable globally.",
       "items": {
         "type": "string"
       }
@@ -76,21 +111,26 @@
     "commands": {
       "type": "array",
       "description": "Custom command prompt files.",
+      "markdownDescription": "Custom command prompt files.",
       "items": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
-            "description": "Path to a command prompt markdown file."
+            "description": "Path to a command prompt markdown file.",
+            "markdownDescription": "Path to a command prompt markdown file."
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "additionalProperties": false
       }
     },
     "customTools": {
       "type": "object",
       "description": "User-defined command-line tools the LLM can use.",
+      "markdownDescription": "User-defined command-line tools the LLM can use.",
       "additionalProperties": {
         "$ref": "#/definitions/customTool"
       }
@@ -101,16 +141,19 @@
     "mcpTimeoutSeconds": {
       "type": "integer",
       "description": "Timeout in seconds for MCP server operations.",
+      "markdownDescription": "Timeout in seconds for MCP server operations.",
       "default": 60
     },
     "lspTimeoutSeconds": {
       "type": "integer",
       "description": "Timeout in seconds for LSP operations.",
+      "markdownDescription": "Timeout in seconds for LSP operations.",
       "default": 30
     },
     "mcpServers": {
       "type": "object",
       "description": "MCP (Model Context Protocol) server configurations.",
+      "markdownDescription": "MCP (Model Context Protocol) server configurations.",
       "additionalProperties": {
         "$ref": "#/definitions/mcpServer"
       }
@@ -120,11 +163,13 @@
     },
     "welcomeMessage": {
       "type": "string",
-      "description": "Custom welcome message shown when ECA starts."
+      "description": "Custom welcome message shown when ECA starts.",
+      "markdownDescription": "Custom welcome message shown when ECA starts."
     },
     "autoCompactPercentage": {
       "type": "integer",
       "description": "Context window usage percentage at which auto-compact triggers.",
+      "markdownDescription": "Context window usage percentage at which auto-compact triggers.",
       "minimum": 0,
       "maximum": 100,
       "default": 75
@@ -132,6 +177,7 @@
     "index": {
       "type": "object",
       "description": "Indexing configuration for workspace files.",
+      "markdownDescription": "Indexing configuration for workspace files.",
       "additionalProperties": false,
       "properties": {
         "ignoreFiles": {
@@ -142,7 +188,10 @@
               "type": {
                 "type": "string",
                 "description": "Type of ignore file to use.",
-                "examples": ["gitignore"]
+                "markdownDescription": "Type of ignore file to use.",
+                "examples": [
+                  "gitignore"
+                ]
               }
             }
           }
@@ -150,16 +199,19 @@
         "repoMap": {
           "type": "object",
           "description": "Repository map configuration for context building.",
+          "markdownDescription": "Repository map configuration for context building.",
           "additionalProperties": false,
           "properties": {
             "maxTotalEntries": {
               "type": "integer",
               "description": "Maximum total entries in the repo map.",
+              "markdownDescription": "Maximum total entries in the repo map.",
               "default": 800
             },
             "maxEntriesPerDir": {
               "type": "integer",
               "description": "Maximum entries per directory in the repo map.",
+              "markdownDescription": "Maximum entries per directory in the repo map.",
               "default": 50
             }
           }
@@ -169,38 +221,53 @@
     "completion": {
       "type": "object",
       "description": "Inline completion configuration.",
+      "markdownDescription": "Inline completion configuration.",
       "additionalProperties": false,
       "properties": {
         "model": {
           "type": "string",
           "description": "Model to use for inline completions.",
+          "markdownDescription": "Model to use for inline completions.",
           "default": "openai/gpt-4.1",
-          "examples": ["openai/gpt-4.1", "github-copilot/gpt-4.1"]
+          "examples": [
+            "openai/gpt-4.1",
+            "github-copilot/gpt-4.1"
+          ]
         }
       }
     },
     "rewrite": {
       "type": "object",
       "description": "Rewrite feature configuration.",
+      "markdownDescription": "Rewrite feature configuration.",
       "additionalProperties": false,
       "properties": {
         "model": {
           "type": "string",
           "description": "Model to use for rewrites. Defaults to the same model selection as chat.",
-          "examples": ["openai/gpt-4.1", "github-copilot/gpt-4.1"]
+          "markdownDescription": "Model to use for rewrites. Defaults to the same model selection as chat.",
+          "examples": [
+            "openai/gpt-4.1",
+            "github-copilot/gpt-4.1"
+          ]
         }
       }
     },
     "otlp": {
       "type": "object",
       "description": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings.",
+      "markdownDescription": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings.",
       "additionalProperties": {
         "type": "string"
       }
     },
     "netrcFile": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Path to a custom netrc credential file. When null, searches ~/.netrc or ~/_netrc.",
+      "markdownDescription": "Path to a custom netrc credential file. When null, searches ~/.netrc or ~/_netrc.",
       "default": null
     }
   },
@@ -208,53 +275,75 @@
     "provider": {
       "type": "object",
       "description": "Configuration for an LLM provider.",
+      "markdownDescription": "Configuration for an LLM provider.",
       "properties": {
         "api": {
           "type": "string",
           "description": "The API protocol to use for this provider.",
-          "enum": ["openai-responses", "openai-chat", "anthropic"]
+          "markdownDescription": "The API protocol to use for this provider.",
+          "enum": [
+            "openai-responses",
+            "openai-chat",
+            "anthropic"
+          ]
         },
         "fetchModels": {
           "type": "boolean",
-          "description": "Whether to fetch available models from the provider's API."
+          "description": "Whether to fetch available models from the provider's API.",
+          "markdownDescription": "Whether to fetch available models from the provider's API."
         },
         "url": {
           "type": "string",
           "description": "Base URL for the provider's API. Supports dynamic strings like ${env:VAR}.",
+          "markdownDescription": "Base URL for the provider's API. Supports dynamic strings like ${env:VAR}.",
           "format": "uri"
         },
         "key": {
-          "type": ["string", "null"],
-          "description": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}.",
+          "markdownDescription": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}."
         },
         "keyRc": {
           "type": "string",
-          "description": "Credential file lookup in format [login@]machine[:port] for netrc-based authentication."
+          "description": "Credential file lookup in format [login@]machine[:port] for netrc-based authentication.",
+          "markdownDescription": "Credential file lookup in format [login@]machine[:port] for netrc-based authentication."
         },
         "requiresAuth": {
           "type": "boolean",
-          "description": "Whether this provider requires authentication."
+          "description": "Whether this provider requires authentication.",
+          "markdownDescription": "Whether this provider requires authentication."
         },
         "completionUrlRelativePath": {
           "type": "string",
-          "description": "Custom relative URL path for completion requests."
+          "description": "Custom relative URL path for completion requests.",
+          "markdownDescription": "Custom relative URL path for completion requests."
         },
         "thinkTagStart": {
           "type": "string",
-          "description": "Custom start tag for thinking/reasoning blocks in model responses."
+          "description": "Custom start tag for thinking/reasoning blocks in model responses.",
+          "markdownDescription": "Custom start tag for thinking/reasoning blocks in model responses."
         },
         "thinkTagEnd": {
           "type": "string",
-          "description": "Custom end tag for thinking/reasoning blocks in model responses."
+          "description": "Custom end tag for thinking/reasoning blocks in model responses.",
+          "markdownDescription": "Custom end tag for thinking/reasoning blocks in model responses."
         },
         "httpClient": {
           "type": "string",
           "description": "HTTP client implementation to use.",
-          "enum": ["jdk", "okhttp"]
+          "markdownDescription": "HTTP client implementation to use.",
+          "enum": [
+            "jdk",
+            "okhttp"
+          ]
         },
         "models": {
           "type": "object",
           "description": "Available models for this provider. Each key is the model alias.",
+          "markdownDescription": "Available models for this provider. Each key is the model alias.",
           "additionalProperties": {
             "$ref": "#/definitions/model"
           }
@@ -265,19 +354,23 @@
     "model": {
       "type": "object",
       "description": "Configuration for a specific model.",
+      "markdownDescription": "Configuration for a specific model.",
       "properties": {
         "modelName": {
           "type": "string",
-          "description": "The actual model identifier sent to the API, if different from the alias key."
+          "description": "The actual model identifier sent to the API, if different from the alias key.",
+          "markdownDescription": "The actual model identifier sent to the API, if different from the alias key."
         },
         "extraPayload": {
           "type": "object",
           "description": "Additional fields to include in the API request payload.",
+          "markdownDescription": "Additional fields to include in the API request payload.",
           "additionalProperties": true
         },
         "extraHeaders": {
           "type": "object",
           "description": "Additional HTTP headers to include in API requests.",
+          "markdownDescription": "Additional HTTP headers to include in API requests.",
           "additionalProperties": {
             "type": "string"
           }
@@ -285,43 +378,54 @@
         "reasoningHistory": {
           "type": "string",
           "description": "How to handle reasoning/thinking history in conversation context.",
-          "enum": ["all", "turn", "off"],
+          "markdownDescription": "How to handle reasoning/thinking history in conversation context.",
+          "enum": [
+            "all",
+            "turn",
+            "off"
+          ],
           "default": "all"
         }
       },
       "additionalProperties": false
     },
-    "behavior": {
+    "agent": {
       "type": "object",
-      "description": "A named behavior configuration.",
+      "description": "A named agent configuration.",
+      "markdownDescription": "A named agent configuration.",
       "properties": {
         "mode": {
           "type": "string",
-          "description": "Behavior mode. 'primary' for standalone behaviors, 'subagent' for agent-spawnable behaviors.",
+          "description": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
+          "markdownDescription": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
           "enum": ["primary", "subagent"]
         },
         "defaultModel": {
           "type": "string",
-          "description": "Default model for this behavior, overriding the global default.",
+          "description": "Default model for this agent, overriding the global default.",
+          "markdownDescription": "Default model for this agent, overriding the global default.",
           "examples": ["anthropic/claude-sonnet-4.5"]
         },
         "disabledTools": {
           "type": "array",
-          "description": "Tools to disable for this behavior.",
+          "description": "Tools to disable for this agent.",
+          "markdownDescription": "Tools to disable for this agent.",
           "items": {
             "type": "string"
           }
         },
         "enabledSkills": {
           "type": "array",
-          "description": "List of regex patterns matching skill names to enable for this behavior.",
+          "description": "List of regex patterns matching skill names to enable for this agent.",
+          "markdownDescription": "List of regex patterns matching skill names to enable for this agent.",
           "items": {
             "type": "string"
           }
         },
         "autoCompactPercentage": {
           "type": "integer",
-          "description": "Context window usage percentage at which auto-compact triggers for this behavior.",
+          "description": "Context window usage percentage at which auto-compact triggers for this agent.",
+          "markdownDescription": "Context window usage percentage at which auto-compact triggers for this agent.",
           "minimum": 0,
           "maximum": 100
         },
@@ -337,11 +441,16 @@
     "hook": {
       "type": "object",
       "description": "A hook configuration for running shell actions on events.",
-      "required": ["type", "actions"],
+      "markdownDescription": "A hook configuration for running shell actions on events.",
+      "required": [
+        "type",
+        "actions"
+      ],
       "properties": {
         "type": {
           "type": "string",
           "description": "The event type that triggers this hook.",
+          "markdownDescription": "The event type that triggers this hook.",
           "enum": [
             "sessionStart",
             "sessionEnd",
@@ -355,21 +464,25 @@
         },
         "matcher": {
           "type": "string",
-          "description": "Regex pattern for matching server__tool-name. Only for *ToolCall hook types."
+          "description": "Regex pattern for matching server__tool-name. Only for *ToolCall hook types.",
+          "markdownDescription": "Regex pattern for matching server__tool-name. Only for *ToolCall hook types."
         },
         "visible": {
           "type": "boolean",
           "description": "Whether to show hook execution in chat.",
+          "markdownDescription": "Whether to show hook execution in chat.",
           "default": true
         },
         "runOnError": {
           "type": "boolean",
           "description": "For postToolCall hooks, whether to run even if the tool errored.",
+          "markdownDescription": "For postToolCall hooks, whether to run even if the tool errored.",
           "default": false
         },
         "actions": {
           "type": "array",
           "description": "List of actions to execute when the hook triggers.",
+          "markdownDescription": "List of actions to execute when the hook triggers.",
           "items": {
             "$ref": "#/definitions/hookAction"
           }
@@ -380,24 +493,33 @@
     "hookAction": {
       "type": "object",
       "description": "A shell action executed by a hook.",
-      "required": ["type"],
+      "markdownDescription": "A shell action executed by a hook.",
+      "required": [
+        "type"
+      ],
       "properties": {
         "type": {
           "type": "string",
           "description": "Action type.",
-          "enum": ["shell"]
+          "markdownDescription": "Action type.",
+          "enum": [
+            "shell"
+          ]
         },
         "shell": {
           "type": "string",
-          "description": "Inline shell script to execute."
+          "description": "Inline shell script to execute.",
+          "markdownDescription": "Inline shell script to execute."
         },
         "file": {
           "type": "string",
-          "description": "Path to a shell script file to execute."
+          "description": "Path to a shell script file to execute.",
+          "markdownDescription": "Path to a shell script file to execute."
         },
         "timeout": {
           "type": "integer",
           "description": "Timeout in milliseconds for this action.",
+          "markdownDescription": "Timeout in milliseconds for this action.",
           "default": 30000
         }
       },
@@ -406,33 +528,44 @@
     "customTool": {
       "type": "object",
       "description": "A user-defined command-line tool.",
-      "required": ["description", "command", "schema"],
+      "markdownDescription": "A user-defined command-line tool.",
+      "required": [
+        "description",
+        "command",
+        "schema"
+      ],
       "properties": {
         "description": {
           "type": "string",
-          "description": "Description of what the tool does. Used by the LLM to decide when to use it."
+          "description": "Description of what the tool does. Used by the LLM to decide when to use it.",
+          "markdownDescription": "Description of what the tool does. Used by the LLM to decide when to use it."
         },
         "command": {
           "type": "string",
-          "description": "Command template with {{argument_name}} placeholders."
+          "description": "Command template with {{argument_name}} placeholders.",
+          "markdownDescription": "Command template with {{argument_name}} placeholders."
         },
         "schema": {
           "type": "object",
           "description": "Schema defining the tool's parameters.",
+          "markdownDescription": "Schema defining the tool's parameters.",
           "properties": {
             "properties": {
               "type": "object",
               "description": "Parameter definitions.",
+              "markdownDescription": "Parameter definitions.",
               "additionalProperties": {
                 "type": "object",
                 "properties": {
                   "type": {
                     "type": "string",
-                    "description": "Parameter type."
+                    "description": "Parameter type.",
+                    "markdownDescription": "Parameter type."
                   },
                   "description": {
                     "type": "string",
-                    "description": "Parameter description for the LLM."
+                    "description": "Parameter description for the LLM.",
+                    "markdownDescription": "Parameter description for the LLM."
                   }
                 }
               }
@@ -440,6 +573,7 @@
             "required": {
               "type": "array",
               "description": "List of required parameter names.",
+              "markdownDescription": "List of required parameter names.",
               "items": {
                 "type": "string"
               }
@@ -453,6 +587,7 @@
     "toolCallConfig": {
       "type": "object",
       "description": "Tool call configuration including approval rules and tool-specific settings.",
+      "markdownDescription": "Tool call configuration including approval rules and tool-specific settings.",
       "properties": {
         "approval": {
           "$ref": "#/definitions/approval"
@@ -460,11 +595,13 @@
         "readFile": {
           "type": "object",
           "description": "Configuration for the read_file tool.",
+          "markdownDescription": "Configuration for the read_file tool.",
           "additionalProperties": false,
           "properties": {
             "maxLines": {
               "type": "integer",
               "description": "Maximum number of lines returned by read_file.",
+              "markdownDescription": "Maximum number of lines returned by read_file.",
               "default": 2000
             }
           }
@@ -472,11 +609,13 @@
         "shellCommand": {
           "type": "object",
           "description": "Configuration for the shell_command tool.",
+          "markdownDescription": "Configuration for the shell_command tool.",
           "additionalProperties": false,
           "properties": {
             "summaryMaxLength": {
               "type": "integer",
               "description": "Maximum length of shell command summary.",
+              "markdownDescription": "Maximum length of shell command summary.",
               "default": 25
             }
           }
@@ -484,16 +623,19 @@
         "outputTruncation": {
           "type": "object",
           "description": "Output truncation settings for tool results.",
+          "markdownDescription": "Output truncation settings for tool results.",
           "additionalProperties": false,
           "properties": {
             "lines": {
               "type": "integer",
               "description": "Maximum number of lines in tool output.",
+              "markdownDescription": "Maximum number of lines in tool output.",
               "default": 2000
             },
             "sizeKb": {
               "type": "integer",
               "description": "Maximum size in kilobytes for tool output.",
+              "markdownDescription": "Maximum size in kilobytes for tool output.",
               "default": 50
             }
           }
@@ -504,16 +646,23 @@
     "approval": {
       "type": "object",
       "description": "Tool approval configuration.",
+      "markdownDescription": "Tool approval configuration.",
       "properties": {
         "byDefault": {
           "type": "string",
           "description": "Default approval mode for tools not explicitly configured.",
-          "enum": ["ask", "allow", "deny"],
+          "markdownDescription": "Default approval mode for tools not explicitly configured.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
           "default": "ask"
         },
         "allow": {
           "type": "object",
           "description": "Tools that are automatically allowed. Key is tool or server name.",
+          "markdownDescription": "Tools that are automatically allowed. Key is tool or server name.",
           "additionalProperties": {
             "$ref": "#/definitions/approvalMatcher"
           }
@@ -521,6 +670,7 @@
         "ask": {
           "type": "object",
           "description": "Tools that require user approval. Key is tool or server name.",
+          "markdownDescription": "Tools that require user approval. Key is tool or server name.",
           "additionalProperties": {
             "$ref": "#/definitions/approvalMatcher"
           }
@@ -528,6 +678,7 @@
         "deny": {
           "type": "object",
           "description": "Tools that are denied. Key is tool or server name.",
+          "markdownDescription": "Tools that are denied. Key is tool or server name.",
           "additionalProperties": {
             "$ref": "#/definitions/approvalMatcher"
           }
@@ -538,10 +689,12 @@
     "approvalMatcher": {
       "type": "object",
       "description": "Matcher configuration for a tool approval rule.",
+      "markdownDescription": "Matcher configuration for a tool approval rule.",
       "properties": {
         "argsMatchers": {
           "type": "object",
           "description": "Map of argument name to list of Java regex patterns to match against.",
+          "markdownDescription": "Map of argument name to list of Java regex patterns to match against.",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -555,19 +708,23 @@
     "mcpServer": {
       "type": "object",
       "description": "MCP server configuration. Use 'url' for remote HTTP servers or 'command' for stdio servers.",
+      "markdownDescription": "MCP server configuration. Use 'url' for remote HTTP servers or 'command' for stdio servers.",
       "properties": {
         "url": {
           "type": "string",
           "description": "URL for remote HTTP-streamable or SSE MCP servers.",
+          "markdownDescription": "URL for remote HTTP-streamable or SSE MCP servers.",
           "format": "uri"
         },
         "command": {
           "type": "string",
-          "description": "Command to launch a stdio MCP server."
+          "description": "Command to launch a stdio MCP server.",
+          "markdownDescription": "Command to launch a stdio MCP server."
         },
         "args": {
           "type": "array",
           "description": "Arguments for the stdio MCP server command.",
+          "markdownDescription": "Arguments for the stdio MCP server command.",
           "items": {
             "type": "string"
           }
@@ -575,6 +732,7 @@
         "env": {
           "type": "object",
           "description": "Environment variables to set for the MCP server process.",
+          "markdownDescription": "Environment variables to set for the MCP server process.",
           "additionalProperties": {
             "type": "string"
           }
@@ -582,6 +740,7 @@
         "disabled": {
           "type": "boolean",
           "description": "Whether this MCP server is disabled.",
+          "markdownDescription": "Whether this MCP server is disabled.",
           "default": false
         }
       },
@@ -590,38 +749,47 @@
     "prompts": {
       "type": "object",
       "description": "Custom prompt configurations. Values support dynamic strings like ${file:path} and ${classpath:path}.",
+      "markdownDescription": "Custom prompt configurations. Values support dynamic strings like ${file:path} and ${classpath:path}.",
       "properties": {
         "chat": {
           "type": "string",
-          "description": "System prompt for chat interactions."
+          "description": "System prompt for chat interactions.",
+          "markdownDescription": "System prompt for chat interactions."
         },
         "chatTitle": {
           "type": "string",
-          "description": "Prompt for generating chat titles."
+          "description": "Prompt for generating chat titles.",
+          "markdownDescription": "Prompt for generating chat titles."
         },
         "compact": {
           "type": "string",
-          "description": "Prompt for compacting chat context."
+          "description": "Prompt for compacting chat context.",
+          "markdownDescription": "Prompt for compacting chat context."
         },
         "init": {
           "type": "string",
-          "description": "Prompt for the /init command."
+          "description": "Prompt for the /init command.",
+          "markdownDescription": "Prompt for the /init command."
         },
         "skillCreate": {
           "type": "string",
-          "description": "Prompt for skill creation."
+          "description": "Prompt for skill creation.",
+          "markdownDescription": "Prompt for skill creation."
         },
         "completion": {
           "type": "string",
-          "description": "System prompt for inline completions."
+          "description": "System prompt for inline completions.",
+          "markdownDescription": "System prompt for inline completions."
         },
         "rewrite": {
           "type": "string",
-          "description": "System prompt for rewrites."
+          "description": "System prompt for rewrites.",
+          "markdownDescription": "System prompt for rewrites."
         },
         "tools": {
           "type": "object",
           "description": "Custom descriptions for specific tools. Key is the tool name.",
+          "markdownDescription": "Custom descriptions for specific tools. Key is the tool name.",
           "additionalProperties": {
             "type": "string"
           }
