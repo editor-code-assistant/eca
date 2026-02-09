@@ -1248,14 +1248,14 @@
 <tr>
 <td><code>fetchModels</code></td>
 <td>boolean</td>
-<td>Enable automatic model discovery from <code>/models</code> endpoint (OpenAI-compatible providers)</td>
+<td>Enable/disable automatic model loading from <code>models.dev</code> (enabled by default when <code>api</code> is set)</td>
 <td>No</td>
 </tr>
 </tbody>
 </table>
 <p><em>* url and key will be searched as envs <code>&lt;provider&gt;_API_URL</code> and <code>&lt;provider&gt;_API_KEY</code>, they require the env to be found or config to work.</em></p>
 <p>Examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="custom-provider" name="__tabbed_1" type="radio" /><input id="custom-model-settings--payload--header" name="__tabbed_1" type="radio" /><input id="reasoning-in-conversation-history" name="__tabbed_1" type="radio" /><input id="dynamic-model-discovery" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="custom-provider">Custom provider</label><label for="custom-model-settings--payload--header">Custom model settings / payload / header</label><label for="reasoning-in-conversation-history">Reasoning in conversation history</label><label for="dynamic-model-discovery">Dynamic model discovery</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="custom-provider" name="__tabbed_1" type="radio" /><input id="custom-model-settings--payload--header" name="__tabbed_1" type="radio" /><input id="reasoning-in-conversation-history" name="__tabbed_1" type="radio" /><input id="dynamic-model-discovery-modelsdev" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="custom-provider">Custom provider</label><label for="custom-model-settings--payload--header">Custom model settings / payload / header</label><label for="reasoning-in-conversation-history">Reasoning in conversation history</label><label for="dynamic-model-discovery-modelsdev">Dynamic model discovery (models.dev)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1306,19 +1306,21 @@ This <strong>only applies</strong> to <code>openai_chat</code> API and it contro
 <p>Default: <code>"all"</code>.</p>
 </div>
 <div class="tabbed-block">
-<p>For OpenAI-compatible providers, set <code>fetchModels: true</code> to automatically discover available models:</p>
+<p>For providers with <code>api</code> configured, ECA loads models from <code>models.dev</code> by default.
+Matching is done by provider <code>url</code> (against <code>models.dev</code> <code>api</code> field). If a models.dev provider has no <code>api</code> field (for example <code>anthropic</code>), ECA falls back to provider id key.</p>
+<p>Set <code>fetchModels: false</code> to disable dynamic loading and use only models from your config:</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;openrouter&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://openrouter.ai/api/v1&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;fetchModels&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">      </span><span class="s2">&quot;fetchModels&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>Static <code>models</code> config overrides discovered models, allowing customization.</p>
+<p>Static <code>models</code> config overrides/extends discovered models, allowing customization.</p>
 </div>
 </div>
 </div>
@@ -1580,7 +1582,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 9, 2026 12:42:20 UTC">February 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 9, 2026 13:07:28 UTC">February 9, 2026</span>
   </span>
 
     
