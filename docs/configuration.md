@@ -14,7 +14,7 @@ There are multiples ways to configure ECA:
 
     ```javascript title="~/.config/eca/config.json"
     {
-      "defaultBehavior": "plan"
+      "defaultAgent": "plan"
     }
     ```
 
@@ -24,7 +24,7 @@ There are multiples ways to configure ECA:
 
     ```javascript title=".eca/config.json"
     {
-      "defaultBehavior": "plan"
+      "defaultAgent": "plan"
     }
     ```
 
@@ -36,7 +36,7 @@ There are multiples ways to configure ECA:
 
     ```javascript
     "initializationOptions": {
-      "defaultBehavior": "plan"
+      "defaultAgent": "plan"
     }
     ```
 

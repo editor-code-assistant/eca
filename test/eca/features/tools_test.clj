@@ -221,7 +221,7 @@
         (is (= :deny (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "plan")))
         ;; Safe commands should use byDefault (ask)
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config "plan")))))
-    (testing "build agent does NOT have plan restrictions"
+    (testing "code agent does NOT have plan restrictions"
       (let [config {:agent {"plan" {:toolCall {:approval {:deny {"shell_command" {:argsMatchers {"command" [".*>.*" ".*rm.*"]}}}}}}}}]
         ;; Same dangerous commands that are denied in plan mode should be allowed in build mode
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "rm -rf folder"} {} config "code")))
@@ -291,7 +291,7 @@
         "date"
         "env"))
 
-    (testing "same commands work fine in build agent mode (not denied)"
+    (testing "same commands work fine in code agent mode (not denied)"
       (are [command] (not= :deny
                            (f.tools/approval all-tools shell-tool
                                              {"command" command} {} config "code"))

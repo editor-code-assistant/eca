@@ -33,7 +33,7 @@
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
-                                                         {:chat {:defaultBehavior "plan"}})})))))
+                                                         {:chat {:defaultAgent "plan"}})})))))
 
     (testing "initialized notification"
       (eca/notify! (fixture/initialized-notification)))

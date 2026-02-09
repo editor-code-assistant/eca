@@ -8,7 +8,7 @@ Chat is the main feature of ECA, allowing user to talk with LLM to behave like a
 
 ### Agents
 
-![agents](./images/features/chat-behaviors.png){ align=right }
+![agents](./images/features/chat-agents.png){ align=right }
 
 Agents affect the prompt passed to LLM and the tools to include, ECA allows you to override or __create your own agents__, the built-in agents are:
 

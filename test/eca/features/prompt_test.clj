@@ -6,7 +6,7 @@
    [eca.test-helper :as h]))
 
 (deftest build-instructions-test
-  (testing "Should create instructions with rules, contexts, and build agent"
+  (testing "Should create instructions with rules, contexts, and code agent"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
                             {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
                             {:type :repoMap}
