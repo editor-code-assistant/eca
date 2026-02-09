@@ -6,7 +6,7 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [assoc-some deep-merge]]
+   [eca.shared :refer [assoc-some deep-merge join-api-url]]
    [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
@@ -115,7 +115,7 @@
 (defn ^:private base-chat-request!
   [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream
            on-tools-called-wrapper http-client]}]
-  (let [url (str api-url (or url-relative-path chat-completions-path))
+  (let [url (join-api-url api-url (or url-relative-path chat-completions-path))
         extra-headers (if (fn? extra-headers)
                         (extra-headers {:body body})
                         extra-headers)

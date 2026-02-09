@@ -44,48 +44,25 @@
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
                          :key "${env:OPENAI_API_KEY}"
                          :requiresAuth? true
-                         :models {"gpt-5.2" {}
-                                  "gpt-5.2-codex" {}
-                                  "gpt-5.3-codex" {}
+                         :models {"gpt-4.1" {}
+                                  "gpt-5" {}
                                   "gpt-5-mini" {}
-                                  "gpt-5-nano" {}
-                                  "gpt-4.1" {}}}
+                                  "gpt-5.2" {}}}
                "anthropic" {:api "anthropic"
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5-20250929"}
-                                     "claude-opus-4.6" {:modelName "claude-opus-4-6"}
-                                     "claude-opus-4.5" {:modelName "claude-opus-4-5-20251101"}
-                                     "claude-opus-4.1" {:modelName "claude-opus-4-1-20250805"}
-                                     "claude-haiku-4.5" {:modelName "claude-haiku-4-5-20251001"}}}
+                            :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
                                  :requiresAuth? true
-                                 :models {"claude-haiku-4.5" {}
-                                          "claude-opus-4.1" {}
-                                          "claude-opus-4.5" {}
-                                          "claude-opus-4.6" {}
-                                          "claude-sonnet-4.5" {}
-                                          "gpt-5.2" {}
-                                          "gpt-5.1" {}
-                                          "gpt-5" {}
-                                          "gpt-5-mini" {}
-                                          "gpt-4.1" {}
-                                          "gpt-4o" {}
-                                          "grok-code-fast-1" {}
-                                          "gemini-2.5-pro" {}
-                                          "gemini-3-pro-preview" {}
-                                          "gemini-3-flash-preview" {}}}
+                                 :models {"gpt-5.2" {}}}
                "google" {:api "openai-chat"
                          :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
                          :key "${env:GOOGLE_API_KEY}"
                          :requiresAuth? true
-                         :models {"gemini-2.0-flash" {}
-                                  "gemini-2.5-pro" {}
-                                  "gemini-3-pro-preview" {}
-                                  "gemini-3-flash-preview" {}}}
+                         :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultBehavior "agent"
    :behavior {"agent" {:prompts {:chat "${classpath:prompts/agent_behavior.md}"}

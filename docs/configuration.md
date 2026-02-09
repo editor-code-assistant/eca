@@ -276,13 +276,13 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
       }
     }
     ```
-    
+
 ## Skills
 
 Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
 Following the [agentskills](https://agentskills.io/) standard, ECA search for skills following `~/.config/eca/skills/some-skill/SKILL.md` and `.eca/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
 
-When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request. 
+When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request.
 
 Check the examples:
 
@@ -293,12 +293,12 @@ Check the examples:
     name: lint-fix
     description: Learn how to lint and fix the code
     ---
-    
+
     # Instructions
-    
+
     Run `clojure-lsp diagnostics` to lint the code
     ```
-    
+
 === "More complex skill using scripts"
 
     ```markdown title="~/.config/eca/skills/gif-generator/SKILL.md"
@@ -306,12 +306,12 @@ Check the examples:
     name: gif-generator
     description: Knowledge and utils to create gifs. Provide concepts and scripts, use when requested to create gifs.
     ---
-    
+
     - Use scripts/gif-generate.py passing gif name and dimensions.
     - <More complex instructions here>
     ...
     ```
-    
+
     ```pyton title="~/.config/eca/skills/gif-generator/scripts/generator.py"
     from PIL import Image
     # Python code that generates a gif here
@@ -322,7 +322,7 @@ Check the examples:
 
     It's possible to control which skills LLM have access globally or for a specific behavior.
     You just need to define a tool call approval for the `eca__skill` for a specific skill `name`:
-    
+
     Example disabling all skills but one for a behavior
 
     ```javascript title="~/.config/eca/config.json"
@@ -347,7 +347,7 @@ Check the examples:
       }
     }
     ```
-    
+
 You can have more directories and contents like `scripts/`, `references/`, `assets/` for a skill making it really powerful, check [the spec](https://agentskills.io/specification#optional-directories) for more details.
 
 ## Rules
@@ -382,7 +382,7 @@ There are 3 possible ways to configure rules following this order of priority:
       "rules": [{"path": "my-rule.md"}]
     }
     ```
-    
+
 ## Custom command prompts
 
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.

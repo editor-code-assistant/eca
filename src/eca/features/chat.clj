@@ -1371,10 +1371,16 @@
               (swap! db* assoc-in [:chat-start-fired chat-id] true)))
         ;; Re-read DB after potential chatStart modifications
         db @db*
-        ;; Simple model selection without behavior switching logic
+        ;; Respect explicit model; otherwise, if behavior default is missing from
+        ;; available models, fallback to deterministic default-model resolution.
         full-model (or model
-                       (:defaultModel behavior-config)
-                       (default-model db config))
+                       (let [behavior-default-model (:defaultModel behavior-config)]
+                         (if (and behavior-default-model
+                                  (contains? (:models db) behavior-default-model))
+                           behavior-default-model
+                           (default-model db config))))
+        _ (when-not full-model
+            (throw (ex-info llm-api/no-available-model-error-msg {})))
         rules (f.rules/all config (:workspace-folders db))
         all-tools (f.tools/all-tools chat-id behavior @db* config)
         skills (->> (f.skills/all config (:workspace-folders db))
