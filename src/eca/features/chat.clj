@@ -870,11 +870,10 @@
   "Check if subagent has reached max steps. Increments step count.
    Returns true if max steps reached, false otherwise.
    When max-steps is nil, the subagent runs with no step limit.
-   Only applies to subagents (chats with :agent-def)."
+   Only applies to subagents (chats with :subagent)."
   [db* chat-id]
-  ;; presence of :agent-def indicates this is a subagent
-  (when-let [agent-def (get-in @db* [:chats chat-id :agent-def])]
-    (let [max-steps (:max-steps agent-def)
+  (when-let [subagent (get-in @db* [:chats chat-id :subagent])]
+    (let [max-steps (:max-steps subagent)
           new-db (swap! db* update-in [:chats chat-id :current-step] (fnil inc 1))
           new-step (get-in new-db [:chats chat-id :current-step])]
       (when max-steps
@@ -1084,7 +1083,7 @@
                           (finish-chat-prompt! :idle chat-ctx) nil)
                       {:tools all-tools
                        :new-messages (get-in @db* [:chats chat-id :messages])})
-                    (if (get-in @db* [:chats chat-id :agent-def])
+                    (if (get-in @db* [:chats chat-id :subagent])
                       ;; Subagent: user can't provide rejection input directly, so continue
                       ;; the LLM loop with a rejection message letting the subagent adapt
                       (do (add-to-history! {:role "user"

@@ -28,8 +28,8 @@
   [agent-name config]
   (first (filter #(= agent-name (:name %)) (all-agents config))))
 
-(defn ^:private max-steps [agent-def]
-  (:max-steps agent-def))
+(defn ^:private max-steps [subagent]
+  (:max-steps subagent))
 
 (defn ^:private extract-final-summary
   "Extract the final assistant message as summary from chat messages."
@@ -91,14 +91,13 @@
         db @db*
 
         ;; Check for nesting - prevent subagents from spawning other subagents
-        _ (when (get-in db [:chats chat-id :agent-def])
+        _ (when (get-in db [:chats chat-id :subagent])
             (throw (ex-info "Agents cannot spawn other agents (nesting not allowed)"
                             {:agent-name agent-name
                              :parent-chat-id chat-id})))
 
-        ;; Load agent definition
-        agent-def (get-agent agent-name config)
-        _ (when-not agent-def
+        subagent (get-agent agent-name config)
+        _ (when-not subagent
             (let [available (all-agents config)]
               (throw (ex-info (format "Agent '%s' not found. Available agents: %s"
                                       agent-name
@@ -112,16 +111,16 @@
         subagent-chat-id (->subagent-chat-id tool-call-id)
 
         parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or (:model agent-def) parent-model)]
+        subagent-model (or (:model subagent) parent-model)]
 
     (logger/info logger-tag (format "Spawning agent '%s' for task: %s" agent-name task))
 
-    (let [max-steps (max-steps agent-def)]
+    (let [max-steps (max-steps subagent)]
       (swap! db* assoc-in [:chats subagent-chat-id]
              (cond-> {:id subagent-chat-id
                       :parent-chat-id chat-id
                       :agent-name agent-name
-                      :agent-def agent-def
+                      :subagent subagent
                       :current-step 1}
                max-steps (assoc :max-steps max-steps)))
 
@@ -157,7 +156,7 @@
             ;; Send step progress when step advances
             (when (> current-step last-step)
               (send-step-progress! messenger chat-id tool-call-id agent-name
-                                   subagent-chat-id current-step (max-steps agent-def) subagent-model arguments))
+                                   subagent-chat-id current-step (max-steps subagent) subagent-model arguments))
             (cond
               ;; Parent chat stopped — propagate stop to subagent
               (= :stopping (:status (call-state-fn)))
@@ -168,7 +167,7 @@
               (let [messages (get-in db [:chats subagent-chat-id :messages] [])
                     summary (extract-final-summary messages)
                     max-steps-reached? (get-in db [:chats subagent-chat-id :max-steps-reached?])
-                    max-steps-limit (max-steps agent-def)]
+                    max-steps-limit (max-steps subagent)]
                 (if max-steps-reached?
                   (logger/info logger-tag (format "Agent '%s' halted after reaching max steps (%d)" agent-name max-steps-limit))
                   (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
@@ -224,10 +223,10 @@
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
   (let [agent-name (get arguments "agent")
-        agent-def (when agent-name
-                    (get-agent agent-name config))
+        subagent (when agent-name
+                   (get-agent agent-name config))
         parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or (:model agent-def) parent-model)
+        subagent-model (or (:model subagent) parent-model)
         subagent-chat-id (when tool-call-id
                            (->subagent-chat-id tool-call-id))]
     {:type :subagent
@@ -235,7 +234,7 @@
      :model subagent-model
      :agent-name agent-name
      :step (get-in db [:chats subagent-chat-id :current-step] 1)
-     :max-steps (max-steps agent-def)}))
+     :max-steps (max-steps subagent)}))
 
 (defmethod tools.util/tool-call-details-after-invocation :spawn_agent
   [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]

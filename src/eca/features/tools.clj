@@ -164,11 +164,10 @@
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers.
    Removes denied tools.
-   When chat is a subagent (has :agent-def), filters tools based on agent definition."
+   When chat is a subagent (has :subagent), filters tools based on agent definition."
   [chat-id agent-name db config]
   (let [disabled-tools (get-disabled-tools config agent-name)
-        ;; presence of :agent-def indicates this is a subagent
-        agent-def (get-in db [:chats chat-id :agent-def])
+        subagent (get-in db [:chats chat-id :subagent])
         all-tools (->> (concat
                         (mapv #(assoc % :origin :native) (native-tools db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
@@ -188,7 +187,7 @@
                                          :chat-id chat-id
                                          :config config})))))
         ;; Apply subagent tool filtering if applicable
-        all-tools (if agent-def
+        all-tools (if subagent
                     (filter-subagent-tools all-tools)
                     all-tools)]
     (remove (fn [tool]
