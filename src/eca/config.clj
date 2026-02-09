@@ -141,7 +141,7 @@
   - `${env:SOME-ENV:default-value}`: Replace with a env falling back to a optional default value
   - `${file:/some/path}`: Replace with a file content checking from cwd if relative
   - `${classpath:path/to/file}`: Replace with a file content found checking classpath
-  - `${netrc:api.provider.com}`: Replace with the content from Unix net RC [credential files](https://eca.dev/models/#credential-file-authentication)"
+  - `${netrc:api.provider.com}`: Replace with the content from Unix net RC [credential files](https://eca.dev/config/models/#credential-file-authentication)"
   [s cwd config]
   (some-> s
           (string/replace #"\$\{env:([^:}]+)(?::([^}]*))?\}"

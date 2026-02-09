@@ -20,8 +20,8 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 <p align="center">
   <a href="https://eca.dev/installation"><strong>installation</strong></a> •
   <a href="https://eca.dev/features"><strong>features</strong></a> •
-  <a href="https://eca.dev/configuration"><strong>configuration</strong></a> •
-  <a href="https://eca.dev/models"><strong>models</strong></a> •
+  <a href="https://eca.dev/config/introduction"><strong>configuration</strong></a> •
+  <a href="https://eca.dev/config/models"><strong>models</strong></a> •
   <a href="https://eca.dev/protocol"><strong>protocol</strong></a>
   <a href="https://eca.dev/troubleshooting"><strong>troubleshooting</strong></a>
 </p>
@@ -67,16 +67,16 @@ Install the plugin for your editor and ECA server will be downloaded and started
 
 To use ECA, you need to configure at least one model / provider (_tip: Github Copilot offer free models!_).
 
-See the [Models documentation](https://eca.dev/models#adding-and-configuring-models) for detailed instructions:
+See the [Models documentation](https://eca.dev/config/models#adding-and-configuring-models) for detailed instructions:
 
 1. Type in the chat `/login`.
 2. Choose your provider
 3. Follow the steps to configure the key or auth for your provider.
 4. This will add to the global config.json the config for that provider.
 
-or [configure manually](https://eca.dev/models/).
+or [configure manually](https://eca.dev/config/models/).
 
-**Note**: For other providers or custom models, see the [custom providers documentation](https://eca.dev/models#custom-providers).
+**Note**: For other providers or custom models, see the [custom providers documentation](https://eca.dev/config/models#custom-providers).
 
 ### 3. Start chatting, completing, rewriting
 

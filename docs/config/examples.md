@@ -2,7 +2,7 @@
 
 ECA config examples showing the power of its features and flexibility
 
-If you think your config is relevant to be shared for other people, [open a pull request here](https://github.com/editor-code-assistant/eca/edit/master/docs/examples.md)
+If you think your config is relevant to be shared for other people, [open a pull request here](https://github.com/editor-code-assistant/eca/edit/master/docs/config/examples.md)
 
 ## From users
 ??? info "Hook: fix unbalanced CLJ parens (@zikajk)"
