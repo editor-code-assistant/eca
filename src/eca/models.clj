@@ -1,14 +1,13 @@
 (ns eca.models
   (:require
    [clojure.string :as string]
-   [cheshire.core :as json]
-   [hato.client :as http]
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [assoc-some] :as shared]))
+   [eca.shared :refer [assoc-some] :as shared]
+   [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
 
