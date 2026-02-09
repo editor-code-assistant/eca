@@ -1,6 +1,7 @@
 (ns eca.features.tools.util-test
   (:require
    [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.cache :as cache]
@@ -9,12 +10,17 @@
 
 (def ^:private test-tool-call-id "test-truncation-call-1")
 
+(def ^:private ^:dynamic *temp-cache-dir* nil)
+
 (use-fixtures :each
   (fn [f]
-    (let [output-file (java.io.File. (str (cache/tool-call-outputs-dir) "/" test-tool-call-id ".txt"))]
-      (f)
-      (when (.exists output-file)
-        (.delete output-file)))))
+    (let [tmp-dir (fs/create-temp-dir {:prefix "eca-util-test"})]
+      (try
+        (binding [*temp-cache-dir* tmp-dir]
+          (with-redefs [cache/global-dir (fn [] (io/file (str tmp-dir)))]
+            (f)))
+        (finally
+          (fs/delete-tree tmp-dir))))))
 
 (defn ^:private make-result [text]
   {:error false
