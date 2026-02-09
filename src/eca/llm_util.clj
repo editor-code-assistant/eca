@@ -98,7 +98,8 @@
         [:auth/token key])))
 
 (defn provider-api-url [provider config]
-  (or (not-empty (get-in config [:providers (name provider) :url]))
-      (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_URL"))
-      (some-> (get-in config [:providers (name provider) :urlEnv]) config/get-env) ;; legacy
-      ))
+  (some-> (or (not-empty (get-in config [:providers (name provider) :url]))
+              (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_URL"))
+              (some-> (get-in config [:providers (name provider) :urlEnv]) config/get-env)) ;; legacy
+          shared/normalize-api-url
+          not-empty))

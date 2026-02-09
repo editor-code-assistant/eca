@@ -1,82 +1,37 @@
 (ns eca.models-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.llm-util :as llm-util]
-   [eca.models :as models]
    [hato.client :as http]
-   [matcher-combinators.test :refer [match?]]))
+   [matcher-combinators.test :refer [match?]]
+   [eca.logger :as logger]
+   [eca.models :as models]))
 
 (set! *warn-on-reflection* true)
 
-(deftest fetch-compatible-models-test
-  (testing "Successful model fetching from /models endpoint"
-    (with-redefs [http/get (constantly {:status 200
-                                        :body {:data [{:id "gpt-4"}
-                                                      {:id "gpt-4-turbo"}
-                                                      {:id "gpt-3.5-turbo"}]}})]
-      (is (match?
-           {"gpt-4" {}
-            "gpt-4-turbo" {}
-            "gpt-3.5-turbo" {}}
-           (#'models/fetch-compatible-models
-            {:api-url "https://api.example.com"
-             :api-key "sk-test"
-             :provider "test-provider"})))))
+(deftest fetch-models-dev-data-test
+  (testing "Uses hato with json-string-keys and global client options"
+    (let [request* (atom nil)]
+      (with-redefs [http/get (fn [url opts]
+                               (reset! request* [url opts])
+                               {:status 200
+                                :body {"openai" {"api" "https://api.openai.com"}}})]
+        (is (match?
+             {"openai" {"api" "https://api.openai.com"}}
+             (#'models/fetch-models-dev-data)))
+        (is (= "https://models.dev/api.json" (first @request*)))
+        (is (= 5000 (get-in @request* [1 :timeout])))
+        (is (= :json-string-keys (get-in @request* [1 :as])))
+        (is (false? (get-in @request* [1 :throw-exceptions?]))))))
 
-  (testing "Returns nil when api-url is nil"
-    (is (nil? (#'models/fetch-compatible-models
-               {:api-url nil
-                :api-key "sk-test"
-                :provider "test"}))))
-
-  (testing "Returns nil when models data is empty"
-    (with-redefs [http/get (constantly {:status 200 :body {:data []}})]
-      (is (nil? (#'models/fetch-compatible-models
-                 {:api-url "https://api.example.com"
-                  :api-key "sk-test"
-                  :provider "test"})))))
-
-  (testing "Handles non-200 error gracefully"
-    (with-redefs [http/get (constantly {:status 500 :body {}})]
-      (is (nil? (#'models/fetch-compatible-models
-                 {:api-url "https://api.example.com"
-                  :api-key "sk-test"
-                  :provider "test"})))))
-
-  (testing "Handles network exception gracefully"
-    (with-redefs [http/get (fn [_] (throw (ex-info "Network error" {})))]
-      (is (nil? (#'models/fetch-compatible-models
-                 {:api-url "https://api.example.com"
-                  :api-key "sk-test"
-                  :provider "test"})))))
-
-  (testing "Filters out models without id"
-    (with-redefs [http/get (constantly {:status 200
-                                        :body {:data [{:id "gpt-4"}
-                                                      {:name "no-id-model"}]}})]
-      (is (match?
-           {"gpt-4" {}}
-           (#'models/fetch-compatible-models
-            {:api-url "https://api.example.com"
-             :api-key "sk-test"
-             :provider "test"}))))))
-
-(deftest provider-with-fetch-models?-test
-  (testing "Returns true when fetchModels is true"
-    (is (true? (#'models/provider-with-fetch-models?
-                {:api "openai-chat" :fetchModels true}))))
-
-  (testing "Returns false when fetchModels is not set"
-    (is (false? (#'models/provider-with-fetch-models?
-                 {:api "openai-chat"}))))
-
-  (testing "Returns false when fetchModels is false"
-    (is (false? (#'models/provider-with-fetch-models?
-                 {:api "openai-chat" :fetchModels false}))))
-
-  (testing "Returns nil (falsy) when api is not set"
-    (is (nil? (#'models/provider-with-fetch-models?
-               {:fetchModels true})))))
+  (testing "Throws on non-200 status"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 503
+                              :body {"error" "temporary-failure"}})]
+      (try
+        (#'models/fetch-models-dev-data)
+        (is false "Expected ExceptionInfo on non-200 status")
+        (catch clojure.lang.ExceptionInfo e
+          (is (re-find #"status 503" (ex-message e))))))))
 
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
@@ -98,7 +53,187 @@
     (let [static {"gpt-4" {:extraPayload {:temp 0.5}}}]
       (is (match?
            {"gpt-4" {:extraPayload {:temp 0.5}}}
-           (#'models/merge-provider-models static {}))))))
+           (#'models/merge-provider-models static {})))))
+
+  (testing "Static model config extends dynamic defaults for the same model"
+    (let [dynamic {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"}}
+          static {"claude-sonnet-4.5" {:extraPayload {:temperature 0.2}}}]
+      (is (match?
+           {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"
+                                 :extraPayload {:temperature 0.2}}}
+           (#'models/merge-provider-models static dynamic)))))
+
+  (testing "Static config can add model variants on top of dynamic models"
+    (let [dynamic {"gpt-5.2" {}}
+          static {"gpt-5.2-high" {:modelName "gpt-5.2"
+                                  :extraPayload {:reasoning {:effort "high"}}}}]
+      (is (match?
+           {"gpt-5.2" {}
+            "gpt-5.2-high" {:modelName "gpt-5.2"
+                            :extraPayload {:reasoning {:effort "high"}}}}
+           (#'models/merge-provider-models static dynamic)))))
+
+  (testing "Static config key matches models.dev id"
+    (let [dynamic (#'models/parse-models-dev-provider-models
+                   "google"
+                   {"gemini-2.5-pro" {"name" "Gemini 2.5 Pro"
+                                      "id" "gemini-2.5-pro"}})
+          static {"gemini-2.5-pro" {:extraPayload {:reasoning {:effort "high"}}}}]
+      (is (match?
+           {"gemini-2.5-pro" {:extraPayload {:reasoning {:effort "high"}}}}
+           (#'models/merge-provider-models static dynamic))))))
+
+(deftest provider-with-models-dev-models?-test
+  (testing "Returns true when provider URL matches models.dev api and fetchModels is not false"
+    (is (true? (#'models/add-models-from-models-dev?
+                "synthetic"
+                {:api "openai-chat"}
+                {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}
+                {:by-id {}
+                 :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Returns false when fetchModels is explicitly false"
+    (is (false? (#'models/add-models-from-models-dev?
+                 "synthetic"
+                 {:api "openai-chat" :fetchModels false}
+                 {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}
+                 {:by-id {}
+                  :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Returns false when provider does not declare API type"
+    (is (false? (#'models/add-models-from-models-dev?
+               "synthetic"
+               {}
+               {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}
+               {:by-id {}
+                :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Returns false when provider URL does not match any models.dev api"
+    (is (false? (#'models/add-models-from-models-dev?
+                 "synthetic"
+                 {:api "openai-chat"}
+                 {:providers {"synthetic" {:url "https://api.other.example/v1"}}}
+                 {:by-id {}
+                  :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Matches even when provider URL contains whitespace and trailing slash"
+    (is (true? (#'models/add-models-from-models-dev?
+                "synthetic"
+                {:api "openai-chat"}
+                {:providers {"synthetic" {:url "  https://api.synthetic.new/v1/  "}}}
+                {:by-id {}
+                 :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Falls back to provider id when models.dev provider has no api url"
+    (is (true? (#'models/add-models-from-models-dev?
+                "anthropic"
+                {:api "anthropic"}
+                {:providers {"anthropic" {:url "https://api.anthropic.com"}}}
+                {:by-id {"anthropic" {"models" {"claude-sonnet-4-5"
+                                                {"id" "claude-sonnet-4-5"
+                                                 "name" "Claude Sonnet 4.5"}}}}
+                 :by-url {}}))))
+
+  (testing "Does not fallback by provider id when models.dev provider has api url"
+    (is (false? (#'models/add-models-from-models-dev?
+                 "my-provider"
+                 {:api "openai-chat"}
+                 {:providers {"my-provider" {:url "https://api.not-matching.test/v1"}}}
+                 {:by-id {"my-provider" {"api" "https://api.my-provider.dev/v1"
+                                         "models" {"foo" {"id" "foo"}}}}
+                  :by-url {}}))))
+  )
+
+(deftest parse-models-dev-provider-models-test
+  (testing "Uses key as model key"
+    (is (match?
+         {"claude-sonnet-4-5" {}
+          "gemini-3-flash-preview" {}
+          "gpt-5.2" {}
+          "gemini-2.5-pro" {}}
+         (#'models/parse-models-dev-provider-models
+          "test-provider"
+          {"claude-sonnet-4-5" {"name" "Claude Sonnet 4.5"
+                                         "id" "claude-sonnet-4-5"}
+           "gemini-3-flash-preview" {"id" "gemini-3-flash-preview"
+                                     "name" "Gemini 3 Flash"}
+           "gpt-5.2" {"name" "GPT 5.2"
+                      "id" "gpt-5.2"}
+           "gemini-2.5-pro" {"name" "Gemini 2.5 Pro"
+                             "id" "gemini-2.5-pro"}}))))
+
+  (testing "Skips models marked as deprecated"
+    (is (match?
+         {"gpt-5.2" {}}
+         (#'models/parse-models-dev-provider-models
+          "test-provider"
+          {"gpt-5.2" {"id" "gpt-5.2"}
+           "gpt-4-legacy" {"id" "gpt-4-legacy"
+                           "status" "deprecated"}}))))
+
+  (testing "Returns nil for empty provider model map"
+    (is (nil? (#'models/parse-models-dev-provider-models "test-provider" {}))))
+
+  (testing "Ignores invalid entries and keeps valid keys"
+    (let [warnings* (atom [])]
+      (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))]
+        (is (match?
+             {"good" {}
+              "fallback-key" {}}
+             (#'models/parse-models-dev-provider-models
+              "test-provider"
+              {"good" {"id" "good-id" "name" "Good Model"}
+               "fallback-key" {"name" "Missing Id"}
+               "bad-entry" 42})))
+        (is (= 1 (count @warnings*)))))))
+
+(deftest fetch-models-dev-provider-models-test
+  (with-redefs-fn {#'eca.models/models-dev (constantly {"openai" {"api" "https://api.openai.com"
+                                                                  "models" {"gpt-5.2" {"id" "gpt-5.2"
+                                                                                       "name" "GPT 5.2"}
+                                                                            "gpt-4-legacy" {"id" "gpt-4-legacy"
+                                                                                            "status" "deprecated"}}}
+                                                        "anthropic" {"models" {"claude-sonnet-4-5"
+                                                                                {"id" "claude-sonnet-4-5"
+                                                                                 "name" "Claude Sonnet 4.5"}}}
+                                                        "synthetic" {"api" "https://api.synthetic.new/v1"
+                                                                     "models" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
+                                                                               {"id" "hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
+                                                                                "name" "Qwen 3 235B Instruct"}}}
+                                                        "my-provider" {"api" "https://api.my-provider.dev/v1"
+                                                                       "models" {"foo" {"id" "foo" "name" "Foo"}}}})}
+    (fn []
+      (testing "Loads models for providers with matching URL and API declared"
+        (is (match?
+             {"openai" {"gpt-5.2" {}}
+              "anthropic" {"claude-sonnet-4-5" {}}
+              "synthetic" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507" {}}}
+             (#'models/fetch-models-dev-provider-models
+              {:providers {"openai" {:api "openai-responses"
+                                     :url "https://api.openai.com"}
+                           "anthropic" {:api "anthropic"
+                                        :url "https://api.anthropic.com"}
+                           "synthetic" {:api "openai-chat"
+                                        :url "https://api.synthetic.new/v1"}
+                           "my-provider" {:api "openai-chat"}
+                           "unknown-url" {:api "openai-chat"
+                                          :url "https://api.unknown.test/v1"}}}))))
+
+      (testing "Skips models.dev loading when fetchModels is false"
+        (is (match?
+             {}
+             (#'models/fetch-models-dev-provider-models
+              {:providers {"synthetic" {:api "openai-chat"
+                                        :url "https://api.synthetic.new/v1"
+                                        :fetchModels false}}}))))
+
+      (testing "Logs when provider-id fallback is used"
+        (let [info* (atom [])]
+          (with-redefs [logger/info (fn [& args] (swap! info* conj args))]
+            (#'models/fetch-models-dev-provider-models
+             {:providers {"anthropic" {:api "anthropic"
+                                       :url "https://api.anthropic.com"}}})
+            (is (some #(re-find #"provider-id fallback" (apply str %)) @info*))))))))
 
 (deftest build-model-capabilities-test
   (testing "Uses model-name from config when present"
@@ -134,35 +269,3 @@
            ["unknown-provider/unknown-model"
             {:tools true :reason? true :web-search false :model-name "unknown-model"}]
            result)))))
-
-(deftest fetch-dynamic-provider-models-test
-  (testing "Fetches models for providers with fetchModels enabled"
-    (with-redefs [http/get (constantly {:status 200
-                                        :body {:data [{:id "gpt-4"}]}})
-                  llm-util/provider-api-url (constantly "https://api.example.com")
-                  llm-util/provider-api-key (constantly [:auth/token "sk-test"])]
-      (let [config {:providers {"provider1" {:api "openai-chat" :fetchModels true}
-                                "provider2" {:api "openai-chat" :fetchModels false}}}
-            db {:auth {"provider1" "auth-data"}}
-            result (#'models/fetch-dynamic-provider-models config db)]
-        (is (match?
-             {"provider1" {"gpt-4" {}}}
-             result)))))
-
-  (testing "Skips providers without fetchModels"
-    (with-redefs [http/get (constantly {:status 200
-                                        :body {:data [{:id "gpt-4"}]}})]
-      (let [config {:providers {"provider1" {:api "openai-chat" :fetchModels false}
-                                "provider2" {:api "openai-chat"}}}
-            db {:auth {}}
-            result (#'models/fetch-dynamic-provider-models config db)]
-        (is (empty? result)))))
-
-  (testing "Handles failed fetches gracefully"
-    (with-redefs [http/get (constantly {:status 500 :body {}})
-                  llm-util/provider-api-url (constantly "https://api.example.com")
-                  llm-util/provider-api-key (constantly [:auth/token "sk-test"])]
-      (let [config {:providers {"provider1" {:api "openai-chat" :fetchModels true}}}
-            db {:auth {}}
-            result (#'models/fetch-dynamic-provider-models config db)]
-        (is (empty? result))))))

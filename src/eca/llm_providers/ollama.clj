@@ -5,22 +5,22 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [deep-merge]]
+   [eca.shared :refer [deep-merge join-api-url]]
    [hato.client :as http]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[OLLAMA]")
 
-(def ^:private chat-url "%s/api/chat")
-(def ^:private list-models-url "%s/api/tags")
-(def ^:private show-model-url "%s/api/show")
+(def ^:private chat-path "/api/chat")
+(def ^:private list-models-path "/api/tags")
+(def ^:private show-model-path "/api/show")
 
 (defn list-models [{:keys [api-url]}]
   (try
     (let [rid (llm-util/gen-rid)
           {:keys [status body]} (http/get
-                                 (format list-models-url api-url)
+                                 (join-api-url api-url list-models-path)
                                  {:throw-exceptions? false
                                   :http-client (client/merge-with-global-http-client {})
                                   :as :json})]
@@ -38,7 +38,7 @@
   (try
     (let [rid (llm-util/gen-rid)
           {:keys [status body]} (http/post
-                                 (format show-model-url api-url)
+                                 (join-api-url api-url show-model-path)
                                  {:throw-exceptions? false
                                   :body (json/generate-string {:model model})
                                   :http-client (client/merge-with-global-http-client {})
@@ -133,7 +133,7 @@
                :tools (->tools tools)
                :stream stream?}
               extra-payload)
-        url (format chat-url api-url)
+        url (join-api-url api-url chat-path)
         tool-calls* (atom {})
         on-stream-fn (when stream?
                        (fn handle-stream [rid _event data reasoning?* reason-id]

@@ -28,6 +28,24 @@
   "The system's line separator."
   (System/lineSeparator))
 
+(defn normalize-api-url [api-url]
+  (some-> api-url
+          string/trim
+          (string/replace #"/+$" "")))
+
+(defn join-api-url
+  "Join API base URL and optional relative path with a single slash boundary.
+   Handles trailing slashes on base and leading slashes on path."
+  [api-url extra-path]
+  (let [base (normalize-api-url api-url)
+        path (some-> extra-path
+                     string/trim
+                     (string/replace #"^/+" ""))]
+    (cond
+      (string/blank? base) nil
+      (string/blank? path) base
+      :else (str base "/" path))))
+
 (defn uri->filename [uri]
   (let [^URI uri (-> uri
                      (string/replace " " "%20")
@@ -194,10 +212,11 @@
                (subs s (- len p))))))))
 
 (defn normalize-model-name [model]
-  (let [model-s (if (keyword? model)
-                  (string/replace-first (str model) ":" "")
-                  model)]
-    (string/lower-case model-s)))
+  (let [model-s (cond
+                  (keyword? model) (string/replace-first (str model) ":" "")
+                  (string? model) model
+                  :else nil)]
+    (some-> model-s string/lower-case)))
 
 (defn memoize-by-file-last-modified
   "Return a memoized variant of f where the first argument is a filename.
