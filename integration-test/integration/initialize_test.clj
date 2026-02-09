@@ -33,7 +33,7 @@
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
            (eca/request! (fixture/initialize-request
                           {:initializationOptions (merge fixture/default-init-options
-                                                         {:chat {:defaultBehavior "plan"}})})))))
+                                                         {:chat {:defaultAgent "plan"}})})))))
 
     (testing "initialized notification"
       (eca/notify! (fixture/initialized-notification)))
@@ -42,8 +42,8 @@
       (is (match?
            {:chat {:models (m/pred models-pred)
                    :selectModel "anthropic/claude-sonnet-4.5"
-                   :behaviors ["agent" "plan"]
-                   :selectBehavior "plan"
+                   :agents ["code" "plan"]
+                   :selectAgent "plan"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated)))))
 
@@ -90,7 +90,7 @@
       (is (match?
            {:chat {:models (m/pred models-pred)
                    :selectModel "my-custom/bar2"
-                   :behaviors ["agent" "plan"]
-                   :selectBehavior "agent"
+                   :agents ["code" "plan"]
+                   :selectAgent "code"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated))))))

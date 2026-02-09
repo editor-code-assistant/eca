@@ -64,10 +64,10 @@
                          :requiresAuth? true
                          :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
-   :defaultBehavior "agent"
-   :behavior {"agent" {:prompts {:chat "${classpath:prompts/agent_behavior.md}"}
-                       :disabledTools ["preview_file_change"]}
-              "plan" {:prompts {:chat "${classpath:prompts/plan_behavior.md}"}
+   :defaultAgent "code"
+   :agent {"code" {:prompts {:chat "${classpath:prompts/code_agent.md}"}
+                   :disabledTools ["preview_file_change"]}
+           "plan" {:prompts {:chat "${classpath:prompts/plan_agent.md}"}
                       :disabledTools ["edit_file" "write_file" "move_file"]
                       :toolCall {:approval {:allow {"eca__shell_command"
                                                     {:argsMatchers {"command" ["pwd"]}}
@@ -86,7 +86,7 @@
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                               ".*bash.*-c.*>.*"]}}}}}}}
    :defaultModel nil
-   :prompts {:chat "${classpath:prompts/agent_behavior.md}" ;; default to agent
+   :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"
              :compact "${classpath:prompts/compact.md}"
              :init "${classpath:prompts/init.md}"
@@ -183,17 +183,17 @@
 (defn initial-config []
   (parse-dynamic-string-values initial-config* (io/file ".")))
 
-(def ^:private fallback-behavior "agent")
+(def ^:private fallback-agent "code")
 
-(defn validate-behavior-name
-  "Validates if a behavior exists in config. Returns the behavior if valid,
-   or the fallback behavior if not."
-  [behavior config]
-  (if (contains? (:behavior config) behavior)
-    behavior
-    (do (logger/warn logger-tag (format "Unknown behavior '%s' specified, falling back to '%s'"
-                                        behavior fallback-behavior))
-        fallback-behavior)))
+(defn validate-agent-name
+  "Validates if an agent exists in config. Returns the agent name if valid,
+   or the fallback agent if not."
+  [agent-name config]
+  (if (contains? (:agent config) agent-name)
+    agent-name
+    (do (logger/warn logger-tag (format "Unknown agent '%s' specified, falling back to '%s'"
+                                        agent-name fallback-agent))
+        fallback-agent)))
 
 (def ^:private ttl-cache-config-ms 5000)
 
@@ -321,7 +321,7 @@
    [[:providers :ANY :httpClient]
     [:providers :ANY :models :ANY :reasoningHistory]]
    :stringfy-key
-   [[:behavior]
+   [[:agent]
     [:providers]
     [:providers :ANY :models]
     [:providers :ANY :models :ANY :extraHeaders]
@@ -335,6 +335,15 @@
     [:customTools :ANY :schema :properties]
     [:mcpServers]
     [:prompts :tools]
+    [:agent :ANY :prompts :tools]
+    [:agent :ANY :toolCall :approval :allow]
+    [:agent :ANY :toolCall :approval :allow :ANY :argsMatchers]
+    [:agent :ANY :toolCall :approval :ask]
+    [:agent :ANY :toolCall :approval :ask :ANY :argsMatchers]
+    [:agent :ANY :toolCall :approval :deny]
+    [:agent :ANY :toolCall :approval :deny :ANY :argsMatchers]
+    ;; Legacy: support old "behavior" config key
+    [:behavior]
     [:behavior :ANY :prompts :tools]
     [:behavior :ANY :toolCall :approval :allow]
     [:behavior :ANY :toolCall :approval :allow :ANY :argsMatchers]
@@ -344,21 +353,60 @@
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
     [:otlp]]})
 
+(defn ^:private migrate-legacy-agent-name
+  "Migrates legacy agent names 'agent' and 'build' to 'code'."
+  [agent-name]
+  (case agent-name
+    ("agent" "build") "code"
+    agent-name))
+
+(defn ^:private migrate-legacy-config
+  "Migrates legacy config keys to new names for backward compatibility:
+   - 'behavior' config key → 'agent'
+   - 'defaultBehavior' → 'defaultAgent'
+   - 'agent'/'build' agent name → 'code' (inside agent map)"
+  [config]
+  (cond-> config
+    ;; Migrate 'behavior' key → 'agent' (merge, don't overwrite)
+    (contains? config :behavior)
+    (-> (update :agent (fn [existing]
+                         (let [legacy (:behavior config)
+                               ;; Rename legacy "agent"/"build" entries to "code"
+                               migrated (reduce-kv (fn [m k v]
+                                                     (assoc m (migrate-legacy-agent-name k) v))
+                                                   {}
+                                                   legacy)]
+                           (merge migrated existing))))
+        (dissoc :behavior))
+
+    ;; Migrate 'defaultBehavior' → 'defaultAgent'
+    (and (contains? config :defaultBehavior)
+         (not (contains? config :defaultAgent)))
+    (-> (assoc :defaultAgent (migrate-legacy-agent-name (:defaultBehavior config)))
+        (dissoc :defaultBehavior))
+
+    ;; Also migrate defaultBehavior when nested under :chat (legacy)
+    (and (get-in config [:chat :defaultBehavior])
+         (not (get-in config [:chat :defaultAgent])))
+    (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
+        (update :chat dissoc :defaultBehavior))))
+
 (defn ^:private all* [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
         merge-config (fn [c1 c2]
                        (deep-merge c1 (normalize-fields normalization-rules c2)))]
-    (as-> {} $
-      (merge-config $ (initial-config))
-      (merge-config $ initialization-config)
-      (merge-config $ (when-not pure-config?
-                        (config-from-envvar)))
-      (if-let [custom-config (config-from-custom)]
-        (merge-config $ (when-not pure-config? custom-config))
-        (-> $
-            (merge-config (when-not pure-config? (config-from-global-file)))
-            (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))))
+    (-> (as-> {} $
+          (merge-config $ (initial-config))
+          (merge-config $ initialization-config)
+          (merge-config $ (when-not pure-config?
+                            (config-from-envvar)))
+          (if-let [custom-config (config-from-custom)]
+            (merge-config $ (when-not pure-config? custom-config))
+            (-> $
+                (merge-config (when-not pure-config? (config-from-global-file)))
+                (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))
+        migrate-legacy-config)))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
 

@@ -22,12 +22,13 @@
 
 (defn chat-hook-data
   "Returns common fields for CHAT-RELATED hooks.
-   Includes base fields plus chat-specific fields (chat-id, behavior).
+   Includes base fields plus chat-specific fields (chat-id, agent).
    Use this for: preRequest, postRequest, preToolCall, postToolCall, chatStart, chatEnd."
-  [db chat-id behavior]
+  [db chat-id agent-name]
   (merge (base-hook-data db)
          {:chat-id chat-id
-          :behavior behavior}))
+          :agent agent-name
+          :behavior agent-name}))
 
 (defn ^:private parse-hook-json
   "Attempts to parse hook output as JSON. Returns parsed map if successful, nil otherwise."

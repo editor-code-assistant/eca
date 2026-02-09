@@ -65,7 +65,7 @@ The protocol defines a set of lifecycle messages that manage the connection and 
         S->>-C: initialize (response)
         C--)+S: initialized (notification)
         Note right of S: Sync models: Request models.dev <br/>for models capabilities
-        Note right of S: Notify which models/behaviors are <br/>avaialble and their defaults.
+        Note right of S: Notify which models/agents are <br/>avaialble and their defaults.
         S--)C: config/updated (notification)
         Note right of S: Init MCP servers
         S--)-C: tool/serverUpdated (notification)
@@ -154,9 +154,9 @@ interface InitializeParams {
      */
     initializationOptions?: {
         /*
-         * The chat behavior.
+         * The chat agent.
          */
-         chatBehavior?: ChatBehavior;
+         chatAgent?: ChatAgent;
     };
     
     /**
@@ -211,7 +211,7 @@ interface ClientCapabilities {
     }
 }
 
-type ChatBehavior = 'agent' | 'plan';
+type ChatAgent = 'build' | 'plan';
 ```
 
 _Response:_
@@ -356,9 +356,9 @@ interface ChatPromptParams {
     model?: Model;
 
     /**
-     * The chat behavior used by server to handle chat communication and actions.
+     * The chat agent used by server to handle chat communication and actions.
      */
-    behavior?: ChatBehavior;
+    agent?: ChatAgent;
 
     /**
      * Optional contexts about the current workspace.
@@ -1320,23 +1320,25 @@ _Response:_
 interface ChatDeleteResponse {}
 ```
 
-### Chat selected behavior changed (➡️)
+### Chat selected agent changed (➡️)
 
-A client notification for server telling the user selected a different behavior in chat.
+A client notification for server telling the user selected a different agent in chat.
 
 _Notification:_
 
-* method: `chat/selectedBehaviorChanged`
-* params: `ChatSelectedBehaviorChanged` defined as follows:
+* method: `chat/selectedAgentChanged`
+* params: `ChatSelectedAgentChanged` defined as follows:
 
 ```typescript
-interface ChatSelectedBehaviorChanged {
+interface ChatSelectedAgentChanged {
     /**
-     * The selected behavior.
+     * The selected agent.
      */
-    behavior: ChatBehavior;
+    agent: ChatAgent;
 }
 ```
+
+> **Backward compatibility:** The legacy method `chat/selectedBehaviorChanged` with `{ behavior: string }` is still supported.
 
 ### Editor diagnostics (↪️)
 
@@ -1580,7 +1582,7 @@ type RewriteContent =
 
 ### Config updated (⬅️)
 
-A server notification with the new config server is considering (models, behaviors etc), usually related to config or auth changes.
+A server notification with the new config server is considering (models, agents etc), usually related to config or auth changes.
 Clients should update UI accordingly, if a field is missing/null, means it had no change since last config updated, so clients should ignore.
 
 _Notification:_ 
@@ -1601,9 +1603,9 @@ interface ConfigUpdatedParams {
         models?: Model[];
 
         /**
-        * The chat behaviors the user can select.
+        * The chat agents the user can select.
         */
-        behaviors?: ChatBehavior[];
+        agents?: ChatAgent[];
         
         /**
          * The model for client select in chat, if that is present
@@ -1615,13 +1617,13 @@ interface ConfigUpdatedParams {
         selectModel?: Model;
 
         /**
-         * The behavior for client select in chat, if that is present
-         * clients should forcefully update chat selected behavior.
+         * The agent for client select in chat, if that is present
+         * clients should forcefully update chat selected agent.
          * 
          * Server returns this when starting and only when makes sense to 
-         * force update a behavior, like a config change.
+         * force update an agent, like a config change.
          */
-        selectBehavior?: ChatBehavior;
+        selectAgent?: ChatAgent;
 
         /**
         * Message to show when starting a new chat.

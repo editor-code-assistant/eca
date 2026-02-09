@@ -213,7 +213,7 @@
                        existing-files))
                  "Credential files: None found"))))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model behavior all-tools instructions user-messages metrics] :as chat-ctx}]
+(defn handle-command! [command args {:keys [chat-id db* config messenger full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
         skills (f.skills/all config (:workspace-folders db))]
@@ -221,13 +221,13 @@
       "init" {:type :send-prompt
               :on-finished-side-effect (fn []
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
-              :prompt (f.prompt/init-prompt all-tools behavior db config)}
+              :prompt (f.prompt/init-prompt all-tools agent db config)}
       "compact" (do
                   (swap! db* assoc-in [:chats chat-id :compacting?] true)
                   {:type :send-prompt
                    :on-finished-side-effect (fn []
                                               (shared/compact-side-effect! chat-ctx false))
-                   :prompt (f.prompt/compact-prompt (string/join " " args) all-tools behavior config db)})
+                   :prompt (f.prompt/compact-prompt (string/join " " args) all-tools agent config db)})
       "login" (do
                 (messenger/chat-content-received
                  messenger
@@ -313,7 +313,7 @@
       "skill-create" (let [skill-name (first args)
                            user-prompt (second args)]
                        {:type :send-prompt
-                        :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools behavior db config)})
+                        :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools agent db config)})
       "config" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages

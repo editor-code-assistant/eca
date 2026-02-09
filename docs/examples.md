@@ -60,11 +60,11 @@ If you think your config is relevant to be shared for other people, [open a pull
 	exit 0
  	```
 
-??? info "Custom behavior: Clojure reviewer (@zikajk)"
+??? info "Custom agent: Clojure reviewer (@zikajk)"
 
     ```javascript title="config.json"
     {
-        "behavior": {
+        "agent": {
             "reviewer": {
                 "defaultModel": "openai/gpt-5.1",
                 "prompts": {"chat": "${file:prompts/reviewer.md}"}}
