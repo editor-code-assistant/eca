@@ -767,9 +767,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#chat-selected-behavior-changed" class="md-nav__link">
+  <a href="#chat-selected-agent-changed" class="md-nav__link">
     <span class="md-ellipsis">
-      Chat selected behavior changed (➡️)
+      Chat selected agent changed (➡️)
     </span>
   </a>
   
@@ -1300,9 +1300,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#chat-selected-behavior-changed" class="md-nav__link">
+  <a href="#chat-selected-agent-changed" class="md-nav__link">
     <span class="md-ellipsis">
-      Chat selected behavior changed (➡️)
+      Chat selected agent changed (➡️)
     </span>
   </a>
   
@@ -1522,7 +1522,7 @@ separated by a <code>\r\n</code>.</p>
     S-&gt;&gt;-C: initialize (response)
     C--)+S: initialized (notification)
     Note right of S: Sync models: Request models.dev &lt;br/&gt;for models capabilities
-    Note right of S: Notify which models/behaviors are &lt;br/&gt;avaialble and their defaults.
+    Note right of S: Notify which models/agents are &lt;br/&gt;avaialble and their defaults.
     S--)C: config/updated (notification)
     Note right of S: Init MCP servers
     S--)-C: tool/serverUpdated (notification)</code></pre>
@@ -1601,9 +1601,9 @@ separated by a <code>\r\n</code>.</p>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">initializationOptions</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="cm">/*</span>
-<span class="cm">         * The chat behavior.</span>
+<span class="cm">         * The chat agent.</span>
 <span class="cm">         */</span>
-<span class="w">         </span><span class="nx">chatBehavior?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatBehavior</span><span class="p">;</span>
+<span class="w">         </span><span class="nx">chatAgent?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
 <span class="w">    </span><span class="p">};</span>
 
 <span class="w">    </span><span class="cm">/**</span>
@@ -1658,7 +1658,7 @@ separated by a <code>\r\n</code>.</p>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 
-<span class="kr">type</span><span class="w"> </span><span class="nx">ChatBehavior</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;agent&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;plan&#39;</span><span class="p">;</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">ChatAgent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;build&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;plan&#39;</span><span class="p">;</span>
 </code></pre></div>
 <p><em>Response:</em></p>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">InitializeResponse</span><span class="w"> </span><span class="p">{}</span>
@@ -1783,9 +1783,9 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="nx">model?</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The chat behavior used by server to handle chat communication and actions.</span>
+<span class="cm">     * The chat agent used by server to handle chat communication and actions.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">behavior?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatBehavior</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">agent?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * Optional contexts about the current workspace.</span>
@@ -2694,20 +2694,23 @@ After response, clients should reset chat UI to a clean state.</p>
 <p><em>Response:</em></p>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatDeleteResponse</span><span class="w"> </span><span class="p">{}</span>
 </code></pre></div>
-<h3 id="chat-selected-behavior-changed">Chat selected behavior changed (➡️)<a class="headerlink" href="#chat-selected-behavior-changed" title="Permanent link">#</a></h3>
-<p>A client notification for server telling the user selected a different behavior in chat.</p>
+<h3 id="chat-selected-agent-changed">Chat selected agent changed (➡️)<a class="headerlink" href="#chat-selected-agent-changed" title="Permanent link">#</a></h3>
+<p>A client notification for server telling the user selected a different agent in chat.</p>
 <p><em>Notification:</em></p>
 <ul>
-<li>method: <code>chat/selectedBehaviorChanged</code></li>
-<li>params: <code>ChatSelectedBehaviorChanged</code> defined as follows:</li>
+<li>method: <code>chat/selectedAgentChanged</code></li>
+<li>params: <code>ChatSelectedAgentChanged</code> defined as follows:</li>
 </ul>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatSelectedBehaviorChanged</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatSelectedAgentChanged</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The selected behavior.</span>
+<span class="cm">     * The selected agent.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">behavior</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatBehavior</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">agent</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
+<blockquote>
+<p><strong>Backward compatibility:</strong> The legacy method <code>chat/selectedBehaviorChanged</code> with <code>{ behavior: string }</code> is still supported.</p>
+</blockquote>
 <h3 id="editor-diagnostics">Editor diagnostics (↪️)<a class="headerlink" href="#editor-diagnostics" title="Permanent link">#</a></h3>
 <p>A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
 Useful for server to provide to LLM information about errors/warnings about current code.</p>
@@ -2922,7 +2925,7 @@ The response is streamed via <code>rewrite/contentReceived</code> server notific
 </code></pre></div>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
 <h3 id="config-updated">Config updated (⬅️)<a class="headerlink" href="#config-updated" title="Permanent link">#</a></h3>
-<p>A server notification with the new config server is considering (models, behaviors etc), usually related to config or auth changes.
+<p>A server notification with the new config server is considering (models, agents etc), usually related to config or auth changes.
 Clients should update UI accordingly, if a field is missing/null, means it had no change since last config updated, so clients should ignore.</p>
 <p><em>Notification:</em> </p>
 <ul>
@@ -2941,9 +2944,9 @@ Clients should update UI accordingly, if a field is missing/null, means it had n
 <span class="w">        </span><span class="nx">models?</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">[];</span>
 
 <span class="w">        </span><span class="cm">/**</span>
-<span class="cm">        * The chat behaviors the user can select.</span>
+<span class="cm">        * The chat agents the user can select.</span>
 <span class="cm">        */</span>
-<span class="w">        </span><span class="nx">behaviors?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatBehavior</span><span class="p">[];</span>
+<span class="w">        </span><span class="nx">agents?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">[];</span>
 
 <span class="w">        </span><span class="cm">/**</span>
 <span class="cm">         * The model for client select in chat, if that is present</span>
@@ -2955,13 +2958,13 @@ Clients should update UI accordingly, if a field is missing/null, means it had n
 <span class="w">        </span><span class="nx">selectModel?</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
 
 <span class="w">        </span><span class="cm">/**</span>
-<span class="cm">         * The behavior for client select in chat, if that is present</span>
-<span class="cm">         * clients should forcefully update chat selected behavior.</span>
+<span class="cm">         * The agent for client select in chat, if that is present</span>
+<span class="cm">         * clients should forcefully update chat selected agent.</span>
 <span class="cm">         * </span>
 <span class="cm">         * Server returns this when starting and only when makes sense to </span>
-<span class="cm">         * force update a behavior, like a config change.</span>
+<span class="cm">         * force update an agent, like a config change.</span>
 <span class="cm">         */</span>
-<span class="w">        </span><span class="nx">selectBehavior?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatBehavior</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">selectAgent?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
 
 <span class="w">        </span><span class="cm">/**</span>
 <span class="cm">        * Message to show when starting a new chat.</span>
@@ -3107,7 +3110,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 9, 2026 14:02:33 UTC">February 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 9, 2026 15:52:13 UTC">February 9, 2026</span>
   </span>
 
     

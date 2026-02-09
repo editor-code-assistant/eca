@@ -616,9 +616,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#behaviors-prompts" class="md-nav__link">
+  <a href="#agents-prompts" class="md-nav__link">
     <span class="md-ellipsis">
-      Behaviors / prompts
+      Agents / prompts
     </span>
   </a>
   
@@ -1107,9 +1107,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#behaviors-prompts" class="md-nav__link">
+  <a href="#agents-prompts" class="md-nav__link">
     <span class="md-ellipsis">
-      Behaviors / prompts
+      Agents / prompts
     </span>
   </a>
   
@@ -1240,14 +1240,14 @@
 <div class="tabbed-block">
 <p>Convenient for users and multiple projects</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;defaultBehavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
+<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>Convenient for users</p>
 <div class="highlight"><span class="filename">.eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;defaultBehavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
+<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -1255,7 +1255,7 @@
 <p>Convenient for editors</p>
 <p>Client editors can pass custom settings when sending the <code>initialize</code> request via the <code>initializationOptions</code> object:</p>
 <div class="highlight"><pre><span></span><code><span class="s2">&quot;initializationOptions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;defaultBehavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
+<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -1317,7 +1317,7 @@
 </div>
 <h3 id="approval-permissions">Approval / permissions<a class="headerlink" href="#approval-permissions" title="Permanent link">#</a></h3>
 <p>By default, ECA asks to call any non read-only tool (default <a href="https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96">here</a>), but that can easily be configured in several ways via the <code>toolCall.approval</code> config.</p>
-<p>You can configure the default behavior with <code>byDefault</code> and/or configure a tool in <code>ask</code>, <code>allow</code> or <code>deny</code> configs.</p>
+<p>You can configure the default approval with <code>byDefault</code> and/or configure a tool in <code>ask</code>, <code>allow</code> or <code>deny</code> configs.</p>
 <p>Check some examples:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="3:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_3" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_3" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_3" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_3" type="radio" /><input id="denying-a-tool" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
 <div class="tabbed-content">
@@ -1390,7 +1390,7 @@
 </div>
 </div>
 </div>
-<p>Also check the <code>plan</code> behavior which is safer.</p>
+<p>Also check the <code>plan</code> agent which is safer.</p>
 <p><strong>The <code>manualApproval</code> setting was deprecated and replaced by the <code>approval</code> one without breaking changes</strong></p>
 <h3 id="file-reading">File Reading<a class="headerlink" href="#file-reading" title="Permanent link">#</a></h3>
 <p>You can configure the maximum number of lines returned by the <code>eca__read_file</code> tool:</p>
@@ -1498,9 +1498,9 @@ name: gif-generator
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>It's possible to control which skills LLM have access globally or for a specific behavior.
+<p>It's possible to control which skills LLM have access globally or for a specific agent.
 You just need to define a tool call approval for the <code>eca__skill</code> for a specific skill <code>name</code>:</p>
-<p>Example disabling all skills but one for a behavior</p>
+<p>Example disabling all skills but one for an agent</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1509,7 +1509,7 @@ You just need to define a tool call approval for the <code>eca__skill</code> for
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="s2">&quot;behavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;reviewer&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1527,7 +1527,7 @@ You just need to define a tool call approval for the <code>eca__skill</code> for
 </div>
 <p>You can have more directories and contents like <code>scripts/</code>, <code>references/</code>, <code>assets/</code> for a skill making it really powerful, check <a href="https://agentskills.io/specification#optional-directories">the spec</a> for more details.</p>
 <h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h2>
-<p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM behavior.
+<p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM responses.
 Rules are text files (typically <code>.md</code>, but any format works):</p>
 <p>There are 3 possible ways to configure rules following this order of priority:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="project-file" name="__tabbed_6" type="radio" /><input id="global-file" name="__tabbed_6" type="radio" /><input id="config" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config">Config</label></div>
@@ -1579,17 +1579,17 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 </div>
 </div>
 </div>
-<h2 id="behaviors-prompts">Behaviors / prompts<a class="headerlink" href="#behaviors-prompts" title="Permanent link">#</a></h2>
-<p>ECA allows to totally customize the prompt sent to LLM via the <code>prompts</code> config, but you can use the <code>behavior</code> config allowing to have multiple behaviors for different tasks or workflows.</p>
+<h2 id="agents-prompts">Agents / prompts<a class="headerlink" href="#agents-prompts" title="Permanent link">#</a></h2>
+<p>ECA allows to totally customize the prompt sent to LLM via the <code>prompts</code> config, but you can use the <code>agent</code> config allowing to have multiple agents for different tasks or workflows.</p>
 <p>You can even customize the tool description via <code>prompts tools &lt;toolName&gt;</code>.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="8:2"><input checked="checked" id="example-my-behavior" name="__tabbed_8" type="radio" /><input id="example-overriding-a-tool-description" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="example-my-behavior">Example: my-behavior</label><label for="example-overriding-a-tool-description">Example: Overriding a tool description</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="8:2"><input checked="checked" id="example-my-agent" name="__tabbed_8" type="radio" /><input id="example-overriding-a-tool-description" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="example-my-agent">Example: my-agent</label><label for="example-overriding-a-tool-description">Example: Overriding a tool description</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;behavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;my-behavior&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;my-agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${file:/path/to/my-behavior-prompt.md}&quot;</span>
+<span class="w">        </span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${file:/path/to/my-agent-prompt.md}&quot;</span>
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
@@ -1678,11 +1678,11 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <p>Hooks receive JSON via stdin with event data (top-level keys <code>snake_case</code>, nested data preserves case). Common fields:</p>
 <ul>
 <li>All hooks: <code>hook_name</code>, <code>hook_type</code>, <code>workspaces</code>, <code>db_cache_path</code></li>
-<li>Chat hooks add: <code>chat_id</code>, <code>behavior</code></li>
+<li>Chat hooks add: <code>chat_id</code>, <code>agent</code>, <code>behavior</code> (deprecated alias)</li>
 <li>Tool hooks add: <code>tool_name</code>, <code>server</code>, <code>tool_input</code>, <code>approval</code> (pre) or <code>tool_response</code>, <code>error</code> (post)</li>
 <li><code>chatStart</code> adds: <code>resumed</code> (boolean)</li>
 </ul>
-<p>Hooks can output JSON to control behavior:</p>
+<p>Hooks can output JSON to control execution:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;additionalContext&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Extra context for LLM&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1">// injected as XML block</span>
 <span class="w">  </span><span class="s2">&quot;replacedPrompt&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;New prompt text&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// preRequest only</span>
@@ -1882,10 +1882,10 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <span class="w">  </span><span class="s2">&quot;mcpTimeoutSeconds&quot;</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">60</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;lspTimeoutSeconds&quot;</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">  </span><span class="s2">&quot;behavior&quot;</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;agent&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/agent_behavior.md}&quot;</span><span class="p">},</span>
-<span class="w">              </span><span class="s2">&quot;disabledTools&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;preview_file_change&quot;</span><span class="p">]},</span>
-<span class="w">    </span><span class="s2">&quot;plan&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/plan_behavior.md}&quot;</span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/code_agent.md}&quot;</span><span class="p">},</span>
+<span class="w">             </span><span class="s2">&quot;disabledTools&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;preview_file_change&quot;</span><span class="p">]},</span>
+<span class="w">    </span><span class="s2">&quot;plan&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/plan_agent.md}&quot;</span><span class="p">},</span>
 <span class="w">              </span><span class="s2">&quot;disabledTools&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;edit_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;write_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;move_file&quot;</span><span class="p">],</span>
 <span class="w">              </span><span class="s2">&quot;toolCall&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;approval&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;deny&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;eca__shell_command&quot;</span><span class="p">:</span>
 <span class="w">                                                 </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*&gt;.*&quot;</span><span class="p">,</span>
@@ -1897,7 +1897,7 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <span class="w">                                                                              </span><span class="s2">&quot;.*-c</span><span class="se">\\</span><span class="s2">s+[</span><span class="se">\&quot;</span><span class="s2">&#39;].*open.*[</span><span class="se">\&quot;</span><span class="s2">&#39;]w[</span><span class="se">\&quot;</span><span class="s2">&#39;].*&quot;</span><span class="p">,</span>
 <span class="w">                                                                              </span><span class="s2">&quot;.*bash.*-c.*&gt;.*&quot;</span><span class="p">]}}}}}}</span>
 <span class="w">  </span><span class="p">}</span>
-<span class="w">  </span><span class="s2">&quot;defaultBehavior&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agent&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;code&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;welcomeMessage&quot;</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Welcome to ECA!</span><span class="se">\n\n</span><span class="s2">Type &#39;/&#39; for commands</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;autoCompactPercentage&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">85</span><span class="p">,</span>
 <span class="w">  </span><span class="s2">&quot;index&quot;</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
@@ -1910,7 +1910,7 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="s2">&quot;prompts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;chat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/agent_behavior.md}&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">default</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">agent</span>
+<span class="w">    </span><span class="s2">&quot;chat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/code_agent.md}&quot;</span><span class="p">,</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">default</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">code</span><span class="w"> </span><span class="n">agent</span>
 <span class="w">    </span><span class="s2">&quot;chatTitle&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/title.md}&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s2">&quot;compact&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/compact.md}&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s2">&quot;init&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/init.md}&quot;</span><span class="p">,</span>
@@ -1943,7 +1943,7 @@ Prompts can use variables like <code>$ARGUMENTS</code>, <code>$ARG1</code>, <cod
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 9, 2026 14:02:33 UTC">February 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 9, 2026 15:52:13 UTC">February 9, 2026</span>
   </span>
 
     

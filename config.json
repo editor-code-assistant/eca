@@ -33,22 +33,33 @@
         "openai/gpt-5.2"
       ]
     },
+    "defaultAgent": {
+      "type": "string",
+      "description": "The default agent to use for new chats.",
+      "markdownDescription": "The default agent to use for new chats.",
+      "default": "code",
+      "examples": ["code", "plan"]
+    },
+    "agent": {
+      "type": "object",
+      "description": "Named agent configurations for different workflows.",
+      "markdownDescription": "Named agent configurations for different workflows.",
+      "additionalProperties": {
+        "$ref": "#/definitions/agent"
+      }
+    },
     "defaultBehavior": {
       "type": "string",
-      "description": "The default behavior to use for new chats.",
-      "markdownDescription": "The default behavior to use for new chats.",
-      "default": "agent",
-      "examples": [
-        "agent",
-        "plan"
-      ]
+      "description": "Deprecated: use 'defaultAgent' instead. Backward compatible alias.",
+      "markdownDescription": "Deprecated: use 'defaultAgent' instead. Backward compatible alias.",
+      "examples": ["code", "plan"]
     },
     "behavior": {
       "type": "object",
-      "description": "Named behavior configurations for different workflows.",
-      "markdownDescription": "Named behavior configurations for different workflows.",
+      "description": "Deprecated: use 'agent' instead. Backward compatible alias.",
+      "markdownDescription": "Deprecated: use 'agent' instead. Backward compatible alias.",
       "additionalProperties": {
-        "$ref": "#/definitions/behavior"
+        "$ref": "#/definitions/agent"
       }
     },
     "hooks": {
@@ -61,8 +72,8 @@
     },
     "rules": {
       "type": "array",
-      "description": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM behavior.",
-      "markdownDescription": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM behavior.",
+      "description": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM responses.",
+      "markdownDescription": "Rules are contexts passed to the LLM during a prompt, useful to tune prompts or LLM responses.",
       "items": {
         "type": "object",
         "properties": {
@@ -378,48 +389,43 @@
       },
       "additionalProperties": false
     },
-    "behavior": {
+    "agent": {
       "type": "object",
-      "description": "A named behavior configuration.",
-      "markdownDescription": "A named behavior configuration.",
+      "description": "A named agent configuration.",
+      "markdownDescription": "A named agent configuration.",
       "properties": {
         "mode": {
           "type": "string",
-          "description": "Behavior mode. 'primary' for standalone behaviors, 'subagent' for agent-spawnable behaviors.",
-          "markdownDescription": "Behavior mode. 'primary' for standalone behaviors, 'subagent' for agent-spawnable behaviors.",
-          "enum": [
-            "primary",
-            "subagent"
-          ]
+          "description": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
+          "markdownDescription": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
+          "enum": ["primary", "subagent"]
         },
         "defaultModel": {
           "type": "string",
-          "description": "Default model for this behavior, overriding the global default.",
-          "markdownDescription": "Default model for this behavior, overriding the global default.",
-          "examples": [
-            "anthropic/claude-sonnet-4.5"
-          ]
+          "description": "Default model for this agent, overriding the global default.",
+          "markdownDescription": "Default model for this agent, overriding the global default.",
+          "examples": ["anthropic/claude-sonnet-4.5"]
         },
         "disabledTools": {
           "type": "array",
-          "description": "Tools to disable for this behavior.",
-          "markdownDescription": "Tools to disable for this behavior.",
+          "description": "Tools to disable for this agent.",
+          "markdownDescription": "Tools to disable for this agent.",
           "items": {
             "type": "string"
           }
         },
         "enabledSkills": {
           "type": "array",
-          "description": "List of regex patterns matching skill names to enable for this behavior.",
-          "markdownDescription": "List of regex patterns matching skill names to enable for this behavior.",
+          "description": "List of regex patterns matching skill names to enable for this agent.",
+          "markdownDescription": "List of regex patterns matching skill names to enable for this agent.",
           "items": {
             "type": "string"
           }
         },
         "autoCompactPercentage": {
           "type": "integer",
-          "description": "Context window usage percentage at which auto-compact triggers for this behavior.",
-          "markdownDescription": "Context window usage percentage at which auto-compact triggers for this behavior.",
+          "description": "Context window usage percentage at which auto-compact triggers for this agent.",
+          "markdownDescription": "Context window usage percentage at which auto-compact triggers for this agent.",
           "minimum": 0,
           "maximum": 100
         },
