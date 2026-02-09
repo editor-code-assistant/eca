@@ -166,15 +166,24 @@
               ;; Subagent completed
               (#{:idle :error} status)
               (let [messages (get-in db [:chats subagent-chat-id :messages] [])
-                    summary (extract-final-summary messages)]
-                (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step))
+                    summary (extract-final-summary messages)
+                    max-steps-reached? (get-in db [:chats subagent-chat-id :max-steps-reached?])
+                    max-steps-limit (max-steps agent-def)]
+                (if max-steps-reached?
+                  (logger/info logger-tag (format "Agent '%s' halted after reaching max steps (%d)" agent-name max-steps-limit))
+                  (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
                 (swap! db* (fn [db]
                              (-> db
                                  (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
                                  (update :chats dissoc subagent-chat-id))))
-                {:error false
-                 :contents [{:type :text
-                             :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]})
+                (if max-steps-reached?
+                  {:error true
+                   :contents [{:type :text
+                               :text (format "## Agent '%s' Halted\n\nAgent was halted because it reached the maximum number of steps (%d). The result below may be incomplete.\n\n%s"
+                                             agent-name max-steps-limit summary)}]}
+                  {:error false
+                   :contents [{:type :text
+                               :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]}))
 
               ;; Keep waiting
               :else

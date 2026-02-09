@@ -890,6 +890,7 @@
       (if max-steps-reached?
         (do
           (logger/info logger-tag "Subagent reached max steps, finishing" {:chat-id chat-id})
+          (swap! db* assoc-in [:chats chat-id :max-steps-reached?] true)
           (when-not (string/blank? @received-msgs*)
             (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]}))
           (finish-chat-prompt! :idle chat-ctx)
