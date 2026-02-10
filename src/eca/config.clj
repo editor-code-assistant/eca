@@ -83,23 +83,32 @@
            "plan" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/plan_agent.md}"}
                    :disabledTools ["edit_file" "write_file" "move_file"]
-                   :toolCall {:approval {:allow {"eca__shell_command"
+                   :toolCall {:approval {:byDefault "ask"
+                                         :allow {"eca__shell_command"
                                                  {:argsMatchers {"command" ["pwd"]}}
+                                                 "eca__compact_chat" {}
                                                  "eca__preview_file_change" {}
-                                                 "eca__grep" {}
                                                  "eca__read_file" {}
-                                                 "eca__directory_tree" {}}
+                                                 "eca__directory_tree" {}
+                                                 "eca__grep" {}
+                                                 "eca__editor_diagnostics" {}
+                                                 "eca__skill" {}
+                                                 "eca__spawn_agent" {}}
                                          :deny {"eca__shell_command"
                                                 {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "explorer" {:mode "subagent"
                        :description "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase."
                        :systemPrompt "${classpath:prompts/explorer_agent.md}"
                        :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
-                       :toolCall {:approval {:allow {"eca__shell_command"
+                       :toolCall {:approval {:byDefault "ask"
+                                             :allow {"eca__shell_command"
                                                      {:argsMatchers {"command" ["pwd"]}}
-                                                     "eca__grep" {}
+                                                     "eca__compact_chat" {}
                                                      "eca__read_file" {}
-                                                     "eca__directory_tree" {}}
+                                                     "eca__directory_tree" {}
+                                                     "eca__grep" {}
+                                                     "eca__editor_diagnostics" {}
+                                                     "eca__skill" {}}
                                              :deny {"eca__shell_command"
                                                     {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "general" {:mode "subagent"
