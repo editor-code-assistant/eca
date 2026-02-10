@@ -29,7 +29,7 @@
       "description": "Default model in format 'provider/model'. When null, ECA decides the default model.",
       "markdownDescription": "Default model in format 'provider/model'. When null, ECA decides the default model.",
       "examples": [
-        "anthropic/claude-sonnet-4.5",
+        "anthropic/claude-sonnet-4-5",
         "openai/gpt-5.2"
       ]
     },
@@ -404,7 +404,7 @@
           "type": "string",
           "description": "Default model for this agent, overriding the global default.",
           "markdownDescription": "Default model for this agent, overriding the global default.",
-          "examples": ["anthropic/claude-sonnet-4.5"]
+          "examples": ["anthropic/claude-sonnet-4-5"]
         },
         "disabledTools": {
           "type": "array",
