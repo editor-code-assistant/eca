@@ -176,6 +176,96 @@
            {:role "assistant" :content "I see /foo/bar"}]
           true)))))
 
+(deftest group-parallel-tool-calls-test
+  (testing "single tool call passes through unchanged"
+    (is (match?
+         [{:role "user" :content "do something"}
+          {:role "assistant" :content "ok"}
+          {:role "tool_call" :content {:id "c1"}}
+          {:role "tool_call_output" :content {:id "c1"}}
+          {:role "assistant" :content "done"}]
+         (#'llm-providers.anthropic/group-parallel-tool-calls
+          [{:role "user" :content "do something"}
+           {:role "assistant" :content "ok"}
+           {:role "tool_call" :content {:id "c1"}}
+           {:role "tool_call_output" :content {:id "c1"}}
+           {:role "assistant" :content "done"}]))))
+  (testing "interleaved parallel tool calls are reordered: calls first, then outputs"
+    (is (match?
+         [{:role "tool_call" :content {:id "c1"}}
+          {:role "tool_call" :content {:id "c2"}}
+          {:role "tool_call_output" :content {:id "c1"}}
+          {:role "tool_call_output" :content {:id "c2"}}]
+         (#'llm-providers.anthropic/group-parallel-tool-calls
+          [{:role "tool_call" :content {:id "c1"}}
+           {:role "tool_call_output" :content {:id "c1"}}
+           {:role "tool_call" :content {:id "c2"}}
+           {:role "tool_call_output" :content {:id "c2"}}]))))
+  (testing "outputs are sorted to match call order"
+    (is (match?
+         [{:role "tool_call" :content {:id "c2"}}
+          {:role "tool_call" :content {:id "c1"}}
+          {:role "tool_call_output" :content {:id "c2"}}
+          {:role "tool_call_output" :content {:id "c1"}}]
+         (#'llm-providers.anthropic/group-parallel-tool-calls
+          [{:role "tool_call" :content {:id "c2"}}
+           {:role "tool_call_output" :content {:id "c2"}}
+           {:role "tool_call" :content {:id "c1"}}
+           {:role "tool_call_output" :content {:id "c1"}}])))))
+
+(deftest merge-adjacent-tool-results-test
+  (testing "single tool result passes through unchanged"
+    (is (match?
+         [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}]
+         (#'llm-providers.anthropic/merge-adjacent-tool-results
+          [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}]))))
+  (testing "adjacent tool_result user messages are merged"
+    (is (match?
+         [{:role "user"
+           :content [{:type "tool_result" :tool_use_id "c1" :content "result1"}
+                     {:type "tool_result" :tool_use_id "c2" :content "result2"}]}]
+         (#'llm-providers.anthropic/merge-adjacent-tool-results
+          [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "result1"}]}
+           {:role "user" :content [{:type "tool_result" :tool_use_id "c2" :content "result2"}]}]))))
+  (testing "non-tool-result user messages are not merged"
+    (is (match?
+         [{:role "user" :content "hello"}
+          {:role "user" :content "world"}]
+         (#'llm-providers.anthropic/merge-adjacent-tool-results
+          [{:role "user" :content "hello"}
+           {:role "user" :content "world"}]))))
+  (testing "mixed content user messages are not merged with tool results"
+    (is (match?
+         [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}
+          {:role "user" :content [{:type "text" :text "follow up"}]}]
+         (#'llm-providers.anthropic/merge-adjacent-tool-results
+          [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}
+           {:role "user" :content [{:type "text" :text "follow up"}]}])))))
+
+(deftest parallel-tool-calls-full-pipeline-test
+  (testing "interleaved parallel tool calls normalize to valid Anthropic message structure"
+    (let [input [{:role "user" :content "read two files"}
+                 {:role "assistant" :content "I'll read both files."}
+                 {:role "tool_call" :content {:id "c1" :full-name "eca__read_file" :arguments {:path "/a"}}}
+                 {:role "tool_call_output" :content {:id "c1" :output {:contents [{:type :text :text "content-a"}]}}}
+                 {:role "tool_call" :content {:id "c2" :full-name "eca__read_file" :arguments {:path "/b"}}}
+                 {:role "tool_call_output" :content {:id "c2" :output {:contents [{:type :text :text "content-b"}]}}}]
+          result (-> input
+                     (#'llm-providers.anthropic/group-parallel-tool-calls)
+                     (#'llm-providers.anthropic/normalize-messages true)
+                     (#'llm-providers.anthropic/merge-adjacent-assistants)
+                     (#'llm-providers.anthropic/merge-adjacent-tool-results))]
+      (is (match?
+           [{:role "user" :content "read two files"}
+            {:role "assistant"
+             :content [{:type "text" :text "I'll read both files."}
+                       {:type "tool_use" :id "c1" :name "eca__read_file" :input {:path "/a"}}
+                       {:type "tool_use" :id "c2" :name "eca__read_file" :input {:path "/b"}}]}
+            {:role "user"
+             :content [{:type "tool_result" :tool_use_id "c1" :content "content-a\n"}
+                       {:type "tool_result" :tool_use_id "c2" :content "content-b\n"}]}]
+           result)))))
+
 (deftest add-cache-to-last-message-test
   (is (match?
        []

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Avoid tool call errors on anthropic api.
+
 ## 0.100.3
 
 - Improve regex of denied commands in plan agent.
