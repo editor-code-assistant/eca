@@ -203,7 +203,7 @@
            tools web-search extra-payload extra-headers supports-image? http-client]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
   (let [messages (-> (concat (normalize-messages past-messages supports-image?)
-                            (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
+                             (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
                      merge-adjacent-assistants)
         stream? (boolean callbacks)
         body (deep-merge
