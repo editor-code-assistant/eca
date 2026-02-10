@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.100.1
+
 - Improve anthropic login wording.
 - Fix regression in check for available models. #297
 
