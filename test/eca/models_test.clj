@@ -226,16 +226,24 @@
               {:providers {"synthetic" {:api "openai-chat"
                                         :url "https://api.synthetic.new/v1"
                                         :fetchModels false}}}
-              {}))))
+              {})))))))
 
-      (testing "Logs when provider-id fallback is used"
-        (let [info* (atom [])]
-          (with-redefs [logger/info (fn [& args] (swap! info* conj args))]
-            (#'models/fetch-provider-models-with-priority
-             {:providers {"anthropic-like" {:api "anthropic"
-                                            :url "https://api.anthropic.com"}}}
-             {})
-            (is (some #(re-find #"provider-id fallback" (apply str %)) @info*))))))))
+(deftest fetch-provider-models-with-priority-fetchmodels-disabled-test
+  (let [native-calls* (atom 0)
+        models-dev-data {"native-provider" {"api" "https://api.openai.com"
+                                            "models" {"from-models-dev" {"id" "from-models-dev"}}}}
+        config {:providers {"native-provider" {:api "openai-responses"
+                                               :url "https://api.openai.com"
+                                               :key "sk-test"
+                                               :fetchModels false}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             (swap! native-calls* inc)
+                             {:status 200
+                              :body {:data [{:id "native-1"}]}})]
+      (is (match?
+           {}
+           (#'models/fetch-provider-models-with-priority config {} models-dev-data)))
+      (is (= 0 @native-calls*)))))
 
 (deftest fetch-provider-models-with-priority-native-first-test
   (let [request* (atom nil)

@@ -154,15 +154,19 @@
        (when-let [provider-by-id (get by-id provider)]
          (models-dev-provider-without-api? provider-by-id))))
 
+(defn ^:private fetch-model-catalog-enabled?
+  [provider-config]
+  (boolean
+   (and (:api provider-config)
+        (not= false (:fetchModels provider-config)))))
+
 (defn ^:private add-models-from-models-dev?
   "Returns true when provider should load model catalog from models.dev.
    Opt-out with fetchModels=false."
   [provider provider-config config models-dev-index]
-  (let [provider-api-url (llm-util/provider-api-url provider config)
-        fetch-models (:fetchModels provider-config)]
+  (let [provider-api-url (llm-util/provider-api-url provider config)]
     (boolean
-     (and (:api provider-config)
-          (not= false fetch-models)
+     (and (fetch-model-catalog-enabled? provider-config)
           (resolve-models-dev-provider provider provider-api-url models-dev-index)))))
 
 (defn ^:private deprecated-model?
@@ -326,7 +330,7 @@
    (let [models-dev-index (models-dev-provider-index models-dev-data)]
      (reduce
       (fn [acc [provider provider-config]]
-        (if (:api provider-config)
+        (if (fetch-model-catalog-enabled? provider-config)
           (if-let [native-models (fetch-provider-native-models-with-fallback
                                   provider provider-config config db)]
             (assoc acc provider native-models)
