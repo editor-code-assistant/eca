@@ -40,6 +40,17 @@
 (defn get-env [env] (System/getenv env))
 (defn get-property [property] (System/getProperty property))
 
+(def ^:private dangerous-commands-regexes
+  ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
+   ".*>.*",
+   ".*\\|\\s*(tee|dd|xargs).*",
+   ".*\\b(sed|awk|perl)\\s+.*-i.*",
+   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
+   ".*git\\s+(add|commit|push).*",
+   ".*npm\\s+install.*",
+   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
+   ".*bash.*-c.*>.*"])
+
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
@@ -66,10 +77,10 @@
                          :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultAgent "code"
-   :agent {"code" {:mode :primary
+   :agent {"code" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/code_agent.md}"}
                    :disabledTools ["preview_file_change"]}
-           "plan" {:mode :primary
+           "plan" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/plan_agent.md}"}
                    :disabledTools ["edit_file" "write_file" "move_file"]
                    :toolCall {:approval {:allow {"eca__shell_command"
@@ -79,15 +90,22 @@
                                                  "eca__read_file" {}
                                                  "eca__directory_tree" {}}
                                          :deny {"eca__shell_command"
-                                                {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
-                                                                           ".*>.*",
-                                                                           ".*\\|\\s*(tee|dd|xargs).*",
-                                                                           ".*\\b(sed|awk|perl)\\s+.*-i.*",
-                                                                           ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
-                                                                           ".*git\\s+(add|commit|push).*",
-                                                                           ".*npm\\s+install.*",
-                                                                           ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-                                                                           ".*bash.*-c.*>.*"]}}}}}}}
+                                                {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
+           "explorer" {:mode "subagent"
+                       :description "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase."
+                       :systemPrompt "${classpath:prompts/explorer_agent.md}"
+                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
+                       :toolCall {:approval {:allow {"eca__shell_command"
+                                                     {:argsMatchers {"command" ["pwd"]}}
+                                                     "eca__grep" {}
+                                                     "eca__read_file" {}
+                                                     "eca__directory_tree" {}}
+                                             :deny {"eca__shell_command"
+                                                    {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
+           "general" {:mode "subagent"
+                      :description "General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel."
+                      :systemPrompt "${classpath:prompts/code_agent.md}"
+                      :disabledTools ["preview_file_change"]}}
    :defaultModel nil
    :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"

@@ -9,8 +9,12 @@ There are 2 types of agents defined via `mode` field (when absent, defaults to p
 
 ## Built-in agents
 
-- `code`: default primary agent, generic, used to do most tasks.
-- `plan`: specialized primary agent to build a plan before switching to code agent and executing the complex task.
+| name         | mode     | description                                                                                                                                                             |
+|--------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| __code__     | primary  | Default, generic, used to do most tasks, has access to all tools by default                                                                                             |
+| __plan__     | primary  | Specialized in building a plan before user switches to code agent and executes the complex task. Has no edit tools available, only preview changes.                     |
+| __explorer__ | subagent | Fast agent specialized for exploring codebases. Finds files by patterns, searches code for keywords, or answers questions about the codebase. Read-only, no edit tools. |
+| __general__  | subagent | General-purpose agent for researching complex questions and executing multi-step tasks. Can be used to execute multiple units of work in parallel.                      |
 
 ## Custom agents and prompts
 
@@ -46,7 +50,7 @@ You can create an agent and define its prompt, tool call approval and default mo
 
 ECA can spawn foreground subagents in a chat, they are agents which `mode` is `subagent`.
 
-Subagents can be configured in config or markdown and require `description` and `prompt` (or markdown content):
+Subagents can be configured in config or markdown and require `description` and `systemPrompt` (or markdown content):
 
 === "Markdown"
 
