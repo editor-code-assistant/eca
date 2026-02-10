@@ -88,34 +88,29 @@
                      (llm-util/log-response logger-tag rid "response-error" body)
                      (reset! response* error-data)))]
     (llm-util/log-request logger-tag rid url body headers)
-    @(http/post
-      url
-      {:headers headers
-       :body (json/generate-string body)
-       :throw-exceptions? false
-       :async? true
-       :http-client (client/merge-with-global-http-client http-client)
-       :as (if on-stream :stream :json)}
-      (fn [{:keys [status body]}]
-        (try
-          (if (not= 200 status)
-            (let [body-str (if on-stream (slurp body) body)]
-              (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
-              (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)}))
-            (if on-stream
-              (with-open [rdr (io/reader body)]
-                (doseq [[event data] (llm-util/event-data-seq rdr)]
-                  (llm-util/log-response logger-tag rid event data)
-                  (on-stream event data content-block* reason-id)))
-
-              (do
-                (llm-util/log-response logger-tag rid "response" body)
-                (reset! response*
-                        {:output-text (:text (last (:content body)))}))))
-          (catch Exception e
-            (on-error {:exception e}))))
-      (fn [e]
-        (on-error {:exception e})))
+    (let [{:keys [status body]} (http/post
+                                 url
+                                 {:headers headers
+                                  :body (json/generate-string body)
+                                  :throw-exceptions? false
+                                  :http-client (client/merge-with-global-http-client http-client)
+                                  :as (if on-stream :stream :json)})]
+      (try
+        (if (not= 200 status)
+          (let [body-str (if on-stream (slurp body) body)]
+            (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
+            (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)}))
+          (if on-stream
+            (with-open [rdr (io/reader body)]
+              (doseq [[event data] (llm-util/event-data-seq rdr)]
+                (llm-util/log-response logger-tag rid event data)
+                (on-stream event data content-block* reason-id)))
+            (do
+              (llm-util/log-response logger-tag rid "response" body)
+              (reset! response*
+                      {:output-text (:text (last (:content body)))}))))
+        (catch Exception e
+          (on-error {:exception e}))))
     @response*))
 
 (defn ^:private normalize-messages [past-messages supports-image?]
