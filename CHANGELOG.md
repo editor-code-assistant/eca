@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improve regex of denied commands in plan agent.
+- Fix fetch models regression. #299
 
 ## 0.100.2
 
