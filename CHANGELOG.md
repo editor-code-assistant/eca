@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve regex of denied commands in plan agent.
+
 ## 0.100.2
 
 - Bump MCP java sdk to 0.17.2.

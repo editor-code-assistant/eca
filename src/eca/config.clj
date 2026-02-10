@@ -76,15 +76,14 @@
                                                     "eca__read_file" {}
                                                     "eca__directory_tree" {}}
                                             :deny {"eca__shell_command"
-                                                   {:argsMatchers {"command" ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
-                                                                              ".*>.*",
+                                                   {:argsMatchers {"command" [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"
                                                                               ".*\\|\\s*(tee|dd|xargs).*",
                                                                               ".*\\b(sed|awk|perl)\\s+.*-i.*",
                                                                               ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
                                                                               ".*git\\s+(add|commit|push).*",
                                                                               ".*npm\\s+install.*",
                                                                               ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-                                                                              ".*bash.*-c.*>.*"]}}}}}}}
+                                                                              ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"]}}}}}}}
    :defaultModel nil
    :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"

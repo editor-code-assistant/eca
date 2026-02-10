@@ -117,14 +117,14 @@ By default ECA consider the following as the base configuration:
         "plan": {"prompts": {"chat": "${classpath:prompts/plan_agent.md}"},
                   "disabledTools": ["edit_file", "write_file", "move_file"],
                   "toolCall": {"approval": {"deny": {"eca__shell_command":
-                                                     {"argsMatchers": {"command" [".*>.*",
+                                                     {"argsMatchers": {"command" [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*",
                                                                                   ".*\\|\\s*(tee|dd|xargs).*",
                                                                                   ".*\\b(sed|awk|perl)\\s+.*-i.*",
                                                                                   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
                                                                                   ".*git\\s+(add|commit|push).*",
                                                                                   ".*npm\\s+install.*",
                                                                                   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-                                                                                  ".*bash.*-c.*>.*"]}}}}}}
+                                                                                  ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"]}}}}}}
       }
       "defaultAgent": "code",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
