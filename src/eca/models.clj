@@ -341,15 +341,9 @@
                        (:providers config))
          result (reduce
                  (fn [acc [provider f]]
-                   (try
-                     (if-let [models @f]
-                       (assoc acc provider models)
-                       acc)
-                     (catch Exception e
-                       (logger/error logger-tag
-                                     (format "Provider '%s': Failed to fetch model catalog: %s"
-                                             provider (ex-message e)))
-                       acc)))
+                   (if-let [models @f]
+                     (assoc acc provider models)
+                     acc))
                  {}
                  futures)
          elapsed-ms (/ (- (System/nanoTime) start-ns) 1e6)]
