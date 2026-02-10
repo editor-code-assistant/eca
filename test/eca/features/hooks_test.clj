@@ -260,3 +260,45 @@
                                             {:tool-name "tool" :server "eca" :error true})
                                      {} (h/db) (h/config)))
       (is (true? @ran?*)))))
+
+(deftest subagent-finished-test
+  (testing "subagentFinished hook triggers with parent_chat_id"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"sub-1" {:agent "explorer"}})
+    (h/config! {:hooks {"test" {:type "subagentFinished"
+                                :actions [{:type "shell" :shell "cat"}]}}})
+    (let [result* (atom nil)]
+      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+                                            (reset! result* (json/parse-string (:input opts) true))
+                                            {:exit 0 :out "" :err nil})]
+        (f.hooks/trigger-if-matches! :subagentFinished
+                                     (merge (f.hooks/chat-hook-data (h/db) "sub-1" "explorer")
+                                            {:prompt "explore the codebase"
+                                             :parent-chat-id "parent-1"})
+                                     {} (h/db) (h/config)))
+      (is (= "sub-1" (:chat_id @result*)))
+      (is (= "explorer" (:agent @result*)))
+      (is (= "parent-1" (:parent_chat_id @result*)))
+      (is (= "explore the codebase" (:prompt @result*)))))
+
+  (testing "postRequest does not trigger for subagentFinished hook type"
+    (h/reset-components!)
+    (h/config! {:hooks {"test" {:type "postRequest"
+                                :actions [{:type "shell" :shell "echo hey"}]}}})
+    (let [ran?* (atom false)]
+      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
+        (f.hooks/trigger-if-matches! :subagentFinished
+                                     {:prompt "task"}
+                                     {} (h/db) (h/config)))
+      (is (false? @ran?*))))
+
+  (testing "subagentFinished does not trigger for postRequest hook type"
+    (h/reset-components!)
+    (h/config! {:hooks {"test" {:type "subagentFinished"
+                                :actions [{:type "shell" :shell "echo hey"}]}}})
+    (let [ran?* (atom false)]
+      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
+        (f.hooks/trigger-if-matches! :postRequest
+                                     {:prompt "task"}
+                                     {} (h/db) (h/config)))
+      (is (false? @ran?*)))))

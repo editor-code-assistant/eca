@@ -106,13 +106,18 @@
 (defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
   (when-not (get-in @db* [:chats chat-id :auto-compacting?])
     (swap! db* assoc-in [:chats chat-id :status] status)
-    (f.hooks/trigger-if-matches! :postRequest
-                                 (merge (f.hooks/chat-hook-data @db* chat-id (:agent chat-ctx))
-                                        {:prompt message})
-                                 {:on-before-action (partial notify-before-hook-action! chat-ctx)
-                                  :on-after-action (partial notify-after-hook-action! chat-ctx)}
-                                 @db*
-                                 config)
+    (let [db @db*
+          subagent? (some? (get-in db [:chats chat-id :subagent]))
+          hook-type (if subagent? :subagentFinished :postRequest)
+          hook-data (cond-> (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
+                                   {:prompt message})
+                      subagent? (assoc :parent-chat-id (get-in db [:chats chat-id :parent-chat-id])))]
+      (f.hooks/trigger-if-matches! hook-type
+                                   hook-data
+                                   {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                    :on-after-action (partial notify-after-hook-action! chat-ctx)}
+                                   db
+                                   config))
     (send-content! chat-ctx :system
                    {:type :progress
                     :state :finished})

@@ -23,7 +23,7 @@
 (defn chat-hook-data
   "Returns common fields for CHAT-RELATED hooks.
    Includes base fields plus chat-specific fields (chat-id, agent).
-   Use this for: preRequest, postRequest, preToolCall, postToolCall, chatStart, chatEnd."
+   Use this for: preRequest, postRequest, subagentFinished, preToolCall, postToolCall, chatStart, chatEnd."
   [db chat-id agent-name]
   (merge (base-hook-data db)
          {:chat-id chat-id
@@ -105,7 +105,7 @@
   "Execute a single hook action. Supported hook types:
    - :sessionStart, :sessionEnd (session lifecycle)
    - :chatStart, :chatEnd (chat lifecycle)
-   - :preRequest, :postRequest (prompt lifecycle)
+   - :preRequest, :postRequest, :subagentFinished (prompt lifecycle)
    - :preToolCall, :postToolCall (tool lifecycle)
 
    Returns map with :exit, :raw-output, :raw-error, :parsed"
