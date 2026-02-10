@@ -363,14 +363,14 @@
       "hash": "sha256-Bz9V9PAfwqd7K1G5QD7FYJtLC/CuHbzrxI4iN0TJe78="
     },
     {
-      "mvn-path": "com/ethlo/time/itu/1.10.3/itu-1.10.3.jar",
+      "mvn-path": "com/ethlo/time/itu/1.14.0/itu-1.14.0.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-I9O6hAldSJpZUkD4kEUIXqUGb7b8HcCRJY1XffnXSrw="
+      "hash": "sha256-XPQKsMx3goqyuHWx8+zXHIKV13IZM0dqvC4I/dzqFko="
     },
     {
-      "mvn-path": "com/ethlo/time/itu/1.10.3/itu-1.10.3.pom",
+      "mvn-path": "com/ethlo/time/itu/1.14.0/itu-1.14.0.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-shihqWmXfQEerG6Ttzo6uwuIQGMK0aHxbr//JOWIbXQ="
+      "hash": "sha256-DVrgvsCUlVKcY8yKbBMlOHBoaDKk47IGwTgWUDWuS8U="
     },
     {
       "mvn-path": "com/fasterxml/jackson/core/jackson-annotations/2.12.4/jackson-annotations-2.12.4.jar",
@@ -923,14 +923,14 @@
       "hash": "sha256-dHx0jR8BBx6j0PhHb2jUqCOjE7dycB2FUck+qqV/n5k="
     },
     {
-      "mvn-path": "com/networknt/json-schema-validator/1.5.7/json-schema-validator-1.5.7.jar",
+      "mvn-path": "com/networknt/json-schema-validator/2.0.0/json-schema-validator-2.0.0.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-LHHpcNwbZ0mbme+vZZgmlumM7QAoVI1Dv066Bu3Yg08="
+      "hash": "sha256-7pQCQQQ64BgB31lUvDdEv3I8RJ/w2nGfl+G5poiXOdc="
     },
     {
-      "mvn-path": "com/networknt/json-schema-validator/1.5.7/json-schema-validator-1.5.7.pom",
+      "mvn-path": "com/networknt/json-schema-validator/2.0.0/json-schema-validator-2.0.0.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-qQU6VxFYaUiNK879i+139s2czA5HL7gDlUXCpFv1VTQ="
+      "hash": "sha256-k1SvFT2v0SLKW3LRr+szoE0CYqZKTBW/sNjzCNmC0jE="
     },
     {
       "mvn-path": "com/nextjournal/beholder/1.0.2/beholder-1.0.2.jar",
@@ -1113,84 +1113,44 @@
       "hash": "sha256-Y/C4zR1No0m2Dfk4kdHgDF0/0sm9M9jlvu0HWijNiFQ="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-core/0.13.1/mcp-core-0.13.1.jar",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp-core/0.17.2/mcp-core-0.17.2.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-AeBV/6CLoY4zI0tcN8OQT3sGWxEpJm5RXs+ro2ls9U0="
+      "hash": "sha256-JImQKwDZz7d6nsmRrfXDOH2imKQVT1JtxjzanBh4kf8="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-core/0.13.1/mcp-core-0.13.1.pom",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp-core/0.17.2/mcp-core-0.17.2.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-83M0VH4abej/YG1hWO1ejwjdjLV7OhN/zvBnbLYGv0s="
+      "hash": "sha256-cNPxEH+D/vYJSQwbHuZI3u3uVgDJTfo+6tysy7j2uQc="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-core/0.15.0/mcp-core-0.15.0.jar",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json-jackson2/0.17.2/mcp-json-jackson2-0.17.2.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-oxuizKhssw3Rd/nRwYMYis4b64RneKptrfIYoHy17RM="
+      "hash": "sha256-2+VCwWJE3jCHLOXtzxeV70EBrNSsQA6MgIGwBI/qwKc="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-core/0.15.0/mcp-core-0.15.0.pom",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json-jackson2/0.17.2/mcp-json-jackson2-0.17.2.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-kzE0jbUdTMZHt4ndCFueH1l3Bdj7KOI0mCgOzXQqigw="
+      "hash": "sha256-9KPZABP6Gp1+UF899nOe4f5Hfk609WhxLEuLubbd8rU="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json-jackson2/0.13.1/mcp-json-jackson2-0.13.1.jar",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json/0.17.2/mcp-json-0.17.2.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-YRIZ1Ql24keR93rL2FPNuqDq3GcRqeWzy7vwtJExmZU="
+      "hash": "sha256-bfme9ACDa9IT1jiVaE6wZtNuGpt1m9ODQsMqa5sLbk8="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json-jackson2/0.13.1/mcp-json-jackson2-0.13.1.pom",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json/0.17.2/mcp-json-0.17.2.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-Kx4pePryHEIdJ0sQyfyj4mWlehTnf+QbWFGx87HnABk="
+      "hash": "sha256-mJyyzJFVMmwg/jCxljKbs1wC9sfoH2OjR1FM3pNXCPE="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json-jackson2/0.15.0/mcp-json-jackson2-0.15.0.jar",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.17.2/mcp-0.17.2.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-O2hwXOGDgA+gEvmKsyaRPBtHSiXlOZDE5VGYLQYjC7Y="
+      "hash": "sha256-A5MwWTIuXWTy0wVwEzjwo7iUosmDB5tEtnW2PqEnmLA="
     },
     {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json-jackson2/0.15.0/mcp-json-jackson2-0.15.0.pom",
+      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.17.2/mcp-0.17.2.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-pQ28rXuNn4R4YAyVgP9sjxmOe8RcWnd+35dAOTOF0YQ="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json/0.13.1/mcp-json-0.13.1.jar",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-Fux/jcTxYA4jGFJkzroMo3uWfABXVi8KixP74YgBU8s="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json/0.13.1/mcp-json-0.13.1.pom",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-hfKE8UspGRK7Nk9n1v2oVHpgTZY4jPTq5uts6zt9I0A="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json/0.15.0/mcp-json-0.15.0.jar",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-5pdE2giJBT1cv60A2V9pt/DTZlqKyc4ttbuOrfczH5w="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp-json/0.15.0/mcp-json-0.15.0.pom",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-7+r1S+8DHGVhNSZ5hoGWUjArSK8M47b6YMePeeh8RWE="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.13.1/mcp-0.13.1.jar",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-YczejG2OyRFVE0koY8u1uSA/uumEp9BZiI+0q/od6wo="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.13.1/mcp-0.13.1.pom",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-vHB6a7aTfeCMJs/rlzIOZW+15derHzGvBeuOGCS6pJ0="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.15.0/mcp-0.15.0.jar",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-ndAgDO4gNxEn8QfCdvuLrGEZfujjnToFlpdDz8l5LzE="
-    },
-    {
-      "mvn-path": "io/modelcontextprotocol/sdk/mcp/0.15.0/mcp-0.15.0.pom",
-      "mvn-repo": "https://repo1.maven.org/maven2/",
-      "hash": "sha256-A0+cuKcLwC7X/0DCTkyNXaNXCedXic5/Q5/m4ipb/h0="
+      "hash": "sha256-sg3D2ZJ0CgXg/Lto0SZCXSfEW+myTdU+3kG0lANnuTk="
     },
     {
       "mvn-path": "io/netty/netty-all/4.0.44.Final/netty-all-4.0.44.Final.jar",
