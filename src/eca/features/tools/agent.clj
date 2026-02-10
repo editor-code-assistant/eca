@@ -215,7 +215,7 @@
                               "task" {:type "string"
                                       :description "Clear description of what the agent should accomplish"}
                               "activity" {:type "string"
-                                          :description "Concise label (max 3 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}}
+                                          :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}}
                  :required ["agent" "task" "activity"]}
     :handler #'spawn-agent
     :summary-fn (fn [{:keys [args]}]
