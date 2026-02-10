@@ -53,7 +53,7 @@
 
 (defn ^:private send-step-progress!
   "Send a toolCallRunning notification with current step progress to the parent chat."
-  [messenger chat-id tool-call-id agent-name subagent-chat-id step max-steps model arguments]
+  [messenger chat-id tool-call-id agent-name activity subagent-chat-id step max-steps model arguments]
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id
@@ -63,7 +63,7 @@
               :name "spawn_agent"
               :server "eca"
               :origin "native"
-              :summary (format "Running agent '%s'" agent-name)
+              :summary (format "%s: %s" agent-name activity)
               :arguments arguments
               :details {:type :subagent
                         :subagent-chat-id subagent-chat-id
@@ -88,6 +88,7 @@
   [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn]}]
   (let [agent-name (get arguments "agent")
         task (get arguments "task")
+        activity (get arguments "activity" "working")
         db @db*
 
         ;; Check for nesting - prevent subagents from spawning other subagents
@@ -155,7 +156,7 @@
                 current-step (get-in db [:chats subagent-chat-id :current-step] 1)]
             ;; Send step progress when step advances
             (when (> current-step last-step)
-              (send-step-progress! messenger chat-id tool-call-id agent-name
+              (send-step-progress! messenger chat-id tool-call-id agent-name activity
                                    subagent-chat-id current-step (max-steps subagent) subagent-model arguments))
             (cond
               ;; Parent chat stopped — propagate stop to subagent
@@ -212,12 +213,15 @@
                  :properties {"agent" {:type "string"
                                        :description "Name of the agent to spawn"}
                               "task" {:type "string"
-                                      :description "Clear description of what the agent should accomplish"}}
-                 :required ["agent" "task"]}
+                                      :description "Clear description of what the agent should accomplish"}
+                              "activity" {:type "string"
+                                          :description "Concise label (max 3 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}}
+                 :required ["agent" "task" "activity"]}
     :handler #'spawn-agent
     :summary-fn (fn [{:keys [args]}]
                   (if-let [agent-name (get args "agent")]
-                    (format "Running agent '%s'" agent-name)
+                    (let [activity (get args "activity" "working")]
+                      (format "%s: %s" agent-name activity))
                     "Spawning agent"))}})
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
