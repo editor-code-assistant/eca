@@ -52,7 +52,7 @@
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"}}}
+                            :models {"claude-sonnet-4-5" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
