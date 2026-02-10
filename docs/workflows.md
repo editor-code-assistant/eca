@@ -10,7 +10,7 @@ It's recommended to run at least once `/init` per project to create a `AGENTS.md
 
 For solving complex tasks wher you wanna have control over how LLM will solve it, ECA's `plan` agent is perfect for that:
 
-1. Start a chat and [switch to __plan__ agent](./features/#agents)
+1. Start a chat and [switch to __plan__ agent](./features.md#agents)
 2. Send a prompt with the task you wanna plan to do, e.g: "Let's fix bug X", "Find the problem X"
 
 Doing that LLM will receive a detailed guideline to solve that divided into 3 stages:
@@ -27,7 +27,7 @@ This is a really good workflow to use the best of LLM.
 
 ## Quick refactors - (`rewrite`)
 
-Sometimes you don't want to start a whole chat and iterate to add a small portion of code or do a quick code change, so [ECA's rewrite feature](./features/#rewrite) may fit well.
+Sometimes you don't want to start a whole chat and iterate to add a small portion of code or do a quick code change, so [ECA's rewrite feature](./features.md#rewrite) may fit well.
 
 1. Select the part of the code you wanna LLM to change/replace like whole functions/methods.
 2. Call ECA rewrite in your editor

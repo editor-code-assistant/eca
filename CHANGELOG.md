@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+## 0.100.2
+
 - Bump MCP java sdk to 0.17.2.
+- Avoid duplicated sonnet-4-5 model.
 
 ## 0.100.1
 
