@@ -327,20 +327,36 @@
   ([config db]
    (fetch-provider-models-with-priority config db (models-dev)))
   ([config db models-dev-data]
-   (let [models-dev-index (models-dev-provider-index models-dev-data)]
-     (reduce
-      (fn [acc [provider provider-config]]
-        (if (fetch-model-catalog-enabled? provider-config)
-          (if-let [native-models (fetch-provider-native-models-with-fallback
-                                  provider provider-config config db)]
-            (assoc acc provider native-models)
-            (if-let [provider-models (fetch-single-provider-models-dev
-                                      provider provider-config config models-dev-index)]
-              (assoc acc provider provider-models)
-              acc))
-          acc))
-      {}
-      (:providers config)))))
+   (let [models-dev-index (models-dev-provider-index models-dev-data)
+         start-ns (System/nanoTime)
+         futures (into []
+                       (keep (fn [[provider provider-config]]
+                               (when (fetch-model-catalog-enabled? provider-config)
+                                 [provider
+                                  (future
+                                    (or (fetch-provider-native-models-with-fallback
+                                         provider provider-config config db)
+                                        (fetch-single-provider-models-dev
+                                         provider provider-config config models-dev-index)))])))
+                       (:providers config))
+         result (reduce
+                 (fn [acc [provider f]]
+                   (try
+                     (if-let [models @f]
+                       (assoc acc provider models)
+                       acc)
+                     (catch Exception e
+                       (logger/error logger-tag
+                                     (format "Provider '%s': Failed to fetch model catalog: %s"
+                                             provider (ex-message e)))
+                       acc)))
+                 {}
+                 futures)
+         elapsed-ms (/ (- (System/nanoTime) start-ns) 1e6)]
+     (logger/info logger-tag
+                  (format "Fetched model catalogs from %d providers in %.1fms"
+                          (count result) elapsed-ms))
+     result)))
 
 (defn ^:private fetch-provider-model-catalogs
   ([config db]
