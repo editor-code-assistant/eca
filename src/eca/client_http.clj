@@ -10,7 +10,10 @@
     Proxy
     Proxy$Type
     ProxySelector
-    URI]))
+    URI]
+   [java.util.concurrent Executors]))
+
+(set! *warn-on-reflection* true)
 
 (defn hato-client-make
   "Builds an options map for creating a Hato HTTP client.
@@ -71,6 +74,9 @@
       proxy-creds
       (assoc :authenticator proxy-creds))))
 
+(def ^:private shared-executor*
+  (delay (Executors/newCachedThreadPool)))
+
 (def ^:dynamic *hato-http-client*
   "Global Hato HTTP client used throughout the application for making
   HTTP requests"
@@ -100,7 +106,7 @@
   the corresponding proxy configuration is added to the build."
   [hato-opts]
   (let [{:keys [http https] :as _env-proxies} (proxy/env-proxy-urls-parse)
-        opts (cond-> hato-opts
+        opts (cond-> (assoc hato-opts :executor ^java.util.concurrent.ExecutorService @shared-executor*)
                http
                (assoc :eca.client-http/proxy-http http)
                https
