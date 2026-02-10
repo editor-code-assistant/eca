@@ -41,15 +41,14 @@
 (defn get-property [property] (System/getProperty property))
 
 (def ^:private dangerous-commands-regexes
-  ["[12&]?>>?\\s*(?!/dev/null($|\\s))\\S+"
-   ".*>.*",
+  [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"
    ".*\\|\\s*(tee|dd|xargs).*",
    ".*\\b(sed|awk|perl)\\s+.*-i.*",
    ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
    ".*git\\s+(add|commit|push).*",
    ".*npm\\s+install.*",
    ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-   ".*bash.*-c.*>.*"])
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
 
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
