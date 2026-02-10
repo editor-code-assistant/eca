@@ -102,11 +102,11 @@
 
   (testing "Returns false when provider does not declare API type"
     (is (false? (#'models/add-models-from-models-dev?
-               "synthetic"
-               {}
-               {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}
-               {:by-id {}
-                :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
+                 "synthetic"
+                 {}
+                 {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}
+                 {:by-id {}
+                  :by-url {"https://api.synthetic.new/v1" {"api" "https://api.synthetic.new/v1"}}}))))
 
   (testing "Returns false when provider URL does not match any models.dev api"
     (is (false? (#'models/add-models-from-models-dev?
@@ -141,8 +141,7 @@
                  {:providers {"my-provider" {:url "https://api.not-matching.test/v1"}}}
                  {:by-id {"my-provider" {"api" "https://api.my-provider.dev/v1"
                                          "models" {"foo" {"id" "foo"}}}}
-                  :by-url {}}))))
-  )
+                  :by-url {}})))))
 
 (deftest parse-models-dev-provider-models-test
   (testing "Uses key as model key"
@@ -154,7 +153,7 @@
          (#'models/parse-models-dev-provider-models
           "test-provider"
           {"claude-sonnet-4-5" {"name" "Claude Sonnet 4.5"
-                                         "id" "claude-sonnet-4-5"}
+                                "id" "claude-sonnet-4-5"}
            "gemini-3-flash-preview" {"id" "gemini-3-flash-preview"
                                      "name" "Gemini 3 Flash"}
            "gpt-5.2" {"name" "GPT 5.2"
@@ -187,15 +186,15 @@
                "bad-entry" 42})))
         (is (= 1 (count @warnings*)))))))
 
-(deftest fetch-models-dev-provider-models-test
-  (with-redefs-fn {#'eca.models/models-dev (constantly {"openai" {"api" "https://api.openai.com"
-                                                                  "models" {"gpt-5.2" {"id" "gpt-5.2"
-                                                                                       "name" "GPT 5.2"}
-                                                                            "gpt-4-legacy" {"id" "gpt-4-legacy"
-                                                                                            "status" "deprecated"}}}
-                                                        "anthropic" {"models" {"claude-sonnet-4-5"
-                                                                                {"id" "claude-sonnet-4-5"
-                                                                                 "name" "Claude Sonnet 4.5"}}}
+(deftest fetch-provider-models-with-priority-models-dev-test
+  (with-redefs-fn {#'eca.models/models-dev (constantly {"oai-like" {"api" "https://api.openai.com"
+                                                                    "models" {"gpt-5.2" {"id" "gpt-5.2"
+                                                                                         "name" "GPT 5.2"}
+                                                                              "gpt-4-legacy" {"id" "gpt-4-legacy"
+                                                                                              "status" "deprecated"}}}
+                                                        "anthropic-like" {"models" {"claude-sonnet-4-5"
+                                                                                    {"id" "claude-sonnet-4-5"
+                                                                                     "name" "Claude Sonnet 4.5"}}}
                                                         "synthetic" {"api" "https://api.synthetic.new/v1"
                                                                      "models" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
                                                                                {"id" "hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
@@ -203,37 +202,120 @@
                                                         "my-provider" {"api" "https://api.my-provider.dev/v1"
                                                                        "models" {"foo" {"id" "foo" "name" "Foo"}}}})}
     (fn []
-      (testing "Loads models for providers with matching URL and API declared"
+      (testing "Loads models from models.dev when native endpoint is unavailable"
         (is (match?
-             {"openai" {"gpt-5.2" {}}
-              "anthropic" {"claude-sonnet-4-5" {}}
+             {"oai-like" {"gpt-5.2" {}}
+              "anthropic-like" {"claude-sonnet-4-5" {}}
               "synthetic" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507" {}}}
-             (#'models/fetch-models-dev-provider-models
-              {:providers {"openai" {:api "openai-responses"
-                                     :url "https://api.openai.com"}
-                           "anthropic" {:api "anthropic"
-                                        :url "https://api.anthropic.com"}
+             (#'models/fetch-provider-models-with-priority
+              {:providers {"oai-like" {:api "openai-responses"
+                                       :url "https://api.openai.com"}
+                           "anthropic-like" {:api "anthropic"
+                                             :url "https://api.anthropic.com"}
                            "synthetic" {:api "openai-chat"
                                         :url "https://api.synthetic.new/v1"}
                            "my-provider" {:api "openai-chat"}
                            "unknown-url" {:api "openai-chat"
-                                          :url "https://api.unknown.test/v1"}}}))))
+                                          :url "https://api.unknown.test/v1"}}}
+              {}))))
 
       (testing "Skips models.dev loading when fetchModels is false"
         (is (match?
              {}
-             (#'models/fetch-models-dev-provider-models
+             (#'models/fetch-provider-models-with-priority
               {:providers {"synthetic" {:api "openai-chat"
                                         :url "https://api.synthetic.new/v1"
-                                        :fetchModels false}}}))))
+                                        :fetchModels false}}}
+              {})))))))
 
-      (testing "Logs when provider-id fallback is used"
-        (let [info* (atom [])]
-          (with-redefs [logger/info (fn [& args] (swap! info* conj args))]
-            (#'models/fetch-models-dev-provider-models
-             {:providers {"anthropic" {:api "anthropic"
-                                       :url "https://api.anthropic.com"}}})
-            (is (some #(re-find #"provider-id fallback" (apply str %)) @info*))))))))
+(deftest fetch-provider-models-with-priority-fetchmodels-disabled-test
+  (let [native-calls* (atom 0)
+        models-dev-data {"native-provider" {"api" "https://api.openai.com"
+                                            "models" {"from-models-dev" {"id" "from-models-dev"}}}}
+        config {:providers {"native-provider" {:api "openai-responses"
+                                               :url "https://api.openai.com"
+                                               :key "sk-test"
+                                               :fetchModels false}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             (swap! native-calls* inc)
+                             {:status 200
+                              :body {:data [{:id "native-1"}]}})]
+      (is (match?
+           {}
+           (#'models/fetch-provider-models-with-priority config {} models-dev-data)))
+      (is (= 0 @native-calls*)))))
+
+(deftest fetch-provider-models-with-priority-native-first-test
+  (let [request* (atom nil)
+        models-dev-data {"native-provider" {"api" "https://api.openai.com"
+                                            "models" {"from-models-dev" {"id" "from-models-dev"}}}}]
+    (with-redefs [http/get (fn [url opts]
+                             (reset! request* [url opts])
+                             {:status 200
+                              :body {:data [{:id "native-1"}]}})]
+      (is (match?
+           {"native-provider" {"native-1" {}}}
+           (#'models/fetch-provider-models-with-priority
+            {:providers {"native-provider" {:api "openai-responses"
+                                            :url "https://api.openai.com"
+                                            :key "sk-test"}}}
+            {}
+            models-dev-data)))
+      (is (= "https://api.openai.com/v1/models" (first @request*)))
+      (is (= "Bearer sk-test" (get-in @request* [1 :headers "Authorization"]))))))
+
+(deftest fetch-provider-models-with-priority-fallback-test
+  (let [models-dev-data {"native-provider" {"api" "https://api.openai.com"
+                                            "models" {"from-models-dev" {"id" "from-models-dev"}}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 503
+                              :body {:error "temporary"}})]
+      (is (match?
+           {"native-provider" {"from-models-dev" {}}}
+           (#'models/fetch-provider-models-with-priority
+            {:providers {"native-provider" {:api "openai-responses"
+                                            :url "https://api.openai.com"
+                                            :key "sk-test"}}}
+            {}
+            models-dev-data))))))
+
+(deftest fetch-provider-models-with-priority-invalid-native-payload-test
+  (let [warnings* (atom [])
+        models-dev-data {"native-provider" {"api" "https://api.openai.com"
+                                            "models" {"from-models-dev" {"id" "from-models-dev"}}}}
+        config {:providers {"native-provider" {:api "openai-responses"
+                                               :url "https://api.openai.com"
+                                               :key "sk-test"}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:models [{:id "native-ignored"}]}})
+                  logger/warn (fn [& args] (swap! warnings* conj args) nil)]
+      (is (match?
+           {"native-provider" {"from-models-dev" {}}}
+           (#'models/fetch-provider-models-with-priority config {} models-dev-data)))
+      (is (some #(re-find #"missing sequential :data" (apply str %)) @warnings*)))))
+
+(deftest fetch-provider-models-with-priority-retry-after-transient-failure-test
+  (let [native-calls* (atom 0)
+        models-dev-data {"native-provider" {"api" "https://api.openai.com"
+                                            "models" {"from-models-dev" {"id" "from-models-dev"}}}}
+        config {:providers {"native-provider" {:api "openai-responses"
+                                               :url "https://api.openai.com"
+                                               :key "sk-test"}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             (let [call (swap! native-calls* inc)]
+                               (if (= call 1)
+                                 {:status 503
+                                  :body {:error "temporary"}}
+                                 {:status 200
+                                  :body {:data [{:id "native-2"}]}})))]
+      (is (match?
+           {"native-provider" {"from-models-dev" {}}}
+           (#'models/fetch-provider-models-with-priority config {} models-dev-data)))
+      (is (match?
+           {"native-provider" {"native-2" {}}}
+           (#'models/fetch-provider-models-with-priority config {} models-dev-data)))
+      (is (= 2 @native-calls*)))))
 
 (deftest build-model-capabilities-test
   (testing "Uses model-name from config when present"
