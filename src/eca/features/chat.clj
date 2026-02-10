@@ -1091,6 +1091,8 @@
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
    {:keys [db* config chat-id provider model full-model agent instructions metrics message] :as chat-ctx}]
+  (when-not full-model
+    (throw (ex-info llm-api/no-available-model-error-msg {})))
   (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
@@ -1379,8 +1381,6 @@
                                   (contains? (:models db) agent-default-model))
                            agent-default-model
                            (default-model db config))))
-        _ (when-not full-model
-            (throw (ex-info llm-api/no-available-model-error-msg {})))
         rules (f.rules/all config (:workspace-folders db))
         all-tools (f.tools/all-tools chat-id agent @db* config)
         skills (->> (f.skills/all config (:workspace-folders db))
