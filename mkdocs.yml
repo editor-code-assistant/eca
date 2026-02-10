@@ -8,6 +8,7 @@ repo_url: https://github.com/editor-code-assistant/eca
 nav:
   - Home:
     - Overview: README.md
+    - Workflows: workflows.md
     - Configuration:
         - Introduction: config/introduction.md
         - Providers / Models: config/models.md

@@ -82,7 +82,7 @@ or [configure manually](https://eca.dev/config/models/).
 
 Once your model is configured, you can start using ECA's features interface in your editor to ask questions, review code, and work together on your project.
 
-Type `/init` to ask ECA to create/update a [AGENTS.md](http://agents.md) file, which will help ECA in the next iterations have good context about your project standards.
+__Check [Suggested Workflow](https://eca.dev/workflows) for the best way to use ECA.__
 
 ## Roadmap
 

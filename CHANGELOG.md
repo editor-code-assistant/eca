@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bump MCP java sdk to 0.17.2.
+
 ## 0.100.1
 
 - Improve anthropic login wording.

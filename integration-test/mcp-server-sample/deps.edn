@@ -1,4 +1,4 @@
 {:paths ["src"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
-        io.modelcontextprotocol.sdk/mcp {:mvn/version "0.13.1"}}
+        io.modelcontextprotocol.sdk/mcp {:mvn/version "0.17.2"}}
  :aliases {:server {:main-opts ["-m" "mcp-server-sample.main"]}}}

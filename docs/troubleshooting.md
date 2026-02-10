@@ -6,9 +6,16 @@ All supported editors have options to set the __server args__ to help with that 
 
 To change and access the logs:
 
+### Server logs
+
+This controls what's logged by server on its actions, you can control to log more things via `--log-level debug` server arg.
+This should help log LLM outputs, and other useful stuff.
+
 === "Emacs"
     
-    `(setq eca-extra-args '("--log-level" "debug"))`
+    ```elisp
+    (setq eca-extra-args '("--log-level" "debug"))
+    ```
 
     `M-x` `eca-show-stderr`
     
@@ -32,14 +39,37 @@ To change and access the logs:
 
     `EcaShowLogs` 
 
-### Server logs
-
-This controls what's logged by server on its actions, you can control to log more things via `--log-level debug` server arg.
-This should help log LLM outputs, and other useful stuff.
-
 ### Client<->Server logs
 
 ECA works with clients (editors) sending and receiving messages to server, a process, you can start server `--verbose` which should log all jsonrpc communication between client and server to `stderr` buffer like what is being sent to LLMs or what ECA is responding to editors. 
+
+=== "Emacs"
+    
+    ```elisp
+    (setq eca-extra-args '("--verbose"))
+    ```
+
+    `M-x` `eca-show-stderr`
+    
+=== "VsCode"
+
+    ```javascript title="your-json-preferences"
+    {
+      "eca.serverArgs": "--verbose"
+    }
+    ```
+
+    Check the output channel `ECA stderr`.
+   
+=== "IntelliJ"
+    
+    Add to `Tools` > `ECA` > `Server args`: `--verbose`
+
+    Via action 'ECA: Show server logs'.
+    
+=== "Nvim"
+
+    `EcaShowLogs` 
 
 ## Doctor command
 
