@@ -84,10 +84,10 @@ Subagents can be configured in config or markdown and require `description` and 
         "sleeper": {
           "mode": "subagent",
           "description": "You sleep one second when asked",
-          "prompt": "You should run sleep 1 and return \"I sleeped 1 second\""
+          "systemPrompt": "You should run sleep 1 and return \"I slept 1 second\"",
           "defaultModel": "anthropic/sonnet-4.5",
           "toolCall": {...},
-          "steps": 25 // Optional: to limit turns in subagent
+          "maxSteps": 25 // Optional: to limit turns in subagent
         }
       }
     }

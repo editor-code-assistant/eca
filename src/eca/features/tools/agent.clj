@@ -116,82 +116,85 @@
 
     (logger/info logger-tag (format "Spawning agent '%s' for task: %s" agent-name task))
 
-    (let [max-steps (max-steps subagent)]
+    (let [max-steps-limit (max-steps subagent)]
       (swap! db* assoc-in [:chats subagent-chat-id]
              (cond-> {:id subagent-chat-id
                       :parent-chat-id chat-id
                       :agent-name agent-name
                       :subagent subagent
-                      :current-step 1}
-               max-steps (assoc :max-steps max-steps)))
+                      :current-step 0}
+               max-steps-limit (assoc :max-steps max-steps-limit)))
 
-      ;; Require chat ns here to avoid circular dependency
-      (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
-            task-prompt (if max-steps
-                          (format "%s\n\nIMPORTANT: You have a maximum of %d steps to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
-                                  task max-steps)
-                          task)]
-        (chat-prompt
-         {:message task-prompt
-          :chat-id subagent-chat-id
-          :model subagent-model
-          :agent agent-name
-          :contexts []}
-         db*
-         messenger
-         config
-         metrics)))
-
-    ;; Wait for subagent to complete by polling status
-    (let [stopped-result (fn []
-                           (logger/info logger-tag (format "Agent '%s' stopped by parent chat" agent-name))
-                           (stop-subagent-chat! db* messenger metrics subagent-chat-id agent-name)
-                           {:error true
-                            :contents [{:type :text
-                                        :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]
       (try
-        (loop [last-step 0]
-          (let [db @db*
-                status (get-in db [:chats subagent-chat-id :status])
-                current-step (get-in db [:chats subagent-chat-id :current-step] 1)]
-            ;; Send step progress when step advances
-            (when (> current-step last-step)
-              (send-step-progress! messenger chat-id tool-call-id agent-name activity
-                                   subagent-chat-id current-step (max-steps subagent) subagent-model arguments))
-            (cond
-              ;; Parent chat stopped — propagate stop to subagent
-              (= :stopping (:status (call-state-fn)))
-              (stopped-result)
+        ;; Require chat ns here to avoid circular dependency
+        (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
+              task-prompt (if max-steps-limit
+                            (format "%s\n\nIMPORTANT: You have a maximum of %d steps to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
+                                    task max-steps-limit)
+                            task)]
+          (chat-prompt
+           {:message task-prompt
+            :chat-id subagent-chat-id
+            :model subagent-model
+            :agent agent-name
+            :contexts []}
+           db*
+           messenger
+           config
+           metrics))
 
-              ;; Subagent completed
-              (#{:idle :error} status)
-              (let [messages (get-in db [:chats subagent-chat-id :messages] [])
-                    summary (extract-final-summary messages)
-                    max-steps-reached? (get-in db [:chats subagent-chat-id :max-steps-reached?])
-                    max-steps-limit (max-steps subagent)]
-                (if max-steps-reached?
-                  (logger/info logger-tag (format "Agent '%s' halted after reaching max steps (%d)" agent-name max-steps-limit))
-                  (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
-                (swap! db* (fn [db]
-                             (-> db
-                                 (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
-                                 (update :chats dissoc subagent-chat-id))))
-                (if max-steps-reached?
-                  {:error true
-                   :contents [{:type :text
-                               :text (format "## Agent '%s' Halted\n\nAgent was halted because it reached the maximum number of steps (%d). The result below may be incomplete.\n\n%s"
-                                             agent-name max-steps-limit summary)}]}
-                  {:error false
-                   :contents [{:type :text
-                               :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]}))
+        ;; Wait for subagent to complete by polling status
+        (let [stopped-result (fn []
+                               (logger/info logger-tag (format "Agent '%s' stopped by parent chat" agent-name))
+                               (stop-subagent-chat! db* messenger metrics subagent-chat-id agent-name)
+                               {:error true
+                                :contents [{:type :text
+                                            :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]
+          (try
+            (loop [last-step 0]
+              (let [db @db*
+                    status (get-in db [:chats subagent-chat-id :status])
+                    current-step (get-in db [:chats subagent-chat-id :current-step] 0)]
+                ;; Send step progress when step advances
+                (when (> current-step last-step)
+                  (send-step-progress! messenger chat-id tool-call-id agent-name activity
+                                       subagent-chat-id current-step max-steps-limit subagent-model arguments))
+                (cond
+                  ;; Parent chat stopped — propagate stop to subagent
+                  (= :stopping (:status (call-state-fn)))
+                  (stopped-result)
 
-              ;; Keep waiting
-              :else
-              (do
-                (Thread/sleep 1000)
-                (recur (long (max last-step current-step)))))))
-        (catch InterruptedException _
-          (stopped-result))))))
+                  ;; Subagent completed
+                  (#{:idle :error} status)
+                  (let [messages (get-in db [:chats subagent-chat-id :messages] [])
+                        summary (extract-final-summary messages)
+                        max-steps-reached? (get-in db [:chats subagent-chat-id :max-steps-reached?])]
+                    (if max-steps-reached?
+                      (logger/info logger-tag (format "Agent '%s' halted after reaching max steps (%d)" agent-name max-steps-limit))
+                      (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
+                    (swap! db* (fn [db]
+                                 (-> db
+                                     (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
+                                     (update :chats dissoc subagent-chat-id))))
+                    (if max-steps-reached?
+                      {:error true
+                       :contents [{:type :text
+                                   :text (format "## Agent '%s' Halted\n\nAgent was halted because it reached the maximum number of steps (%d). The result below may be incomplete.\n\n%s"
+                                                 agent-name max-steps-limit summary)}]}
+                      {:error false
+                       :contents [{:type :text
+                                   :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]}))
+
+                  ;; Keep waiting
+                  :else
+                  (do
+                    (Thread/sleep 1000)
+                    (recur (long (max last-step current-step)))))))
+            (catch InterruptedException _
+              (stopped-result))))
+        (catch Exception e
+          (swap! db* update :chats dissoc subagent-chat-id)
+          (throw e))))))
 
 (defn ^:private build-description
   "Build tool description with available agents listed."

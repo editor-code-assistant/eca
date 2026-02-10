@@ -879,7 +879,7 @@
   [db* chat-id]
   (when-let [subagent (get-in @db* [:chats chat-id :subagent])]
     (let [max-steps (:max-steps subagent)
-          new-db (swap! db* update-in [:chats chat-id :current-step] (fnil inc 1))
+          new-db (swap! db* update-in [:chats chat-id :current-step] (fnil inc 0))
           new-step (get-in new-db [:chats chat-id :current-step])]
       (when max-steps
         (>= new-step max-steps)))))
