@@ -154,6 +154,22 @@
                                             c))))))))
         past-messages))
 
+(defn ^:private group-parallel-tool-calls
+  "Reorder messages so that within each group of consecutive tool_call/tool_call_output
+   messages, all tool_calls come before all tool_call_outputs. This ensures that after
+   normalization, adjacent assistant tool_use blocks merge into one message with all
+   corresponding tool_results following together."
+  [messages]
+  (let [tool-msg? #(contains? #{"tool_call" "tool_call_output"} (:role %))]
+    (->> messages
+         (partition-by tool-msg?)
+         (mapcat (fn [group]
+                   (if-not (tool-msg? (first group))
+                     group
+                     (let [{calls "tool_call" outputs "tool_call_output"} (group-by :role group)
+                           call-id->pos (into {} (map-indexed (fn [i m] [(get-in m [:content :id]) i]) calls))]
+                       (concat calls (sort-by #(call-id->pos (get-in % [:content :id])) outputs)))))))))
+
 (defn ^:private merge-adjacent-assistants
   "Merge consecutive assistant messages into a single message.
    This is required when thinking blocks precede tool_use blocks -
@@ -185,6 +201,25 @@
    []
    messages))
 
+(defn ^:private merge-adjacent-tool-results
+  "Merge consecutive user messages that contain only tool_result blocks into a single
+   user message. Anthropic requires all tool_results for a batch of tool_use blocks
+   to appear in one user message immediately after the assistant message."
+  [messages]
+  (reduce
+   (fn [acc msg]
+     (let [prev (peek acc)]
+       (if (and (= "user" (:role prev))
+                (= "user" (:role msg))
+                (vector? (:content prev))
+                (vector? (:content msg))
+                (every? #(= "tool_result" (:type %)) (:content prev))
+                (every? #(= "tool_result" (:type %)) (:content msg)))
+         (conj (pop acc) {:role "user" :content (vec (concat (:content prev) (:content msg)))})
+         (conj acc msg))))
+   []
+   messages))
+
 (defn ^:private add-cache-to-last-message [messages]
   ;; TODO add cache_control to last non thinking message
   (shared/update-last
@@ -202,9 +237,11 @@
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload extra-headers supports-image? http-client]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
-  (let [messages (-> (concat (normalize-messages past-messages supports-image?)
-                             (normalize-messages (fix-non-thinking-assistant-messages user-messages) supports-image?))
-                     merge-adjacent-assistants)
+  (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
+                     group-parallel-tool-calls
+                     (normalize-messages supports-image?)
+                     merge-adjacent-assistants
+                     merge-adjacent-tool-results)
         stream? (boolean callbacks)
         body (deep-merge
               (assoc-some
@@ -272,8 +309,11 @@
                                                                     :arguments (json/parse-string (:input-json content-block))}))
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
-                                                 (let [messages (-> (normalize-messages new-messages supports-image?)
+                                                 (let [messages (-> new-messages
+                                                                    group-parallel-tool-calls
+                                                                    (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
+                                                                    merge-adjacent-tool-results
                                                                     add-cache-to-last-message)]
                                                    (reset! content-block* {})
                                                    (base-request!
