@@ -4,7 +4,7 @@ When using ECA chat, you can choose which agent it will use, each allows you to 
 
 There are 2 types of agents defined via `mode` field (when absent, defaults to primary):
 
-- `primary`: Main agents, used in chat.
+- `primary`: main agents, used in chat, can spawn subagents.
 - `subagent`: an agent allowed to be spawned inside a chat to do a specific task and return a output to the main agent.
 
 ## Built-in agents
@@ -49,6 +49,8 @@ You can create an agent and define its prompt, tool call approval and default mo
 ## Subagents
 
 ECA can spawn foreground subagents in a chat, they are agents which `mode` is `subagent`.
+
+Subagents help you control context for specific tasks avoiding to polute primary agent context with its tool calls.
 
 Subagents can be configured in config or markdown and require `description` and `systemPrompt` (or markdown content):
 
