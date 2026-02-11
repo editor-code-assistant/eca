@@ -1324,6 +1324,26 @@
                             :arguments-text ""
                             :id (:id message-content)}}]
     "tool_call_output" [{:role :assistant
+                         :content (assoc-some
+                                   {:type :toolCallRun
+                                    :id (:id message-content)
+                                    :name (:name message-content)
+                                    :server (:server message-content)
+                                    :origin (:origin message-content)
+                                    :arguments (:arguments message-content)}
+                                   :details (:details message-content)
+                                   :summary (:summary message-content))}
+                        {:role :assistant
+                         :content (assoc-some
+                                   {:type :toolCallRunning
+                                    :id (:id message-content)
+                                    :name (:name message-content)
+                                    :server (:server message-content)
+                                    :origin (:origin message-content)
+                                    :arguments (:arguments message-content)}
+                                   :details (:details message-content)
+                                   :summary (:summary message-content))}
+                        {:role :assistant
                          :content {:type :toolCalled
                                    :origin (:origin message-content)
                                    :name (:name message-content)
@@ -1349,10 +1369,24 @@
 
 (defn ^:private send-chat-contents! [messages chat-ctx]
   (doseq [message messages]
-    (doseq [{:keys [role content]} (message-content->chat-content (:role message) (:content message) (:content-id message))]
-      (send-content! chat-ctx
-                     role
-                     content))))
+    (let [chat-contents (message-content->chat-content (:role message) (:content message) (:content-id message))
+          subagent-chat-id (when (= "tool_call_output" (:role message))
+                             (get-in message [:content :details :subagent-chat-id]))]
+      (if-let [subagent-messages (when subagent-chat-id
+                                   (get-in @(:db* chat-ctx) [:chats subagent-chat-id :messages]))]
+        ;; For subagent tool calls: send toolCallRun + toolCallRunning, then
+        ;; subagent messages, then toolCalled — matching live execution order.
+        (let [before-called (butlast chat-contents)
+              called (last chat-contents)]
+          (doseq [{:keys [role content]} before-called]
+            (send-content! chat-ctx role content))
+          (send-chat-contents! subagent-messages
+                               (assoc chat-ctx
+                                      :chat-id subagent-chat-id
+                                      :parent-chat-id (:chat-id chat-ctx)))
+          (send-content! chat-ctx (:role called) (:content called)))
+        (doseq [{:keys [role content]} chat-contents]
+          (send-content! chat-ctx role content))))))
 
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
   (try

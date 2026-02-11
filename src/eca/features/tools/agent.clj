@@ -73,14 +73,13 @@
                         :max-steps max-steps}}}))
 
 (defn ^:private stop-subagent-chat!
-  "Stop a running subagent chat and clean up its state from db."
+  "Stop a running subagent chat."
   [db* messenger metrics subagent-chat-id agent-name]
   (let [prompt-stop (requiring-resolve 'eca.features.chat/prompt-stop)]
     (try
       (prompt-stop {:chat-id subagent-chat-id} db* messenger metrics)
       (catch Exception e
-        (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e))))))
-  (swap! db* update :chats dissoc subagent-chat-id))
+        (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e)))))))
 
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
@@ -172,10 +171,7 @@
                     (if max-steps-reached?
                       (logger/info logger-tag (format "Agent '%s' halted after reaching max steps (%d)" agent-name max-steps-limit))
                       (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
-                    (swap! db* (fn [db]
-                                 (-> db
-                                     (assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
-                                     (update :chats dissoc subagent-chat-id))))
+                    (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
                     (if max-steps-reached?
                       {:error true
                        :contents [{:type :text
@@ -193,7 +189,6 @@
             (catch InterruptedException _
               (stopped-result))))
         (catch Exception e
-          (swap! db* update :chats dissoc subagent-chat-id)
           (throw e))))))
 
 (defn ^:private build-description

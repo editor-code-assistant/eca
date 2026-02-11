@@ -97,8 +97,8 @@
                          :agent "explorer"
                          :model "test/model"}
                         @chat-prompt-called*)))
-          (testing "cleans up subagent chat state"
-            (is (nil? (get-in @db* [:chats subagent-chat-id])))))))))
+          (testing "preserves subagent chat for resume replay"
+            (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
 
 (deftest spawn-agent-max-steps-reached-test
   (testing "returns halted result when subagent reaches max steps"
@@ -159,11 +159,11 @@
           (is (match? {:error true
                        :contents [{:type :text :text #"was stopped"}]}
                       result))
-          (testing "cleans up subagent state"
-            (is (nil? (get-in @db* [:chats subagent-chat-id])))))))))
+          (testing "preserves subagent chat for resume replay"
+            (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
 
 (deftest spawn-agent-cleanup-on-exception-test
-  (testing "cleans up subagent state when chat/prompt throws"
+  (testing "preserves subagent state when chat/prompt throws"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
           subagent-chat-id "subagent-tc-1"]
       (with-redefs [requiring-resolve
@@ -183,8 +183,8 @@
                        :chat-id "chat-1"
                        :tool-call-id "tc-1"
                        :call-state-fn (constantly {:status :executing})})))
-        (testing "subagent chat state is cleaned up"
-          (is (nil? (get-in @db* [:chats subagent-chat-id]))))))))
+        (testing "subagent chat is preserved for resume replay"
+          (is (some? (get-in @db* [:chats subagent-chat-id]))))))))
 
 (deftest extract-final-summary-test
   (testing "extracts text from last assistant message"
