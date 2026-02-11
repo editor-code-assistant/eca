@@ -12,7 +12,7 @@ Hooks are shell actions that run before or after specific events, useful for not
 | `chatEnd` | Chat deleted | - |
 | `preRequest` | Before prompt sent to LLM | Can rewrite prompt, inject context, stop request |
 | `postRequest` | After primary agent prompt finished | - |
-| `subagentFinished` | After a subagent prompt finished | - |
+| `subagentPostRequest` | After a subagent prompt finished | - |
 | `preToolCall` | Before tool execution | Can modify args, override approval, reject |
 | `postToolCall` | After tool execution | Can inject context for next LLM turn |
 
@@ -36,7 +36,7 @@ Hooks receive JSON via stdin with event data (top-level keys `snake_case`, neste
 - Chat hooks add: `chat_id`, `agent`, `behavior` (deprecated alias)
 - Tool hooks add: `tool_name`, `server`, `tool_input`, `approval` (pre) or `tool_response`, `error` (post)
 - `chatStart` adds: `resumed` (boolean)
-- `subagentFinished` adds: `parent_chat_id`
+- `subagentPostRequest` adds: `parent_chat_id`
 
 Hooks can output JSON to control execution:
 
@@ -167,7 +167,7 @@ To reject a tool call, either output `{"approval": "deny"}` or exit with code `2
     {
       "hooks": {
         "subagent-done": {
-          "type": "subagentFinished",
+          "type": "subagentPostRequest",
           "visible": false,
           "actions": [{
             "type": "shell",

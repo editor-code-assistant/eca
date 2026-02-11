@@ -108,7 +108,7 @@
     (swap! db* assoc-in [:chats chat-id :status] status)
     (let [db @db*
           subagent? (some? (get-in db [:chats chat-id :subagent]))
-          hook-type (if subagent? :subagentFinished :postRequest)
+          hook-type (if subagent? :subagentPostRequest :postRequest)
           hook-data (cond-> (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
                                    {:prompt message})
                       subagent? (assoc :parent-chat-id (get-in db [:chats chat-id :parent-chat-id])))]
