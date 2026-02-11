@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.100.4
+
 - Avoid tool call errors on anthropic api.
 - fix model capabilities not being set properly for some custom models.
 
