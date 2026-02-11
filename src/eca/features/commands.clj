@@ -284,7 +284,8 @@
                 {:type :new-chat-status
                  :status :login})
       "resume" (let [chats (into {}
-                                 (filter #(not= chat-id (first %)))
+                                 (filter #(and (not= chat-id (first %))
+                                              (not (:subagent (second %)))))
                                  (:chats db))
                      chats-ids (vec (sort-by #(:created-at (get chats %)) (keys chats)))
                      selected-chat-id (try (if (= "latest" (first args))
