@@ -296,6 +296,9 @@
         full-model (str provider "/" model)
         model-capabilities (merge
                             (or (get all-models full-real-model)
+                                ;; when real-model-name already includes a provider prefix
+                                ;; (e.g. "anthropic/claude-opus-4-6"), try direct lookup
+                                (get all-models real-model-name)
                                 ;; we guess the capabilities from
                                 ;; the first model with same name
                                 (when-let [found-full-model
