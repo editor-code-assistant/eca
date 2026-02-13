@@ -4,6 +4,7 @@
   (:require
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
@@ -147,17 +148,26 @@
           f.tools.editor/definitions
           f.tools.chat/definitions
           f.tools.skill/definitions
+          (f.tools.agent/definitions config)
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
   (mapv #(assoc % :server {:name "eca"}) (vals (native-definitions db config))))
 
+(defn ^:private filter-subagent-tools
+  "Filter tools for subagent execution.
+   Excludes spawn_agent to prevent nesting."
+  [tools]
+  (filterv #(not= "spawn_agent" (:name %)) tools))
+
 (defn all-tools
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers.
-   Removes denied tools."
+   Removes denied tools.
+   When chat is a subagent (has :subagent), filters tools based on agent definition."
   [chat-id agent-name db config]
   (let [disabled-tools (get-disabled-tools config agent-name)
+        subagent (get-in db [:chats chat-id :subagent])
         all-tools (->> (concat
                         (mapv #(assoc % :origin :native) (native-tools db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
@@ -175,7 +185,11 @@
                                         {:agent agent-name
                                          :db db
                                          :chat-id chat-id
-                                         :config config})))))]
+                                         :config config})))))
+        ;; Apply subagent tool filtering if applicable
+        all-tools (if subagent
+                    (filter-subagent-tools all-tools)
+                    all-tools)]
     (remove (fn [tool]
               (= :deny (approval all-tools tool {} db config agent-name)))
             all-tools)))
@@ -207,6 +221,7 @@
                                                            :config config
                                                            :messenger messenger
                                                            :agent agent-name
+                                                           :metrics metrics
                                                            :chat-id chat-id
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
@@ -280,10 +295,13 @@
 
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
-  [name arguments server db ask-approval?]
+  [name arguments server db config chat-id ask-approval? tool-call-id]
   (try
     (tools.util/tool-call-details-before-invocation name arguments server {:db db
-                                                                           :ask-approval? ask-approval?})
+                                                                           :config config
+                                                                           :chat-id chat-id
+                                                                           :ask-approval? ask-approval?
+                                                                           :tool-call-id tool-call-id})
     (catch Exception e
       ;; Avoid failling tool call because of error on getting details.
       (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
@@ -291,8 +309,8 @@
 
 (defn tool-call-details-after-invocation
   "Return the tool call details after invoking the tool."
-  [name arguments details result]
-  (tools.util/tool-call-details-after-invocation name arguments details result))
+  [name arguments details result ctx]
+  (tools.util/tool-call-details-after-invocation name arguments details result ctx))
 
 (defn tool-call-destroy-resource!
   "Destroy the resource in the tool call named `name`."

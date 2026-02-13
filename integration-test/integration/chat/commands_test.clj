@@ -31,7 +31,8 @@
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}
                        {:name "repo-map-show" :arguments []}
-                       {:name "prompt-show" :arguments [{:name "optional-prompt"}]}]}
+                       {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
+                       {:name "subagents" :arguments []}]}
            resp))))
 
   (testing "We query specific commands"
@@ -43,7 +44,8 @@
                        {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
-                       {:name "config" :arguments []}]}
+                       {:name "config" :arguments []}
+                       {:name "subagents" :arguments []}]}
            resp))))
 
   (testing "We send a built-in command"

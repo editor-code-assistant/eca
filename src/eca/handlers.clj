@@ -44,7 +44,7 @@
                                                     (config/notify-fields-changed-only!
                                                      {:chat
                                                       {:models (sort (keys models))
-                                                       :agents (distinct (keys (:agent config)))
+                                                       :agents (config/primary-agent-names config)
                                                        :select-model (f.chat/default-model db config)
                                                        :select-agent (config/validate-agent-name
                                                                        (or (:defaultAgent (:chat config)) ;;legacy

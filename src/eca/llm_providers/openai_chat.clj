@@ -129,33 +129,29 @@
                          "Content-Type" "application/json"}
                         extra-headers))]
     (llm-util/log-request logger-tag rid url body headers)
-    @(http/post
-      url
-      {:headers headers
-       :body (json/generate-string body)
-       :throw-exceptions? false
-       :async? true
-       :http-client (client/merge-with-global-http-client http-client)
-       :as (if on-stream :stream :json)}
-      (fn [{:keys [status body]}]
-        (try
-          (if (not= 200 status)
-            (let [body-str (if on-stream (slurp body) body)]
-              (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
-              (on-error {:message (format "LLM response status: %s body: %s" status body-str)}))
-            (if on-stream
-              (with-open [rdr (io/reader body)]
-                (doseq [[event data] (llm-util/event-data-seq rdr)]
-                  (llm-util/log-response logger-tag rid event data)
-                  (on-stream event data))
-                (on-stream "stream-end" {}))
-              (do
-                (llm-util/log-response logger-tag rid "full-response" body)
-                (response-body->result body on-tools-called-wrapper))))
-          (catch Exception e
-            (on-error {:exception e}))))
-      (fn [e]
-        (on-error {:exception e})))))
+    (let [{:keys [status body]} (http/post
+                                 url
+                                 {:headers headers
+                                  :body (json/generate-string body)
+                                  :throw-exceptions? false
+                                  :http-client (client/merge-with-global-http-client http-client)
+                                  :as (if on-stream :stream :json)})]
+      (try
+        (if (not= 200 status)
+          (let [body-str (if on-stream (slurp body) body)]
+            (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
+            (on-error {:message (format "LLM response status: %s body: %s" status body-str)}))
+          (if on-stream
+            (with-open [rdr (io/reader body)]
+              (doseq [[event data] (llm-util/event-data-seq rdr)]
+                (llm-util/log-response logger-tag rid event data)
+                (on-stream event data))
+              (on-stream "stream-end" {}))
+            (do
+              (llm-util/log-response logger-tag rid "full-response" body)
+              (response-body->result body on-tools-called-wrapper))))
+        (catch Exception e
+          (on-error {:exception e}))))))
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles.

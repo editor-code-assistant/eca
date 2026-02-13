@@ -16,7 +16,7 @@ nav:
         - Skills: config/skills.md
         - Rules: config/rules.md
         - Commands: config/commands.md
-        - Agents: config/agents.md
+        - Agents / Subagents: config/agents.md
         - Hooks: config/hooks.md
         - Completion: config/completion.md
         - Rewrite: config/rewrite.md

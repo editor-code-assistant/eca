@@ -127,7 +127,11 @@
                       {:name "prompt-show"
                        :type :native
                        :description "Prompt sent to LLM as system instructions."
-                       :arguments [{:name "optional-prompt"}]}]
+                       :arguments [{:name "optional-prompt"}]}
+                      {:name "subagents"
+                       :type :native
+                       :description "List available subagents and their configuration."
+                       :arguments []}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -156,6 +160,42 @@
                 (string/replace content (str "$ARG" (inc i)) arg))
               content-with-args
               (map-indexed vector args)))))
+
+(defn ^:private format-tool-permissions [{:keys [toolCall]}]
+  (when-let [approval (:approval toolCall)]
+    (let [by-default (:byDefault approval)
+          allow-tools (keys (:allow approval))
+          deny-tools (keys (:deny approval))
+          ask-tools (keys (:ask approval))
+          parts (cond-> []
+                  by-default (conj (str "  Default: " by-default))
+                  (seq allow-tools) (conj (str "  Allow: " (string/join ", " (sort allow-tools))))
+                  (seq ask-tools) (conj (str "  Ask: " (string/join ", " (sort ask-tools))))
+                  (seq deny-tools) (conj (str "  Deny: " (string/join ", " (sort deny-tools)))))]
+      (when (seq parts)
+        (string/join "\n" parts)))))
+
+(defn ^:private subagents-msg [config]
+  (let [subagents (->> (:agent config)
+                       (filter (fn [[_ v]] (= "subagent" (:mode v))))
+                       (sort-by first))]
+    (if (empty? subagents)
+      "No subagents configured, double check your configuration via json or markdown."
+      (reduce
+       (fn [s [agent-name agent-config]]
+         (let [desc (:description agent-config)
+               model (:defaultModel agent-config)
+               steps (:maxSteps agent-config)
+               permissions (format-tool-permissions agent-config)]
+           (str s "- **" agent-name "**"
+                (when desc (str ": " desc))
+                "\n"
+                (when model (str "  Model: " model "\n"))
+                (when steps (str "  Max steps: " steps "\n"))
+                (when permissions (str "  Tool permissions:\n" permissions "\n"))
+                "\n")))
+       "Subagents available:\n\n"
+       subagents))))
 
 (defn ^:private doctor-msg [db config]
   (let [model (llm-api/default-model db config)
@@ -244,7 +284,8 @@
                 {:type :new-chat-status
                  :status :login})
       "resume" (let [chats (into {}
-                                 (filter #(not= chat-id (first %)))
+                                 (filter #(and (not= chat-id (first %))
+                                              (not (:subagent (second %)))))
                                  (:chats db))
                      chats-ids (vec (sort-by #(:created-at (get chats %)) (keys chats)))
                      selected-chat-id (try (if (= "latest" (first args))
@@ -335,6 +376,9 @@
                        :chats {chat-id {:messages [{:role "system"
                                                     :content [{:type :text
                                                                :text full-prompt}]}]}}})
+      "subagents" (let [msg (subagents-msg config)]
+                    {:type :chat-messages
+                     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
 
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

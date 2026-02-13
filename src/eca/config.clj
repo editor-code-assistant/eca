@@ -16,6 +16,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.features.agents :as f.agents]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
@@ -38,6 +39,16 @@
 
 (defn get-env [env] (System/getenv env))
 (defn get-property [property] (System/getProperty property))
+
+(def ^:private dangerous-commands-regexes
+  [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"
+   ".*\\|\\s*(tee|dd|xargs).*",
+   ".*\\b(sed|awk|perl)\\s+.*-i.*",
+   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
+   ".*git\\s+(add|commit|push).*",
+   ".*npm\\s+install.*",
+   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
 
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
@@ -65,25 +76,44 @@
                          :models {"gemini-2.5-pro" {}}}
                "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
    :defaultAgent "code"
-   :agent {"code" {:prompts {:chat "${classpath:prompts/code_agent.md}"}
+   :agent {"code" {:mode "primary"
+                   :prompts {:chat "${classpath:prompts/code_agent.md}"}
                    :disabledTools ["preview_file_change"]}
-           "plan" {:prompts {:chat "${classpath:prompts/plan_agent.md}"}
-                      :disabledTools ["edit_file" "write_file" "move_file"]
-                      :toolCall {:approval {:allow {"eca__shell_command"
-                                                    {:argsMatchers {"command" ["pwd"]}}
-                                                    "eca__preview_file_change" {}
-                                                    "eca__grep" {}
-                                                    "eca__read_file" {}
-                                                    "eca__directory_tree" {}}
-                                            :deny {"eca__shell_command"
-                                                   {:argsMatchers {"command" [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"
-                                                                              ".*\\|\\s*(tee|dd|xargs).*",
-                                                                              ".*\\b(sed|awk|perl)\\s+.*-i.*",
-                                                                              ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
-                                                                              ".*git\\s+(add|commit|push).*",
-                                                                              ".*npm\\s+install.*",
-                                                                              ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-                                                                              ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"]}}}}}}}
+           "plan" {:mode "primary"
+                   :prompts {:chat "${classpath:prompts/plan_agent.md}"}
+                   :disabledTools ["edit_file" "write_file" "move_file"]
+                   :toolCall {:approval {:byDefault "ask"
+                                         :allow {"eca__shell_command"
+                                                 {:argsMatchers {"command" ["pwd"]}}
+                                                 "eca__compact_chat" {}
+                                                 "eca__preview_file_change" {}
+                                                 "eca__read_file" {}
+                                                 "eca__directory_tree" {}
+                                                 "eca__grep" {}
+                                                 "eca__editor_diagnostics" {}
+                                                 "eca__skill" {}
+                                                 "eca__spawn_agent" {}}
+                                         :deny {"eca__shell_command"
+                                                {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
+           "explorer" {:mode "subagent"
+                       :description "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase."
+                       :systemPrompt "${classpath:prompts/explorer_agent.md}"
+                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
+                       :toolCall {:approval {:byDefault "ask"
+                                             :allow {"eca__shell_command"
+                                                     {:argsMatchers {"command" ["pwd"]}}
+                                                     "eca__compact_chat" {}
+                                                     "eca__read_file" {}
+                                                     "eca__directory_tree" {}
+                                                     "eca__grep" {}
+                                                     "eca__editor_diagnostics" {}
+                                                     "eca__skill" {}}
+                                             :deny {"eca__shell_command"
+                                                    {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
+           "general" {:mode "subagent"
+                      :description "General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel."
+                      :systemPrompt "${classpath:prompts/code_agent.md}"
+                      :disabledTools ["preview_file_change"]}}
    :defaultModel nil
    :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"
@@ -103,7 +133,8 @@
                                  "eca__directory_tree" {}
                                  "eca__grep" {}
                                  "eca__editor_diagnostics" {}
-                                 "eca__skill" {}}
+                                 "eca__skill" {}
+                                 "eca__spawn_agent" {}}
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}
@@ -184,6 +215,14 @@
 
 (def ^:private fallback-agent "code")
 
+(defn primary-agent-names
+  "Returns the names of agents that are not subagents (mode is nil or not \"subagent\")."
+  [config]
+  (->> (:agent config)
+       (remove (fn [[_ v]] (= "subagent" (:mode v))))
+       (map key)
+       distinct))
+
 (defn validate-agent-name
   "Validates if an agent exists in config. Returns the agent name if valid,
    or the fallback agent if not."
@@ -220,19 +259,14 @@
 
 (def ^:private config-from-custom (memoize config-from-custom*))
 
-(defn global-config-dir ^File []
-  (let [xdg-config-home (or (get-env "XDG_CONFIG_HOME")
-                            (io/file (get-property "user.home") ".config"))]
-    (io/file xdg-config-home "eca")))
-
 (defn global-config-file ^File []
-  (io/file (global-config-dir) "config.json"))
+  (io/file (shared/global-config-dir) "config.json"))
 
 (defn ^:private config-from-global-file []
   (let [config-file (global-config-file)]
     (when (.exists config-file)
       (some-> (safe-read-json-string (slurp config-file) (var *global-config-error*))
-              (parse-dynamic-string-values (global-config-dir))))))
+              (parse-dynamic-string-values (shared/global-config-dir))))))
 
 (defn ^:private config-from-local-file [roots]
   (reduce
@@ -405,7 +439,15 @@
             (-> $
                 (merge-config (when-not pure-config? (config-from-global-file)))
                 (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))
-        migrate-legacy-config)))
+        migrate-legacy-config
+        ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
+        (as-> config
+              (let [md-agent-configs (when-not pure-config?
+                                       (f.agents/all-md-agents (:workspace-folders db)))]
+                (if (seq md-agent-configs)
+                  (update config :agent (fn [existing]
+                                          (merge md-agent-configs existing)))
+                  config))))))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
 

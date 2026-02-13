@@ -33,11 +33,16 @@
       (get-in config [:prompts key])))
 
 (defn ^:private eca-chat-prompt [agent-name config]
-  (let [config-prompt (get-config-prompt :chat agent-name config)
-        agent-config (get-in config [:agent agent-name])
+  (let [agent-config (get-in config [:agent agent-name])
+        subagent-prompt (and (= "subagent" (:mode agent-config))
+                             (:systemPrompt agent-config))
+        config-prompt (get-config-prompt :chat agent-name config)
         legacy-config-prompt (:systemPrompt agent-config)
         legacy-config-prompt-file (:systemPromptFile agent-config)]
     (cond
+      subagent-prompt
+      subagent-prompt
+
       legacy-config-prompt
       legacy-config-prompt
 

@@ -11,9 +11,51 @@
    [java.net URI]
    [java.nio.file Paths]
    [java.time Instant ZoneId ZoneOffset]
-   [java.time.format DateTimeFormatter]))
+   [java.time.format DateTimeFormatter]
+   [org.yaml.snakeyaml Yaml]))
 
 (set! *warn-on-reflection* true)
+
+(defn ^:private java->clj
+  "Recursively converts Java collections from SnakeYAML to Clojure equivalents."
+  [x]
+  (cond
+    (instance? java.util.Map x)
+    (into {} (map (fn [[k v]] [(str k) (java->clj v)])) x)
+
+    (instance? java.util.List x)
+    (mapv java->clj x)
+
+    :else x))
+
+(defn parse-md
+  "Parses YAML frontmatter and body from a markdown string.
+   Frontmatter must be delimited by --- at the start and end.
+   Uses SnakeYAML to handle nested structures (maps, lists).
+   Returns a map with parsed YAML keys (as keywords) and :body (content after frontmatter)."
+  [content]
+  (let [lines (string/split-lines content)]
+    (if (and (seq lines)
+             (= "---" (string/trim (first lines))))
+      (let [after-opening (rest lines)
+            metadata-lines (take-while #(not= "---" (string/trim %)) after-opening)
+            body-lines (rest (drop-while #(not= "---" (string/trim %)) after-opening))
+            yaml-str (string/join "\n" metadata-lines)
+            yaml (Yaml.)
+            parsed (.load yaml ^String yaml-str)
+            metadata (when (instance? java.util.Map parsed)
+                       (into {} (map (fn [[k v]] [(keyword k) (java->clj v)]))
+                             parsed))]
+        (assoc (or metadata {}) :body (string/trim (string/join "\n" body-lines))))
+      {:body (string/trim content)})))
+
+(defn global-config-dir
+  "Returns the global ECA config directory as a java.io.File.
+   Respects XDG_CONFIG_HOME, defaults to ~/.config/eca."
+  ^java.io.File []
+  (let [xdg-config-home (or (System/getenv "XDG_CONFIG_HOME")
+                            (io/file (System/getProperty "user.home") ".config"))]
+    (io/file xdg-config-home "eca")))
 
 (def windows-os?
   (.contains (System/getProperty "os.name") "Windows"))
