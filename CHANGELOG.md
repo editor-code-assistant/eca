@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Foreground subagents support! #160
+
 ## 0.100.4
 
 - Avoid tool call errors on anthropic api.
