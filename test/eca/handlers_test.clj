@@ -31,13 +31,30 @@
              (#'config/all* @db*)))))))
 
 (deftest chat-selected-agent-changed-test
-  (testing "Switching to agent with defaultModel updates model"
+  (testing "Switching to agent with defaultModel updates model and variants"
     (h/reset-components!)
-    (h/config! {:agent {"custom" {:defaultModel "gpt-4.1"}}})
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {} "medium" {} "high" {}}}}}}
+                :agent {"custom" {:defaultModel "anthropic/claude-sonnet-4-5"
+                                  :variant "medium"}}})
 
     (handlers/chat-selected-agent-changed (h/components)
                                           {:agent "custom"})
-    (is (match? {:config-updated [{:chat {:select-model "gpt-4.1"}}]
+    (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-sonnet-4-5"
+                                          :variants ["high" "low" "medium"]
+                                          :select-variant "medium"}}]
+                 :tool-server-update [{}]}
+                (h/messages))))
+
+  (testing "Switching to agent with defaultModel without variants sends empty variants"
+    (h/reset-components!)
+    (h/config! {:agent {"custom" {:defaultModel "openai/gpt-4.1"}}})
+
+    (handlers/chat-selected-agent-changed (h/components)
+                                          {:agent "custom"})
+    (is (match? {:config-updated [{:chat {:select-model "openai/gpt-4.1"
+                                          :variants []
+                                          :select-variant nil}}]
                  :tool-server-update [{}]}
                 (h/messages))))
 
@@ -83,4 +100,51 @@
                                           {:behavior "custom"})
     (is (match? {:config-updated [{:chat {:select-model "gpt-4.1"}}]
                  :tool-server-update [{}]}
+                (h/messages)))))
+
+(deftest chat-selected-model-changed-test
+  (testing "Selecting model with variants sends sorted variant names"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {} "medium" {} "high" {} "max" {}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "medium"}}})
+
+    (handlers/chat-selected-model-changed (h/components)
+                                          {:model "anthropic/claude-sonnet-4-5"})
+    (is (match? {:config-updated [{:chat {:variants ["high" "low" "max" "medium"]
+                                          :select-variant "medium"}}]}
+                (h/messages))))
+
+  (testing "Selecting model without variants sends empty variants"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1" {}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "medium"}}})
+
+    (handlers/chat-selected-model-changed (h/components)
+                                          {:model "openai/gpt-4.1"})
+    (is (match? {:config-updated [{:chat {:variants []
+                                          :select-variant nil}}]}
+                (h/messages))))
+
+  (testing "Agent variant not in model variants results in nil select-variant"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-5.2"
+                                               {:variants {"none" {} "low" {} "high" {}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "medium"}}})
+
+    (handlers/chat-selected-model-changed (h/components)
+                                          {:model "openai/gpt-5.2"})
+    (is (match? {:config-updated [{:chat {:variants ["high" "low" "none"]
+                                          :select-variant nil}}]}
+                (h/messages))))
+
+  (testing "Selecting ollama model without provider config sends empty variants"
+    (h/reset-components!)
+    (handlers/chat-selected-model-changed (h/components)
+                                          {:model "ollama/llama3"})
+    (is (match? {:config-updated [{:chat {:variants []
+                                          :select-variant nil}}]}
                 (h/messages)))))

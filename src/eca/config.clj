@@ -50,6 +50,19 @@
    ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
    ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
 
+(def ^:private default-openai-variants
+  {"none" {:reasoning {:effort "none" :summary "detailed"}}
+   "low" {:reasoning {:effort "low" :summary "detailed"}}
+   "medium" {:reasoning {:effort "medium" :summary "detailed"}}
+   "high" {:reasoning {:effort "high" :summary "detailed"}}
+   "xhigh" {:reasoning {:effort "xhigh" :summary "detailed"}}})
+
+(def ^:private default-anthropic-variants
+  {"low" {:output_config {:effort "low"}}
+   "medium" {:output_config {:effort "medium"}}
+   "high" {:output_config {:effort "high"}}
+   "max" {:output_config {:effort "max"}}})
+
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
@@ -58,12 +71,14 @@
                          :models {"gpt-4.1" {}
                                   "gpt-5" {}
                                   "gpt-5-mini" {}
-                                  "gpt-5.2" {}}}
+                                  "gpt-5.2" {:variants default-openai-variants}
+                                  "gpt-5.3-codex" {:variants default-openai-variants}}}
                "anthropic" {:api "anthropic"
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4-5" {}}}
+                            :models {"claude-sonnet-4-5" {}
+                                     "claude-opus-4-6" {:variants default-anthropic-variants}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
@@ -78,10 +93,12 @@
    :defaultAgent "code"
    :agent {"code" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/code_agent.md}"}
+                   :variant "medium"
                    :disabledTools ["preview_file_change"]}
            "plan" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/plan_agent.md}"}
                    :disabledTools ["edit_file" "write_file" "move_file"]
+                   :variant "medium"
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command"
                                                  {:argsMatchers {"command" ["pwd"]}}
@@ -99,6 +116,7 @@
                        :description "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase."
                        :systemPrompt "${classpath:prompts/explorer_agent.md}"
                        :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
+                       :variant "medium"
                        :toolCall {:approval {:byDefault "ask"
                                              :allow {"eca__shell_command"
                                                      {:argsMatchers {"command" ["pwd"]}}
@@ -112,6 +130,7 @@
                                                     {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "general" {:mode "subagent"
                       :description "General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel."
+                      :variant "medium"
                       :systemPrompt "${classpath:prompts/code_agent.md}"
                       :disabledTools ["preview_file_change"]}}
    :defaultModel nil
@@ -358,6 +377,7 @@
     [:providers]
     [:providers :ANY :models]
     [:providers :ANY :models :ANY :extraHeaders]
+    [:providers :ANY :models :ANY :variants]
     [:toolCall :approval :allow]
     [:toolCall :approval :allow :ANY :argsMatchers]
     [:toolCall :approval :ask]

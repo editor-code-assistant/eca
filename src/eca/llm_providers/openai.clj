@@ -148,7 +148,7 @@
                       (normalize-messages user-messages supports-image?))
         tools (->tools tools web-search codex?)
         stream? (boolean callbacks)
-        body (deep-merge
+        body (merge
               (assoc-some
                {:model model
                 :input (if codex?

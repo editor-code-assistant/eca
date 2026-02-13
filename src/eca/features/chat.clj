@@ -1220,6 +1220,7 @@
                 :config  config
                 :tools all-tools
                 :provider-auth provider-auth
+                :variant (:variant chat-ctx)
                 :on-first-response-received (fn [& _]
                                               (assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
@@ -1521,7 +1522,7 @@
      :status :prompting}))
 
 (defn prompt
-  [{:keys [message agent behavior chat-id contexts] :as params} db* messenger config metrics]
+  [{:keys [message agent behavior chat-id contexts variant] :as params} db* messenger config metrics]
   (let [raw-agent (or agent
                       behavior ;; backward compat: accept old 'behavior' param
                       (-> config :chat :defaultAgent) ;; legacy
@@ -1531,6 +1532,7 @@
                       (swap! db* assoc-in [:chats new-id] {:id new-id})
                       new-id))
         selected-agent (config/validate-agent-name raw-agent config)
+        agent-config (get-in config [:agent selected-agent])
         base-chat-ctx (assoc-some {:metrics metrics
                                    :config config
                                    :contexts contexts
@@ -1540,7 +1542,8 @@
                                    :message (string/trim message)
                                    :chat-id chat-id
                                    :agent selected-agent
-                                   :agent-config (get-in config [:agent selected-agent])}
+                                   :agent-config agent-config
+                                   :variant (or variant (:variant agent-config))}
                                   :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))]
     (try
       (prompt* params base-chat-ctx)
