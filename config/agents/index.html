@@ -1063,7 +1063,7 @@
 <p>There are 2 types of agents defined via <code>mode</code> field (when absent, defaults to primary):</p>
 <ul>
 <li><code>primary</code>: main agents, used in chat, can spawn subagents.</li>
-<li><code>subagent</code>: an agent allowed to be spawned inside a chat to do a specific task and return a output to the main agent.</li>
+<li><code>subagent</code>: an agent allowed to be spawned inside a chat to do a specific task and return a output to the primary agent.</li>
 </ul>
 <h2 id="built-in-agents">Built-in agents<a class="headerlink" href="#built-in-agents" title="Permanent link">#</a></h2>
 <table>
@@ -1127,8 +1127,25 @@
 </div>
 <h2 id="subagents">Subagents<a class="headerlink" href="#subagents" title="Permanent link">#</a></h2>
 <p>ECA can spawn foreground subagents in a chat, they are agents which <code>mode</code> is <code>subagent</code>.</p>
-<p>Subagents help you control context for specific tasks avoiding to polute primary agent context with its tool calls.</p>
-<p>Subagents can be configured in config or markdown and require <code>description</code> and <code>systemPrompt</code> (or markdown content):</p>
+<p>The major advantages of subagents are:</p>
+<ul>
+<li><strong>Less context polution</strong>: sometimes LLM needs to do a specific task that require multiple tool calls, but after finished, it doesn't need all those tool calls and iterations in its history, subagent works great for that, for example the <code>explorer</code> built-in subagent.</li>
+<li><strong>Less context window usage</strong>: Since subagents work as different chats/context/cleaner context, they have their own context window and when done the tools and process done there doesn't affect the primary agent context window, resulting and bigger conversations and less compaction needed.</li>
+<li><strong>Parallel subagents</strong>: subagents are spawned as tools, and ECA supports parallel tool calls if LLM supports, this increase speed of task solution if LLM needs for example to explore 2-3 different things with <code>explorer</code> subagent, spawning those in parallel.</li>
+</ul>
+<p>Subagents can be configured in config or markdown and support/require these fields:</p>
+<ul>
+<li><code>mode</code> (required): <code>subagent</code> always.</li>
+<li><code>description</code> (required): a short summary of what this subagent will do, this is important to primary agent knows when to delegate to it.</li>
+<li>
+<p><code>systemPrompt</code> or the markdown content (required): Instructions for the subagent to what do when receive a task.</p>
+</li>
+<li>
+<p><code>model</code> (optional): which full model to use for this subagent, using primary agent model if not specified.</p>
+</li>
+<li><code>tools</code> (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.</li>
+<li><code>maxSteps</code> (optional): set a max limit of turns/steps that his subagent must finish and return an answer.</li>
+</ul>
 <div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="markdown" name="__tabbed_2" type="radio" /><input id="config" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="markdown">Markdown</label><label for="config">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -1189,7 +1206,7 @@ You should run sleep 1 and return &quot;I slept 1 second&quot;
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 13, 2026 01:30:56 UTC">February 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 13, 2026 01:55:31 UTC">February 13, 2026</span>
   </span>
 
     
