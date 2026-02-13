@@ -58,7 +58,7 @@ The major advantages of subagents are:
 
 Subagents can be configured in config or markdown and support/require these fields:
 
-- `mode` (required): `subagent` always.
+- `mode` (required): `subagent` always, this is waht differ a primary agent than a subagent for ECA.
 - `description` (required): a short summary of what this subagent will do, this is important to primary agent knows when to delegate to it.
 - `systemPrompt` or the markdown content (required): Instructions for the subagent to what do when receive a task.
 
