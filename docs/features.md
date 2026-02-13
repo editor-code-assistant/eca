@@ -20,6 +20,12 @@ Agents affect the prompt passed to LLM and the tools to include, ECA allows you 
 !!! info "Custom agents"
 
     To create and customize your own agents, check the [config](./config/agents.md).
+    
+#### Subagents
+
+![](./images/features/subagents.png)
+
+Subagents are quite powerful to delegate tasks to specialized agents, for more details check [subagents docs](./config/agents.md#subagents)
 
 ### Tools
 
