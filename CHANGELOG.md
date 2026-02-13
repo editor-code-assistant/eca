@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.101.0
+
 - Foreground subagents support! #160
 
 ## 0.100.4
