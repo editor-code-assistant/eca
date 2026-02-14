@@ -1190,19 +1190,19 @@
 <span class="w">          </span><span class="s2">&quot;maxLines&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">2000</span>
 <span class="w">        </span><span class="p">},</span>
 <span class="w">        </span><span class="s2">&quot;shellCommand&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;summaryMaxLength&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">,</span>
-<span class="w">        </span><span class="p">},</span>
+<span class="w">          </span><span class="s2">&quot;summaryMaxLength&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">30</span>
+<span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">},</span>
 <span class="w">      </span><span class="s2">&quot;mcpTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">60</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;lspTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;mcpServers&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">      </span><span class="s2">&quot;agent&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/code_agent.md}&quot;</span><span class="p">},</span>
 <span class="w">                 </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;preview_file_change&quot;</span><span class="p">]},</span>
 <span class="w">        </span><span class="s2">&quot;plan&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/plan_agent.md}&quot;</span><span class="p">},</span>
 <span class="w">                  </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;edit_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;write_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;move_file&quot;</span><span class="p">],</span>
 <span class="w">                  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;deny&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;eca__shell_command&quot;</span><span class="o">:</span>
-<span class="w">                                                     </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*[12&amp;]?&gt;&gt;?\\s*(?!/dev/null($|\\s))(?!&amp;\\d+($|\\s))\\S+.*&quot;</span><span class="p">,</span>
+<span class="w">                                                     </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*[12&amp;]?&gt;&gt;?\\s*(?!/dev/null($|\\s))(?!&amp;\\d+($|\\s))\\S+.*&quot;</span><span class="p">,</span>
 <span class="w">                                                                                  </span><span class="s2">&quot;.*\\|\\s*(tee|dd|xargs).*&quot;</span><span class="p">,</span>
 <span class="w">                                                                                  </span><span class="s2">&quot;.*\\b(sed|awk|perl)\\s+.*-i.*&quot;</span><span class="p">,</span>
 <span class="w">                                                                                  </span><span class="s2">&quot;.*\\b(rm|mv|cp|touch|mkdir)\\b.*&quot;</span><span class="p">,</span>
@@ -1210,7 +1210,7 @@
 <span class="w">                                                                                  </span><span class="s2">&quot;.*npm\\s+install.*&quot;</span><span class="p">,</span>
 <span class="w">                                                                                  </span><span class="s2">&quot;.*-c\\s+[\&quot;&#39;].*open.*[\&quot;&#39;]w[\&quot;&#39;].*&quot;</span><span class="p">,</span>
 <span class="w">                                                                                  </span><span class="s2">&quot;.*bash.*-c.*[12&amp;]?&gt;&gt;?\\s*(?!/dev/null($|\\s))(?!&amp;\\d+($|\\s))\\S+.*&quot;</span><span class="p">]}}}}}}</span>
-<span class="w">      </span><span class="p">}</span>
+<span class="w">      </span><span class="p">},</span>
 <span class="w">      </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;code&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;welcomeMessage&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Welcome to ECA!\n\nType &#39;/&#39; for commands\n\n&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;autoCompactPercentage&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">85</span><span class="p">,</span>
@@ -1256,7 +1256,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 14, 2026 17:45:34 UTC">February 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 14, 2026 23:39:34 UTC">February 14, 2026</span>
   </span>
 
     
