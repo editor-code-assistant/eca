@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Allow non JWT tokens for custom providers with openai api. #303
+- Fix NPE when first time setting up ECA with no model. #304
 
 ## 0.101.0
 

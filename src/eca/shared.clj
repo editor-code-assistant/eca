@@ -349,3 +349,7 @@
       :role :system
       :content (merge {:type :usage}
                       usage)})))
+
+(defn full-model->provider+model
+  [full-model]
+  (string/split full-model #"/" 2))
