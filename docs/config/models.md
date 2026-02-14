@@ -32,7 +32,7 @@ Example:
     "openai": {
       "key": "your-openai-key-here", // configuring a key
       "models": {
-        "o1": {} // adding models to a built-in provider
+        "o1": {}, // adding models to a built-in provider
         "o3": {
           "extraPayload": { // adding to the payload sent to LLM
             "temperature": 0.5

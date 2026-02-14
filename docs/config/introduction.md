@@ -105,19 +105,19 @@ By default ECA consider the following as the base configuration:
           "maxLines": 2000
         },
         "shellCommand": {
-          "summaryMaxLength": 30,
-        },
+          "summaryMaxLength": 30
+        }
       },
       "mcpTimeoutSeconds" : 60,
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
-      "agent" {
+      "agent": {
         "code": {"prompts": {"chat": "${classpath:prompts/code_agent.md}"},
                  "disabledTools": ["preview_file_change"]},
         "plan": {"prompts": {"chat": "${classpath:prompts/plan_agent.md}"},
                   "disabledTools": ["edit_file", "write_file", "move_file"],
                   "toolCall": {"approval": {"deny": {"eca__shell_command":
-                                                     {"argsMatchers": {"command" [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*",
+                                                     {"argsMatchers": {"command": [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*",
                                                                                   ".*\\|\\s*(tee|dd|xargs).*",
                                                                                   ".*\\b(sed|awk|perl)\\s+.*-i.*",
                                                                                   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
@@ -125,7 +125,7 @@ By default ECA consider the following as the base configuration:
                                                                                   ".*npm\\s+install.*",
                                                                                   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
                                                                                   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"]}}}}}}
-      }
+      },
       "defaultAgent": "code",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
       "autoCompactPercentage": 85,

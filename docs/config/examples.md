@@ -67,13 +67,13 @@ If you think your config is relevant to be shared for other people, [open a pull
         "agent": {
             "reviewer": {
                 "defaultModel": "openai/gpt-5.1",
-                "prompts": {"chat": "${file:prompts/reviewer.md}"}}
+                "prompts": {"chat": "${file:prompts/reviewer.md}"}
             },
             "dangerous": {
                 "defaultModel": "deepseek/deepseek-chat",
                 "toolCall": {"approval": {"byDefault": "allow"}}
             }
-
+        }
     }
     ```
 
