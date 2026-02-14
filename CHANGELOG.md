@@ -4,6 +4,7 @@
 
 - Allow non JWT tokens for custom providers with openai api. #303
 - Fix NPE when first time setting up ECA with no model. #304
+- Minor explorer/tool call truncation prompt improvements.
 
 ## 0.101.0
 

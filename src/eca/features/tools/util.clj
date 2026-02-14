@@ -170,7 +170,7 @@
                 truncated (truncate-text-to-lines full-text max-lines)
                 notice (str "\n\n[OUTPUT TRUNCATED] The tool call succeeded but the output was truncated. "
                             "Full output saved to: " saved-path "\n"
-                            "Use Grep to search the full content or Read with offset/limit to view specific sections.")]
+                            "Use `eca__grep` or `eca__read_file` with offset/limit to view specific sections. Do not full read the file.")]
             (assoc result :contents [{:type :text
                                       :text (str truncated notice)}]))
           result)))))
