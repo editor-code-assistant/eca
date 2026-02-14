@@ -5,6 +5,7 @@
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.shared :refer [future*]]))
@@ -26,7 +27,7 @@
                        (llm-api/default-model db config))
         _ (when-not full-model
             (throw (ex-info llm-api/no-available-model-error-msg {})))
-        [provider model] (string/split full-model #"/" 2)
+        [provider model] (llm-util/parse-model full-model)
         model-capabilities (get-in db [:models full-model])
         full-text (when path (llm-api/refine-file-context path nil))
         start-time (System/currentTimeMillis)

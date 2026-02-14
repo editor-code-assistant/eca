@@ -111,7 +111,7 @@
    models-dev-data))
 
 (defn ^:private auth-valid? [full-model db config]
-  (let [[provider _model] (string/split full-model #"/" 2)]
+  (let [[provider _model] (llm-util/parse-model full-model)]
     (or (not (get-in config [:providers provider :requiresAuth?] false))
         (and (llm-util/provider-api-url provider config)
              (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))

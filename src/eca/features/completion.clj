@@ -4,6 +4,7 @@
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]))
 
 (set! *warn-on-reflection* true)
@@ -44,9 +45,12 @@
    code))
 
 (defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
-  (let [full-model (get-in config [:completion :model])
-        [provider model] (string/split full-model #"/" 2)
-        _ (f.login/maybe-renew-auth-token!
+  (let [full-model (get-in config [:completion :model])]
+    (if-not full-model
+      {:error {:type :warning
+               :message "No completion model configured. Configure at least one provider."}}
+      (let [[provider model] (llm-util/parse-model full-model)
+            _ (f.login/maybe-renew-auth-token!
            {:provider provider
             :on-renewing identity
             :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
@@ -96,4 +100,4 @@
       {:items [{:text (normalize-code-result output-text)
                 :doc-version doc-version
                 :range {:start {:line line :character character}
-                        :end {:line line :character character}}}]})))
+                        :end {:line line :character character}}}]})))))

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix NullPointerException when model is nil in chat and completion
+
 ## 0.101.0
 
 - Foreground subagents support! #160

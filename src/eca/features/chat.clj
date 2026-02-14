@@ -1495,7 +1495,7 @@
         user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                            expanded-prompt-contexts
                                                            image-contents))}]
-        [provider model] (string/split full-model #"/" 2)
+        [provider model] (llm-util/parse-model full-model)
         chat-ctx (merge base-chat-ctx
                         {:instructions instructions
                          :user-messages user-messages

@@ -12,6 +12,12 @@
 
 (set! *warn-on-reflection* true)
 
+(defn parse-model
+  "Splits a full-model string like \"provider/model\" into [provider model].
+  Returns nil when full-model is nil."
+  [full-model]
+  (some-> full-model (string/split #"/" 2)))
+
 (defn find-last-msg-idx
   "Returns the index of the last message in `msgs` for which `(pred msg)` is true."
   [pred msgs]

@@ -567,6 +567,37 @@
               :args ["arg1" "arg2"]}
              (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
 
+(deftest login-command-with-nil-model-test
+  (testing "Login command works when no LLM provider is authenticated (full-model is nil)"
+    (h/reset-components!)
+    (with-redefs [llm-api/sync-or-async-prompt! (constantly nil)
+                  llm-api/sync-prompt! (constantly nil)
+                  f.tools/call-tool! (constantly nil)
+                  f.tools/all-tools (constantly [])
+                  f.tools/approval (constantly :allow)]
+      (h/config! {:env "test"})
+      ;; Ensure no models are available — simulates fresh install with no auth
+      (swap! (h/db*) assoc :models {})
+      (let [resp (f.chat/prompt {:message "/login anthropic"}
+                                (h/db*) (h/messenger) (h/config) (h/metrics))]
+        (is (match? {:chat-id string? :status :prompting :model nil} resp))))))
+
+(deftest prompt-message-with-nil-model-test
+  (testing "Regular prompt with nil model returns a user-facing error, not an NPE"
+    (h/reset-components!)
+    (with-redefs [llm-api/sync-or-async-prompt! (constantly nil)
+                  llm-api/sync-prompt! (constantly nil)
+                  f.tools/call-tool! (constantly nil)
+                  f.tools/all-tools (constantly [])
+                  f.tools/approval (constantly :allow)]
+      (h/config! {:env "test"})
+      (swap! (h/db*) assoc :models {})
+      (let [resp (f.chat/prompt {:message "hello"}
+                                (h/db*) (h/messenger) (h/config) (h/metrics))]
+        (is (match? {:chat-id string? :status :error :model "error"} resp))
+        (is (match? {:chat-content-received (m/embeds [{:content {:text (m/regex #"No available model")}}])}
+                    (h/messages)))))))
+
 (deftest rollback-chat-test
   (testing "Rollback chat removes messages after content-id"
     (h/reset-components!)
