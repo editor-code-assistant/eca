@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow non JWT tokens for custom providers with openai api. #303
+
 ## 0.101.0
 
 - Foreground subagents support! #160
