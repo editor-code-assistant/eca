@@ -4,7 +4,8 @@
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
-   [eca.logger :as logger]))
+   [eca.logger :as logger]
+   [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -45,7 +46,7 @@
 
 (defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
   (let [full-model (get-in config [:completion :model])
-        [provider model] (string/split full-model #"/" 2)
+        [provider model] (shared/full-model->provider+model full-model)
         _ (f.login/maybe-renew-auth-token!
            {:provider provider
             :on-renewing identity

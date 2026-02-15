@@ -111,7 +111,7 @@
    models-dev-data))
 
 (defn ^:private auth-valid? [full-model db config]
-  (let [[provider _model] (string/split full-model #"/" 2)]
+  (let [[provider _model] (shared/full-model->provider+model full-model)]
     (or (not (get-in config [:providers provider :requiresAuth?] false))
         (and (llm-util/provider-api-url provider config)
              (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))
@@ -306,9 +306,9 @@
                                                 (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
                                                                                                                    #"(.+/)"
                                                                                                                    ""))
-                                                                (shared/normalize-model-name (second (string/split % #"/" 2))))
+                                                                (shared/normalize-model-name (second (shared/full-model->provider+model %))))
                                                              (= (shared/normalize-model-name real-model-name)
-                                                                (shared/normalize-model-name (second (string/split % #"/" 2))))))
+                                                                (shared/normalize-model-name (second (shared/full-model->provider+model %))))))
                                                 first)]
                                   (get all-models found-full-model))
                                 {:tools true

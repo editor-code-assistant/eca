@@ -1,13 +1,12 @@
 (ns eca.features.rewrite
   (:require
-   [clojure.string :as string]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :refer [future*]]))
+   [eca.shared :as shared :refer [future*]]))
 
 (set! *warn-on-reflection* true)
 
@@ -26,7 +25,7 @@
                        (llm-api/default-model db config))
         _ (when-not full-model
             (throw (ex-info llm-api/no-available-model-error-msg {})))
-        [provider model] (string/split full-model #"/" 2)
+        [provider model] (shared/full-model->provider+model full-model)
         model-capabilities (get-in db [:models full-model])
         full-text (when path (llm-api/refine-file-context path nil))
         start-time (System/currentTimeMillis)

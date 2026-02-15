@@ -113,7 +113,7 @@
                                          :deny {"eca__shell_command"
                                                 {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "explorer" {:mode "subagent"
-                       :description "Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase."
+                       :description "${classpath:prompts/explorer_agent_description.md}"
                        :systemPrompt "${classpath:prompts/explorer_agent.md}"
                        :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
                        :variant "medium"
@@ -129,7 +129,7 @@
                                              :deny {"eca__shell_command"
                                                     {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "general" {:mode "subagent"
-                      :description "General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel."
+                      :description "${classpath:prompts/general_agent_description.md}"
                       :variant "medium"
                       :systemPrompt "${classpath:prompts/code_agent.md}"
                       :disabledTools ["preview_file_change"]}}

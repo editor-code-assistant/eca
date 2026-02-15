@@ -28,14 +28,17 @@
       (get-in payload ["organizations" 0 "id"])))
 
 (defn ^:private jwt-token->account-id
-  "Extract account ID from a JWT token string."
+  "Extract account ID from a JWT token string.
+  Returns nil when the token is not a valid JWT."
   [token]
-  (when (string? token)
-    (let [[_ base64] (string/split token #"\.")
-          payload (some-> base64
-                          oauth/<-base64
-                          json/parse-string)]
-      (jwt-payload->account-id payload))))
+  (try
+    (when (string? token)
+      (let [[_ base64] (string/split token #"\.")
+            payload (some-> base64
+                            oauth/<-base64
+                            json/parse-string)]
+        (jwt-payload->account-id payload)))
+    (catch Exception _)))
 
 (defn ^:private response-body->result [body]
   {:output-text (reduce

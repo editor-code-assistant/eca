@@ -85,8 +85,9 @@
           config (config-with-truncation 5 1000)
           truncated (tools.util/maybe-truncate-output result config test-tool-call-id)
           output-text (-> truncated :contents first :text)]
-      (is (string/includes? output-text "Use Grep to search the full content"))
-      (is (string/includes? output-text "Read with offset/limit")))))
+      (is (string/includes? output-text "eca__grep"))
+      (is (string/includes? output-text "eca__read_file"))
+      (is (string/includes? output-text "offset/limit")))))
 
 (deftest maybe-truncate-output-consolidates-to-single-content-test
   (testing "truncated result has exactly one content entry"
