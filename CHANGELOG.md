@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix anthropic "invalid_request_error" that may happen when doing server web-search + thinking, causing errors in chat.
+
 ## 0.101.1
 
 - Allow non JWT tokens for custom providers with openai api. #303
