@@ -269,7 +269,7 @@
                                                                           :id (-> data :content_block :id)
                                                                           :arguments-text ""})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
-
+                                      "server_tool_use" (swap! content-block* assoc (:index data) (:content_block data))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
                                       "text_delta" (on-message-received {:type :text
@@ -277,9 +277,10 @@
                                       "input_json_delta" (let [text (-> data :delta :partial_json)
                                                                _ (swap! content-block* update-in [(:index data) :input-json] str text)
                                                                content-block (get @content-block* (:index data))]
-                                                           (on-prepare-tool-call {:full-name (:name content-block)
-                                                                                  :id (:id content-block)
-                                                                                  :arguments-text text}))
+                                                           (when (= "tool_use" (:type content-block))
+                                                             (on-prepare-tool-call {:full-name (:name content-block)
+                                                                                    :id (:id content-block)
+                                                                                    :arguments-text text})))
                                       "citations_delta" (case (-> data :delta :citation :type)
                                                           "web_search_result_location" (on-message-received
                                                                                         {:type :url
