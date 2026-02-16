@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix anthropic "invalid_request_error" that may happen when doing server web-search + thinking, causing errors in chat.
+- Improve plan/explorer delegation guidance and reduce friction for common read-only investigation workflows.
 
 ## 0.101.1
 
