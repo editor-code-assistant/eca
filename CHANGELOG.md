@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix `directory_tree` returning empty results for paths outside workspace folders.
 - Fix anthropic "invalid_request_error" that may happen when doing server web-search + thinking, causing errors in chat.
 
 ## 0.101.1
