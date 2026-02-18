@@ -242,11 +242,11 @@
         ;; Test git operations
         (is (= :deny (f.tools/approval all-tools shell-tool {"command" "git add ."} {} config "plan")))
         ;; Test safe commands that should NOT be denied
-        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config "plan")))
+        (is (= :allow (f.tools/approval all-tools shell-tool {"command" "ls -la"} {} config "plan")))
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status"} {} config "plan")))
         ;; Test /dev/null redirections are allowed (not denied)
-        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "find /home/user/project -path '*/hato*' -name '*.clj' 2>/dev/null | sort"} {} config "plan")))
-        (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls -la 2>/dev/null"} {} config "plan")))
+        (is (= :allow (f.tools/approval all-tools shell-tool {"command" "find /home/user/project -path '*/hato*' -name '*.clj' 2>/dev/null | sort"} {} config "plan")))
+        (is (= :allow (f.tools/approval all-tools shell-tool {"command" "ls -la 2>/dev/null"} {} config "plan")))
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "some-cmd >/dev/null 2>&1"} {} config "plan")))
         (is (= :ask (f.tools/approval all-tools shell-tool {"command" "some-cmd 2> /dev/null"} {} config "plan")))
         ;; But redirection to actual files is still denied
