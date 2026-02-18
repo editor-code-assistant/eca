@@ -1182,6 +1182,7 @@
             all-tools (f.tools/all-tools chat-id agent @db* config)
             received-msgs* (atom "")
             reasonings* (atom {})
+            server-tool-times* (atom {})
             add-to-history! (fn [msg]
                               (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
             on-usage-updated (fn [usage]
@@ -1279,6 +1280,64 @@
                                                                          :text (get-in @reasonings* [id :text])}})
                                              (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
                                nil))
+                :on-server-web-search (fn [{:keys [status id name input output]}]
+                                         (assert-chat-not-stopped! chat-ctx)
+                                         (let [summary (format "Web searching%s"
+                                                               (if-let [query (:query input)]
+                                                                 (format " '%s'" query)
+                                                                 ""))
+                                               arguments (or input {})]
+                                           (case status
+                                             :started (do
+                                                        (swap! server-tool-times* assoc id (System/currentTimeMillis))
+                                                        (transition-tool-call! db* chat-ctx id :tool-prepare
+                                                                               {:name name
+                                                                                :server :llm
+                                                                                :origin :server
+                                                                                :arguments-text ""
+                                                                                :summary summary})
+                                                        (transition-tool-call! db* chat-ctx id :tool-run
+                                                                               {:approved?* (promise)
+                                                                                :future-cleanup-complete?* (promise)
+                                                                                :name name
+                                                                                :server :llm
+                                                                                :origin :server
+                                                                                :arguments arguments
+                                                                                :manual-approval false
+                                                                                :summary summary})
+                                                        (transition-tool-call! db* chat-ctx id :approval-allow
+                                                                               {:reason :server-tool})
+                                                        (transition-tool-call! db* chat-ctx id :execution-start
+                                                                               {:delayed-future (delay nil)
+                                                                                :origin :server
+                                                                                :name name
+                                                                                :server :llm
+                                                                                :arguments arguments
+                                                                                :start-time (System/currentTimeMillis)
+                                                                                :summary summary
+                                                                                :progress-text "Searching the web"}))
+                                             :finished (let [start-time (get @server-tool-times* id)
+                                                             total-time-ms (if start-time
+                                                                             (- (System/currentTimeMillis) start-time)
+                                                                             0)
+                                                             outputs (when (seq output)
+                                                                       (mapv (fn [{:keys [title url]}]
+                                                                               {:type :text
+                                                                                :text (format "%s: %s" title url)})
+                                                                             output))]
+                                                         (transition-tool-call! db* chat-ctx id :execution-end
+                                                                                {:origin :server
+                                                                                 :name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")
+                                                                                 :server :llm
+                                                                                 :arguments {}
+                                                                                 :error false
+                                                                                 :outputs outputs
+                                                                                 :total-time-ms total-time-ms
+                                                                                 :progress-text "Generating"
+                                                                                 :summary summary})
+                                                         (transition-tool-call! db* chat-ctx id :cleanup-finished
+                                                                                {:name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")}))
+                                             nil)))
                 :on-error (fn [{:keys [message exception]}]
                             (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
                             (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))})

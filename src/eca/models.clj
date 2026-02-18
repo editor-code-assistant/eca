@@ -195,7 +195,7 @@
           rid (llm-util/gen-rid)
           headers (models-endpoint-headers api-key)]
       (try
-        (llm-util/log-request logger-tag rid url nil headers)
+        (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
         (let [{:keys [status body]} (http/get url
                                               {:headers headers
                                                :throw-exceptions? false
@@ -207,13 +207,15 @@
                          (format "Provider '%s': /models endpoint returned status %s"
                                  provider status))
 
-            (do
-              (llm-util/log-response logger-tag rid "models" body)
-              (let [models-data (:data body)]
-                (if (not (sequential? models-data))
-                  (logger/warn logger-tag
-                               (format "Provider '%s': /models payload missing sequential :data (status %s, keys %s)"
-                                       provider status (if (map? body) (-> body keys sort vec) :non-map-body)))
+            (let [models-data (:data body)]
+              (if (not (sequential? models-data))
+                (logger/warn logger-tag
+                             (format "Provider '%s': /models payload missing sequential :data (status %s, keys %s)"
+                                     provider status (if (map? body) (-> body keys sort vec) :non-map-body)))
+                (do
+                  (logger/debug logger-tag
+                                (format "[%s] Provider '%s': Received %d models from %s"
+                                        rid provider (count models-data) url))
                   (zipmap (keep :id models-data) (repeat {})))))))
         (catch Exception e
           (logger/warn logger-tag
@@ -230,7 +232,7 @@
                                                  (get-in db [:auth provider])
                                                  config)
           api-type (:api provider-config)]
-      (when (and api-url api-key)
+      (when api-url
         (when-let [models (fetch-provider-native-models
                            {:provider provider
                             :api-url api-url

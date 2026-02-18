@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+- Fix `directory_tree` returning empty results for paths outside workspace folders.
 - Fix anthropic "invalid_request_error" that may happen when doing server web-search + thinking, causing errors in chat.
+- Allow fetching models from providers with no api keys required. #313
+- Fix usage tokens for anthropic when doing server web-searches. #307
+- Show server websearches as tool calls.
 - Improve plan/explorer delegation guidance and reduce friction for common read-only investigation workflows.
 
 ## 0.101.1
