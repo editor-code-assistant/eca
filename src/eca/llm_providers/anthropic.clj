@@ -236,7 +236,7 @@
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload extra-headers supports-image? http-client]}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
                      (normalize-messages supports-image?)
@@ -275,7 +275,20 @@
                                                                           :id (-> data :content_block :id)
                                                                           :arguments-text ""})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
-                                      "server_tool_use" (swap! content-block* assoc (:index data) (:content_block data))
+                                      "server_tool_use" (let [content-block (:content_block data)]
+                                                          (swap! content-block* assoc (:index data) content-block)
+                                                          (on-server-web-search {:status :started
+                                                                                  :id (:id content-block)
+                                                                                  :name (:name content-block)
+                                                                                  :input (:input content-block)}))
+                                      "web_search_tool_result" (let [content-block (:content_block data)
+                                                                     results (keep (fn [{:keys [type title url]}]
+                                                                                     (when (= "web_search_result" type)
+                                                                                       {:title title :url url}))
+                                                                                   (:content content-block))]
+                                                                 (on-server-web-search {:status :finished
+                                                                                        :id (:tool_use_id content-block)
+                                                                                        :output results}))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
                                       "text_delta" (on-message-received {:type :text
