@@ -27,7 +27,7 @@
   (let [models-pred (fn [models]
                       (and (vector? models)
                            (built-in-providers-present? models)
-                           (model-present? models "anthropic/claude-sonnet-4-5")))]
+                           (model-present? models "anthropic/claude-sonnet-4-6")))]
     (testing "initialize request with default config"
       (is (match?
            {:chatWelcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}
@@ -41,7 +41,7 @@
     (testing "config updated"
       (is (match?
            {:chat {:models (m/pred models-pred)
-                   :selectModel "anthropic/claude-sonnet-4-5"
+                   :selectModel "anthropic/claude-sonnet-4-6"
                    :agents ["code" "plan"]
                    :selectAgent "plan"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}

@@ -464,9 +464,9 @@
           config-file (io/file (str temp-dir) "config.json")]
       (try
         (with-redefs [config/global-config-file (constantly config-file)]
-          (config/update-global-config! {:defaultModel "anthropic/claude-sonnet-4-5"})
+          (config/update-global-config! {:defaultModel "anthropic/claude-sonnet-4-6"})
           (let [written-config (json/parse-string (slurp config-file))]
             (is (= "https://eca.dev/config.json" (get written-config "$schema")))
-            (is (= "anthropic/claude-sonnet-4-5" (get written-config "defaultModel")))))
+            (is (= "anthropic/claude-sonnet-4-6" (get written-config "defaultModel")))))
         (finally
           (fs/delete-tree temp-dir))))))

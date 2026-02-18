@@ -8,6 +8,7 @@
 - Fix usage tokens for anthropic when doing server web-searches. #307
 - Show server websearches as tool calls.
 - Improve plan/explorer delegation guidance and reduce friction for common read-only investigation workflows.
+- Make anthropic/claude-sonnet-4-6 default model for anthropic.
 
 ## 0.101.1
 
