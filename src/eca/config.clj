@@ -84,7 +84,12 @@
                    :disabledTools ["edit_file" "write_file" "move_file"]
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command"
-                                                 {:argsMatchers {"command" ["pwd"]}}
+                                                 {:argsMatchers {"command" ["pwd"
+                                                                            "git\\s+diff(\\s+.*)?"
+                                                                            "git\\s+log(\\s+.*)?"
+                                                                            "git\\s+show(\\s+.*)?"
+                                                                            "find(\\s+.*)?"
+                                                                            "ls(\\s+.*)?"]}}
                                                  "eca__compact_chat" {}
                                                  "eca__preview_file_change" {}
                                                  "eca__read_file" {}
@@ -101,7 +106,12 @@
                        :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
                        :toolCall {:approval {:byDefault "ask"
                                              :allow {"eca__shell_command"
-                                                     {:argsMatchers {"command" ["pwd"]}}
+                                                     {:argsMatchers {"command" ["pwd"
+                                                                                "git\\s+diff(\\s+.*)?"
+                                                                                "git\\s+log(\\s+.*)?"
+                                                                                "git\\s+show(\\s+.*)?"
+                                                                                "find(\\s+.*)?"
+                                                                                "ls(\\s+.*)?"]}}
                                                      "eca__compact_chat" {}
                                                      "eca__read_file" {}
                                                      "eca__directory_tree" {}
