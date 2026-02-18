@@ -37,7 +37,9 @@
               lines* (atom [(str @path)])
               root-filename (path->root-filename db @path)
               all-paths (fs/glob @path "**")
-              allowed-files (set (f.index/filter-allowed all-paths root-filename config))
+              allowed-files (if root-filename
+                              (set (f.index/filter-allowed all-paths root-filename config))
+                              (set (map fs/canonicalize all-paths)))
               walk (fn walk [dir depth]
                      (let [files (fs/list-dir dir)
                            names (->> files
