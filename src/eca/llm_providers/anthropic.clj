@@ -255,10 +255,16 @@
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)
+        context-usage* (atom nil)
         on-stream-fn
         (when stream?
           (fn handle-stream [event data content-block* reason-id]
             (case event
+              "message_start" (let [usage (-> data :message :usage)]
+                                (reset! context-usage*
+                                        {:input-tokens (or (:input_tokens usage) 0)
+                                         :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
+                                         :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)}))
               "content_block_start" (case (-> data :content_block :type)
                                       "thinking" (do
                                                    (on-reason {:status :started
@@ -297,10 +303,11 @@
               "message_delta" (do
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]
-                                  (on-usage-updated {:input-tokens (:input_tokens usage)
-                                                     :input-cache-creation-tokens (:cache_creation_input_tokens usage)
-                                                     :input-cache-read-tokens (:cache_read_input_tokens usage)
-                                                     :output-tokens (:output_tokens usage)}))
+                                  (let [ctx @context-usage*]
+                                    (on-usage-updated {:input-tokens (or (:input-tokens ctx) (:input_tokens usage))
+                                                       :input-cache-creation-tokens (or (:cache-creation-input-tokens ctx) (:cache_creation_input_tokens usage))
+                                                       :input-cache-read-tokens (or (:cache-read-input-tokens ctx) (:cache_read_input_tokens usage))
+                                                       :output-tokens (:output_tokens usage)})))
                                 (case (-> data :delta :stop_reason)
                                   "tool_use" (let [tool-calls (keep
                                                                (fn [content-block]
