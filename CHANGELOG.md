@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix anthropic "invalid_request_error" that may happen when doing server web-search + thinking, causing errors in chat.
+- Allow fetching models from providers with no api keys required.
 
 ## 0.101.1
 
