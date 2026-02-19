@@ -61,7 +61,7 @@ If you think your config is relevant to be shared for other people, [open a pull
 	exit 0
  	```
 
-??? info "Custom agent: Clojure reviewer (@zikajk)"
+??? info "Subagent: Clojure reviewer (@zikajk)"
 
     ```javascript title="config.json"
     {
