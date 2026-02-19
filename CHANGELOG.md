@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.103.2
+
 - Support dynamic string content in markdown configs (agents, skills). #317
 
 ## 0.103.1
