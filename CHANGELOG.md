@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix missing support for mcp server name in disabledTools
+
 ## 0.102.0
 
 - Fix `directory_tree` returning empty results for paths outside workspace folders.
