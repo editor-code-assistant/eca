@@ -296,7 +296,7 @@
                  {:chat-id chat-id
                   :role "system"
                   :content {:type :text
-                            :text "Logged started, type 'cancel' anytime to exit login."}})
+                            :text "Login started, type 'cancel' anytime to exit login."}})
                 (f.login/handle-step {:message (or (first args) "")
                                       :chat-id chat-id}
                                      db*
