@@ -232,9 +232,9 @@
 
   (testing "description includes available subagents"
     (let [desc (:description (get (f.tools.agent/definitions test-config) "spawn_agent"))]
-      (is (re-find #"explorer" desc))
-      (is (re-find #"general" desc))
-      (is (not (re-find #"\bcode\b" desc))
+      (is (re-find #"- explorer:" desc))
+      (is (re-find #"- general:" desc))
+      (is (not (re-find #"- code:" desc))
           "primary agents should not appear in subagent list")))
 
   (testing "summary-fn formats agent name with activity"
