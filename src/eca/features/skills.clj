@@ -8,8 +8,7 @@
 (set! *warn-on-reflection* true)
 
 (defn ^:private skill-file->skill [skill-file]
-  (let [content (config/replace-dynamic-strings (slurp (str skill-file)) (fs/parent skill-file) nil)
-        {:keys [name description body]} (shared/parse-md (or content ""))]
+  (let [{:keys [name description body]} (shared/parse-md (slurp (str skill-file)))]
     (when (and name description)
       {:name name
        :description description

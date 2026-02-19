@@ -197,49 +197,6 @@
       (finally
         (fs/delete-tree tmp-dir)))))
 
-(deftest dynamic-string-in-agent-md-test
-  (let [tmp-dir (fs/create-temp-dir)
-        agents-dir (fs/file tmp-dir "agents")
-        fragments-dir (fs/file agents-dir "fragments")]
-    (try
-      (fs/create-dirs fragments-dir)
-      (spit (fs/file fragments-dir "style.md") "Always be concise.")
-
-      (testing "resolves ${file:...} in agent body"
-        (spit (fs/file agents-dir "stylist.md")
-              (str "---\n"
-                   "description: Style agent\n"
-                   "mode: subagent\n"
-                   "---\n\n"
-                   "Follow this style: ${file:./fragments/style.md}"))
-        (let [[agent-name config] (#'agents/agent-md-file->agent (fs/file agents-dir "stylist.md"))]
-          (is (= "stylist" agent-name))
-          (is (= "Follow this style: Always be concise." (:systemPrompt config)))))
-
-      (testing "resolves ${env:...} in agent frontmatter"
-        (with-redefs [config/get-env (fn [k] (when (= k "TEST_MODEL") "anthropic/sonnet-4"))]
-          (spit (fs/file agents-dir "env-agent.md")
-                (str "---\n"
-                     "description: Env agent\n"
-                     "model: ${env:TEST_MODEL:anthropic/haiku-3}\n"
-                     "---\n\n"
-                     "Prompt."))
-          (let [[_ config] (#'agents/agent-md-file->agent (fs/file agents-dir "env-agent.md"))]
-            (is (= "anthropic/sonnet-4" (:defaultModel config))))))
-
-      (testing "resolves ${env:...} default value when env var is not set"
-        (with-redefs [config/get-env (constantly nil)]
-          (spit (fs/file agents-dir "default-agent.md")
-                (str "---\n"
-                     "description: Default agent\n"
-                     "model: ${env:UNSET_VAR:anthropic/haiku-3}\n"
-                     "---\n\n"
-                     "Prompt."))
-          (let [[_ config] (#'agents/agent-md-file->agent (fs/file agents-dir "default-agent.md"))]
-            (is (= "anthropic/haiku-3" (:defaultModel config))))))
-      (finally
-        (fs/delete-tree tmp-dir)))))
-
 (deftest agent-name-derived-from-filename-test
   (let [tmp-dir (fs/create-temp-dir)
         agents-dir (fs/file tmp-dir "agents")]

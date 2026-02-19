@@ -56,27 +56,6 @@
                          :dir (h/file-path "/home/someuser/.config/eca/skills/fallback-skill")}])
              (f.skills/all {} roots))))))
 
-  (testing "resolves dynamic strings in skill markdown"
-    (let [tmp-dir (fs/create-temp-dir)
-          skills-dir (fs/file tmp-dir "skills" "dynamic-skill")
-          fragments-dir (fs/file skills-dir "fragments")]
-      (try
-        (fs/create-dirs fragments-dir)
-        (spit (fs/file fragments-dir "instructions.md") "Do it carefully.")
-        (spit (fs/file skills-dir "SKILL.md")
-              (str "---\n"
-                   "name: dynamic-skill\n"
-                   "description: A skill with dynamic content\n"
-                   "---\n"
-                   "Base instructions: ${file:./fragments/instructions.md}"))
-        (let [skill (#'f.skills/skill-file->skill (fs/file skills-dir "SKILL.md"))]
-          (is (match? {:name "dynamic-skill"
-                       :description "A skill with dynamic content"
-                       :body "Base instructions: Do it carefully."}
-                      skill)))
-        (finally
-          (fs/delete-tree tmp-dir)))))
-
   (testing "skills with quoted YAML values"
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
