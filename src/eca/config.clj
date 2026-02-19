@@ -16,7 +16,6 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
-   [eca.features.agents :as f.agents]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
@@ -172,7 +171,7 @@
    :autoCompactPercentage 75
    :env "prod"})
 
-(defn ^:private parse-dynamic-string
+(defn replace-dynamic-strings
   "Given a string and a current working directory, look for patterns replacing its content:
   - `${env:SOME-ENV:default-value}`: Replace with a env falling back to a optional default value
   - `${file:/some/path}`: Replace with a file content checking from cwd if relative
@@ -216,7 +215,7 @@
   (walk/postwalk
    (fn [x]
      (if (string? x)
-       (parse-dynamic-string x cwd config)
+       (replace-dynamic-strings x cwd config)
        x))
    config))
 
@@ -453,7 +452,7 @@
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                       (f.agents/all-md-agents (:workspace-folders db)))]
+                                       ((requiring-resolve 'eca.features.agents/all-md-agents) (:workspace-folders db)))]
                 (if (seq md-agent-configs)
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs existing)))
