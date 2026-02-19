@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.103.1
+
 ## 0.103.0
 
 - Improve /doctor command to show clearly model used + login providers.
