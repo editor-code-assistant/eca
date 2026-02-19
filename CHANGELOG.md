@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improve /doctor command to show clearly model used + login providers.
 - Fix missing support for mcp server name in disabledTools
 
 ## 0.102.0
