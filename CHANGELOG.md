@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve /doctor command to show clearly model used + login providers.
+
 ## 0.102.0
 
 - Fix `directory_tree` returning empty results for paths outside workspace folders.
