@@ -5,9 +5,10 @@
    [babashka.cli :as cli]
    [borkdude.dynaload]
    [clojure.string :as string]
-   [eca.config :as config]
-   [eca.logger :as logger]
    [eca.client-http :as client]
+   [eca.config :as config]
+   [eca.features.agents] ;; TODO how to fix this cyclic dep
+   [eca.logger :as logger]
    [eca.server :as server]))
 
 (set! *warn-on-reflection* true)
