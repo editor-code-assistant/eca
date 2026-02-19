@@ -6,6 +6,7 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.config :as config]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -46,6 +47,7 @@
   (try
     (let [agent-name (string/lower-case (fs/strip-ext (fs/file-name md-file)))
           content (slurp (str md-file))
+          content (config/replace-dynamic-strings content (fs/parent md-file) nil)
           parsed (shared/parse-md content)
           agent-config (md->agent-config parsed)]
       (when (seq agent-config)
