@@ -1,7 +1,6 @@
 (ns eca.features.tools.agent
   "Tool for spawning subagents to perform focused tasks in isolated context."
   (:require
-   [borkdude.dynaload :refer [dynaload]]
    [clojure.string :as str]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -10,9 +9,6 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[AGENT-TOOL]")
-
-(def ^:private chat-prompt (dynaload 'eca.features.chat/prompt))
-(def ^:private chat-prompt-stop (dynaload 'eca.features.chat/prompt-stop))
 
 (defn ^:private all-agents
   [config]
@@ -79,10 +75,11 @@
 (defn ^:private stop-subagent-chat!
   "Stop a running subagent chat."
   [db* messenger metrics subagent-chat-id agent-name]
-  (try
-    (chat-prompt-stop {:chat-id subagent-chat-id} db* messenger metrics)
-    (catch Exception e
-      (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e))))))
+  (let [prompt-stop (requiring-resolve 'eca.features.chat/prompt-stop)]
+    (try
+      (prompt-stop {:chat-id subagent-chat-id} db* messenger metrics)
+      (catch Exception e
+        (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e)))))))
 
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
@@ -128,7 +125,9 @@
                max-steps-limit (assoc :max-steps max-steps-limit)))
 
       (try
-        (let [task-prompt (if max-steps-limit
+        ;; Require chat ns here to avoid circular dependency
+        (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
+              task-prompt (if max-steps-limit
                             (format "%s\n\nIMPORTANT: You have a maximum of %d steps to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
                                     task max-steps-limit)
                             task)]

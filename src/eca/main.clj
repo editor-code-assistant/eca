@@ -7,7 +7,6 @@
    [clojure.string :as string]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.features.agents] ;; TODO how to fix this cyclic dep
    [eca.logger :as logger]
    [eca.server :as server]))
 

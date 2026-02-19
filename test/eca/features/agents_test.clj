@@ -4,6 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.agents :as agents]
+   [eca.interpolation :as interpolation]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -217,7 +218,7 @@
           (is (= "Follow this style: Always be concise." (:systemPrompt config)))))
 
       (testing "resolves ${env:...} in agent frontmatter"
-        (with-redefs [config/get-env (fn [k] (when (= k "TEST_MODEL") "anthropic/sonnet-4"))]
+        (with-redefs [interpolation/get-env (fn [k] (when (= k "TEST_MODEL") "anthropic/sonnet-4"))]
           (spit (fs/file agents-dir "env-agent.md")
                 (str "---\n"
                      "description: Env agent\n"
@@ -228,7 +229,7 @@
             (is (= "anthropic/sonnet-4" (:defaultModel config))))))
 
       (testing "resolves ${env:...} default value when env var is not set"
-        (with-redefs [config/get-env (constantly nil)]
+        (with-redefs [interpolation/get-env (constantly nil)]
           (spit (fs/file agents-dir "default-agent.md")
                 (str "---\n"
                      "description: Default agent\n"
