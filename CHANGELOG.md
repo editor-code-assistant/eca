@@ -2,13 +2,12 @@
 
 ## Unreleased
 
-## 0.103.1
+- Support dynamic string content in markdown configs (agents, skills). #317
 
-## 0.103.0
+## 0.103.1
 
 - Improve /doctor command to show clearly model used + login providers.
 - Fix disabled mcp tools not showing properly in mcp details UI.
-- Support dynamic string content in markdown configs (agents, skills). #317
 
 ## 0.102.0
 

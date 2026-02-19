@@ -9,6 +9,7 @@
   When `:config-file` from cli option is passed, it uses that instead of searching default locations."
   (:require
    [babashka.fs :as fs]
+   [borkdude.dynaload :refer [dynaload]]
    [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
    [cheshire.factory :as json.factory]
@@ -24,6 +25,8 @@
    [java.io File]))
 
 (set! *warn-on-reflection* true)
+
+(def ^:private all-md-agents (dynaload 'eca.features.agents/all-md-agents))
 
 (def ^:private logger-tag "[CONFIG]")
 
@@ -452,7 +455,7 @@
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                       ((requiring-resolve 'eca.features.agents/all-md-agents) (:workspace-folders db)))]
+                                       (all-md-agents (:workspace-folders db)))]
                 (if (seq md-agent-configs)
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs existing)))
