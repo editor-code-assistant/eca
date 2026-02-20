@@ -12,12 +12,15 @@
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
-   [eca.shared :as shared :refer [multi-str update-some]])
+   [eca.shared :as shared :refer [multi-str]])
   (:import
    [clojure.lang PersistentVector]
-   [java.lang ProcessHandle]))
+   [java.lang ProcessHandle]
+   [java.time Instant ZoneId]
+   [java.time.format DateTimeFormatter]))
 
 (set! *warn-on-reflection* true)
 
@@ -197,8 +200,29 @@
        "Subagents available:\n\n"
        subagents))))
 
+(defn ^:private format-expires-at [^long expires-at]
+  (let [instant (Instant/ofEpochSecond expires-at)
+        formatter (.withZone (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm") (ZoneId/systemDefault))]
+    (.format formatter instant)))
+
+(defn ^:private format-auth-type [provider provider-auth config]
+  (let [[auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
+        base (case auth-type
+               :auth/oauth "Subscription (oauth)"
+               :auth/token (str "API key (" (shared/obfuscate api-key) ")")
+               "Unknown")]
+    (if-let [expires-at (:expires-at provider-auth)]
+      (str base ", expires " (format-expires-at expires-at))
+      base)))
+
 (defn ^:private doctor-msg [db config]
   (let [model (llm-api/default-model db config)
+        [model-provider] (when model (shared/full-model->provider+model model))
+        model-auth-type (when model-provider
+                          (format-auth-type model-provider
+                                            (get-in db [:auth model-provider])
+                                            config))
+        active-providers (filter (fn [[_ auth]] (seq auth)) (:auth db))
         cred-check (secrets/check-credential-files (:netrcFile config))
         existing-files (filter :exists (:files cred-check))]
     (multi-str (str "ECA version: " (config/eca-version))
@@ -207,18 +231,16 @@
                ""
                (str "Workspaces: " (shared/workspaces-as-str db))
                ""
-               (str "Default model: " model)
+               (str "Default model: " model
+                    (when model-auth-type (str " (" model-auth-type ")")))
                ""
-               (str "Login providers: " (reduce
-                                         (fn [s [provider auth]]
-                                           (str s provider ": " (-> auth
-                                                                    (update-some :verifier shared/obfuscate)
-                                                                    (update-some :device-code shared/obfuscate)
-                                                                    (update-some :access-token shared/obfuscate)
-                                                                    (update-some :refresh-token shared/obfuscate)
-                                                                    (update-some :api-key shared/obfuscate)) "\n"))
-                                         "\n"
-                                         (:auth db)))
+               (if (seq active-providers)
+                 (str "Logged providers: " (reduce
+                                            (fn [s [provider auth]]
+                                              (str s provider ": " (format-auth-type provider auth config) "\n"))
+                                            "\n"
+                                            active-providers))
+                 "Logged providers: None")
                (str "Relevant env vars: " (reduce (fn [s [key val]]
                                                     (cond
                                                       (or (string/includes? key "KEY")
@@ -285,7 +307,7 @@
                  :status :login})
       "resume" (let [chats (into {}
                                  (filter #(and (not= chat-id (first %))
-                                              (not (:subagent (second %)))))
+                                               (not (:subagent (second %)))))
                                  (:chats db))
                      chats-ids (vec (sort-by #(:created-at (get chats %)) (keys chats)))
                      selected-chat-id (try (if (= "latest" (first args))

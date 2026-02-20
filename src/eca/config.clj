@@ -16,10 +16,10 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
-   [eca.features.agents :as f.agents]
+   [eca.features.agents :as agents]
+   [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
    [java.io File]))
@@ -77,7 +77,7 @@
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4-5" {}
+                            :models {"claude-sonnet-4-6" {}
                                      "claude-opus-4-6" {:variants default-anthropic-variants}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
@@ -101,7 +101,12 @@
                    :variant "medium"
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command"
-                                                 {:argsMatchers {"command" ["pwd"]}}
+                                                 {:argsMatchers {"command" ["pwd"
+                                                                            "git\\s+diff(\\s+.*)?"
+                                                                            "git\\s+log(\\s+.*)?"
+                                                                            "git\\s+show(\\s+.*)?"
+                                                                            "find(\\s+.*)?"
+                                                                            "ls(\\s+.*)?"]}}
                                                  "eca__compact_chat" {}
                                                  "eca__preview_file_change" {}
                                                  "eca__read_file" {}
@@ -119,7 +124,12 @@
                        :variant "medium"
                        :toolCall {:approval {:byDefault "ask"
                                              :allow {"eca__shell_command"
-                                                     {:argsMatchers {"command" ["pwd"]}}
+                                                     {:argsMatchers {"command" ["pwd"
+                                                                                "git\\s+diff(\\s+.*)?"
+                                                                                "git\\s+log(\\s+.*)?"
+                                                                                "git\\s+show(\\s+.*)?"
+                                                                                "find(\\s+.*)?"
+                                                                                "ls(\\s+.*)?"]}}
                                                      "eca__compact_chat" {}
                                                      "eca__read_file" {}
                                                      "eca__directory_tree" {}
@@ -141,6 +151,7 @@
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
+   :chat {:title true}
    :hooks {}
    :rules []
    :commands []
@@ -181,51 +192,13 @@
    :autoCompactPercentage 75
    :env "prod"})
 
-(defn ^:private parse-dynamic-string
-  "Given a string and a current working directory, look for patterns replacing its content:
-  - `${env:SOME-ENV:default-value}`: Replace with a env falling back to a optional default value
-  - `${file:/some/path}`: Replace with a file content checking from cwd if relative
-  - `${classpath:path/to/file}`: Replace with a file content found checking classpath
-  - `${netrc:api.provider.com}`: Replace with the content from Unix net RC [credential files](https://eca.dev/config/models/#credential-file-authentication)"
-  [s cwd config]
-  (some-> s
-          (string/replace #"\$\{env:([^:}]+)(?::([^}]*))?\}"
-                          (fn [[_match env-var default-value]]
-                            (or (get-env env-var) default-value "")))
-          (string/replace #"\$\{file:([^}]+)\}"
-                          (fn [[_match file-path]]
-                            (try
-                              (let [file-path (fs/expand-home file-path)]
-                                (slurp (str (if (fs/absolute? file-path)
-                                              file-path
-                                              (if cwd
-                                                (fs/path cwd file-path)
-                                                (fs/path file-path))))))
-                              (catch Exception _
-                                (logger/warn logger-tag "File not found when parsing string:" s)
-                                ""))))
-          (string/replace #"\$\{classpath:([^}]+)\}"
-                          (fn [[_match resource-path]]
-                            (try
-                              (slurp (io/resource resource-path))
-                              (catch Exception e
-                                (logger/warn logger-tag "Error reading classpath resource:" (.getMessage e))
-                                ""))))
-          (string/replace #"\$\{netrc:([^}]+)\}"
-                          (fn [[_match key-rc]]
-                            (try
-                              (or (secrets/get-credential key-rc (get config "netrcFile")) "")
-                              (catch Exception e
-                                (logger/warn logger-tag "Error reading netrc credential:" (.getMessage e))
-                                ""))))))
-
 (defn ^:private parse-dynamic-string-values
   "walk through config parsing dynamic string contents if value is a string."
   [config cwd]
   (walk/postwalk
    (fn [x]
      (if (string? x)
-       (parse-dynamic-string x cwd config)
+       (interpolation/replace-dynamic-strings x cwd config)
        x))
    config))
 
@@ -463,7 +436,8 @@
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                       (f.agents/all-md-agents (:workspace-folders db)))]
+                                       ;; TODO how to avoid this dependency?
+                                       (agents/all-md-agents (:workspace-folders db)))]
                 (if (seq md-agent-configs)
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs existing)))

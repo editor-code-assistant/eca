@@ -2,8 +2,28 @@
 
 ## Unreleased
 
+## 0.104.0
+
+- Allow disable chat title generation via `chat title` as `false`. #322
+
+## 0.103.2
+
+- Support dynamic string content in markdown configs (agents, skills). #317
+
+## 0.103.1
+
+- Improve /doctor command to show clearly model used + login providers.
+- Fix disabled mcp tools not showing properly in mcp details UI.
+
+## 0.102.0
+
+- Fix `directory_tree` returning empty results for paths outside workspace folders.
 - Fix anthropic "invalid_request_error" that may happen when doing server web-search + thinking, causing errors in chat.
 - Allow fetching models from providers with no api keys required. #313
+- Fix usage tokens for anthropic when doing server web-searches. #307
+- Show server websearches as tool calls.
+- Improve plan/explorer delegation guidance and reduce friction for common read-only investigation workflows.
+- Make anthropic/claude-sonnet-4-6 default model for anthropic.
 
 ## 0.101.1
 

@@ -56,10 +56,10 @@
            (#'models/merge-provider-models static {})))))
 
   (testing "Static model config extends dynamic defaults for the same model"
-    (let [dynamic {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"}}
-          static {"claude-sonnet-4.5" {:extraPayload {:temperature 0.2}}}]
+    (let [dynamic {"claude-sonnet-4.6" {:modelName "claude-sonnet-4-6"}}
+          static {"claude-sonnet-4.6" {:extraPayload {:temperature 0.2}}}]
       (is (match?
-           {"claude-sonnet-4.5" {:modelName "claude-sonnet-4-5"
+           {"claude-sonnet-4.6" {:modelName "claude-sonnet-4-6"
                                  :extraPayload {:temperature 0.2}}}
            (#'models/merge-provider-models static dynamic)))))
 
@@ -129,9 +129,9 @@
                 "anthropic"
                 {:api "anthropic"}
                 {:providers {"anthropic" {:url "https://api.anthropic.com"}}}
-                {:by-id {"anthropic" {"models" {"claude-sonnet-4-5"
-                                                {"id" "claude-sonnet-4-5"
-                                                 "name" "Claude Sonnet 4.5"}}}}
+                {:by-id {"anthropic" {"models" {"claude-sonnet-4-6"
+                                                {"id" "claude-sonnet-4-6"
+                                                 "name" "Claude Sonnet 4.6"}}}}
                  :by-url {}}))))
 
   (testing "Does not fallback by provider id when models.dev provider has api url"
@@ -146,14 +146,14 @@
 (deftest parse-models-dev-provider-models-test
   (testing "Uses key as model key"
     (is (match?
-         {"claude-sonnet-4-5" {}
+         {"claude-sonnet-4-6" {}
           "gemini-3-flash-preview" {}
           "gpt-5.2" {}
           "gemini-2.5-pro" {}}
          (#'models/parse-models-dev-provider-models
           "test-provider"
-          {"claude-sonnet-4-5" {"name" "Claude Sonnet 4.5"
-                                "id" "claude-sonnet-4-5"}
+          {"claude-sonnet-4-6" {"name" "Claude Sonnet 4.6"
+                                "id" "claude-sonnet-4-6"}
            "gemini-3-flash-preview" {"id" "gemini-3-flash-preview"
                                      "name" "Gemini 3 Flash"}
            "gpt-5.2" {"name" "GPT 5.2"
@@ -187,25 +187,27 @@
         (is (= 1 (count @warnings*)))))))
 
 (deftest fetch-provider-models-with-priority-models-dev-test
-  (with-redefs-fn {#'eca.models/models-dev (constantly {"oai-like" {"api" "https://api.openai.com"
-                                                                    "models" {"gpt-5.2" {"id" "gpt-5.2"
-                                                                                         "name" "GPT 5.2"}
-                                                                              "gpt-4-legacy" {"id" "gpt-4-legacy"
-                                                                                              "status" "deprecated"}}}
-                                                        "anthropic-like" {"models" {"claude-sonnet-4-5"
-                                                                                    {"id" "claude-sonnet-4-5"
-                                                                                     "name" "Claude Sonnet 4.5"}}}
-                                                        "synthetic" {"api" "https://api.synthetic.new/v1"
-                                                                     "models" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
-                                                                               {"id" "hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
-                                                                                "name" "Qwen 3 235B Instruct"}}}
-                                                        "my-provider" {"api" "https://api.my-provider.dev/v1"
-                                                                       "models" {"foo" {"id" "foo" "name" "Foo"}}}})}
-    (fn []
+  (let [models-dev-data {"oai-like" {"api" "https://api.openai.com"
+                                     "models" {"gpt-5.2" {"id" "gpt-5.2"
+                                                          "name" "GPT 5.2"}
+                                               "gpt-4-legacy" {"id" "gpt-4-legacy"
+                                                               "status" "deprecated"}}}
+                         "anthropic-like" {"models" {"claude-sonnet-4-6"
+                                                     {"id" "claude-sonnet-4-6"
+                                                      "name" "Claude Sonnet 4.6"}}}
+                         "synthetic" {"api" "https://api.synthetic.new/v1"
+                                      "models" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
+                                                {"id" "hf:Qwen/Qwen3-235B-A22B-Instruct-2507"
+                                                 "name" "Qwen 3 235B Instruct"}}}
+                         "my-provider" {"api" "https://api.my-provider.dev/v1"
+                                        "models" {"foo" {"id" "foo" "name" "Foo"}}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 401
+                              :body {:error "unauthorized"}})]
       (testing "Loads models from models.dev when native endpoint is unavailable"
         (is (match?
              {"oai-like" {"gpt-5.2" {}}
-              "anthropic-like" {"claude-sonnet-4-5" {}}
+              "anthropic-like" {"claude-sonnet-4-6" {}}
               "synthetic" {"hf:Qwen/Qwen3-235B-A22B-Instruct-2507" {}}}
              (#'models/fetch-provider-models-with-priority
               {:providers {"oai-like" {:api "openai-responses"
@@ -217,7 +219,8 @@
                            "my-provider" {:api "openai-chat"}
                            "unknown-url" {:api "openai-chat"
                                           :url "https://api.unknown.test/v1"}}}
-              {}))))
+              {}
+              models-dev-data))))
 
       (testing "Skips models.dev loading when fetchModels is false"
         (is (match?
@@ -226,7 +229,8 @@
               {:providers {"synthetic" {:api "openai-chat"
                                         :url "https://api.synthetic.new/v1"
                                         :fetchModels false}}}
-              {})))))))
+              {}
+              models-dev-data)))))))
 
 (deftest fetch-provider-models-with-priority-fetchmodels-disabled-test
   (let [native-calls* (atom 0)

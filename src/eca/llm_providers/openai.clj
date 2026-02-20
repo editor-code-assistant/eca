@@ -145,7 +145,7 @@
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search extra-payload extra-headers auth-type account-id http-client]}
-                        {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
+                        {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search] :as callbacks}]
   (let [codex? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
@@ -190,6 +190,9 @@
                 "reasoning" (on-reason {:status :finished
                                         :id (-> data :item :id)
                                         :external-id (-> data :item :encrypted_content)})
+                "web_search_call" (on-server-web-search {:status :finished
+                                                          :id (-> data :item :id)
+                                                          :output nil})
                 nil)
 
               ;; URL mentioned
@@ -224,6 +227,10 @@
                                   (on-prepare-tool-call {:id call-id
                                                          :full-name function-name
                                                          :arguments-text function-args}))
+                "web_search_call" (on-server-web-search {:status :started
+                                                          :id (-> data :item :id)
+                                                          :name "web_search"
+                                                          :input nil})
                 nil)
 
               ;; done

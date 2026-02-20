@@ -232,6 +232,8 @@ Notes:
     4. Authenticate in your browser, copy the code.
     5. Paste and send the code and done!
     
+    Warning: Using your Claude Pro/Max subscription in ECA is not officially supported by [Anthropic](https://anthropic.com) and ECA are not responsible for any actions on your account.
+    
 === "Azure OpenAI"
 
     1. Login via the chat command `/login`.

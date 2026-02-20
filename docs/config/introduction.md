@@ -26,7 +26,7 @@ There are multiples ways to configure ECA:
 
 === "InitializationOptions"
 
-    Convenient for editors
+    Convenient for editors but uncommon
 
     Client editors can pass custom settings when sending the `initialize` request via the `initializationOptions` object:
 
@@ -49,9 +49,14 @@ There are multiples ways to configure ECA:
 It's possible to retrieve content of any configs with a string value using the `${key:value}` approach, being `key`:
 
 - `file`: `${file:/path/to/my-file}` or `${file:../rel-path/to/my-file}` to get a file content
-- `env`: `${env:MY_ENV}` to get a system env value
+- `env`: `${env:MY_ENV}` to get a system env value with support for default values: `${env:MY_ENV:foo}`
 - `classpath`: `${classpath:path/to/eca/file}` to get a file content from [ECA's classpath](https://github.com/editor-code-assistant/eca/tree/master/resources)
 - `netrc`: Support Unix RC [credential files](./models.md#credential-file-authentication)
+
+!!! info Markdown support
+
+    This is supported in markdown configurations of agents and skills as well, giving flexibility to template it.
+
 
 ### Proxy Configuration
 

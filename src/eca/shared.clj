@@ -247,7 +247,7 @@
         (let [raw-preserve (max 0 preserve-num)
               max-preserve (quot len 2)
               p            (min raw-preserve max-preserve)
-              middle-len   (max 5 (- len (* 2 p)))
+              middle-len   (min 10 (max 5 (- len (* 2 p))))
               stars        (apply str (repeat middle-len "*"))]
           (str (subs s 0 p)
                stars

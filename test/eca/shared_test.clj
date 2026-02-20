@@ -139,7 +139,14 @@
       ;; preserve-num smaller than half the length
     (is (= "a*****f" (shared/obfuscate "abcdef" :preserve-num 1)))
       ;; preserve-num larger than half the length is capped
-    (is (= "abc*****def" (shared/obfuscate "abcdef" :preserve-num 10)))))
+    (is (= "abc*****def" (shared/obfuscate "abcdef" :preserve-num 10))))
+
+  (testing "caps stars at 10 for long strings"
+    (let [long-str (apply str (repeat 100 "x"))]
+      (is (= "xxx**********xxx" (shared/obfuscate long-str))))
+    (let [jwt-like (str "eyJ" (apply str (repeat 500 "a")) "cw")]
+      (is (= "eyJ**********acw" (shared/obfuscate jwt-like)))
+      (is (= 16 (count (shared/obfuscate jwt-like)))))))
 
 (deftest normalize-model-name-test
   (testing "normalizes to lowercase kebab-case"

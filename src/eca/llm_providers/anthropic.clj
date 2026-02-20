@@ -236,7 +236,7 @@
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload extra-headers supports-image? http-client]}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated] :as callbacks}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
                      (normalize-messages supports-image?)
@@ -255,10 +255,16 @@
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)
+        context-usage* (atom nil)
         on-stream-fn
         (when stream?
           (fn handle-stream [event data content-block* reason-id]
             (case event
+              "message_start" (let [usage (-> data :message :usage)]
+                                (reset! context-usage*
+                                        {:input-tokens (or (:input_tokens usage) 0)
+                                         :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
+                                         :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)}))
               "content_block_start" (case (-> data :content_block :type)
                                       "thinking" (do
                                                    (on-reason {:status :started
@@ -269,7 +275,20 @@
                                                                           :id (-> data :content_block :id)
                                                                           :arguments-text ""})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
-                                      "server_tool_use" (swap! content-block* assoc (:index data) (:content_block data))
+                                      "server_tool_use" (let [content-block (:content_block data)]
+                                                          (swap! content-block* assoc (:index data) content-block)
+                                                          (on-server-web-search {:status :started
+                                                                                  :id (:id content-block)
+                                                                                  :name (:name content-block)
+                                                                                  :input (:input content-block)}))
+                                      "web_search_tool_result" (let [content-block (:content_block data)
+                                                                     results (keep (fn [{:keys [type title url]}]
+                                                                                     (when (= "web_search_result" type)
+                                                                                       {:title title :url url}))
+                                                                                   (:content content-block))]
+                                                                 (on-server-web-search {:status :finished
+                                                                                        :id (:tool_use_id content-block)
+                                                                                        :output results}))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
                                       "text_delta" (on-message-received {:type :text
@@ -297,10 +316,11 @@
               "message_delta" (do
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]
-                                  (on-usage-updated {:input-tokens (:input_tokens usage)
-                                                     :input-cache-creation-tokens (:cache_creation_input_tokens usage)
-                                                     :input-cache-read-tokens (:cache_read_input_tokens usage)
-                                                     :output-tokens (:output_tokens usage)}))
+                                  (let [ctx @context-usage*]
+                                    (on-usage-updated {:input-tokens (or (:input-tokens ctx) (:input_tokens usage))
+                                                       :input-cache-creation-tokens (or (:cache-creation-input-tokens ctx) (:cache_creation_input_tokens usage))
+                                                       :input-cache-read-tokens (or (:cache-read-input-tokens ctx) (:cache_read_input_tokens usage))
+                                                       :output-tokens (:output_tokens usage)})))
                                 (case (-> data :delta :stop_reason)
                                   "tool_use" (let [tool-calls (keep
                                                                (fn [content-block]

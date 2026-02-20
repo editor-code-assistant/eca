@@ -3,12 +3,14 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [eca.config :as config]
+   [eca.interpolation :as interpolation]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
 (defn ^:private skill-file->skill [skill-file]
-  (let [{:keys [name description body]} (shared/parse-md (slurp (str skill-file)))]
+  (let [content (interpolation/replace-dynamic-strings (slurp (str skill-file)) (fs/parent skill-file) nil)
+        {:keys [name description body]} (shared/parse-md (or content ""))]
     (when (and name description)
       {:name name
        :description description

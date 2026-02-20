@@ -74,7 +74,7 @@ Subagents can be configured in config or markdown and support/require these fiel
     ---
     mode: subagent
     description: You sleep one second when asked
-    model: anthropic/sonnet-4.5
+    model: ${env:MY_MODEL:anthropic/sonnet-4.5}
     tools:
       byDefault: ask
       deny: 

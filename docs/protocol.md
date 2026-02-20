@@ -1012,7 +1012,7 @@ interface ChatToolCallRejectedContent {
     details?: ToolCallDetails;
 }
 
-type ToolCallOrigin = 'mcp' | 'native';
+type ToolCallOrigin = 'mcp' | 'native' | 'server';
 
 type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails;
 

@@ -58,14 +58,14 @@
         (or (when-let [config-default-model (:defaultModel config)]
               [:config-default-model config-default-model])
             (when (llm-util/provider-api-key "anthropic" (get-in db [:auth "anthropic"]) config)
-              [:api-key-found "anthropic/claude-sonnet-4-5"])
+              [:api-key-found "anthropic/claude-sonnet-4-6"])
             (when (llm-util/provider-api-key "openai" (get-in db [:auth "openai"]) config)
               [:api-key-found "openai/gpt-5.2"])
             (when (get-in db [:auth "github-copilot" :api-key])
               [:api-key-found "github-copilot/gpt-5.2"])
             (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
               [:ollama-running ollama-model])
-            [:default "anthropic/claude-sonnet-4-5"])
+            [:default "anthropic/claude-sonnet-4-6"])
         model (if (contains? (:models db) model-candidate)
                 model-candidate
                 (first-available-model db))
@@ -122,7 +122,7 @@
 
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
-           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
            past-messages tools provider-auth sync?]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
@@ -145,7 +145,8 @@
                      :on-prepare-tool-call on-prepare-tool-call
                      :on-tools-called on-tools-called
                      :on-reason on-reason
-                     :on-usage-updated on-usage-updated})]
+                     :on-usage-updated on-usage-updated
+                     :on-server-web-search on-server-web-search})]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
@@ -286,7 +287,7 @@
 
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
-           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
            past-messages tools provider-auth variant]
     :or {on-first-response-received identity
          on-message-received identity
@@ -294,7 +295,8 @@
          on-prepare-tool-call identity
          on-tools-called identity
          on-reason identity
-         on-usage-updated identity}}]
+         on-usage-updated identity
+         on-server-web-search identity}}]
   (let [first-response-received* (atom false)
         emit-first-message-fn (fn [& args]
                                 (when-not @first-response-received*
@@ -309,6 +311,9 @@
         on-prepare-tool-call-wrapper (fn [& args]
                                        (apply emit-first-message-fn args)
                                        (apply on-prepare-tool-call args))
+        on-server-web-search-wrapper (fn [& args]
+                                        (apply emit-first-message-fn args)
+                                        (apply on-server-web-search args))
         on-error-wrapper (fn [{:keys [exception] :as args}]
                            (when-not (:silent? (ex-data exception))
                              (logger/error args)
@@ -367,6 +372,7 @@
         :on-prepare-tool-call on-prepare-tool-call-wrapper
         :on-tools-called on-tools-called
         :on-usage-updated on-usage-updated
+        :on-server-web-search on-server-web-search-wrapper
         :on-reason on-reason-wrapper
         :on-error on-error-wrapper
         :config config}))))

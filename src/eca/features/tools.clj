@@ -247,7 +247,10 @@
                                           :status (:status server)} metrics)
   (messenger/tool-server-updated messenger (-> server
                                                (assoc :type :mcp)
-                                               (update :tools #(mapv tool-status-fn %)))))
+                                               (update :tools
+                                                       #(mapv (comp tool-status-fn
+                                                                    (fn [t] (assoc t :server {:name (:name server)})))
+                                                              %)))))
 
 (defn init-servers! [db* messenger config metrics]
   (let [default-agent (get config :defaultAgent)

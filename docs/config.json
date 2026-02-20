@@ -29,7 +29,7 @@
       "description": "Default model in format 'provider/model'. When null, ECA decides the default model.",
       "markdownDescription": "Default model in format 'provider/model'. When null, ECA decides the default model.",
       "examples": [
-        "anthropic/claude-sonnet-4-5",
+        "anthropic/claude-sonnet-4-6",
         "openai/gpt-5.2"
       ]
     },
@@ -269,6 +269,20 @@
       "description": "Path to a custom netrc credential file. When null, searches ~/.netrc or ~/_netrc.",
       "markdownDescription": "Path to a custom netrc credential file. When null, searches ~/.netrc or ~/_netrc.",
       "default": null
+    },
+    "chat": {
+      "type": "object",
+      "description": "Chat feature settings.",
+      "markdownDescription": "Chat feature settings.",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "boolean",
+          "description": "Whether to automatically generate a title for new chats.",
+          "markdownDescription": "Whether to automatically generate a title for new chats.",
+          "default": true
+        }
+      }
     }
   },
   "definitions": {
@@ -400,11 +414,27 @@
           "markdownDescription": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
           "enum": ["primary", "subagent"]
         },
+        "description": {
+          "type": "string",
+          "description": "Description of this agent's purpose. Required for subagents — shown to the LLM so it knows when to spawn this agent. Supports dynamic strings like ${file:path} and ${classpath:path}.",
+          "markdownDescription": "Description of this agent's purpose. Required for subagents — shown to the LLM so it knows when to spawn this agent. Supports dynamic strings like `${file:path}` and `${classpath:path}`."
+        },
+        "systemPrompt": {
+          "type": "string",
+          "description": "System prompt for this agent. Overrides the default system prompt. Supports dynamic strings like ${file:path} and ${classpath:path}.",
+          "markdownDescription": "System prompt for this agent. Overrides the default system prompt. Supports dynamic strings like `${file:path}` and `${classpath:path}`."
+        },
+        "maxSteps": {
+          "type": "integer",
+          "description": "Maximum number of tool-call steps before the agent is halted. Useful for limiting subagent execution.",
+          "markdownDescription": "Maximum number of tool-call steps before the agent is halted. Useful for limiting subagent execution.",
+          "minimum": 1
+        },
         "defaultModel": {
           "type": "string",
           "description": "Default model for this agent, overriding the global default.",
           "markdownDescription": "Default model for this agent, overriding the global default.",
-          "examples": ["anthropic/claude-sonnet-4-5"]
+          "examples": ["anthropic/claude-sonnet-4-6"]
         },
         "disabledTools": {
           "type": "array",

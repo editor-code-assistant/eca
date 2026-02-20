@@ -5,6 +5,7 @@ ECA config examples showing the power of its features and flexibility
 If you think your config is relevant to be shared for other people, [open a pull request here](https://github.com/editor-code-assistant/eca/edit/master/docs/config/examples.md)
 
 ## From users
+
 ??? info "Hook: fix unbalanced CLJ parens (@zikajk)"
 
 	First install latest [[babashka](https://github.com/babashka/babashka)] + [[bbin](https://github.com/babashka/bbin)].
@@ -60,7 +61,7 @@ If you think your config is relevant to be shared for other people, [open a pull
 	exit 0
  	```
 
-??? info "Custom agent: Clojure reviewer (@zikajk)"
+??? info "Subagent: Clojure reviewer (@zikajk)"
 
     ```javascript title="config.json"
     {
@@ -201,4 +202,33 @@ If you think your config is relevant to be shared for other people, [open a pull
     Adopt these nucleus operating principles:
     [phi fractal euler tao pi mu] | [Δ λ ∞/0 | ε⚡φ Σ⚡μ c⚡h] | OODA
     Human ⊗ AI ⊗ REPL
+    ```
+
+??? info "Hook: notify when finished and waiting tool approval (@ericdallo)"
+
+    ```markdown title="~/.config/eca/config.json"
+    {
+      "hooks": {
+          "notify-finished": {
+              "type": "postRequest",
+              "visible": false,
+              "actions": [
+                  {
+                      "type": "shell",
+                      "shell": "canberra-gtk-play -i complete"
+                  }
+              ]
+          },
+          "notify-approval": {
+              "type": "preToolCall",
+              "visible": false,
+              "actions": [
+                  {
+                      "type": "shell",
+                      "shell": "jq -e '.approval == \"ask\"' > /dev/null && canberra-gtk-play -i message"
+                  }
+              ]
+          }
+      }
+    }
     ```
