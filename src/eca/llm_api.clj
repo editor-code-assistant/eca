@@ -107,13 +107,14 @@
    :ollama [:think]})
 
 (defn ^:private extra-payload-considering-variant
-  "Resolves the effective extra-payload by merging variant payload with extraPayload.
+  "Resolves the effective extra-payload by merging extraPayload with variant payload.
+   Variant values take priority over extraPayload on clashing keys.
    When reason? is false, strips provider-specific reasoning keys from the result."
   [model-config variant {:keys [api]} reason?]
   (let [variant-payload (get-in model-config [:variants variant])
         extra-payload (:extraPayload model-config)
         merged (if variant-payload
-                 (shared/deep-merge variant-payload extra-payload)
+                 (shared/deep-merge extra-payload variant-payload)
                  extra-payload)]
     (if (and merged (not reason?))
       (let [keys-to-strip (get reasoning-keys-by-api api)]
