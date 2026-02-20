@@ -26,7 +26,7 @@ There are multiples ways to configure ECA:
 
 === "InitializationOptions"
 
-    Convenient for editors
+    Convenient for editors but uncommon
 
     Client editors can pass custom settings when sending the `initialize` request via the `initializationOptions` object:
 
