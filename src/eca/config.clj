@@ -132,6 +132,7 @@
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
+   :chat {:title true}
    :hooks {}
    :rules []
    :commands []

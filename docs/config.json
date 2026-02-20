@@ -269,6 +269,20 @@
       "description": "Path to a custom netrc credential file. When null, searches ~/.netrc or ~/_netrc.",
       "markdownDescription": "Path to a custom netrc credential file. When null, searches ~/.netrc or ~/_netrc.",
       "default": null
+    },
+    "chat": {
+      "type": "object",
+      "description": "Chat feature settings.",
+      "markdownDescription": "Chat feature settings.",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "boolean",
+          "description": "Whether to automatically generate a title for new chats.",
+          "markdownDescription": "Whether to automatically generate a title for new chats.",
+          "default": true
+        }
+      }
     }
   },
   "definitions": {

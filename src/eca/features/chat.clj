@@ -1189,7 +1189,8 @@
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  (send-content! chat-ctx :system (merge {:type :usage} usage))))]
         (assert-compatible-apis-between-models! db chat-id provider config)
-        (when-not (get-in db [:chats chat-id :title])
+        (when (and (not (get-in db [:chats chat-id :title]))
+                   (get-in config [:chat :title]))
           (future* config
             (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                               {:provider provider

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow disable chat title generation via `chat title` as `false`. #322
+
 ## 0.103.2
 
 - Support dynamic string content in markdown configs (agents, skills). #317
