@@ -414,6 +414,22 @@
           "markdownDescription": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
           "enum": ["primary", "subagent"]
         },
+        "description": {
+          "type": "string",
+          "description": "Description of this agent's purpose. Required for subagents — shown to the LLM so it knows when to spawn this agent. Supports dynamic strings like ${file:path} and ${classpath:path}.",
+          "markdownDescription": "Description of this agent's purpose. Required for subagents — shown to the LLM so it knows when to spawn this agent. Supports dynamic strings like `${file:path}` and `${classpath:path}`."
+        },
+        "systemPrompt": {
+          "type": "string",
+          "description": "System prompt for this agent. Overrides the default system prompt. Supports dynamic strings like ${file:path} and ${classpath:path}.",
+          "markdownDescription": "System prompt for this agent. Overrides the default system prompt. Supports dynamic strings like `${file:path}` and `${classpath:path}`."
+        },
+        "maxSteps": {
+          "type": "integer",
+          "description": "Maximum number of tool-call steps before the agent is halted. Useful for limiting subagent execution.",
+          "markdownDescription": "Maximum number of tool-call steps before the agent is halted. Useful for limiting subagent execution.",
+          "minimum": 1
+        },
         "defaultModel": {
           "type": "string",
           "description": "Default model for this agent, overriding the global default.",
