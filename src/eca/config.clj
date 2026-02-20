@@ -57,11 +57,11 @@
    "high" {:reasoning {:effort "high" :summary "detailed"}}
    "xhigh" {:reasoning {:effort "xhigh" :summary "detailed"}}})
 
-(def ^:private default-anthropic-variants
-  {"low" {:output_config {:effort "low"}}
-   "medium" {:output_config {:effort "medium"}}
-   "high" {:output_config {:effort "high"}}
-   "max" {:output_config {:effort "max"}}})
+(def ^:private default-anthropic-new-models-variants
+  {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
+   "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive"}}
+   "high" {:output_config {:effort "high"} :thinking {:type "adaptive"}}
+   "max" {:output_config {:effort "max"} :thinking {:type "adaptive"}}})
 
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
@@ -77,8 +77,8 @@
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4-6" {}
-                                     "claude-opus-4-6" {:variants default-anthropic-variants}}}
+                            :models {"claude-sonnet-4-6" {:variants default-anthropic-new-models-variants}
+                                     "claude-opus-4-6" {:variants default-anthropic-new-models-variants}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
@@ -93,12 +93,10 @@
    :defaultAgent "code"
    :agent {"code" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/code_agent.md}"}
-                   :variant "medium"
                    :disabledTools ["preview_file_change"]}
            "plan" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/plan_agent.md}"}
                    :disabledTools ["edit_file" "write_file" "move_file"]
-                   :variant "medium"
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command"
                                                  {:argsMatchers {"command" ["pwd"
@@ -121,7 +119,6 @@
                        :description "${classpath:prompts/explorer_agent_description.md}"
                        :systemPrompt "${classpath:prompts/explorer_agent.md}"
                        :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
-                       :variant "medium"
                        :toolCall {:approval {:byDefault "ask"
                                              :allow {"eca__shell_command"
                                                      {:argsMatchers {"command" ["pwd"
@@ -140,7 +137,6 @@
                                                     {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "general" {:mode "subagent"
                       :description "${classpath:prompts/general_agent_description.md}"
-                      :variant "medium"
                       :systemPrompt "${classpath:prompts/code_agent.md}"
                       :disabledTools ["preview_file_change"]}}
    :defaultModel nil
