@@ -57,6 +57,7 @@
   (->> (get config :commands)
        (map
         (fn [{:keys [path]}]
+          (let [path (str (fs/expand-home path))]
           (if (fs/absolute? path)
             (when (fs/exists? path)
               {:name (normalize-command-name path)
@@ -70,7 +71,7 @@
                          :path (str (fs/canonicalize f))
                          :type :user-config
                          :content (slurp f)})))
-                  roots))))
+                  roots)))))
        (flatten)
        (remove nil?)))
 

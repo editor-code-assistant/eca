@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix home (~) expand for command paths in config
+
 ## 0.104.0
 
 - Allow disable chat title generation via `chat title` as `false`. #322
