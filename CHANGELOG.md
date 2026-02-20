@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.104.0
+
 - Allow disable chat title generation via `chat title` as `false`. #322
 
 ## 0.103.2
