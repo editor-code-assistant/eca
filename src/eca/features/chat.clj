@@ -1264,21 +1264,28 @@
                                                                   :arguments-text arguments-text
                                                                   :summary (f.tools/tool-call-summary all-tools full-name nil config @db*)})))
                 :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history! user-messages)
-                :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
+                :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (assert-chat-not-stopped! chat-ctx)
                              (case status
                                :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
+                                             (when redacted?
+                                               (swap! reasonings* assoc-in [id :redacted?] true)
+                                               (swap! reasonings* assoc-in [id :data] data))
                                              (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
                                :thinking (do (swap! reasonings* update-in [id :text] str text)
                                              (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
                                :finished (when-let [start-time (get-in @reasonings* [id :start-time])]
-                                           (let [total-time-ms (- (System/currentTimeMillis) start-time)]
+                                           (let [total-time-ms (- (System/currentTimeMillis) start-time)
+                                                 reasoning (get @reasonings* id)]
                                              (add-to-history! {:role "reason"
-                                                               :content {:id id
-                                                                         :external-id external-id
-                                                                         :delta-reasoning? delta-reasoning?
-                                                                         :total-time-ms total-time-ms
-                                                                         :text (get-in @reasonings* [id :text])}})
+                                                               :content (cond-> {:id id
+                                                                                 :external-id external-id
+                                                                                 :delta-reasoning? delta-reasoning?
+                                                                                 :total-time-ms total-time-ms
+                                                                                 :text (:text reasoning)}
+                                                                          (:redacted? reasoning)
+                                                                          (assoc :redacted? true
+                                                                                 :data (:data reasoning)))})
                                              (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
                                nil))
                 :on-server-web-search (fn [{:keys [status id name input output]}]
