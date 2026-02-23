@@ -232,3 +232,158 @@ If you think your config is relevant to be shared for other people, [open a pull
       }
     }
     ```
+
+??? info "Hook: Warcraft peon ping (@bsless)"
+
+    ```markdown title="~/.config/eca/config.json"
+    {
+       "hooks": {
+            "peon-session-start": {
+                "type": "sessionStart",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-session-end": {
+                "type": "sessionEnd",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-pre-request": {
+                "type": "preRequest",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    },
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/scripts/hook-handle-use.sh",
+                        "timeout": 5000
+                    }
+                ]
+            },
+            "peon-post-request": {
+                "type": "postRequest",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-pre-tool-call": {
+                "type": "preToolCall",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-post-tool-call": {
+                "type": "postToolCall",
+                "visible": false,
+                "runOnError": true,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-chat-start": {
+                "type": "chatStart",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-subagent-post-request": {
+                "type": "subagentPostRequest",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            }
+        }
+    }
+    ```
+    
+    ```bash title="~/.config/eca/hooks/peon-ping/eca-adapter.sh"
+    #!/bin/bash
+    # ECA → peon-ping adapter
+    # Translates ECA's hook JSON format to the Claude Code format peon.sh expects.
+    set -uo pipefail
+    
+    INPUT=$(cat)
+    
+    # Map ECA hook_type to Claude Code hook_event_name
+    python3 -c "
+    import json, sys
+    
+    data = json.loads(sys.argv[1])
+    
+    hook_type = data.get('hook_type', '')
+    workspaces = data.get('workspaces', [])
+    cwd = workspaces[0] if workspaces else ''
+    # ECA does not provide a session_id; derive one from db_cache_path to get a
+    # stable per-session identifier, falling back to a constant.
+    db_path = data.get('db_cache_path', '')
+    session_id = db_path.split('/')[-2] if db_path else 'eca-default'
+    
+    type_map = {
+        'sessionStart':        'SessionStart',
+        'sessionEnd':          'SessionEnd',
+        'chatStart':           'SessionStart',
+        'preRequest':          'UserPromptSubmit',
+        'postRequest':         'Stop',
+        'subagentPostRequest': 'Stop',
+        'preToolCall':         'PermissionRequest',
+        'postToolCall':        'Stop',
+    }
+    
+    event_name = type_map.get(hook_type, hook_type)
+    
+    out = {
+        'hook_event_name': event_name,
+        'session_id':      session_id,
+        'cwd':             cwd,
+    }
+    
+    # Forward any extra fields peon.sh might use
+    if 'notification_type' in data:
+        out['notification_type'] = data['notification_type']
+    if 'permission_mode' in data:
+        out['permission_mode'] = data['permission_mode']
+    
+    print(json.dumps(out))
+    " "$INPUT" | bash /home/bsless/.config/eca/hooks/peon-ping/peon.sh
+    ```
+
