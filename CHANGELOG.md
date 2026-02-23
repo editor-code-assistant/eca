@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.104.1
+
+- Improve fetch models logging when failling. #313
+
 ## 0.104.0
 
 - Allow disable chat title generation via `chat title` as `false`. #322

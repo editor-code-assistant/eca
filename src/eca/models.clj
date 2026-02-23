@@ -221,7 +221,7 @@
         (catch Exception e
           (logger/warn logger-tag
                        (format "Provider '%s': Failed to fetch models from %s: %s"
-                               provider url (ex-message e))))))))
+                               provider url e)))))))
 
 (defn ^:private fetch-provider-native-models-with-fallback
   "Tries to fetch models from provider's native endpoint first.
