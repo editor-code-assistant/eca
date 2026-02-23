@@ -51,11 +51,11 @@
    ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
 
 (def ^:private default-openai-variants
-  {"none" {:reasoning {:effort "none" :summary "detailed"}}
-   "low" {:reasoning {:effort "low" :summary "detailed"}}
-   "medium" {:reasoning {:effort "medium" :summary "detailed"}}
-   "high" {:reasoning {:effort "high" :summary "detailed"}}
-   "xhigh" {:reasoning {:effort "xhigh" :summary "detailed"}}})
+  {"none" {:reasoning {:effort "none" :summary "auto"}}
+   "low" {:reasoning {:effort "low" :summary "auto"}}
+   "medium" {:reasoning {:effort "medium" :summary "auto"}}
+   "high" {:reasoning {:effort "high" :summary "auto"}}
+   "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}})
 
 (def ^:private default-anthropic-new-models-variants
   {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
