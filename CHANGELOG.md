@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Change Openai summary from detailed -> auto.
+- Add variants feature #302
+  - By default no variant is set, using model default.
+  - Some models (openai/anthropic) will have built-in variants (low, medium, high, max etc).
+  - Users can create its own variants for their providers/models.
+
 ## 0.104.1
 
 - Improve fetch models logging when failling. #313
