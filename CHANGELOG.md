@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Avoid showing empty chats in resume. #326
+
 ## 0.104.1
 
 - Improve fetch models logging when failling. #313
