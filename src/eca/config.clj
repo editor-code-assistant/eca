@@ -50,14 +50,14 @@
    ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
    ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
 
-(def ^:private default-openai-variants
-  {"none" {:reasoning {:effort "none" :summary "auto"}}
+(def ^:private openai-variants
+  {"none" {:reasoning {:effort "none"}}
    "low" {:reasoning {:effort "low" :summary "auto"}}
    "medium" {:reasoning {:effort "medium" :summary "auto"}}
    "high" {:reasoning {:effort "high" :summary "auto"}}
    "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}})
 
-(def ^:private default-anthropic-new-models-variants
+(def ^:private anthropic-variants
   {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
    "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive"}}
    "high" {:output_config {:effort "high"} :thinking {:type "adaptive"}}
@@ -71,14 +71,14 @@
                          :models {"gpt-4.1" {}
                                   "gpt-5" {}
                                   "gpt-5-mini" {}
-                                  "gpt-5.2" {:variants default-openai-variants}
-                                  "gpt-5.3-codex" {:variants default-openai-variants}}}
+                                  "gpt-5.2" {}
+                                  "gpt-5.3-codex" {}}}
                "anthropic" {:api "anthropic"
                             :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
-                            :models {"claude-sonnet-4-6" {:variants default-anthropic-new-models-variants}
-                                     "claude-opus-4-6" {:variants default-anthropic-new-models-variants}}}
+                            :models {"claude-sonnet-4-6" {}
+                                     "claude-opus-4-6" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
@@ -166,6 +166,9 @@
               :readFile {:maxLines 2000}
               :shellCommand {:summaryMaxLength 25}
               :outputTruncation {:lines 2000 :sizeKb 50}}
+   :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
+                     ".*gpt[-._]5[-._]3[-._]codex|gpt[-._]5[-._]2(?!\\d)" {:variants openai-variants
+                                                                           :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}
@@ -200,6 +203,35 @@
 
 (defn initial-config []
   (parse-dynamic-string-values initial-config* (io/file ".")))
+
+(defn ^:private regex-matches? [pattern-str s]
+  (try
+    (some? (re-find (re-pattern pattern-str) s))
+    (catch Exception e
+      (logger/warn logger-tag "Invalid regex pattern in variantsByModel:" pattern-str (.getMessage e))
+      false)))
+
+(defn effective-model-variants
+  "Returns effective variants for a model by merging built-in variants (from
+   :variantsByModel regex matching on the model key) with user-defined variants.
+   User-defined variants override built-in ones on name clash.
+   A variant set to {} is removed from the result, allowing users to disable
+   built-in variants."
+  [config provider model-name user-variants]
+  (let [builtin (when model-name
+                  (some (fn [[pattern-str {:keys [variants excludeProviders]}]]
+                          (when (and (regex-matches? pattern-str model-name)
+                                     (not (some #{provider} excludeProviders)))
+                            variants))
+                        (:variantsByModel config)))
+        merged (cond
+                 (and builtin user-variants) (merge builtin user-variants)
+                 builtin builtin
+                 :else user-variants)]
+    (when merged
+      (let [filtered (into {} (remove (fn [[_ v]] (= {} v))) merged)]
+        (when (seq filtered)
+          filtered)))))
 
 (def ^:private fallback-agent "code")
 
@@ -356,6 +388,8 @@
     [:customTools]
     [:customTools :ANY :schema :properties]
     [:mcpServers]
+    [:variantsByModel]
+    [:variantsByModel :ANY :variants]
     [:prompts :tools]
     [:agent :ANY :prompts :tools]
     [:agent :ANY :toolCall :approval :allow]

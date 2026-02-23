@@ -1398,6 +1398,13 @@ interface ChatSelectedModelChanged {
      * The selected model (full model name, e.g. "anthropic/claude-sonnet-4-5").
      */
     model: Model;
+
+    /**
+     * The currently selected variant (if any).
+     * When the new model does not support this variant, the server
+     * will emit select-variant null to clear the selection.
+     */
+    variant?: string;
 }
 ```
 

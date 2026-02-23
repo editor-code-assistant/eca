@@ -19,14 +19,16 @@
 
 (defn ^:private model-variants
   "Returns sorted variant names for a full model (e.g. \"anthropic/claude-sonnet-4-5\")
-   by looking up [:providers provider :models model :variants] in config."
+   by resolving effective variants: built-in (from :variantsByModel regex match)
+   merged with user-defined [:providers provider :models model :variants]."
   ^clojure.lang.IPersistentVector [config ^String full-model]
   (when full-model
     (let [idx (.indexOf full-model "/")]
       (when (pos? idx)
         (let [provider (subs full-model 0 idx)
               model (subs full-model (inc idx))
-              variants (get-in config [:providers provider :models model :variants])]
+              user-variants (get-in config [:providers provider :models model :variants])
+              variants (config/effective-model-variants config provider model user-variants)]
           (when (seq variants)
             (vec (sort (keys variants)))))))))
 
@@ -201,7 +203,7 @@
       (f.tools/refresh-tool-servers! tool-status-fn db* messenger config))))
 
 (defn chat-selected-model-changed
-  [{:keys [db* messenger config metrics]} {:keys [model]}]
+  [{:keys [db* messenger config metrics]} {:keys [model variant]}]
   (metrics/task metrics :eca/chat-selected-model-changed
     (let [default-agent-name (config/validate-agent-name
                               (or (:defaultAgent (:chat config))
@@ -209,6 +211,8 @@
                               config)
           agent-config (get-in config [:agent default-agent-name])
           variants (model-variants config model)]
+      (when (and variant (not (some #{variant} variants)))
+        (swap! db* assoc-in [:last-config-notified :chat :select-variant] variant))
       (config/notify-fields-changed-only!
        {:chat {:variants (or variants [])
                :select-variant (select-variant agent-config variants)}}
