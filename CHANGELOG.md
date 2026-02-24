@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.104.2
+
 - Avoid showing empty chats in resume. #326
 - Fix anthropic adaptive thinking option causing invalid request errors.
 - Fix anthropic web server search corner case causing invalid request errors.
