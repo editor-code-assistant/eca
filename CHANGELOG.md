@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add network configuration for custom CA certificates and mTLS client certificates. #327
+  - New `network` config key with `caCertFile`, `clientCert`, `clientKey`, and `clientKeyPassphrase`.
+  - Environment variable fallbacks: `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `ECA_CLIENT_CERT`, `ECA_CLIENT_KEY`, `ECA_CLIENT_KEY_PASSPHRASE`.
+  - Custom CA certificates are additive to the JVM default trust store.
+
 ## 0.104.2
 
 - Avoid showing empty chats in resume. #326

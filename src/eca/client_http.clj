@@ -2,7 +2,7 @@
   "Support for the  HTTP client to make outbound requests."
   (:require
    [eca.logger :as logger]
-   [eca.proxy :as proxy])
+   [eca.network :as network])
   (:import
    [java.io IOException]
    [java.net
@@ -103,13 +103,19 @@
   `hato.client-http/build-http-client`. In addition, if HTTP or HTTPS proxy
   settings are present in the environment
   variables (`http_proxy`/`HTTP_PROXY` and `https_proxy`/`HTTPS_PROXY`),
-  the corresponding proxy configuration is added to the build."
+  the corresponding proxy configuration is added to the build.
+
+  When a custom SSL context has been set up via `eca.network/setup!`,
+  it is included so that custom CA certificates and mTLS are honoured."
   [hato-opts]
-  (let [{:keys [http https] :as _env-proxies} (proxy/env-proxy-urls-parse)
+  (let [{:keys [http https] :as _env-proxies} (network/env-proxy-urls-parse)
+        ssl-ctx network/*ssl-context*
         opts (cond-> (assoc hato-opts :executor ^java.util.concurrent.ExecutorService @shared-executor*)
                http
                (assoc :eca.client-http/proxy-http http)
                https
-               (assoc :eca.client-http/proxy-https https))
+               (assoc :eca.client-http/proxy-https https)
+               ssl-ctx
+               (assoc :ssl-context ssl-ctx))
         hato-http-client (hato-client-make opts)]
     (alter-var-root #'*hato-http-client* (constantly hato-http-client))))

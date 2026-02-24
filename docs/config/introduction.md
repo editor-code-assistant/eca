@@ -57,20 +57,6 @@ It's possible to retrieve content of any configs with a string value using the `
 
     This is supported in markdown configurations of agents and skills as well, giving flexibility to template it.
 
-
-### Proxy Configuration
-
-ECA supports proxies with basic cleartext authentication via the de-facto env vars:
-
-```bash
-HTTP_PROXY="http://user:pass@host:port"
-HTTPS_PROXY="http://user:pass@host:port"
-http_proxy="http://user:pass@host:port"
-https_proxy="http://user:pass@host:port"
-```
-
-Lowercase var wins if both are set. Credentials (if used) must match for HTTP and HTTPS.
-
 ## Schema
 
 ECA has a [config.json schema](../config.json) to validate and autocomplete in your editor.
@@ -156,3 +142,7 @@ By default ECA consider the following as the base configuration:
       }
     }
 ```
+
+!!! info "Network / Enterprise"
+
+    For more details about configuring eca with mTLS or custom CA certificates, check [network page](./network.md)

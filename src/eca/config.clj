@@ -322,7 +322,8 @@
 
 (def ^:private normalization-rules
   {:kebab-case-key
-   [[:providers]]
+   [[:providers]
+    [:network]]
    :keywordize-val
    [[:providers :ANY :httpClient]
     [:providers :ANY :models :ANY :reasoningHistory]]
@@ -424,6 +425,22 @@
                   config))))))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
+
+(defn read-file-configs
+  "Reads and merges config from file-based sources only (initial config,
+  env var, global file, custom file). Does not include
+  `initializationOptions` or local project config. Useful for config
+  needed before the server is fully initialized (e.g. network/TLS
+  settings)."
+  []
+  (let [merge-config (fn [c1 c2]
+                       (deep-merge c1 (normalize-fields normalization-rules c2)))]
+    (-> {}
+        (merge-config (initial-config))
+        (merge-config (config-from-envvar))
+        (merge-config (if (some? @custom-config-file-path*)
+                        (config-from-custom)
+                        (config-from-global-file))))))
 
 (defn validation-error []
   (cond

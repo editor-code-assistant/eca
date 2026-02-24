@@ -8,6 +8,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.logger :as logger]
+   [eca.network :as network]
    [eca.server :as server]))
 
 (set! *warn-on-reflection* true)
@@ -94,11 +95,12 @@
 
 (defn ^:private handle-action!
   [action options]
-  (client/hato-client-global-setup! {})
   (when (= "server" action)
     (when-some [cfg-file (:config-file options)]
       (reset! config/custom-config-file-path* cfg-file))
     (alter-var-root #'logger/*level* (constantly (keyword (:log-level options))))
+    (network/setup! (config/read-file-configs))
+    (client/hato-client-global-setup! {})
     (let [finished @(server/run-io-server! (:verbose options))]
       {:result-code (if (= :done finished) 0 1)})))
 

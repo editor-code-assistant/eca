@@ -21,6 +21,7 @@ nav:
         - Completion: config/completion.md
         - Rewrite: config/rewrite.md
         - Metrics: config/metrics.md
+        - Network / Enterprise: config/network.md
         - Examples: config/examples.md
     - Development: development.md
   - Features: features.md
