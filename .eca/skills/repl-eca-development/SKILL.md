@@ -3,7 +3,7 @@ name: repl-eca-development
 description: "MANDATORY - Load this skill to learn how to use repl in eca project to manual test ECA behavior in a running ECA session. Useful to know how providers behave or do a end to end test."
 ---
 
-# REPl ECA Development
+# REPL ECA Development
 
 ## Requisites
 
