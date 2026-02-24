@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.105.0
+
 - Add network configuration for custom CA certificates and mTLS client certificates. #327
   - New `network` config key with `caCertFile`, `clientCert`, `clientKey`, and `clientKeyPassphrase`.
   - Environment variable fallbacks: `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `ECA_CLIENT_CERT`, `ECA_CLIENT_KEY`, `ECA_CLIENT_KEY_PASSPHRASE`.
