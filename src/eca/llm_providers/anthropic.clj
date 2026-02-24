@@ -135,6 +135,20 @@
                          {:type "thinking"
                           :signature (:external-id content)
                           :thinking (:text content)})]}
+
+            "server_tool_use"
+            {:role "assistant"
+             :content [{:type "server_tool_use"
+                        :id (:id content)
+                        :name (:name content)
+                        :input (or (:input content) {})}]}
+
+            "server_tool_result"
+            {:role "assistant"
+             :content [{:type "web_search_tool_result"
+                        :tool_use_id (:tool-use-id content)
+                        :content (:raw-content content)}]}
+
             (-> msg
                 (dissoc :content-id)
                 (update :content (fn [c]
@@ -299,7 +313,8 @@
                                                                                    (:content content-block))]
                                                                  (on-server-web-search {:status :finished
                                                                                         :id (:tool_use_id content-block)
-                                                                                        :output results}))
+                                                                                        :output results
+                                                                                        :raw-content (:content content-block)}))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
                                       "text_delta" (on-message-received {:type :text
@@ -325,9 +340,16 @@
                                                                     :id @reason-id*})
                                       nil)
               "content_block_stop" (when-let [content-block (get @content-block* (:index data))]
-                                    (when (= "redacted_thinking" (:type content-block))
-                                      (on-reason {:status :finished
-                                                  :id @reason-id*})))
+                                    (case (:type content-block)
+                                      "redacted_thinking" (on-reason {:status :finished
+                                                                      :id @reason-id*})
+                                      "server_tool_use" (let [input (when-let [json-str (:input-json content-block)]
+                                                                      (json/parse-string json-str))]
+                                                          (on-server-web-search {:status :input-ready
+                                                                                 :id (:id content-block)
+                                                                                 :name (:name content-block)
+                                                                                 :input (or input (:input content-block) {})}))
+                                      nil))
               "message_delta" (do
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]

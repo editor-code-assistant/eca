@@ -174,22 +174,64 @@
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
            {:role "assistant" :content "I see /foo/bar"}]
-          true)))))
+          true)))
+    (testing "With server_tool_use and server_tool_result history"
+      (is (match?
+           [{:role "assistant" :content [{:type "server_tool_use"
+                                          :id "srvtoolu_123"
+                                          :name "web_search"
+                                          :input {:query "test"}}]}
+            {:role "assistant" :content [{:type "web_search_tool_result"
+                                          :tool_use_id "srvtoolu_123"
+                                          :content [{:type "web_search_result" :title "Test" :url "https://test.com"}]}]}]
+           (#'llm-providers.anthropic/normalize-messages
+            [{:role "server_tool_use" :content {:id "srvtoolu_123" :name "web_search" :input {:query "test"}}}
+             {:role "server_tool_result" :content {:tool-use-id "srvtoolu_123"
+                                                   :raw-content [{:type "web_search_result" :title "Test" :url "https://test.com"}]}}]
+            true))))))
+
+(deftest server-web-search-full-pipeline-test
+  (testing "thinking + server web search + thinking + text normalizes to single assistant message"
+    (let [input [{:role "user" :content "search for something"}
+                 {:role "reason" :content {:id "r1" :external-id "sig1" :text "Let me search."}}
+                 {:role "server_tool_use" :content {:id "srvtoolu_1" :name "web_search" :input {:query "test"}}}
+                 {:role "server_tool_result" :content {:tool-use-id "srvtoolu_1"
+                                                       :raw-content [{:type "web_search_result"
+                                                                      :title "Result"
+                                                                      :url "https://example.com"
+                                                                      :encrypted_content "abc123"}]}}
+                 {:role "reason" :content {:id "r2" :external-id "sig2" :text "Now I'll summarize."}}
+                 {:role "assistant" :content [{:type :text :text "Here are the results."}]}]
+          result (-> input
+                     (#'llm-providers.anthropic/group-parallel-tool-calls)
+                     (#'llm-providers.anthropic/normalize-messages true)
+                     (#'llm-providers.anthropic/merge-adjacent-assistants)
+                     (#'llm-providers.anthropic/merge-adjacent-tool-results))]
+      (is (match?
+           [{:role "user" :content "search for something"}
+            {:role "assistant"
+             :content [{:type "thinking" :signature "sig1" :thinking "Let me search."}
+                       {:type "server_tool_use" :id "srvtoolu_1" :name "web_search" :input {:query "test"}}
+                       {:type "web_search_tool_result" :tool_use_id "srvtoolu_1"
+                        :content [{:type "web_search_result" :title "Result" :url "https://example.com" :encrypted_content "abc123"}]}
+                       {:type "thinking" :signature "sig2" :thinking "Now I'll summarize."}
+                       {:type :text :text "Here are the results."}]}]
+           result)))))
 
 (deftest group-parallel-tool-calls-test
-  (testing "single tool call passes through unchanged"
-    (is (match?
-         [{:role "user" :content "do something"}
-          {:role "assistant" :content "ok"}
-          {:role "tool_call" :content {:id "c1"}}
-          {:role "tool_call_output" :content {:id "c1"}}
-          {:role "assistant" :content "done"}]
-         (#'llm-providers.anthropic/group-parallel-tool-calls
-          [{:role "user" :content "do something"}
-           {:role "assistant" :content "ok"}
-           {:role "tool_call" :content {:id "c1"}}
-           {:role "tool_call_output" :content {:id "c1"}}
-           {:role "assistant" :content "done"}]))))
+  (testing "single tool call passes through unchanged")
+  (is (match?
+       [{:role "user" :content "do something"}
+        {:role "assistant" :content "ok"}
+        {:role "tool_call" :content {:id "c1"}}
+        {:role "tool_call_output" :content {:id "c1"}}
+        {:role "assistant" :content "done"}]
+       (#'llm-providers.anthropic/group-parallel-tool-calls
+        [{:role "user" :content "do something"}
+         {:role "assistant" :content "ok"}
+         {:role "tool_call" :content {:id "c1"}}
+         {:role "tool_call_output" :content {:id "c1"}}
+         {:role "assistant" :content "done"}])))
   (testing "interleaved parallel tool calls are reordered: calls first, then outputs"
     (is (match?
          [{:role "tool_call" :content {:id "c1"}}

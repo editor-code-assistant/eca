@@ -1288,7 +1288,7 @@
                                                                                  :data (:data reasoning)))})
                                              (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
                                nil))
-                :on-server-web-search (fn [{:keys [status id name input output]}]
+                :on-server-web-search (fn [{:keys [status id name input output raw-content]}]
                                          (assert-chat-not-stopped! chat-ctx)
                                          (let [summary (format "Web searching%s"
                                                                (if-let [query (:query input)]
@@ -1324,6 +1324,10 @@
                                                                                 :start-time (System/currentTimeMillis)
                                                                                 :summary summary
                                                                                 :progress-text "Searching the web"}))
+                                             :input-ready (add-to-history! {:role "server_tool_use"
+                                                                            :content {:id id
+                                                                                      :name name
+                                                                                      :input arguments}})
                                              :finished (let [start-time (get @server-tool-times* id)
                                                              total-time-ms (if start-time
                                                                              (- (System/currentTimeMillis) start-time)
@@ -1333,6 +1337,9 @@
                                                                                {:type :text
                                                                                 :text (format "%s: %s" title url)})
                                                                              output))]
+                                                         (add-to-history! {:role "server_tool_result"
+                                                                           :content {:tool-use-id id
+                                                                                     :raw-content raw-content}})
                                                          (transition-tool-call! db* chat-ctx id :execution-end
                                                                                 {:origin :server
                                                                                  :name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")
