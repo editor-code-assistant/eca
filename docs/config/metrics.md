@@ -1,3 +1,7 @@
+---
+description: "Configure ECA metrics: OpenTelemetry integration for exporting tool usage, prompt performance, and server telemetry."
+---
+
 # Metrics
 
 ## Opentelemetry integration

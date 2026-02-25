@@ -1,3 +1,7 @@
+---
+description: "Configure ECA inline completion: AI-powered code suggestions as you type, with custom model and prompt settings."
+---
+
 # Completion
 
 ![](../images/features/inline_completion.png)

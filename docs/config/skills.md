@@ -1,3 +1,7 @@
+---
+description: "Configure ECA skills: structured knowledge units that teach the LLM task-specific abilities following the agentskills.io spec."
+---
+
 # Skills
 
 ![](../images/features/skills.png)

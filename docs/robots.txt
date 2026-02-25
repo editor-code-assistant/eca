@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://eca.dev/sitemap.xml

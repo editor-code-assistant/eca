@@ -1,3 +1,7 @@
+---
+description: "Configure ECA rewrite: select code, describe the change, and accept or reject the AI-generated diff."
+---
+
 # Rewrite
 
 ![](../images/features/rewrite.gif)

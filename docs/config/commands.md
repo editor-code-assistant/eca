@@ -1,3 +1,7 @@
+---
+description: "Configure ECA commands: built-in slash commands like /init and /compact, plus custom commands from markdown files."
+---
+
 # Commands
 
 ![](../images/features/commands.png)

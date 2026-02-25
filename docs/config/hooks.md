@@ -1,3 +1,7 @@
+---
+description: "Configure ECA hooks: before/after event callbacks for tool calls and prompts to validate, notify, or trigger side effects."
+---
+
 # Hooks
 
 ![](../images/features/hooks.png)

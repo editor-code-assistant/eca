@@ -1,3 +1,7 @@
+---
+description: "Configure ECA variants: switch between model presets, reasoning effort levels, and custom payload overrides on the fly."
+---
+
 # Variants
 
 ![](../images/features/variants.png)

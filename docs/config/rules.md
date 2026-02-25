@@ -1,3 +1,7 @@
+---
+description: "Configure ECA rules: define coding standards, conventions, and constraints the LLM must follow globally or per project."
+---
+
 # Rules
 
 Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM responses.

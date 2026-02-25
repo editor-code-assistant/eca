@@ -1,3 +1,7 @@
+---
+description: "Configure ECA network settings: custom CA certificates, mTLS client certificates, and enterprise proxy support."
+---
+
 # Network
 
 ECA supports proxy, custom CA certificates, and mutual TLS (mTLS) for environments behind corporate firewalls or requiring client certificate authentication.

@@ -1,3 +1,7 @@
+---
+description: "ECA development guide: build from source, run tests, contribute to the open-source AI coding assistant project."
+---
+
 # ECA Development
 
 ## Building local
