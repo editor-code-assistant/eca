@@ -563,6 +563,29 @@
   
   
     <li class="md-nav__item">
+      <a href="../config/variants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Variants
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../config/skills/" class="md-nav__link">
         
   
@@ -1136,6 +1159,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-selected-model-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat selected model changed (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#editor-diagnostics" class="md-nav__link">
     <span class="md-ellipsis">
       Editor diagnostics (↪️)
@@ -1550,6 +1582,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-selected-model-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat selected model changed (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#editor-diagnostics" class="md-nav__link">
     <span class="md-ellipsis">
       Editor diagnostics (↪️)
@@ -1763,7 +1804,7 @@ separated by a <code>\r\n</code>.</p>
     S-&gt;&gt;-C: initialize (response)
     C--)+S: initialized (notification)
     Note right of S: Sync models: Request models.dev &lt;br/&gt;for models capabilities
-    Note right of S: Notify which models/agents are &lt;br/&gt;avaialble and their defaults.
+    Note right of S: Notify which models/agents/variants are &lt;br/&gt;available and their defaults.
     S--)C: config/updated (notification)
     Note right of S: Init MCP servers
     S--)-C: tool/serverUpdated (notification)</code></pre>
@@ -2033,6 +2074,14 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     * Can include multiple different types of context.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">contexts?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional variant name to select a predefined parameter set for the model.</span>
+<span class="cm">     * Variants are named presets defined per model in the provider config (e.g. &quot;low&quot;, &quot;medium&quot;, &quot;high&quot;).</span>
+<span class="cm">     * When provided, the variant payload is merged into the LLM request before extraPayload.</span>
+<span class="cm">     * Falls back to the agent&#39;s configured variant if not specified.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">variant?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -2985,6 +3034,29 @@ After response, clients should reset chat UI to a clean state.</p>
 <blockquote>
 <p><strong>Backward compatibility:</strong> The legacy method <code>chat/selectedBehaviorChanged</code> with <code>{ behavior: string }</code> is still supported.</p>
 </blockquote>
+<h3 id="chat-selected-model-changed">Chat selected model changed (➡️)<a class="headerlink" href="#chat-selected-model-changed" title="Permanent link">#</a></h3>
+<p>A client notification for server telling the user selected a different model in chat.
+Server will respond with a <code>config/updated</code> notification containing the available variants for the selected model
+and the suggested variant to select (if any).</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>chat/selectedModelChanged</code></li>
+<li>params: <code>ChatSelectedModelChanged</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatSelectedModelChanged</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The selected model (full model name, e.g. &quot;anthropic/claude-sonnet-4-5&quot;).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The currently selected variant (if any).</span>
+<span class="cm">     * When the new model does not support this variant, the server</span>
+<span class="cm">     * will emit select-variant null to clear the selection.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">variant?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="editor-diagnostics">Editor diagnostics (↪️)<a class="headerlink" href="#editor-diagnostics" title="Permanent link">#</a></h3>
 <p>A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
 Useful for server to provide to LLM information about errors/warnings about current code.</p>
@@ -3241,6 +3313,22 @@ Clients should update UI accordingly, if a field is missing/null, means it had n
 <span class="w">        </span><span class="nx">selectAgent?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
 
 <span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * The available variant names for the currently selected model.</span>
+<span class="cm">         * Variants are named presets defined per model in the provider config</span>
+<span class="cm">         * (e.g. [&quot;low&quot;, &quot;medium&quot;, &quot;high&quot;]).</span>
+<span class="cm">         * An empty array means the model has no variants and clients should</span>
+<span class="cm">         * show a `-` variant in the selector.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">variants?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * The variant for client select in chat, if present clients should</span>
+<span class="cm">         * forcefully update the selected variant.</span>
+<span class="cm">         * null means no variant should be selected (e.g. model has no variants).</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">selectVariant?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+
+<span class="w">        </span><span class="cm">/**</span>
 <span class="cm">        * Message to show when starting a new chat.</span>
 <span class="cm">        */</span>
 <span class="w">        </span><span class="nx">welcomeMessage?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
@@ -3384,7 +3472,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 24, 2026 15:33:04 UTC">February 24, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 25, 2026 15:04:09 UTC">February 25, 2026</span>
   </span>
 
     

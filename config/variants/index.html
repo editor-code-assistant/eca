@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://eca.dev/config/skills/">
+        <link rel="canonical" href="https://eca.dev/config/variants/">
       
       
-        <link rel="prev" href="../variants/">
+        <link rel="prev" href="../tools/">
       
       
-        <link rel="next" href="../rules/">
+        <link rel="next" href="../skills/">
       
       
       <link rel="icon" href="../../images/logo.svg">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Skills - ECA - Editor Code Assistant</title>
+        <title>Variants - ECA - Editor Code Assistant</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#skills" class="md-skip">
+        <a href="#variants" class="md-skip">
           Skip to content
         </a>
       
@@ -111,7 +111,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Skills
+              Variants
             
           </span>
         </div>
@@ -566,29 +566,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../variants/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Variants
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -601,7 +578,90 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Variants
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Variants
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      Built-in Variants
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Variants
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-default-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent Default Variant
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skills/" class="md-nav__link">
         
   
   
@@ -612,7 +672,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -993,6 +1052,41 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      Built-in Variants
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Variants
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-default-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      Agent Default Variant
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1010,57 +1104,104 @@
   
 
 
-<h1 id="skills">Skills<a class="headerlink" href="#skills" title="Permanent link">#</a></h1>
-<p>Skills are folders with <code>SKILL.md</code> which teachs LLM how to solve a specific task or gain knowledge about it.
-Following the <a href="https://agentskills.io/">agentskills</a> standard, ECA search for skills following <code>~/.config/eca/skills/some-skill/SKILL.md</code> and <code>.eca/skills/some-skill/SKILL.md</code> which should contain <code>name</code> and <code>description</code> metadatas.</p>
-<p>When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via <code>eca__skill</code> tool if that matches user request.</p>
-<p>Check the examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="simple-lint-skill" name="__tabbed_1" type="radio" /><input id="more-complex-skill-using-scripts" name="__tabbed_1" type="radio" /><input id="enabledisable-specific-skills" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="simple-lint-skill">Simple lint skill</label><label for="more-complex-skill-using-scripts">More complex skill using scripts</label><label for="enabledisable-specific-skills">Enable/disable specific skills</label></div>
+<h1 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">#</a></h1>
+<p>Variants are named payload presets for a model, allowing you to quickly switch between different LLM parameters — like reasoning effort — without changing the model itself.</p>
+<h2 id="built-in-variants">Built-in Variants<a class="headerlink" href="#built-in-variants" title="Permanent link">#</a></h2>
+<p>ECA ships with built-in variants for some known models via the <code>variantsByModel</code> config which has a good default.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="openai" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="openai">OpenAI</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><span class="filename">~/.config/eca/skills/lint-fix/SKILL.md</span><pre><span></span><code>---
-name: lint-fix
-<span class="gu">description: Learn how to lint and fix the code</span>
-<span class="gu">---</span>
-
-<span class="gh"># Instructions</span>
-
-Run <span class="sb">`clojure-lsp diagnostics`</span> to lint the code
-</code></pre></div>
+<p>Applies to models matching <code>sonnet-4-6</code>, <code>opus-4-5</code>, <code>opus-4-6</code> (any separator: <code>-</code>, <code>.</code>, <code>_</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>low</code></td>
+<td><code>{"output_config": {"effort": "low"}, "thinking": {"type": "adaptive"}}</code></td>
+</tr>
+<tr>
+<td><code>medium</code></td>
+<td><code>{"output_config": {"effort": "medium"}, "thinking": {"type": "adaptive"}}</code></td>
+</tr>
+<tr>
+<td><code>high</code></td>
+<td><code>{"output_config": {"effort": "high"}, "thinking": {"type": "adaptive"}}</code></td>
+</tr>
+<tr>
+<td><code>max</code></td>
+<td><code>{"output_config": {"effort": "max"}, "thinking": {"type": "adaptive"}}</code></td>
+</tr>
+</tbody>
+</table>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><span class="filename">~/.config/eca/skills/gif-generator/SKILL.md</span><pre><span></span><code>---
-name: gif-generator
-<span class="gu">description: Knowledge and utils to create gifs. Provide concepts and scripts, use when requested to create gifs.</span>
-<span class="gu">---</span>
-
-<span class="k">-</span><span class="w"> </span>Use scripts/gif-generate.py passing gif name and dimensions.
-<span class="k">-</span><span class="w"> </span>&lt;More complex instructions here&gt;
-...
-</code></pre></div>
-<div class="highlight"><span class="filename">~/.config/eca/skills/gif-generator/scripts/generator.py</span><pre><span></span><code>from PIL import Image
-# Python code that generates a gif here
-....
-</code></pre></div>
+<p>Applies to models matching <code>gpt-5-3-codex</code>, <code>gpt-5-2</code>. Excluded for <code>github-copilot</code> provider.</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>none</code></td>
+<td><code>{"reasoning": {"effort": "none"}}</code></td>
+</tr>
+<tr>
+<td><code>low</code></td>
+<td><code>{"reasoning": {"effort": "low", "summary": "auto"}}</code></td>
+</tr>
+<tr>
+<td><code>medium</code></td>
+<td><code>{"reasoning": {"effort": "medium", "summary": "auto"}}</code></td>
+</tr>
+<tr>
+<td><code>high</code></td>
+<td><code>{"reasoning": {"effort": "high", "summary": "auto"}}</code></td>
+</tr>
+<tr>
+<td><code>xhigh</code></td>
+<td><code>{"reasoning": {"effort": "xhigh", "summary": "auto"}}</code></td>
+</tr>
+</tbody>
+</table>
 </div>
+</div>
+</div>
+<h2 id="custom-variants">Custom Variants<a class="headerlink" href="#custom-variants" title="Permanent link">#</a></h2>
+<p>You can define your own variants per model under <code>providers.&lt;provider&gt;.models.&lt;model&gt;.variants</code>. Custom variants are merged with built-in ones — if names clash, your definition wins.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="global-config-file" name="__tabbed_2" type="radio" /><input id="local-config-file" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="global-config-file">Global config file</label><label for="local-config-file">Local config file</label></div>
+<div class="tabbed-content">
 <div class="tabbed-block">
-<p>It's possible to control which skills LLM have access globally or for a specific agent.
-You just need to define a tool call approval for the <code>eca__skill</code> for a specific skill <code>name</code>:</p>
-<p>Example disabling all skills but one for an agent</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;deny&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;eca__skill&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;anthropic&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="s2">&quot;variants&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="s2">&quot;creative&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;temperature&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;top_p&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">0.95</span><span class="p">}</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;reviewer&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="s2">&quot;eca__skill&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my-skill&quot;</span><span class="p">]}}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">.eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;anthropic&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;claude-sonnet-4-6&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="s2">&quot;variants&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="s2">&quot;creative&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;temperature&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;top_p&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">0.95</span><span class="p">}</span>
 <span class="w">          </span><span class="p">}</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">}</span>
@@ -1071,7 +1212,34 @@ You just need to define a tool call approval for the <code>eca__skill</code> for
 </div>
 </div>
 </div>
-<p>You can have more directories and contents like <code>scripts/</code>, <code>references/</code>, <code>assets/</code> for a skill making it really powerful, check <a href="https://agentskills.io/specification#optional-directories">the spec</a> for more details.</p>
+<p>To disable a specific built-in variant, set it to <code>{}</code>:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;openai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;gpt-5.2&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="s2">&quot;variants&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// removes the &quot;none&quot; and &quot;xhigh&quot; built-in variants</span>
+<span class="w">            </span><span class="s2">&quot;none&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">            </span><span class="s2">&quot;xhigh&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="agent-default-variant">Agent Default Variant<a class="headerlink" href="#agent-default-variant" title="Permanent link">#</a></h2>
+<p>You can set a default variant for an agent so it starts with that variant pre-selected:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;variant&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>If the configured variant doesn't exist for the current model, it will be ignored.</p>
 
 
 
