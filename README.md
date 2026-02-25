@@ -29,8 +29,8 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
 
 - :page_facing_up: **Editor-agnostic**: protocol for any editor to integrate.
 - :gear: **Single configuration**: Configure eca making it work the same in any editor via global or local configs.
-- :loop: **Chat** interface: ask questions, review code, work together to code.
-- :coffee: **Agentic**: let LLM work as an agent with its native tools and MCPs you can configure.
+- :loop: **Multiple features**: chat, rewrite, and completion — all powered by your LLM.
+- :coffee: **Agents / Subagents**: configure multiple agents with different models, tools, and behaviors.
 - :syringe: **Context**: support: giving more details about your code to the LLM, including MCP resources and prompts.
 - :rocket: **Multi models**: Login to OpenAI, Anthropic, Copilot, Ollama local models and many more.
 - :chart_with_upwards_trend: **OpenTelemetry**: Export metrics of tools, prompts, server usage.

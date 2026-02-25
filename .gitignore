@@ -36,5 +36,8 @@ docs/README.md
 docs/CHANGELOG.md
 docs/images/
 
+# mkdocs build output
+/site
+
 /integration-test/out/
 reachability-metadata.json

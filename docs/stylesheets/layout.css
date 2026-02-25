@@ -9,6 +9,126 @@
   background-color: var(--md-default-fg-color);
 }
 
+/* ── Footer extra section ── */
+.eca-footer-extra {
+  background: #005a6e;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 2.5rem 0 2rem;
+}
+
+[data-md-color-scheme="slate"] .eca-footer-extra {
+  background: #0e1a22;
+}
+
+.eca-footer-extra__inner {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.eca-footer-extra__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.eca-footer-extra__logo {
+  width: 28px;
+  height: 28px;
+  filter: brightness(0) invert(1);
+}
+
+.eca-footer-extra__brand-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.eca-footer-extra__tagline {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.eca-footer-extra__tagline a {
+  color: rgba(255,255,255,0.8);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.eca-footer-extra__tagline a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.eca-footer-extra__heading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin: 0 0 0.75rem;
+}
+
+.eca-footer-extra__links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.eca-footer-extra__links li {
+  margin: 0;
+}
+
+.eca-footer-extra__links a {
+  font-size: 0.82rem;
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.eca-footer-extra__links a:hover {
+  color: #fff;
+}
+
+/* Footer meta tweaks */
+.md-footer-meta {
+  background: rgba(0,0,0,0.15);
+}
+
+[data-md-color-scheme="slate"] .md-footer-meta {
+  background: rgba(0,0,0,0.25);
+}
+
+/* Responsive footer */
+@media (max-width: 768px) {
+  .eca-footer-extra__inner {
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .eca-footer-extra__col:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  .eca-footer-extra__inner {
+    grid-template-columns: 1fr;
+  }
+
+  .eca-footer-extra__col:first-child {
+    grid-column: auto;
+  }
+}
+
 .md-grid {
   max-width: 70rem;
 }

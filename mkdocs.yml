@@ -7,32 +7,33 @@ repo_url: https://github.com/editor-code-assistant/eca
 
 nav:
   - Home:
-    - Overview: README.md
+    - index.md
+  - Features:
+    - Features: features.md
     - Workflows: workflows.md
-    - Configuration:
-        - Introduction: config/introduction.md
-        - Providers / Models: config/models.md
-        - Tools / Approval: config/tools.md
-        - Variants: config/variants.md
-        - Skills: config/skills.md
-        - Rules: config/rules.md
-        - Commands: config/commands.md
-        - Agents / Subagents: config/agents.md
-        - Hooks: config/hooks.md
-        - Completion: config/completion.md
-        - Rewrite: config/rewrite.md
-        - Metrics: config/metrics.md
-        - Network / Enterprise: config/network.md
-        - Examples: config/examples.md
-    - Development: development.md
-  - Features: features.md
-  - Installation: installation.md
+  - Configuration:
+    - Introduction: config/introduction.md
+    - Providers / Models: config/models.md
+    - Tools / Approval: config/tools.md
+    - Variants: config/variants.md
+    - Skills: config/skills.md
+    - Rules: config/rules.md
+    - Commands: config/commands.md
+    - Agents / Subagents: config/agents.md
+    - Hooks: config/hooks.md
+    - Completion: config/completion.md
+    - Rewrite: config/rewrite.md
+    - Metrics: config/metrics.md
+    - Network / Enterprise: config/network.md
+    - Examples: config/examples.md
   - Protocol: protocol.md
   - Troubleshooting: troubleshooting.md
+  - Development: development.md
   - Support Us: https://github.com/sponsors/ericdallo
 
 theme:
   name: material
+  custom_dir: docs/overrides
   logo: images/logo.svg
   favicon: images/logo.svg
   icon:
@@ -44,6 +45,8 @@ theme:
     - content.code.copy
     - content.code.select
 
+copyright: Copyright &copy; 2026 ECA Contributors — Free & Open Source
+
 extra:
   analytics:
     provider: google
@@ -51,6 +54,10 @@ extra:
   social:
     - icon: fontawesome/brands/github-alt
       link: https://github.com/editor-code-assistant/eca
+    - icon: fontawesome/brands/slack
+      link: https://clojurians.slack.com/archives/C093426FPUG
+    - icon: fontawesome/solid/heart
+      link: https://github.com/sponsors/ericdallo
 
 extra_css:
   - stylesheets/layout.css
