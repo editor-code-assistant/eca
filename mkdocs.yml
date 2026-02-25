@@ -13,6 +13,7 @@ nav:
         - Introduction: config/introduction.md
         - Providers / Models: config/models.md
         - Tools / Approval: config/tools.md
+        - Variants: config/variants.md
         - Skills: config/skills.md
         - Rules: config/rules.md
         - Commands: config/commands.md
