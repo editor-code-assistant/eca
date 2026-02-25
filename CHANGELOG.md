@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-## 0.106.0
+- Change Openai summary from detailed -> auto.
+- Add variants feature #302
+  - By default no variant is set, using model default.
+  - Some models (openai/anthropic) will have built-in variants (low, medium, high, max etc).
+  - Users can create its own variants for their providers/models.
 
 ## 0.105.0
 
@@ -16,11 +20,6 @@
 - Avoid showing empty chats in resume. #326
 - Fix anthropic adaptive thinking option causing invalid request errors.
 - Fix anthropic web server search corner case causing invalid request errors.
-- Change Openai summary from detailed -> auto.
-- Add variants feature #302
-  - By default no variant is set, using model default.
-  - Some models (openai/anthropic) will have built-in variants (low, medium, high, max etc).
-  - Users can create its own variants for their providers/models.
 
 ## 0.104.1
 
