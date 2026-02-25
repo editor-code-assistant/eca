@@ -1,5 +1,5 @@
 site_name: ECA - Editor Code Assistant
-site_description: ECA - AI pair programming capabilities in any editor
+site_description: ECA is a free, open-source AI pair programming tool that connects any LLM to any editor via a standardized protocol. Works with VS Code, Emacs, Neovim, IntelliJ and supports OpenAI, Anthropic, Copilot, Ollama and more.
 site_url: https://eca.dev
 
 repo_name: editor-code-assistant/eca

@@ -1,3 +1,7 @@
+---
+description: "Get started with ECA: installation, initial setup, and configuration guide for connecting any LLM to your editor."
+---
+
 # Configuration
 
 ## Installation

@@ -1,3 +1,7 @@
+---
+description: "Explore ECA's AI coding features: chat, inline completion, rewrite, agents, subagents, MCP tools, context injection, and more."
+---
+
 # Features
 
 <img src="https://raw.githubusercontent.com/editor-code-assistant/eca-emacs/master/demo.gif" width="720"/>

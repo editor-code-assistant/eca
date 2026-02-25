@@ -1,3 +1,7 @@
+---
+description: "Configure ECA tools: built-in editor tools, MCP server integration, custom CLI tools, and fine-grained approval control."
+---
+
 # Tools
 
 ![](../images/features/tools.png)

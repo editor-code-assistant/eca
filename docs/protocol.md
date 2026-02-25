@@ -1,3 +1,7 @@
+---
+description: "ECA protocol specification: the standardized client-server protocol for connecting AI assistants to code editors."
+---
+
 # ECA Protocol
 
 The ECA (Editor Code Assistant) protocol is JSON-RPC 2.0-based protocol heavily insipired by the [LSP (Language Server Protocol)](https://microsoft.github.io/language-server-protocol/), that enables communication between multiple code editors/IDEs and ECA process (server), which will interact with multiple LLMs. It follows similar patterns to the LSP but is specifically designed for AI code assistance features.

@@ -1,3 +1,7 @@
+---
+description: "Configure ECA agents and subagents: custom system prompts, model selection, tool access, and parallel task delegation."
+---
+
 # Agents / Subagents
 
 ![](../images/features/chat-agents.png)

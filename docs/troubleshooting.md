@@ -1,3 +1,7 @@
+---
+description: "Troubleshoot common ECA issues: connection problems, provider errors, tool failures, and performance optimization."
+---
+
 # Troubleshooting
 
 ## Logs (stderr)

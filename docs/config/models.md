@@ -1,3 +1,7 @@
+---
+description: "Configure LLM providers in ECA: OpenAI, Anthropic, Copilot, Gemini, Ollama, and any OpenAI-compatible API endpoint."
+---
+
 # Models
 
 !!! info Login
