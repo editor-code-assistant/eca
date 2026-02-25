@@ -139,7 +139,7 @@
   (or (when-let [key (not-empty (get-in config [:providers (name provider) :key]))]
         [:auth/token key])
       (when-let [key (:api-key provider-auth)]
-        [:auth/oauth key])
+        [(get provider-auth :type :auth/oauth) key])
       (when-let [key (config/get-env (str (csk/->SCREAMING_SNAKE_CASE (name provider)) "_API_KEY"))]
         [:auth/token key])
       ;; legacy

@@ -31,11 +31,14 @@
     nil))
 
 (defn ^:private models-endpoint-headers
-  [api-key]
-  (client/merge-llm-headers
-   (assoc-some
-    {"Content-Type" "application/json"}
-    "Authorization" (when api-key (str "Bearer " api-key)))))
+  [auth-type api-type api-key]
+  (let [oauth? (= :auth/oauth auth-type)
+        anthropic? (= "anthropic" api-type)]
+    (client/merge-llm-headers
+     (assoc-some
+      {"Content-Type" "application/json"}
+      "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
+      "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))))))
 
 (defn ^:private fetch-models-dev-data []
   (let [{:keys [status body]} (http/get models-dev-api-url
@@ -235,11 +238,11 @@
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> {} on success, nil on failure."
-  [{:keys [api-url api-key api-type provider]}]
+  [{:keys [api-url auth-type api-key api-type provider]}]
   (when-let [models-path (provider-models-endpoint-path api-type)]
     (let [url (shared/join-api-url api-url models-path)
           rid (llm-util/gen-rid)
-          headers (models-endpoint-headers api-key)]
+          headers (models-endpoint-headers auth-type api-type api-key)]
       (try
         (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
         (let [{:keys [status body]} (http/get url
@@ -275,14 +278,15 @@
   (when (contains? native-models-endpoint-providers (:api provider-config))
     (let [api-url (or (get-in db [:auth provider :api-url])
                       (llm-util/provider-api-url provider config))
-          [_ api-key] (llm-util/provider-api-key provider
-                                                 (get-in db [:auth provider])
-                                                 config)
+          [auth-type api-key] (llm-util/provider-api-key provider
+                                                         (get-in db [:auth provider])
+                                                         config)
           api-type (:api provider-config)]
       (when api-url
         (when-let [models (fetch-provider-native-models
                            {:provider provider
                             :api-url api-url
+                            :auth-type auth-type
                             :api-key api-key
                             :api-type api-type})]
           (logger/info logger-tag

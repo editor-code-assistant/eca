@@ -268,6 +268,39 @@
       (is (= "https://api.openai.com/v1/models" (first @request*)))
       (is (= "Bearer sk-test" (get-in @request* [1 :headers "Authorization"]))))))
 
+(deftest fetch-provider-models-anthropic-token-uses-x-api-key-test
+  (let [request* (atom nil)
+        models-dev-data {"anthropic" {"api" "https://api.anthropic.com"
+                                      "models" {"from-models-dev" {"id" "from-models-dev"}}}}]
+    (with-redefs [http/get (fn [url opts]
+                             (reset! request* [url opts])
+                             {:status 200
+                              :body {:data [{:id "claude-3"}]}})]
+      (#'models/fetch-provider-models-with-priority
+       {:providers {"anthropic" {:api "anthropic"
+                                 :url "https://api.anthropic.com"
+                                 :key "sk-ant-test"}}}
+       {}
+       models-dev-data)
+      (is (= "sk-ant-test" (get-in @request* [1 :headers "x-api-key"])))
+      (is (nil? (get-in @request* [1 :headers "Authorization"]))))))
+
+(deftest fetch-provider-models-anthropic-oauth-uses-bearer-test
+  (let [request* (atom nil)
+        models-dev-data {"anthropic" {"api" "https://api.anthropic.com"
+                                      "models" {"from-models-dev" {"id" "from-models-dev"}}}}]
+    (with-redefs [http/get (fn [url opts]
+                             (reset! request* [url opts])
+                             {:status 200
+                              :body {:data [{:id "claude-3"}]}})]
+      (#'models/fetch-provider-models-with-priority
+       {:providers {"anthropic" {:api "anthropic"
+                                 :url "https://api.anthropic.com"}}}
+       {:auth {"anthropic" {:api-key "oauth-token" :type :auth/oauth}}}
+       models-dev-data)
+      (is (= "Bearer oauth-token" (get-in @request* [1 :headers "Authorization"])))
+      (is (nil? (get-in @request* [1 :headers "x-api-key"]))))))
+
 (deftest fetch-provider-models-with-priority-fallback-test
   (let [models-dev-data {"native-provider" {"api" "https://api.openai.com"
                                             "models" {"from-models-dev" {"id" "from-models-dev"}}}}]
