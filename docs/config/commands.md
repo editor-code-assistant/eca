@@ -1,5 +1,7 @@
 # Commands
 
+![](../images/features/commands.png)
+
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
 Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the prompt during command call.
 

@@ -1,5 +1,7 @@
 # Completion
 
+![](../images/features/inline_completion.png)
+
 You can configure which model and system prompt ECA will use during its inline completion:
 
 === "Example"

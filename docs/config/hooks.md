@@ -1,5 +1,7 @@
 # Hooks
 
+![](../images/features/hooks.png)
+
 Hooks are shell actions that run before or after specific events, useful for notifications, injecting context, modifying inputs, or blocking tool calls.
 
 ## Hook Types

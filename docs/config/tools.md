@@ -1,5 +1,7 @@
 # Tools
 
+![](../images/features/tools.png)
+
 ECA supports 3 types of tools:
 
 - __Native tools__: (edit_file, write_file, read, etc)

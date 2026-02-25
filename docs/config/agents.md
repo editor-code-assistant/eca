@@ -1,5 +1,7 @@
 # Agents / Subagents
 
+![](../images/features/chat-agents.png)
+
 When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, skills and more.
 
 There are 2 types of agents defined via `mode` field (when absent, defaults to primary):

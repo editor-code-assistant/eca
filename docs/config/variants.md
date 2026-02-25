@@ -1,5 +1,7 @@
 # Variants
 
+![](../images/features/variants.png)
+
 Variants are named payload presets for a model, allowing you to quickly switch between different LLM parameters — like reasoning effort — without changing the model itself.
 
 ## Built-in Variants
