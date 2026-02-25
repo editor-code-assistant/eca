@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.106.0
+
 - Change Openai summary from detailed -> auto.
 - Add variants feature #302
   - By default no variant is set, using model default.
