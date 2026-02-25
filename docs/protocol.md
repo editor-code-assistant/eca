@@ -1698,7 +1698,7 @@ interface ConfigUpdatedParams {
          * Variants are named presets defined per model in the provider config
          * (e.g. ["low", "medium", "high"]).
          * An empty array means the model has no variants and clients should
-         * hide the variant selector.
+         * show a `-` variant in the selector.
          */
         variants?: string[];
 
