@@ -29,7 +29,7 @@ Subagents are quite powerful to delegate tasks to specialized agents, for more d
 
 ### Variants
 
-![](.images/features/variants.png){ align=right }
+![](./images/features/variants.png){ align=right }
 
 ECA supports the variants concept, where it allows to quickly switch via UI to a variant which usually means a different level of reasoning effort or anything user can customize.
 
