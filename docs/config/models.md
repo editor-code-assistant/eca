@@ -10,13 +10,13 @@ ECA will return to clients the models configured, either via config or login.
 
 ## Built-in providers and capabilities
 
-| model                                            | tools (MCP) | reasoning / thinking | prompt caching | web_search | image_input |
-|--------------------------------------------------|-------------|----------------------|----------------|------------|-------------|
-| :simple-openai: OpenAI (Also subscription)       | √           | √                    | √              | √          | √           |
-| :simple-anthropic: Anthropic (Also subscription) | √           | √                    | √              | √          | √           |
-| :simple-githubcopilot: Github Copilot            | √           | √                    | √              | X          | √           |
-| :simple-googlegemini: Google                     | √           | √                    | √              | X          | √           |
-| :simple-ollama: Ollama local models              | √           | √                    | X              | X          |             |
+| model                                      | tools (MCP) | reasoning / thinking | prompt caching | web_search | image_input |
+|--------------------------------------------|-------------|----------------------|----------------|------------|-------------|
+| :simple-openai: OpenAI (Also subscription) | √           | √                    | √              | √          | √           |
+| :simple-anthropic: Anthropic               | √           | √                    | √              | √          | √           |
+| :simple-githubcopilot: Github Copilot      | √           | √                    | √              | X          | √           |
+| :simple-googlegemini: Google               | √           | √                    | √              | X          | √           |
+| :simple-ollama: Ollama local models        | √           | √                    | X              | X          |             |
 
 ## Config
 
