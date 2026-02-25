@@ -17,6 +17,29 @@
 
 (set! *warn-on-reflection* true)
 
+(defn ^:private model-variants
+  "Returns sorted variant names for a full model (e.g. \"anthropic/claude-sonnet-4-5\")
+   by resolving effective variants: built-in (from :variantsByModel regex match)
+   merged with user-defined [:providers provider :models model :variants]."
+  ^clojure.lang.IPersistentVector [config ^String full-model]
+  (when full-model
+    (let [idx (.indexOf full-model "/")]
+      (when (pos? idx)
+        (let [provider (subs full-model 0 idx)
+              model (subs full-model (inc idx))
+              user-variants (get-in config [:providers provider :models model :variants])
+              variants (config/effective-model-variants config provider model user-variants)]
+          (when (seq variants)
+            (vec (sort (keys variants)))))))))
+
+(defn ^:private select-variant
+  "Returns the variant to select: the agent's configured variant if it exists
+   in the available variants, otherwise nil."
+  [agent-config variants]
+  (let [agent-variant (:variant agent-config)]
+    (when (and agent-variant variants (some #{agent-variant} variants))
+      agent-variant)))
+
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
@@ -40,34 +63,31 @@
               (when (not= (:providers-config-hash @db*) new-providers-hash)
                 (swap! db* assoc :providers-config-hash new-providers-hash)
                 (models/sync-models! db* config (fn [models]
-                                                  (let [db @db*]
+                                                  (let [db @db*
+                                                        default-model (f.chat/default-model db config)
+                                                        default-agent-name (config/validate-agent-name
+                                                                            (or (:defaultAgent (:chat config))
+                                                                                (:defaultAgent config))
+                                                                            config)
+                                                        default-agent-config (get-in config [:agent default-agent-name])
+                                                        variants (model-variants config default-model)]
                                                     (config/notify-fields-changed-only!
                                                      {:chat
                                                       {:models (sort (keys models))
                                                        :agents (config/primary-agent-names config)
-                                                       :select-model (f.chat/default-model db config)
-                                                       :select-agent (config/validate-agent-name
-                                                                       (or (:defaultAgent (:chat config)) ;;legacy
-                                                                           (:defaultAgent config))
-                                                                       config)
+                                                       :select-model default-model
+                                                       :select-agent default-agent-name
+                                                       :variants (or variants [])
+                                                       :select-variant (select-variant default-agent-config variants)
                                                        :welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
                                                                             (:welcomeMessage config))
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
-                                                       :default-model (f.chat/default-model db config)
-                                                       :default-agent (config/validate-agent-name
-                                                                        (or (:defaultAgent (:chat config)) ;;legacy
-                                                                            (:defaultAgent config))
-                                                                        config)
+                                                       :default-model default-model
+                                                       :default-agent default-agent-name
                                                        ;; Legacy: backward compat for clients using old key names
                                                        :behaviors (distinct (keys (:agent config)))
-                                                       :select-behavior (config/validate-agent-name
-                                                                          (or (:defaultAgent (:chat config))
-                                                                              (:defaultAgent config))
-                                                                          config)
-                                                       :default-behavior (config/validate-agent-name
-                                                                           (or (:defaultAgent (:chat config))
-                                                                               (:defaultAgent config))
-                                                                           config)}}
+                                                       :select-behavior default-agent-name
+                                                       :default-behavior default-agent-name}}
                                                      messenger
                                                      db*)))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
@@ -157,15 +177,18 @@
   (metrics/task metrics :eca/mcp-start-server
     (f.tools/start-server! (:name params) db* messenger config metrics)))
 
-(defn ^:private update-agent-model!
-  "Updates the selected model based on agent configuration."
+(defn ^:private update-agent-model-and-variants!
+  "Updates the selected model and variants based on agent configuration."
   [agent-config config messenger db*]
   (when-let [model (or (:defaultModel agent-config)
                        (:defaultModel config))]
-    (config/notify-fields-changed-only!
-     {:chat {:select-model model}}
-     messenger
-     db*)))
+    (let [variants (model-variants config model)]
+      (config/notify-fields-changed-only!
+       {:chat {:select-model model
+               :variants (or variants [])
+               :select-variant (select-variant agent-config variants)}}
+       messenger
+       db*))))
 
 (defn chat-selected-agent-changed
   "Switches model to the one defined in custom agent or to the default-one
@@ -176,8 +199,25 @@
           validated-agent (config/validate-agent-name agent-name config)
           agent-config (get-in config [:agent validated-agent])
           tool-status-fn (f.tools/make-tool-status-fn config validated-agent)]
-      (update-agent-model! agent-config config messenger db*)
+      (update-agent-model-and-variants! agent-config config messenger db*)
       (f.tools/refresh-tool-servers! tool-status-fn db* messenger config))))
+
+(defn chat-selected-model-changed
+  [{:keys [db* messenger config metrics]} {:keys [model variant]}]
+  (metrics/task metrics :eca/chat-selected-model-changed
+    (let [default-agent-name (config/validate-agent-name
+                              (or (:defaultAgent (:chat config))
+                                  (:defaultAgent config))
+                              config)
+          agent-config (get-in config [:agent default-agent-name])
+          variants (model-variants config model)]
+      (when (and variant (not (some #{variant} variants)))
+        (swap! db* assoc-in [:last-config-notified :chat :select-variant] variant))
+      (config/notify-fields-changed-only!
+       {:chat {:variants (or variants [])
+               :select-variant (select-variant agent-config variants)}}
+       messenger
+       db*))))
 
 (defn completion-inline
   [{:keys [db* config metrics messenger]} params]

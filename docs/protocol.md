@@ -65,7 +65,7 @@ The protocol defines a set of lifecycle messages that manage the connection and 
         S->>-C: initialize (response)
         C--)+S: initialized (notification)
         Note right of S: Sync models: Request models.dev <br/>for models capabilities
-        Note right of S: Notify which models/agents are <br/>avaialble and their defaults.
+        Note right of S: Notify which models/agents/variants are <br/>available and their defaults.
         S--)C: config/updated (notification)
         Note right of S: Init MCP servers
         S--)-C: tool/serverUpdated (notification)
@@ -365,6 +365,14 @@ interface ChatPromptParams {
      * Can include multiple different types of context.
      */
     contexts?: ChatContext[];
+
+    /**
+     * Optional variant name to select a predefined parameter set for the model.
+     * Variants are named presets defined per model in the provider config (e.g. "low", "medium", "high").
+     * When provided, the variant payload is merged into the LLM request before extraPayload.
+     * Falls back to the agent's configured variant if not specified.
+     */
+    variant?: string;
 }
 
 /**
@@ -1373,6 +1381,33 @@ interface ChatSelectedAgentChanged {
 
 > **Backward compatibility:** The legacy method `chat/selectedBehaviorChanged` with `{ behavior: string }` is still supported.
 
+### Chat selected model changed (➡️)
+
+A client notification for server telling the user selected a different model in chat.
+Server will respond with a `config/updated` notification containing the available variants for the selected model
+and the suggested variant to select (if any).
+
+_Notification:_
+
+* method: `chat/selectedModelChanged`
+* params: `ChatSelectedModelChanged` defined as follows:
+
+```typescript
+interface ChatSelectedModelChanged {
+    /**
+     * The selected model (full model name, e.g. "anthropic/claude-sonnet-4-5").
+     */
+    model: Model;
+
+    /**
+     * The currently selected variant (if any).
+     * When the new model does not support this variant, the server
+     * will emit select-variant null to clear the selection.
+     */
+    variant?: string;
+}
+```
+
 ### Editor diagnostics (↪️)
 
 A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
@@ -1657,6 +1692,22 @@ interface ConfigUpdatedParams {
          * force update an agent, like a config change.
          */
         selectAgent?: ChatAgent;
+
+        /**
+         * The available variant names for the currently selected model.
+         * Variants are named presets defined per model in the provider config
+         * (e.g. ["low", "medium", "high"]).
+         * An empty array means the model has no variants and clients should
+         * show a `-` variant in the selector.
+         */
+        variants?: string[];
+
+        /**
+         * The variant for client select in chat, if present clients should
+         * forcefully update the selected variant.
+         * null means no variant should be selected (e.g. model has no variants).
+         */
+        selectVariant?: string | null;
 
         /**
         * Message to show when starting a new chat.

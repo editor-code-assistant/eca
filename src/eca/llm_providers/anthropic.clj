@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
-   [eca.shared :as shared :refer [assoc-some deep-merge join-api-url multi-str]]
+   [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -260,7 +260,7 @@
                      merge-adjacent-assistants
                      merge-adjacent-tool-results)
         stream? (boolean callbacks)
-        body (deep-merge
+        body (merge
               (assoc-some
                {:model model
                 :messages (add-cache-to-last-message messages)

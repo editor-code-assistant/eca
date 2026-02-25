@@ -84,6 +84,9 @@
 (defmethod jsonrpc.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
   (handlers/chat-selected-agent-changed (with-config components) params))
 
+(defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
+  (handlers/chat-selected-model-changed (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
   (handlers/completion-inline (with-config components) params))
 
