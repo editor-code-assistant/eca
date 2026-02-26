@@ -1159,6 +1159,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-query-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat Query Files (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-query-commands" class="md-nav__link">
     <span class="md-ellipsis">
       Chat Query Commands (↩️)
@@ -1604,6 +1613,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-query-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat Query Files (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-query-commands" class="md-nav__link">
     <span class="md-ellipsis">
       Chat Query Commands (↩️)
@@ -1811,7 +1829,7 @@
 
 
 <h1 id="eca-protocol">ECA Protocol<a class="headerlink" href="#eca-protocol" title="Permanent link">#</a></h1>
-<p>The ECA (Editor Code Assistant) protocol is JSON-RPC 2.0-based protocol heavily insipired by the <a href="https://microsoft.github.io/language-server-protocol/">LSP (Language Server Protocol)</a>, that enables communication between multiple code editors/IDEs and ECA process (server), which will interact with multiple LLMs. It follows similar patterns to the LSP but is specifically designed for AI code assistance features.</p>
+<p>The ECA (Editor Code Assistant) protocol is JSON-RPC 2.0-based protocol heavily inspired by the <a href="https://microsoft.github.io/language-server-protocol/">LSP (Language Server Protocol)</a>, that enables communication between multiple code editors/IDEs and ECA process (server), which will interact with multiple LLMs. It follows similar patterns to the LSP but is specifically designed for AI code assistance features.</p>
 <p>Key characteristics:
 - Provides a protocol standard so different editors can use the same language to offer AI features.
 - Supports bidirectional communication (client to server and server to client)
@@ -2016,10 +2034,21 @@ separated by a <code>\r\n</code>.</p>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 
-<span class="kr">type</span><span class="w"> </span><span class="nx">ChatAgent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;build&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;plan&#39;</span><span class="p">;</span>
+<span class="cm">/**</span>
+<span class="cm"> * Built-in agents: &#39;code&#39; (default) and &#39;plan&#39;.</span>
+<span class="cm"> * Custom agents can also be defined via config or .md files.</span>
+<span class="cm"> *</span>
+<span class="cm"> * @deprecated &#39;build&#39; is a legacy name mapped to &#39;code&#39;.</span>
+<span class="cm"> */</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">ChatAgent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 </code></pre></div>
 <p><em>Response:</em></p>
-<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">InitializeResponse</span><span class="w"> </span><span class="p">{}</span>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">InitializeResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional welcome message configured by the user to show when starting a new chat.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatWelcomeMessage?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
 </code></pre></div>
 <h3 id="initialized">Initialized (➡️)<a class="headerlink" href="#initialized" title="Permanent link">#</a></h3>
 <p>A notification sent from the client to the server after receiving the initialize response. This message:
@@ -2178,7 +2207,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * Range of lines to retrive from file, if nil consider whole file.</span>
+<span class="cm">     * Range of lines to retrieve from file, if nil consider whole file.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">linesRange?</span><span class="o">:</span><span class="w"> </span><span class="kt">LinesRange</span><span class="p">;</span>
 <span class="p">}</span>
@@ -2293,7 +2322,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">Model</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * What the server is doing after receing this prompt</span>
+<span class="cm">     * What the server is doing after receiving this prompt</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;prompting&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;login&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="p">;</span>
 <span class="p">}</span>
@@ -2379,10 +2408,11 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">state</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;running&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;finished&#39;</span><span class="p">;</span>
 
-<span class="w">    </span><span class="cm">/*</span>
+<span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * Extra text to show in chat about current state of this chat.</span>
+<span class="cm">     * May be omitted when state is &#39;finished&#39;.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">text?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -2534,7 +2564,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="nx">sessionCost?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * Informations about limits.</span>
+<span class="cm">     * Information about limits.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">limit</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="cm">/**</span>
@@ -2679,7 +2709,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
-<span class="cm"> * Tool call result that LLM trigerred and was executed already, sent once per id.</span>
+<span class="cm"> * Tool call result that LLM triggered and was executed already, sent once per id.</span>
 <span class="cm"> */</span>
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ChatToolCalledContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;toolCalled&#39;</span><span class="p">;</span>
@@ -2704,7 +2734,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="cm">/*</span>
 <span class="cm">     * Arguments of this tool call</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">arguments</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<span class="w">    </span><span class="nx">arguments</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">};</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * Whether it was a error</span>
@@ -2773,9 +2803,9 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="nx">arguments</span><span class="o">:</span><span class="w"> </span><span class="p">{[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">};</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The reason why this tool call was rejected</span>
+<span class="cm">     * The reason why this tool call was rejected.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">reason</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;user-choice&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;user-config&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">reason</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;userChoiceDeny&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;userConfigDeny&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;hookRejected&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;userPromptStop&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;userStop&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;user&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * Summary text to present about this tool call, </span>
@@ -2790,7 +2820,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="nx">details?</span><span class="o">:</span><span class="w"> </span><span class="kt">ToolCallDetails</span><span class="p">;</span>
 <span class="p">}</span>
 
-<span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallOrigin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;mcp&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;server&#39;</span><span class="p">;</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallOrigin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;mcp&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;server&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;unknown&#39;</span><span class="p">;</span>
 
 <span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallDetails</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileChangeDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">JsonOutputsDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">SubagentDetails</span><span class="p">;</span>
 
@@ -2841,6 +2871,11 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     *  The model this subagent is using.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The name of the agent being spawned.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">agentName</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The max number of steps this subagent is limited.</span>
@@ -2948,6 +2983,39 @@ This will not execute the tool call and return to the LLM chat loop.</p>
 <span class="w">    </span><span class="nx">contexts</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="chat-query-files">Chat Query Files (↩️)<a class="headerlink" href="#chat-query-files" title="Permanent link">#</a></h3>
+<p>A request sent from client to server, querying for available files for the user to add as context to prompt calls.
+Similar to <code>chat/queryContext</code> but returns only file-based contexts.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>chat/queryFiles</code></li>
+<li>params: <code>ChatQueryFilesParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryFilesParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The query to filter results, blank string returns all available files.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatQueryFilesResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The returned available file contexts.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">files</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatContext</span><span class="p">[];</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="chat-query-commands">Chat Query Commands (↩️)<a class="headerlink" href="#chat-query-commands" title="Permanent link">#</a></h3>
 <p>A request sent from client to server, querying for all the available commands for user to call.
 Commands are multiple possible actions like MCP prompts, doctor, costs. Usually the 
@@ -2996,7 +3064,7 @@ UX follows <code>/&lt;command&gt;</code> to spawn a command.</p>
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The type of this command</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;mcp-prompt&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;mcpPrompt&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;customPrompt&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;skill&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The arguments of the command.</span>
@@ -3010,7 +3078,7 @@ UX follows <code>/&lt;command&gt;</code> to spawn a command.</p>
 </code></pre></div>
 <h3 id="chat-stop-prompt">Chat stop prompt (➡️)<a class="headerlink" href="#chat-stop-prompt" title="Permanent link">#</a></h3>
 <p>A client notification for server to stop the current chat prompt with LLM if running.
-This will stop LLM loops or ignore subsequent LLM responses so other prompts can be trigerred.</p>
+This will stop LLM loops or ignore subsequent LLM responses so other prompts can be triggered.</p>
 <p><em>Notification:</em></p>
 <ul>
 <li>method: <code>chat/promptStop</code></li>
@@ -3057,7 +3125,7 @@ with <code>chat/contentReceived</code> with the kept messages.</p>
 </code></pre></div>
 <h3 id="chat-cleared">Chat cleared (⬅️)<a class="headerlink" href="#chat-cleared" title="Permanent link">#</a></h3>
 <p>A server notification to clear a chat UI, currently supporting removing only messages of the chat.</p>
-<p><em>Request:</em> </p>
+<p><em>Notification:</em> </p>
 <ul>
 <li>method: <code>chat/cleared</code></li>
 <li>params: <code>ChatClearedParams</code> defined as follows:</li>
@@ -3336,6 +3404,11 @@ The response is streamed via <code>rewrite/contentReceived</code> server notific
 
 <span class="kd">interface</span><span class="w"> </span><span class="nx">RewriteFinishedContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;finished&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The total time the rewrite took in milliseconds.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">totalTimeMs</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="kr">type</span><span class="w"> </span><span class="nx">RewriteContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>
@@ -3481,7 +3554,7 @@ their status and available tools and actions.</p>
 <span class="w">    </span><span class="nx">parameters</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="p">;</span><span class="w"> </span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * Whther this tool is disabled.</span>
+<span class="cm">     * Whether this tool is disabled.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">disabled?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
 <span class="p">}</span>
@@ -3521,7 +3594,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
 <h2 id="general-features">General features<a class="headerlink" href="#general-features" title="Permanent link">#</a></h2>
 <h3 id="showmessage">showMessage (⬅️)<a class="headerlink" href="#showmessage" title="Permanent link">#</a></h3>
 <p>A notification from server telling client to present a message to user.</p>
-<p><em>Request:</em> </p>
+<p><em>Notification:</em> </p>
 <ul>
 <li>method: <code>$/showMessage</code></li>
 <li>params: <code>ShowMessageParams</code> defined as follows:</li>
@@ -3548,7 +3621,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 26, 2026 12:27:16 UTC">February 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 26, 2026 17:34:49 UTC">February 26, 2026</span>
   </span>
 
     
