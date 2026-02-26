@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix home (~) expand for command paths in config
+
 ## 0.106.0
 
 - Change Openai summary from detailed -> auto.
