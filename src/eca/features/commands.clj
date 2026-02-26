@@ -58,20 +58,20 @@
        (map
         (fn [{:keys [path]}]
           (let [path (str (fs/expand-home path))]
-          (if (fs/absolute? path)
-            (when (fs/exists? path)
-              {:name (normalize-command-name path)
-               :path path
-               :type :user-config
-               :content (slurp path)})
-            (keep (fn [{:keys [uri]}]
-                    (let [f (fs/file (shared/uri->filename uri) path)]
-                      (when (fs/exists? f)
-                        {:name (normalize-command-name f)
-                         :path (str (fs/canonicalize f))
-                         :type :user-config
-                         :content (slurp f)})))
-                  roots)))))
+            (if (fs/absolute? path)
+              (when (fs/exists? path)
+                {:name (normalize-command-name path)
+                 :path path
+                 :type :user-config
+                 :content (slurp path)})
+              (keep (fn [{:keys [uri]}]
+                      (let [f (fs/file (shared/uri->filename uri) path)]
+                        (when (fs/exists? f)
+                          {:name (normalize-command-name f)
+                           :path (str (fs/canonicalize f))
+                           :type :user-config
+                           :content (slurp f)})))
+                    roots)))))
        (flatten)
        (remove nil?)))
 
