@@ -4,6 +4,31 @@
 
 - Fix home (~) expand for command paths in config
 
+## 0.106.0
+
+- Change Openai summary from detailed -> auto.
+- Add variants feature #302
+  - By default no variant is set, using model default.
+  - Some models (openai/anthropic) will have built-in variants (low, medium, high, max etc).
+  - Users can create its own variants for their providers/models.
+
+## 0.105.0
+
+- Add network configuration for custom CA certificates and mTLS client certificates. #327
+  - New `network` config key with `caCertFile`, `clientCert`, `clientKey`, and `clientKeyPassphrase`.
+  - Environment variable fallbacks: `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `ECA_CLIENT_CERT`, `ECA_CLIENT_KEY`, `ECA_CLIENT_KEY_PASSPHRASE`.
+  - Custom CA certificates are additive to the JVM default trust store.
+
+## 0.104.2
+
+- Avoid showing empty chats in resume. #326
+- Fix anthropic adaptive thinking option causing invalid request errors.
+- Fix anthropic web server search corner case causing invalid request errors.
+
+## 0.104.1
+
+- Improve fetch models logging when failling. #313
+
 ## 0.104.0
 
 - Allow disable chat title generation via `chat title` as `false`. #322

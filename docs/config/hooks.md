@@ -1,4 +1,10 @@
+---
+description: "Configure ECA hooks: before/after event callbacks for tool calls and prompts to validate, notify, or trigger side effects."
+---
+
 # Hooks
+
+![](../images/features/hooks.png)
 
 Hooks are shell actions that run before or after specific events, useful for notifications, injecting context, modifying inputs, or blocking tool calls.
 

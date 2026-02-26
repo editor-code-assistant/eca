@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
-   [eca.shared :as shared :refer [assoc-some deep-merge join-api-url multi-str]]
+   [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -70,7 +70,7 @@
 
 (defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers]}]
   (let [url (join-api-url api-url (or url-relative-path messages-path))
-        reason-id (str (random-uuid))
+        reason-id* (atom (str (random-uuid)))
         oauth? (= :auth/oauth auth-type)
         headers (client/merge-llm-headers
                  (merge
@@ -104,7 +104,7 @@
             (with-open [rdr (io/reader body)]
               (doseq [[event data] (llm-util/event-data-seq rdr)]
                 (llm-util/log-response logger-tag rid event data)
-                (on-stream event data content-block* reason-id)))
+                (on-stream event data content-block* reason-id*)))
             (do
               (llm-util/log-response logger-tag rid "response" body)
               (reset! response*
@@ -129,9 +129,26 @@
                         :content (llm-util/stringfy-tool-result content)}]}
             "reason"
             {:role "assistant"
-             :content [{:type "thinking"
-                        :signature (:external-id content)
-                        :thinking (:text content)}]}
+             :content [(if (:redacted? content)
+                         {:type "redacted_thinking"
+                          :data (:data content)}
+                         {:type "thinking"
+                          :signature (:external-id content)
+                          :thinking (:text content)})]}
+
+            "server_tool_use"
+            {:role "assistant"
+             :content [{:type "server_tool_use"
+                        :id (:id content)
+                        :name (:name content)
+                        :input (or (:input content) {})}]}
+
+            "server_tool_result"
+            {:role "assistant"
+             :content [{:type "web_search_tool_result"
+                        :tool_use_id (:tool-use-id content)
+                        :content (:raw-content content)}]}
+
             (-> msg
                 (dissoc :content-id)
                 (update :content (fn [c]
@@ -243,7 +260,7 @@
                      merge-adjacent-assistants
                      merge-adjacent-tool-results)
         stream? (boolean callbacks)
-        body (deep-merge
+        body (merge
               (assoc-some
                {:model model
                 :messages (add-cache-to-last-message messages)
@@ -258,7 +275,7 @@
         context-usage* (atom nil)
         on-stream-fn
         (when stream?
-          (fn handle-stream [event data content-block* reason-id]
+          (fn handle-stream [event data content-block* reason-id*]
             (case event
               "message_start" (let [usage (-> data :message :usage)]
                                 (reset! context-usage*
@@ -266,10 +283,18 @@
                                          :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
                                          :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)}))
               "content_block_start" (case (-> data :content_block :type)
-                                      "thinking" (do
+                                      "thinking" (let [new-id (str (random-uuid))]
+                                                   (reset! reason-id* new-id)
                                                    (on-reason {:status :started
-                                                               :id reason-id})
+                                                               :id new-id})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
+                                      "redacted_thinking" (let [new-id (str (random-uuid))]
+                                                            (reset! reason-id* new-id)
+                                                            (on-reason {:status :started
+                                                                        :id new-id
+                                                                        :redacted? true
+                                                                        :data (-> data :content_block :data)})
+                                                            (swap! content-block* assoc (:index data) (:content_block data)))
                                       "tool_use" (do
                                                    (on-prepare-tool-call {:full-name (-> data :content_block :name)
                                                                           :id (-> data :content_block :id)
@@ -288,7 +313,8 @@
                                                                                    (:content content-block))]
                                                                  (on-server-web-search {:status :finished
                                                                                         :id (:tool_use_id content-block)
-                                                                                        :output results}))
+                                                                                        :output results
+                                                                                        :raw-content (:content content-block)}))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
                                       "text_delta" (on-message-received {:type :text
@@ -307,12 +333,23 @@
                                                                                          :url (-> data :delta :citation :url)})
                                                           nil)
                                       "thinking_delta" (on-reason {:status :thinking
-                                                                   :id reason-id
+                                                                   :id @reason-id*
                                                                    :text (-> data :delta :thinking)})
                                       "signature_delta" (on-reason {:status :finished
                                                                     :external-id (-> data :delta :signature)
-                                                                    :id reason-id})
+                                                                    :id @reason-id*})
                                       nil)
+              "content_block_stop" (when-let [content-block (get @content-block* (:index data))]
+                                    (case (:type content-block)
+                                      "redacted_thinking" (on-reason {:status :finished
+                                                                      :id @reason-id*})
+                                      "server_tool_use" (let [input (when-let [json-str (:input-json content-block)]
+                                                                      (json/parse-string json-str))]
+                                                          (on-server-web-search {:status :input-ready
+                                                                                 :id (:id content-block)
+                                                                                 :name (:name content-block)
+                                                                                 :input (or input (:input content-block) {})}))
+                                      nil))
               "message_delta" (do
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]

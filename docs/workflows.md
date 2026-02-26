@@ -1,3 +1,7 @@
+---
+description: "Common ECA workflows for AI-assisted development: code review, refactoring, debugging, and test generation across any editor."
+---
+
 # Workflows
 
 There are multiple ways to use ECA while developing, here are some tips and suggested approches.

@@ -1,4 +1,10 @@
+---
+description: "Configure ECA rewrite: select code, describe the change, and accept or reject the AI-generated diff."
+---
+
 # Rewrite
+
+![](../images/features/rewrite.gif)
 
 Configure the model and system prompt used for ECA's rewrite feature via the `rewrite` config. By default, ECA follows the same model selection as chat unless overwritten:
 

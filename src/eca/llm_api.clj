@@ -14,7 +14,8 @@
    [eca.llm-providers.openrouter]
    [eca.llm-providers.z-ai]
    [eca.llm-util :as llm-util]
-   [eca.logger :as logger]))
+   [eca.logger :as logger]
+   [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -99,8 +100,29 @@
                            :handler llm-providers.openai-chat/chat-completion!}
             nil)))
 
+(def ^:private reasoning-keys-by-api
+  {:anthropic [:thinking]
+   :openai-responses [:reasoning]
+   :openai-chat [:reasoning]
+   :ollama [:think]})
+
+(defn ^:private extra-payload-considering-variant
+  "Resolves the effective extra-payload by merging extraPayload with variant payload.
+   Variant values take priority over extraPayload on clashing keys.
+   When reason? is false, strips provider-specific reasoning keys from the result."
+  [model-config variant {:keys [api]} reason?]
+  (let [variant-payload (get-in model-config [:variants variant])
+        extra-payload (:extraPayload model-config)
+        merged (if variant-payload
+                 (shared/deep-merge extra-payload variant-payload)
+                 extra-payload)]
+    (if (and merged (not reason?))
+      (let [keys-to-strip (get reasoning-keys-by-api api)]
+        (apply dissoc merged keys-to-strip))
+      merged)))
+
 (defn ^:private prompt!
-  [{:keys [provider model model-capabilities instructions user-messages config
+  [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
            past-messages tools provider-auth sync?]
     :or {on-error identity}}]
@@ -112,12 +134,13 @@
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
-        extra-payload (:extraPayload model-config)
+        model-config (update model-config :variants #(config/effective-model-variants config provider model %))
+        {:keys [handler] :as api-handler} (provider->api-handler provider config)
+        extra-payload (extra-payload-considering-variant model-config variant api-handler reason?)
         extra-headers (:extraHeaders model-config)
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
-        {:keys [handler]} (provider->api-handler provider config)
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -267,7 +290,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth]
+           past-messages tools provider-auth variant]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -299,7 +322,9 @@
                              (on-error args)))
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
-        extra-payload (:extraPayload model-config)
+        model-config (update model-config :variants #(config/effective-model-variants config provider model %))
+        api-handler (provider->api-handler provider config)
+        extra-payload (extra-payload-considering-variant model-config variant api-handler (:reason? model-capabilities))
         stream? (if (not (nil? (:stream extra-payload)))
                   (:stream extra-payload)
                   true)]
@@ -314,6 +339,7 @@
                       :provider-auth provider-auth
                       :past-messages past-messages
                       :user-messages user-messages
+                      :variant variant
                       :on-error on-error-wrapper
                       :config config})]
         (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
@@ -344,6 +370,7 @@
         :provider-auth provider-auth
         :past-messages past-messages
         :user-messages user-messages
+        :variant variant
         :on-message-received on-message-received-wrapper
         :on-prepare-tool-call on-prepare-tool-call-wrapper
         :on-tools-called on-tools-called

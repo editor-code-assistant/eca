@@ -1,4 +1,10 @@
+---
+description: "Configure ECA tools: built-in editor tools, MCP server integration, custom CLI tools, and fine-grained approval control."
+---
+
 # Tools
+
+![](../images/features/tools.png)
 
 ECA supports 3 types of tools:
 
@@ -206,4 +212,32 @@ You can configure the maximum number of lines returned by the `eca__read_file` t
 ```
 
 Default: `2000` lines
+
+## Output Truncation
+
+ECA automatically truncates tool call outputs that are too large before sending them to the LLM, preventing context window overflow. When output exceeds the configured limits, ECA:
+
+1. Saves the full output to a cache file in `~/.cache/eca/toolCallOutputs` (cleaning every 7 days).
+2. Truncates the output to the configured line limit.
+3. Appends an `[OUTPUT TRUNCATED]` notice telling the LLM where the full content is saved and suggesting it use `eca__grep` or `eca__read_file` with offset/limit to access the rest.
+
+You can customize the truncation limits via `toolCall.outputTruncation`:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "toolCall": {
+    "outputTruncation": {
+      "lines": 1000,
+      "sizeKb": 20
+    }
+  }
+}
+```
+
+| Property | Default | Description                                       |
+|----------|---------|---------------------------------------------------|
+| `lines`  | `2000`  | Maximum number of lines in tool output.            |
+| `sizeKb` | `50`    | Maximum size in kilobytes for tool output.         |
+
+Either limit being exceeded will trigger truncation.
 

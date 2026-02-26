@@ -253,6 +253,14 @@
         }
       }
     },
+    "variantsByModel": {
+      "type": "object",
+      "description": "Built-in variant definitions keyed by model-name regex pattern.",
+      "markdownDescription": "Built-in variant definitions keyed by model-name regex pattern.",
+      "additionalProperties": {
+        "$ref": "#/definitions/variantsByModelEntry"
+      }
+    },
     "otlp": {
       "type": "object",
       "description": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings.",
@@ -283,9 +291,82 @@
           "default": true
         }
       }
+    },
+    "network": {
+      "type": "object",
+      "description": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",
+      "markdownDescription": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. `${env:SSL_CERT_FILE}`).",
+      "additionalProperties": false,
+      "properties": {
+        "caCertFile": {
+          "type": "string",
+          "description": "Path to a PEM file containing custom CA certificates. These are added to the JVM default trust store, so public CAs remain trusted. Falls back to SSL_CERT_FILE or NODE_EXTRA_CA_CERTS environment variables.",
+          "markdownDescription": "Path to a PEM file containing custom CA certificates. These are added to the JVM default trust store, so public CAs remain trusted. Falls back to `SSL_CERT_FILE` or `NODE_EXTRA_CA_CERTS` environment variables.",
+          "examples": [
+            "/etc/ssl/certs/corporate-ca.pem",
+            "${env:SSL_CERT_FILE}"
+          ]
+        },
+        "clientCert": {
+          "type": "string",
+          "description": "Path to a PEM file containing the client certificate for mutual TLS (mTLS). Falls back to ECA_CLIENT_CERT environment variable.",
+          "markdownDescription": "Path to a PEM file containing the client certificate for mutual TLS (mTLS). Falls back to `ECA_CLIENT_CERT` environment variable.",
+          "examples": [
+            "/etc/ssl/certs/client.pem",
+            "${env:ECA_CLIENT_CERT}"
+          ]
+        },
+        "clientKey": {
+          "type": "string",
+          "description": "Path to a PEM file containing the client private key for mutual TLS (mTLS). Supports both unencrypted and encrypted PKCS8 keys. Falls back to ECA_CLIENT_KEY environment variable.",
+          "markdownDescription": "Path to a PEM file containing the client private key for mutual TLS (mTLS). Supports both unencrypted and encrypted PKCS8 keys. Falls back to `ECA_CLIENT_KEY` environment variable.",
+          "examples": [
+            "/etc/ssl/private/client-key.pem",
+            "${env:ECA_CLIENT_KEY}"
+          ]
+        },
+        "clientKeyPassphrase": {
+          "type": "string",
+          "description": "Passphrase for an encrypted client private key. Only needed when the key file is encrypted. Falls back to ECA_CLIENT_KEY_PASSPHRASE environment variable.",
+          "markdownDescription": "Passphrase for an encrypted client private key. Only needed when the key file is encrypted. Falls back to `ECA_CLIENT_KEY_PASSPHRASE` environment variable.",
+          "examples": [
+            "${env:ECA_CLIENT_KEY_PASSPHRASE}"
+          ]
+        }
+      }
     }
   },
   "definitions": {
+    "variantPayload": {
+      "type": "object",
+      "description": "Additional request payload fields applied when a variant is selected. Empty object (`{}`) can be used to remove a built-in variant override.",
+      "markdownDescription": "Additional request payload fields applied when a variant is selected. Empty object (`{}`) can be used to remove a built-in variant override.",
+      "additionalProperties": true
+    },
+    "variantsByModelEntry": {
+      "type": "object",
+      "description": "Variant set applied when the model name matches this regex key.",
+      "markdownDescription": "Variant set applied when the model name matches this regex key.",
+      "properties": {
+        "variants": {
+          "type": "object",
+          "description": "Named variants provided for matching models.",
+          "markdownDescription": "Named variants provided for matching models.",
+          "additionalProperties": {
+            "$ref": "#/definitions/variantPayload"
+          }
+        },
+        "excludeProviders": {
+          "type": "array",
+          "description": "Provider names for which this regex-based variant set should not apply.",
+          "markdownDescription": "Provider names for which this regex-based variant set should not apply.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "provider": {
       "type": "object",
       "description": "Configuration for an LLM provider.",
@@ -399,6 +480,14 @@
             "off"
           ],
           "default": "all"
+        },
+        "variants": {
+          "type": "object",
+          "description": "Named payload presets for this model. Merged with built-in variants; same-name entries override built-ins. Setting a variant to {} removes that built-in variant.",
+          "markdownDescription": "Named payload presets for this model. Merged with built-in variants; same-name entries override built-ins. Setting a variant to `{}` removes that built-in variant.",
+          "additionalProperties": {
+            "$ref": "#/definitions/variantPayload"
+          }
         }
       },
       "additionalProperties": false
@@ -435,6 +524,12 @@
           "description": "Default model for this agent, overriding the global default.",
           "markdownDescription": "Default model for this agent, overriding the global default.",
           "examples": ["anthropic/claude-sonnet-4-6"]
+        },
+        "variant": {
+          "type": "string",
+          "description": "Default variant for this agent. Used when available for the selected model.",
+          "markdownDescription": "Default variant for this agent. Used when available for the selected model.",
+          "examples": ["medium", "high"]
         },
         "disabledTools": {
           "type": "array",

@@ -1222,6 +1222,7 @@
                 :config  config
                 :tools all-tools
                 :provider-auth provider-auth
+                :variant (:variant chat-ctx)
                 :on-first-response-received (fn [& _]
                                               (assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
@@ -1264,24 +1265,31 @@
                                                                   :arguments-text arguments-text
                                                                   :summary (f.tools/tool-call-summary all-tools full-name nil config @db*)})))
                 :on-tools-called (on-tools-called! chat-ctx received-msgs* add-to-history! user-messages)
-                :on-reason (fn [{:keys [status id text external-id delta-reasoning?]}]
+                :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (assert-chat-not-stopped! chat-ctx)
                              (case status
                                :started  (do (swap! reasonings* assoc-in [id :start-time] (System/currentTimeMillis))
+                                             (when redacted?
+                                               (swap! reasonings* assoc-in [id :redacted?] true)
+                                               (swap! reasonings* assoc-in [id :data] data))
                                              (send-content! chat-ctx :assistant {:type :reasonStarted :id id}))
                                :thinking (do (swap! reasonings* update-in [id :text] str text)
                                              (send-content! chat-ctx :assistant {:type :reasonText :id id :text text}))
                                :finished (when-let [start-time (get-in @reasonings* [id :start-time])]
-                                           (let [total-time-ms (- (System/currentTimeMillis) start-time)]
+                                           (let [total-time-ms (- (System/currentTimeMillis) start-time)
+                                                 reasoning (get @reasonings* id)]
                                              (add-to-history! {:role "reason"
-                                                               :content {:id id
-                                                                         :external-id external-id
-                                                                         :delta-reasoning? delta-reasoning?
-                                                                         :total-time-ms total-time-ms
-                                                                         :text (get-in @reasonings* [id :text])}})
+                                                               :content (cond-> {:id id
+                                                                                 :external-id external-id
+                                                                                 :delta-reasoning? delta-reasoning?
+                                                                                 :total-time-ms total-time-ms
+                                                                                 :text (:text reasoning)}
+                                                                          (:redacted? reasoning)
+                                                                          (assoc :redacted? true
+                                                                                 :data (:data reasoning)))})
                                              (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
                                nil))
-                :on-server-web-search (fn [{:keys [status id name input output]}]
+                :on-server-web-search (fn [{:keys [status id name input output raw-content]}]
                                          (assert-chat-not-stopped! chat-ctx)
                                          (let [summary (format "Web searching%s"
                                                                (if-let [query (:query input)]
@@ -1317,6 +1325,10 @@
                                                                                 :start-time (System/currentTimeMillis)
                                                                                 :summary summary
                                                                                 :progress-text "Searching the web"}))
+                                             :input-ready (add-to-history! {:role "server_tool_use"
+                                                                            :content {:id id
+                                                                                      :name name
+                                                                                      :input arguments}})
                                              :finished (let [start-time (get @server-tool-times* id)
                                                              total-time-ms (if start-time
                                                                              (- (System/currentTimeMillis) start-time)
@@ -1326,6 +1338,9 @@
                                                                                {:type :text
                                                                                 :text (format "%s: %s" title url)})
                                                                              output))]
+                                                         (add-to-history! {:role "server_tool_result"
+                                                                           :content {:tool-use-id id
+                                                                                     :raw-content raw-content}})
                                                          (transition-tool-call! db* chat-ctx id :execution-end
                                                                                 {:origin :server
                                                                                  :name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")
@@ -1581,7 +1596,7 @@
      :status :prompting}))
 
 (defn prompt
-  [{:keys [message agent behavior chat-id contexts] :as params} db* messenger config metrics]
+  [{:keys [message agent behavior chat-id contexts variant] :as params} db* messenger config metrics]
   (let [raw-agent (or agent
                       behavior ;; backward compat: accept old 'behavior' param
                       (-> config :chat :defaultAgent) ;; legacy
@@ -1591,6 +1606,7 @@
                       (swap! db* assoc-in [:chats new-id] {:id new-id})
                       new-id))
         selected-agent (config/validate-agent-name raw-agent config)
+        agent-config (get-in config [:agent selected-agent])
         base-chat-ctx (assoc-some {:metrics metrics
                                    :config config
                                    :contexts contexts
@@ -1600,7 +1616,8 @@
                                    :message (string/trim message)
                                    :chat-id chat-id
                                    :agent selected-agent
-                                   :agent-config (get-in config [:agent selected-agent])}
+                                   :agent-config agent-config
+                                   :variant (or variant (:variant agent-config))}
                                   :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))]
     (try
       (prompt* params base-chat-ctx)

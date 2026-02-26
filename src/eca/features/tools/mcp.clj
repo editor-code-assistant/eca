@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.logger :as logger]
+   [eca.network :as network]
    [eca.oauth :as oauth]
    [eca.shared :as shared])
   (:import
@@ -37,9 +38,12 @@
     McpSchema$TextResourceContents
     McpSchema$Tool
     McpTransport]
+   [java.net.http HttpClient$Builder]
    [java.time Duration]
    [java.util List Map]
-   [java.util.concurrent TimeoutException]))
+   [java.util.concurrent TimeoutException]
+   [java.util.function Consumer]
+   [javax.net.ssl SSLContext]))
 
 (set! *warn-on-reflection* true)
 
@@ -82,6 +86,11 @@
     (let [url (replace-env-vars (:url server-config))
           sse? (string/includes? url "/sse")
           config-headers (:headers server-config)
+          ^SSLContext ssl-ctx network/*ssl-context*
+          ssl-customizer (when ssl-ctx
+                           (reify Consumer
+                             (accept [_this client-builder]
+                               (.sslContext ^HttpClient$Builder client-builder ssl-ctx))))
           customizer (reify McpSyncHttpClientRequestCustomizer
                        (customize [_this builder _method _endpoint _body _context]
                          ;; First apply configured static headers
@@ -93,16 +102,18 @@
       (if sse?
         (let [[base-uri sse-endpoint] (split-url url)]
           (logger/info logger-tag (format "Creating SSE transport for server '%s' - base: %s, endpoint: %s" server-name base-uri sse-endpoint))
-          (-> (HttpClientSseClientTransport/builder base-uri)
-              (.sseEndpoint sse-endpoint)
-              (.httpRequestCustomizer customizer)
-              (.build)))
+          (cond-> (HttpClientSseClientTransport/builder base-uri)
+            true (.sseEndpoint sse-endpoint)
+            ssl-customizer (.customizeClient ssl-customizer)
+            true (.httpRequestCustomizer customizer)
+            true (.build)))
         (let [[base-uri endpoint] (split-url url)]
           (logger/info logger-tag (format "Creating HTTP transport for server '%s' - base: %s, endpoint: %s" server-name base-uri endpoint))
-          (-> (HttpClientStreamableHttpTransport/builder base-uri)
-              (.endpoint endpoint)
-              (.httpRequestCustomizer customizer)
-              (.build)))))
+          (cond-> (HttpClientStreamableHttpTransport/builder base-uri)
+            true (.endpoint endpoint)
+            ssl-customizer (.customizeClient ssl-customizer)
+            true (.httpRequestCustomizer customizer)
+            true (.build)))))
 
     ;; STDIO transport
     (let [{:keys [command args env]} server-config

@@ -1,3 +1,7 @@
+---
+description: "Explore ECA's AI coding features: chat, inline completion, rewrite, agents, subagents, MCP tools, context injection, and more."
+---
+
 # Features
 
 <img src="https://raw.githubusercontent.com/editor-code-assistant/eca-emacs/master/demo.gif" width="720"/>
@@ -26,6 +30,12 @@ Agents affect the prompt passed to LLM and the tools to include, ECA allows you 
 ![](./images/features/subagents.png)
 
 Subagents are quite powerful to delegate tasks to specialized agents, for more details check [subagents docs](./config/agents.md#subagents)
+
+### Variants
+
+![](./images/features/variants.png){ align=right }
+
+ECA supports the variants concept, where it allows to quickly switch via UI to a variant which usually means a different level of reasoning effort or anything user can customize.
 
 ### Tools
 

@@ -1,3 +1,7 @@
+---
+description: "ECA development guide: build from source, run tests, contribute to the open-source AI coding assistant project."
+---
+
 # ECA Development
 
 ## Building local
@@ -65,6 +69,7 @@ There are several ways of finding and fixing a bug or implementing a new feature
 - Create a test for your bug/feature, then implement the code following the test (TDD).
 - Build a local `eca` JVM embedded binary using `bb debug-cli` (requires `babashka`), and test it manually in your client pointing to it. After started, you can connect to the nrepl port mentioned in eca stderr, do you changes, evaluate and it will be affected on the running eca.
   - Using a debug binary you can connect to the REPL, make changes to the running eca process (really handy).
+- Use ECA and tell to use the built-in repl-eca-development skill in this repo to test ECA via LLM.
 
 ## Supporting a new editor
 

@@ -1,3 +1,7 @@
+---
+description: "ECA configuration examples: real-world setups for providers, custom tools, MCP servers, hooks, agents, and more."
+---
+
 # Examples
 
 ECA config examples showing the power of its features and flexibility
@@ -6,62 +10,7 @@ If you think your config is relevant to be shared for other people, [open a pull
 
 ## From users
 
-??? info "Hook: fix unbalanced CLJ parens (@zikajk)"
-
-	First install latest [[babashka](https://github.com/babashka/babashka)] + [[bbin](https://github.com/babashka/bbin)].
-	Then run:
-	```bbin install https://github.com/bhauman/clojure-mcp-light.git --as clj-paren-repair --main-opts '["-m"  "clojure-mcp-light.paren-repair"]'```
-
-    ```javascript title="config.json"
-	{...
-	 "hooks: {"CLJ-balanced-parens-check": {"type":"postToolCall",
-                                            "matcher": "eca__write_file|eca__edit_file",
-                              		        "actions": [{"type": "shell",
-                   					                     "file": "hooks/clj_check_parens.sh"}]}}
-	...}
-	```
-
-	```bash title="hooks/clj_check_parens.sh"
-	# Hook to check Clojure files with clj-kondo and auto-repair parens
-
-	# Read stdin and extract path (returns empty string if null/invalid)
-	file_path=$(jq -r '.tool_input.path // empty' 2>/dev/null)
-
-	# Helper function to generate JSON output
-	respond() {
-	  cat <<EOF
-	{
-	  "suppressOutput": $1,
-	  "systemMessage": "$2",
-	  "additionalContext": "$3"
-	}
-	EOF
-	}
-
-	# 1. Guard Clause: Exit if no path or not a Clojure file
-	if [[ -z "$file_path" || ! "$file_path" =~ \.(clj|cljs|cljd|cljc)$ ]]; then
-	  respond true
-	  exit 0
-	fi
-
-	# 2. Run clj-kondo (We only care about Exit Code 3: Unbalanced Parens)
-	clj-kondo --lint "$file_path" &>/dev/null
-	if [ $? -ne 3 ]; then
-	  respond true
-	  exit 0
-	fi
-
-	# 3. Attempt Repair
-	if clj-paren-repair "$file_path" &>/dev/null; then
-	  respond false "Unbalanced parens fixed." "Unbalanced parens have been automatically fixed."
-	else
-	  respond false "Unbalanced parens not fixed!" "Unbalanced parens couldn't be automatically fixed. Tell user to fix it manually."
-	fi
-
-	exit 0
- 	```
-
-??? info "Subagent: Clojure reviewer (@zikajk)"
+??? quote "Subagent: Clojure reviewer (@zikajk)"
 
     ```javascript title="config.json"
     {
@@ -127,13 +76,265 @@ If you think your config is relevant to be shared for other people, [open a pull
     </return>
     ```
 
-??? info "Skill: brepl (Clojure REPL eval)"
+??? tip "Skill: brepl (Clojure REPL eval)"
 
     Add the content of [this skill](https://github.com/licht1stein/brepl/blob/8b7fed1a64e979d465594d1488c0fc1652424a26/.claude/skills/brepl/SKILL.md) to 
     `~/.config/eca/skills/brepl/SKILL.md`
+    
+??? tip "Skill: nucleus-clojure (@michaelwhitford)"
 
+    ```markdown title="~/.config/eca/skills/nucleus-clojure/SKILL.md"
+    ---
+    name: nucleus-clojure
+    description: A clojure specific AI prompt.  Use when there are clojure REPL tools available.
+    ---
 
-??? info "Custom tool: clj-nrepl-eval (@michaelwhitford)"
+    Adopt these nucleus operating principles:
+    [phi fractal euler tao pi mu] | [Δ λ ∞/0 | ε⚡φ Σ⚡μ c⚡h] | OODA
+    Human ⊗ AI ⊗ REPL
+    ```
+    
+??? example "Hook: fix unbalanced CLJ parens (@zikajk)"
+
+	First install latest [[babashka](https://github.com/babashka/babashka)] + [[bbin](https://github.com/babashka/bbin)].
+	Then run:
+	```bbin install https://github.com/bhauman/clojure-mcp-light.git --as clj-paren-repair --main-opts '["-m"  "clojure-mcp-light.paren-repair"]'```
+
+    ```javascript title="config.json"
+	{...
+	 "hooks: {"CLJ-balanced-parens-check": {"type":"postToolCall",
+                                            "matcher": "eca__write_file|eca__edit_file",
+                              		        "actions": [{"type": "shell",
+                   					                     "file": "hooks/clj_check_parens.sh"}]}}
+	...}
+	```
+
+	```bash title="hooks/clj_check_parens.sh"
+	# Hook to check Clojure files with clj-kondo and auto-repair parens
+
+	# Read stdin and extract path (returns empty string if null/invalid)
+	file_path=$(jq -r '.tool_input.path // empty' 2>/dev/null)
+
+	# Helper function to generate JSON output
+	respond() {
+	  cat <<EOF
+	{
+	  "suppressOutput": $1,
+	  "systemMessage": "$2",
+	  "additionalContext": "$3"
+	}
+	EOF
+	}
+
+	# 1. Guard Clause: Exit if no path or not a Clojure file
+	if [[ -z "$file_path" || ! "$file_path" =~ \.(clj|cljs|cljd|cljc)$ ]]; then
+	  respond true
+	  exit 0
+	fi
+
+	# 2. Run clj-kondo (We only care about Exit Code 3: Unbalanced Parens)
+	clj-kondo --lint "$file_path" &>/dev/null
+	if [ $? -ne 3 ]; then
+	  respond true
+	  exit 0
+	fi
+
+	# 3. Attempt Repair
+	if clj-paren-repair "$file_path" &>/dev/null; then
+	  respond false "Unbalanced parens fixed." "Unbalanced parens have been automatically fixed."
+	else
+	  respond false "Unbalanced parens not fixed!" "Unbalanced parens couldn't be automatically fixed. Tell user to fix it manually."
+	fi
+
+	exit 0
+ 	```
+
+??? example "Hook: notify when finished and waiting tool approval (@ericdallo)"
+
+    ```markdown title="~/.config/eca/config.json"
+    {
+      "hooks": {
+          "notify-finished": {
+              "type": "postRequest",
+              "visible": false,
+              "actions": [
+                  {
+                      "type": "shell",
+                      "shell": "canberra-gtk-play -i complete"
+                  }
+              ]
+          },
+          "notify-approval": {
+              "type": "preToolCall",
+              "visible": false,
+              "actions": [
+                  {
+                      "type": "shell",
+                      "shell": "jq -e '.approval == \"ask\"' > /dev/null && canberra-gtk-play -i message"
+                  }
+              ]
+          }
+      }
+    }
+    ```
+
+??? example "Hook: Warcraft peon ping (@bsless)"
+
+    This is an adapter to make [PeonPing/peon-ping](https://github.com/PeonPing/peon-ping) work with ECA hooks.
+
+    ```markdown title="~/.config/eca/config.json"
+    {
+       "hooks": {
+            "peon-session-start": {
+                "type": "sessionStart",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-session-end": {
+                "type": "sessionEnd",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-pre-request": {
+                "type": "preRequest",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    },
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/scripts/hook-handle-use.sh",
+                        "timeout": 5000
+                    }
+                ]
+            },
+            "peon-post-request": {
+                "type": "postRequest",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-pre-tool-call": {
+                "type": "preToolCall",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-post-tool-call": {
+                "type": "postToolCall",
+                "visible": false,
+                "runOnError": true,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-chat-start": {
+                "type": "chatStart",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            },
+            "peon-subagent-post-request": {
+                "type": "subagentPostRequest",
+                "visible": false,
+                "actions": [
+                    {
+                        "type": "shell",
+                        "file": "./hooks/peon-ping/eca-adapter.sh",
+                        "timeout": 10000
+                    }
+                ]
+            }
+        }
+    }
+    ```
+    
+    ```bash title="~/.config/eca/hooks/peon-ping/eca-adapter.sh"
+    #!/bin/bash
+    # ECA → peon-ping adapter
+    # Translates ECA's hook JSON format to the Claude Code format peon.sh expects.
+    set -uo pipefail
+    
+    INPUT=$(cat)
+    
+    # Map ECA hook_type to Claude Code hook_event_name
+    python3 -c "
+    import json, sys
+    
+    data = json.loads(sys.argv[1])
+    
+    hook_type = data.get('hook_type', '')
+    workspaces = data.get('workspaces', [])
+    cwd = workspaces[0] if workspaces else ''
+    # ECA does not provide a session_id; derive one from db_cache_path to get a
+    # stable per-session identifier, falling back to a constant.
+    db_path = data.get('db_cache_path', '')
+    session_id = db_path.split('/')[-2] if db_path else 'eca-default'
+    
+    type_map = {
+        'sessionStart':        'SessionStart',
+        'sessionEnd':          'SessionEnd',
+        'chatStart':           'SessionStart',
+        'preRequest':          'UserPromptSubmit',
+        'postRequest':         'Stop',
+        'subagentPostRequest': 'Stop',
+        'preToolCall':         'PermissionRequest',
+        'postToolCall':        'Stop',
+    }
+    
+    event_name = type_map.get(hook_type, hook_type)
+    
+    out = {
+        'hook_event_name': event_name,
+        'session_id':      session_id,
+        'cwd':             cwd,
+    }
+    
+    # Forward any extra fields peon.sh might use
+    if 'notification_type' in data:
+        out['notification_type'] = data['notification_type']
+    if 'permission_mode' in data:
+        out['permission_mode'] = data['permission_mode']
+    
+    print(json.dumps(out))
+    " "$INPUT" | bash /home/bsless/.config/eca/hooks/peon-ping/peon.sh
+    ```
+
+??? note "Custom tool: clj-nrepl-eval (@michaelwhitford)"
 
     ```javascript title="config.json"
     {
@@ -189,46 +390,4 @@ If you think your config is relevant to be shared for other people, [open a pull
         - Require libs: (require (quote [clojure.string :as str]))\
         (str/upper-case \"test\")
         - Very large outputs   may be truncated
-    ```
-
-??? info "Skill: nucleus-clojure (@michaelwhitford)"
-
-    ```markdown title="~/.config/eca/skills/nucleus-clojure/SKILL.md"
-    ---
-    name: nucleus-clojure
-    description: A clojure specific AI prompt.  Use when there are clojure REPL tools available.
-    ---
-
-    Adopt these nucleus operating principles:
-    [phi fractal euler tao pi mu] | [Δ λ ∞/0 | ε⚡φ Σ⚡μ c⚡h] | OODA
-    Human ⊗ AI ⊗ REPL
-    ```
-
-??? info "Hook: notify when finished and waiting tool approval (@ericdallo)"
-
-    ```markdown title="~/.config/eca/config.json"
-    {
-      "hooks": {
-          "notify-finished": {
-              "type": "postRequest",
-              "visible": false,
-              "actions": [
-                  {
-                      "type": "shell",
-                      "shell": "canberra-gtk-play -i complete"
-                  }
-              ]
-          },
-          "notify-approval": {
-              "type": "preToolCall",
-              "visible": false,
-              "actions": [
-                  {
-                      "type": "shell",
-                      "shell": "jq -e '.approval == \"ask\"' > /dev/null && canberra-gtk-play -i message"
-                  }
-              ]
-          }
-      }
-    }
     ```

@@ -330,12 +330,15 @@
                                      "ID - Created at - Title"
                                      (reduce
                                       (fn [s chat-id]
-                                        (let [chat (get chats chat-id)]
-                                          (str s (format "%s - %s - %s\n"
-                                                         (inc (.indexOf ^PersistentVector chats-ids chat-id))
-                                                         (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
-                                                         (or (:title chat) (format "No chat title (%s user messages)" (count (filter #(= "user" (:role %))
-                                                                                                                                     (:messages chat)))))))))
+                                        (let [chat (get chats chat-id)
+                                              msgs-count (count (filter #(= "user" (:role %))
+                                                                        (:messages chat)))]
+                                          (if (> msgs-count 0)
+                                            (str s (format "%s - %s - %s\n"
+                                                           (inc (.indexOf ^PersistentVector chats-ids chat-id))
+                                                           (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
+                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))))
+                                            s)))
                                       ""
                                       chats-ids)
                                      "Run `/resume <chat-id>` or `/resume latest`"))

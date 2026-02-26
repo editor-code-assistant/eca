@@ -471,3 +471,92 @@
             (is (= "anthropic/claude-sonnet-4-6" (get written-config "defaultModel")))))
         (finally
           (fs/delete-tree temp-dir))))))
+
+(deftest effective-model-variants-test
+  (let [anthropic-variants {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
+                            "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive"}}
+                            "high" {:output_config {:effort "high"} :thinking {:type "adaptive"}}
+                            "max" {:output_config {:effort "max"} :thinking {:type "adaptive"}}}
+        openai-variants {"none" {:reasoning {:effort "none" :summary "auto"}}
+                         "low" {:reasoning {:effort "low" :summary "auto"}}
+                         "medium" {:reasoning {:effort "medium" :summary "auto"}}
+                         "high" {:reasoning {:effort "high" :summary "auto"}}
+                         "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}}
+        config {:variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]"
+                                  {:variants anthropic-variants}
+                                  ".*gpt[-._]5[-._]3[-._]codex|gpt[-._]5[-._]2(?!\\d)"
+                                  {:variants openai-variants
+                                   :excludeProviders ["github-copilot"]}}}]
+
+    (testing "Returns built-in variants for matching anthropic model"
+      (is (= anthropic-variants
+             (config/effective-model-variants config "anthropic" "claude-sonnet-4-6" nil))))
+
+    (testing "Returns built-in variants for opus models"
+      (is (= anthropic-variants
+             (config/effective-model-variants config "anthropic" "claude-opus-4-5" nil)))
+      (is (= anthropic-variants
+             (config/effective-model-variants config "anthropic" "claude-opus-4-6" nil))))
+
+    (testing "Returns built-in variants for matching openai model"
+      (is (= openai-variants
+             (config/effective-model-variants config "openai" "gpt-5.2" nil)))
+      (is (= openai-variants
+             (config/effective-model-variants config "openai" "gpt-5.3-codex" nil))))
+
+    (testing "Returns nil for non-matching model without user variants"
+      (is (nil? (config/effective-model-variants config "openai" "gpt-4.1" nil)))
+      (is (nil? (config/effective-model-variants config "ollama" "llama3" nil))))
+
+    (testing "Custom provider with matching model gets built-in variants"
+      (is (= anthropic-variants
+             (config/effective-model-variants config "my-proxy" "claude-opus-4-6" nil))))
+
+    (testing "excludeProviders prevents built-in variants for that provider"
+      (is (nil? (config/effective-model-variants config "github-copilot" "gpt-5.2" nil))))
+
+    (testing "User variants override built-in on name clash"
+      (is (= (merge anthropic-variants {"high" {:custom "payload"}})
+             (config/effective-model-variants config "anthropic" "claude-sonnet-4-6"
+                                             {"high" {:custom "payload"}}))))
+
+    (testing "User variant set to {} removes it from result"
+      (is (= (dissoc anthropic-variants "high" "max")
+             (config/effective-model-variants config "anthropic" "claude-sonnet-4-6"
+                                             {"high" {} "max" {}}))))
+
+    (testing "User-only variants pass through when no regex match"
+      (is (= {"fast" {:speed "turbo"}}
+             (config/effective-model-variants config "ollama" "llama3"
+                                             {"fast" {:speed "turbo"}}))))
+
+    (testing "User-only variant set to {} is removed"
+      (is (nil? (config/effective-model-variants config "ollama" "llama3"
+                                                 {"fast" {}}))))
+
+    (testing "Matches model name variations with different separators"
+      (is (= anthropic-variants
+             (config/effective-model-variants config "custom" "sonnet.4.6" nil)))
+      (is (= anthropic-variants
+             (config/effective-model-variants config "custom" "opus_4_5" nil)))
+      (is (= openai-variants
+             (config/effective-model-variants config "openai" "gpt-5.2" nil))))
+
+    (testing "Does not match partial model versions"
+      (is (nil? (config/effective-model-variants config "openai" "gpt-5.23" nil))))
+
+    (testing "Nil model-name returns only user variants"
+      (is (nil? (config/effective-model-variants config "openai" nil nil)))
+      (is (= {"fast" {:a 1}}
+             (config/effective-model-variants config "openai" nil {"fast" {:a 1}}))))
+
+    (testing "Missing variantsByModel key in config returns only user variants"
+      (is (nil? (config/effective-model-variants {} "openai" "gpt-5.2" nil)))
+      (is (= {"fast" {:a 1}}
+             (config/effective-model-variants {} "openai" "gpt-5.2" {"fast" {:a 1}}))))
+
+    (testing "Invalid regex pattern in variantsByModel is skipped gracefully"
+      (let [bad-config {:variantsByModel {"[invalid" {:variants {"low" {:a 1}}}}}]
+        (is (nil? (config/effective-model-variants bad-config "openai" "gpt-5.2" nil)))
+        (is (= {"fast" {:a 1}}
+               (config/effective-model-variants bad-config "openai" "gpt-5.2" {"fast" {:a 1}})))))))

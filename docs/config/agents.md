@@ -1,4 +1,10 @@
+---
+description: "Configure ECA agents and subagents: custom system prompts, model selection, tool access, and parallel task delegation."
+---
+
 # Agents / Subagents
+
+![](../images/features/chat-agents.png)
 
 When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, skills and more.
 

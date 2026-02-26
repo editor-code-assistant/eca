@@ -1,4 +1,10 @@
+---
+description: "Configure ECA skills: structured knowledge units that teach the LLM task-specific abilities following the agentskills.io spec."
+---
+
 # Skills
+
+![](../images/features/skills.png)
 
 Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
 Following the [agentskills](https://agentskills.io/) standard, ECA search for skills following `~/.config/eca/skills/some-skill/SKILL.md` and `.eca/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.

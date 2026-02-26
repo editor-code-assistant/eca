@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
-   [eca.shared :refer [assoc-some deep-merge join-api-url multi-str]]
+   [eca.shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
    [ring.util.codec :as ring.util]))
 
@@ -151,7 +151,7 @@
                       (normalize-messages user-messages supports-image?))
         tools (->tools tools web-search codex?)
         stream? (boolean callbacks)
-        body (deep-merge
+        body (merge
               (assoc-some
                {:model model
                 :input (if codex?
@@ -165,7 +165,7 @@
                 :store false
                 :reasoning (when reason?
                              {:effort "medium"
-                              :summary "detailed"})
+                              :summary "auto"})
                 :stream stream?}
                :max_output_tokens (when-not codex? max-output-tokens)
                :parallel_tool_calls (:parallel_tool_calls extra-payload))

@@ -1,3 +1,7 @@
+---
+description: "Configure LLM providers in ECA: OpenAI, Anthropic, Copilot, Gemini, Ollama, and any OpenAI-compatible API endpoint."
+---
+
 # Models
 
 !!! info Login
@@ -10,13 +14,13 @@ ECA will return to clients the models configured, either via config or login.
 
 ## Built-in providers and capabilities
 
-| model                                            | tools (MCP) | reasoning / thinking | prompt caching | web_search | image_input |
-|--------------------------------------------------|-------------|----------------------|----------------|------------|-------------|
-| :simple-openai: OpenAI (Also subscription)       | √           | √                    | √              | √          | √           |
-| :simple-anthropic: Anthropic (Also subscription) | √           | √                    | √              | √          | √           |
-| :simple-githubcopilot: Github Copilot            | √           | √                    | √              | X          | √           |
-| :simple-googlegemini: Google                     | √           | √                    | √              | X          | √           |
-| :simple-ollama: Ollama local models              | √           | √                    | X              | X          |             |
+| model                                      | tools (MCP) | reasoning / thinking | prompt caching | web_search | image_input |
+|--------------------------------------------|-------------|----------------------|----------------|------------|-------------|
+| :simple-openai: OpenAI (Also subscription) | √           | √                    | √              | √          | √           |
+| :simple-anthropic: Anthropic               | √           | √                    | √              | √          | √           |
+| :simple-githubcopilot: Github Copilot      | √           | √                    | √              | X          | √           |
+| :simple-googlegemini: Google               | √           | √                    | √              | X          | √           |
+| :simple-ollama: Ollama local models        | √           | √                    | X              | X          |             |
 
 ## Config
 
@@ -48,6 +52,10 @@ Example:
 
 - `OPENAI_API_KEY` for OpenAI
 - `ANTHROPIC_API_KEY` for Anthropic
+
+!!! info "Variants"
+
+    ECA supports the variants concept, allowing to customize the payload of models and quickly changing via UI, __useful for swaping different reasoning efforts__, for more information check [variants section](./variants.md)
 
 ## Custom providers
 
