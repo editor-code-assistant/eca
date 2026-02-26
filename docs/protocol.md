@@ -4,7 +4,7 @@ description: "ECA protocol specification: the standardized client-server protoco
 
 # ECA Protocol
 
-The ECA (Editor Code Assistant) protocol is JSON-RPC 2.0-based protocol heavily insipired by the [LSP (Language Server Protocol)](https://microsoft.github.io/language-server-protocol/), that enables communication between multiple code editors/IDEs and ECA process (server), which will interact with multiple LLMs. It follows similar patterns to the LSP but is specifically designed for AI code assistance features.
+The ECA (Editor Code Assistant) protocol is JSON-RPC 2.0-based protocol heavily inspired by the [LSP (Language Server Protocol)](https://microsoft.github.io/language-server-protocol/), that enables communication between multiple code editors/IDEs and ECA process (server), which will interact with multiple LLMs. It follows similar patterns to the LSP but is specifically designed for AI code assistance features.
 
 Key characteristics:
 - Provides a protocol standard so different editors can use the same language to offer AI features.
@@ -215,13 +215,24 @@ interface ClientCapabilities {
     }
 }
 
-type ChatAgent = 'build' | 'plan';
+/**
+ * Built-in agents: 'code' (default) and 'plan'.
+ * Custom agents can also be defined via config or .md files.
+ *
+ * @deprecated 'build' is a legacy name mapped to 'code'.
+ */
+type ChatAgent = string;
 ```
 
 _Response:_
 
 ```typescript
-interface InitializeResponse {}
+interface InitializeResponse {
+    /**
+     * Optional welcome message configured by the user to show when starting a new chat.
+     */
+    chatWelcomeMessage?: string;
+}
 ```
 
 ### Initialized (➡️)
@@ -397,7 +408,7 @@ interface FileContext {
     path: string;
     
     /**
-     * Range of lines to retrive from file, if nil consider whole file.
+     * Range of lines to retrieve from file, if nil consider whole file.
      */
     linesRange?: LinesRange;
 }
@@ -515,7 +526,7 @@ interface ChatPromptResponse {
     model: Model;
     
     /**
-     * What the server is doing after receing this prompt
+     * What the server is doing after receiving this prompt
      */
     status: 'prompting' | 'login' | 'error';
 }
@@ -605,10 +616,11 @@ interface ChatProgressContent {
      */
     state: 'running' | 'finished';
 
-    /*
+    /**
      * Extra text to show in chat about current state of this chat.
+     * May be omitted when state is 'finished'.
      */
-    text: string;
+    text?: string;
 }
 
 /**
@@ -760,7 +772,7 @@ interface ChatUsageContent {
     sessionCost?: string;
     
     /**
-     * Informations about limits.
+     * Information about limits.
      */
     limit?: {
         /**
@@ -905,7 +917,7 @@ interface ChatToolCallRunningContent {
 }
 
 /**
- * Tool call result that LLM trigerred and was executed already, sent once per id.
+ * Tool call result that LLM triggered and was executed already, sent once per id.
  */
 interface ChatToolCalledContent {
     type: 'toolCalled';
@@ -930,7 +942,7 @@ interface ChatToolCalledContent {
     /*
      * Arguments of this tool call
      */
-    arguments: string[];
+    arguments: {[key: string]: string};
     
     /**
      * Whether it was a error
@@ -999,9 +1011,9 @@ interface ChatToolCallRejectedContent {
     arguments: {[key: string]: string};
     
     /**
-     * The reason why this tool call was rejected
+     * The reason why this tool call was rejected.
      */
-    reason: 'user-choice' | 'user-config';
+    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'userPromptStop' | 'userStop' | 'user';
     
     /**
      * Summary text to present about this tool call, 
@@ -1016,7 +1028,7 @@ interface ChatToolCallRejectedContent {
     details?: ToolCallDetails;
 }
 
-type ToolCallOrigin = 'mcp' | 'native' | 'server';
+type ToolCallOrigin = 'mcp' | 'native' | 'server' | 'unknown';
 
 type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails;
 
@@ -1067,6 +1079,11 @@ interface SubagentDetails {
      *  The model this subagent is using.
      */
     model: string;
+
+    /**
+     * The name of the agent being spawned.
+     */
+    agentName: string;
 
     /**
      * The max number of steps this subagent is limited.
@@ -1191,6 +1208,46 @@ interface ChatQueryContextResponse {
 }
 ```
 
+### Chat Query Files (↩️)
+
+A request sent from client to server, querying for available files for the user to add as context to prompt calls.
+Similar to `chat/queryContext` but returns only file-based contexts.
+
+_Request:_ 
+
+* method: `chat/queryFiles`
+* params: `ChatQueryFilesParams` defined as follows:
+
+```typescript
+interface ChatQueryFilesParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId?: string;
+
+    /**
+     * The query to filter results, blank string returns all available files.
+     */
+    query: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatQueryFilesResponse {
+    /**
+     * The chat session identifier.
+     */
+    chatId?: string;
+
+    /**
+     * The returned available file contexts.
+     */
+    files: ChatContext[];
+}
+```
+
 ### Chat Query Commands (↩️)
 
 A request sent from client to server, querying for all the available commands for user to call.
@@ -1245,7 +1302,7 @@ interface ChatCommand {
     /**
      * The type of this command
      */
-    type: 'mcp-prompt' | 'native';
+    type: 'mcpPrompt' | 'native' | 'customPrompt' | 'skill';
     
     /**
      * The arguments of the command.
@@ -1261,7 +1318,7 @@ interface ChatCommand {
 ### Chat stop prompt (➡️)
 
 A client notification for server to stop the current chat prompt with LLM if running.
-This will stop LLM loops or ignore subsequent LLM responses so other prompts can be trigerred.
+This will stop LLM loops or ignore subsequent LLM responses so other prompts can be triggered.
 
 _Notification:_
 
@@ -1320,7 +1377,7 @@ interface ChatRollbackResponse {}
 
 A server notification to clear a chat UI, currently supporting removing only messages of the chat.
 
-_Request:_ 
+_Notification:_ 
 
 * method: `chat/cleared`
 * params: `ChatClearedParams` defined as follows:
@@ -1639,6 +1696,11 @@ interface RewriteErrorContent {
 
 interface RewriteFinishedContent {
     type: 'finished';
+
+    /**
+     * The total time the rewrite took in milliseconds.
+     */
+    totalTimeMs: number;
 }
 
 type RewriteContent = 
@@ -1794,7 +1856,7 @@ interface ServerTool {
     parameters: any; 
     
     /**
-     * Whther this tool is disabled.
+     * Whether this tool is disabled.
      */
     disabled?: boolean;
 }
@@ -1848,7 +1910,7 @@ Soon
 
 A notification from server telling client to present a message to user.
 
-_Request:_ 
+_Notification:_ 
 
 * method: `$/showMessage`
 * params: `ShowMessageParams` defined as follows:
