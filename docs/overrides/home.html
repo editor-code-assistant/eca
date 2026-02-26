@@ -233,11 +233,19 @@
   /* ── 2. Reset / Page Chrome ── */
   .md-main__inner { margin-top: 0; }
   .md-content__inner { padding: 0; margin: 0; }
-  .md-sidebar { display: none; }
+  .md-sidebar--primary { display: none; }
+  .md-sidebar--secondary { display: none; }
   .md-content { max-width: none; margin: 0; }
   .md-main .md-main__inner.md-grid { max-width: none; padding: 0; }
   .md-content__inner::before { display: none; }
   article.md-content__inner { padding: 0; }
+
+  /* Allow mobile drawer navigation to work */
+  @media (max-width: 76.1875em) {
+    .md-sidebar--primary {
+      display: block;
+    }
+  }
 
   /* ── 3. Hero Section ── */
   .eca-hero {
@@ -1234,6 +1242,11 @@
       justify-content: center;
     }
 
+    .eca-hero__showcase {
+      max-width: 100%;
+      overflow: hidden;
+    }
+
     .eca-editors__tabs {
       justify-content: center;
     }
@@ -1262,9 +1275,65 @@
   }
 
   @media (max-width: 600px) {
-    .eca-hero { padding: 3rem 1.25rem; }
-    .eca-hero__title { font-size: 2rem; }
-    .eca-hero__subtitle { font-size: 1rem; }
+    .eca-hero {
+      padding: 2rem 1rem 2.5rem;
+    }
+
+    .eca-hero__inner {
+      gap: 1.75rem;
+    }
+
+    .eca-hero__logo {
+      width: 56px;
+      height: 56px;
+      margin-bottom: 0.75rem;
+    }
+
+    .eca-hero__title {
+      font-size: 1.75rem;
+    }
+
+    .eca-hero__title span {
+      font-size: 0.8rem;
+    }
+
+    .eca-hero__subtitle {
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .eca-hero__actions {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+    }
+
+    .eca-hero__actions .eca-btn {
+      width: 100%;
+      max-width: 16rem;
+      justify-content: center;
+      padding: 0.7rem 1.25rem;
+      font-size: 0.9rem;
+    }
+
+    .eca-editors__tabs {
+      justify-content: flex-start;
+    }
+
+    .eca-editors__tab {
+      padding: 0.4rem 0.65rem;
+      font-size: 0.72rem;
+    }
+
+    .eca-editors__tab svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .eca-editors__panel-frame {
+      border-radius: 0 8px 8px 8px;
+    }
 
     .eca-features__hero {
       grid-template-columns: 1fr;
@@ -1274,11 +1343,6 @@
       grid-template-columns: 1fr;
     }
 
-    .eca-editors__tab {
-      padding: 0.4rem 0.75rem;
-      font-size: 0.75rem;
-    }
-
     .eca-showcase__slide {
       grid-template-columns: 1fr;
       gap: 1.5rem;
@@ -1286,6 +1350,39 @@
 
     .eca-showcase__dots {
       flex-wrap: wrap;
+    }
+
+    .eca-showcase__dot {
+      padding: 0.3rem 0.7rem;
+      font-size: 0.7rem;
+    }
+
+    .eca-showcase__dot-group {
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .eca-showcase__code pre {
+      font-size: 0.68rem;
+    }
+
+    .eca-community__links {
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .eca-community__links .eca-btn {
+      width: 100%;
+      max-width: 16rem;
+      justify-content: center;
+    }
+
+    .eca-section-title {
+      font-size: 1.25rem;
+    }
+
+    .eca-section-desc {
+      font-size: 0.85rem;
     }
   }
 </style>
