@@ -99,7 +99,9 @@
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
-            (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)}))
+            (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)
+                       :status status
+                       :body body-str}))
           (if on-stream
             (with-open [rdr (io/reader body)]
               (doseq [[event data] (llm-util/event-data-seq rdr)]

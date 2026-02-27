@@ -181,3 +181,5 @@
            (shared/join-api-url "https://api.example.com/" "   "))))
   (testing "returns nil when base is blank"
     (is (nil? (shared/join-api-url "   " "/chat/completions")))))
+
+

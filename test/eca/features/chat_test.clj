@@ -803,3 +803,66 @@
                        :hook-rejected? false
                        :arguments-modified? true}
                       plan)))))))
+
+(defn- make-tool-output-msg [id text]
+  {:role "tool_call_output"
+   :content {:id id
+             :name "read_file"
+             :output {:error false
+                      :contents [{:type :text :text text}]}}})
+
+(defn- make-tool-call-msg [id]
+  {:role "tool_call"
+   :content {:id id :full-name "eca__read_file" :arguments {"path" "/foo"}}})
+
+(defn- make-server-tool-result-msg [id text]
+  {:role "server_tool_result"
+   :content {:tool-use-id id
+             :raw-content [{:type "text" :text text}]}})
+
+(deftest prune-tool-results!-test
+  (testing "clears old tool results beyond protect budget"
+    (let [large-text (apply str (repeat 100000 "x"))
+          small-text (apply str (repeat 20000 "y"))
+          messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    (make-tool-call-msg "1")
+                    (make-tool-output-msg "1" large-text)
+                    {:role "assistant" :content [{:type :text :text "found it"}]}
+                    (make-tool-call-msg "2")
+                    (make-tool-output-msg "2" small-text)
+                    {:role "assistant" :content [{:type :text :text "done"}]}]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 3000})]
+      (is (pos? freed))
+      (let [pruned (get-in @db* [:chats "c1" :messages])]
+        (is (= "[content cleared to reduce context size]"
+               (get-in (nth pruned 2) [:content :output :contents 0 :text])))
+        (is (= small-text
+               (get-in (nth pruned 5) [:content :output :contents 0 :text])))
+        (is (= "hello" (get-in (nth pruned 0) [:content 0 :text])))
+        (is (= "found it" (get-in (nth pruned 3) [:content 0 :text]))))))
+
+  (testing "returns 0 and does not modify db when nothing to prune"
+    (let [messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    (make-tool-call-msg "1")
+                    (make-tool-output-msg "1" "short")
+                    {:role "assistant" :content [{:type :text :text "ok"}]}]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 40000})]
+      (is (zero? freed))
+      (is (= messages (get-in @db* [:chats "c1" :messages])))))
+
+  (testing "clears server_tool_result messages beyond budget"
+    (let [large-text (apply str (repeat 100000 "z"))
+          messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    (make-server-tool-result-msg "s1" large-text)
+                    {:role "assistant" :content [{:type :text :text "searched"}]}]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
+      (is (pos? freed))
+      (is (= "[content cleared to reduce context size]"
+             (get-in (nth (get-in @db* [:chats "c1" :messages]) 1) [:content :raw-content 0 :text])))))
+
+  (testing "handles empty message history"
+    (let [db* (atom {:chats {"c1" {:messages []}}})]
+      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {}))))))

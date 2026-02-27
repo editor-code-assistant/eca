@@ -17,6 +17,7 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.llm-providers.errors :as provider-errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -843,6 +844,78 @@
 
 (declare prompt-messages!)
 
+(defn ^:private estimate-tokens
+  "Rough token estimate: ~4 chars per token."
+  ^long [^String s]
+  (if s
+    (quot (count s) 4)
+    0))
+
+(defn ^:private tool-output-text [msg]
+  (let [contents (get-in msg [:content :output :contents])]
+    (reduce (fn [^String acc {:keys [text]}]
+              (if text (str acc text) acc))
+            ""
+            contents)))
+
+(defn ^:private server-tool-result-text [msg]
+  (let [raw-content (get-in msg [:content :raw-content])]
+    (reduce (fn [^String acc item]
+              (if-let [text (:text item)]
+                (str acc text)
+                acc))
+            ""
+            raw-content)))
+
+(def ^:private cleared-tool-output
+  {:error false
+   :contents [{:type :text :text "[content cleared to reduce context size]"}]})
+
+(def ^:private cleared-raw-content
+  [{:type "text" :text "[content cleared to reduce context size]"}])
+
+(defn ^:private prune-tool-results!
+  "Prunes old tool result content from chat history to reduce context size.
+   Walks messages backwards, protecting the most recent tool outputs up to
+   `protect-budget` estimated tokens. Clears older tool outputs with a placeholder.
+   Returns the estimated number of tokens freed."
+  [db* chat-id {:keys [protect-budget]
+                :or {protect-budget 40000}}]
+  (let [messages (get-in @db* [:chats chat-id :messages] [])
+        n (count messages)
+        {:keys [pruned-messages freed-tokens]}
+        (loop [i (dec n)
+               protected-tokens 0
+               freed-tokens 0
+               result messages]
+          (if (neg? i)
+            {:pruned-messages result
+             :freed-tokens freed-tokens}
+            (let [msg (nth messages i)
+                  role (:role msg)]
+              (cond
+                (= "tool_call_output" role)
+                (let [text (tool-output-text msg)
+                      tokens (estimate-tokens text)]
+                  (if (< protected-tokens protect-budget)
+                    (recur (dec i) (+ protected-tokens tokens) freed-tokens result)
+                    (recur (dec i) protected-tokens (+ freed-tokens tokens)
+                           (assoc result i (assoc-in msg [:content :output] cleared-tool-output)))))
+
+                (= "server_tool_result" role)
+                (let [text (server-tool-result-text msg)
+                      tokens (estimate-tokens text)]
+                  (if (< protected-tokens protect-budget)
+                    (recur (dec i) (+ protected-tokens tokens) freed-tokens result)
+                    (recur (dec i) protected-tokens (+ freed-tokens tokens)
+                           (assoc result i (assoc-in msg [:content :raw-content] cleared-raw-content)))))
+
+                :else
+                (recur (dec i) protected-tokens freed-tokens result)))))]
+    (when (pos? freed-tokens)
+      (swap! db* assoc-in [:chats chat-id :messages] pruned-messages))
+    freed-tokens))
+
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task."
   [{:keys [db* config chat-id agent] :as chat-ctx}
@@ -1354,9 +1427,26 @@
                                                          (transition-tool-call! db* chat-ctx id :cleanup-finished
                                                                                 {:name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")}))
                                              nil)))
-                :on-error (fn [{:keys [message exception]}]
-                            (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
-                            (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))})
+                :on-error (fn [{:keys [message exception] :as error-data}]
+                            (let [{error-type :error/type} (provider-errors/classify-error error-data)
+                                  db @db*
+                                  compacting? (or (get-in db [:chats chat-id :compacting?])
+                                                  (get-in db [:chats chat-id :auto-compacting?]))]
+                              (if (and (= :context-overflow error-type)
+                                       (not compacting?))
+                                (do
+                                  (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
+                                               {:chat-id chat-id})
+                                  (send-content! chat-ctx :system
+                                                 {:type :text
+                                                  :text "Context window exceeded. Auto-compacting conversation..."})
+                                  (prune-tool-results! db* chat-id {})
+                                  (trigger-auto-compact! chat-ctx all-tools user-messages))
+                                (do
+                                  (when compacting?
+                                    (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?))
+                                  (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
+                                  (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))})
               (catch Exception e
                 (logger/error e)
                 (send-content! chat-ctx :system {:type :text :text (str "Error: " (ex-message e))})
