@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.108.0
+
 - Add support for auto retry for http codes: 429, 500, 502, 503 and 529. #224
 
 ## 0.107.0
