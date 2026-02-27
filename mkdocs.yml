@@ -23,6 +23,7 @@ nav:
     - Hooks: config/hooks.md
     - Completion: config/completion.md
     - Rewrite: config/rewrite.md
+    - Context Management: config/context-management.md
     - Metrics: config/metrics.md
     - Network / Enterprise: config/network.md
     - Examples: config/examples.md
