@@ -1202,7 +1202,7 @@
                                                :config config
                                                :provider-auth provider-auth})]
               (when output-text
-                (let [title (subs output-text 0 (min (count output-text) 30))]
+                (let [title (subs output-text 0 (min (count output-text) 40))]
                   (swap! db* assoc-in [:chats chat-id :title] title)
                   (send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
                   (when (= :idle (get-in @db* [:chats chat-id :status]))

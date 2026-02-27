@@ -82,7 +82,7 @@
                     ;; error
                     {:error "Eca test proxy handler error: expected FullHttpRequest, check (getMaximumRequestBufferSizeInBytes) value"})
                   (catch Exception e
-                    {:error (str "Eca test proxy handler error: " (str e))}))]
+                    {:error (str "Eca test proxy handler error: " e)}))]
 
             (if error
               (let [content (Unpooled/copiedBuffer error StandardCharsets/UTF_8)
