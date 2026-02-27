@@ -758,11 +758,44 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#context-window-size-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Context window size management
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Context window size management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#output-truncation" class="md-nav__link">
     <span class="md-ellipsis">
       Output Truncation
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auto-compact" class="md-nav__link">
+    <span class="md-ellipsis">
+      Auto-compact
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-overflow-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Context overflow recovery
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1186,11 +1219,44 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#context-window-size-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Context window size management
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Context window size management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#output-truncation" class="md-nav__link">
     <span class="md-ellipsis">
       Output Truncation
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auto-compact" class="md-nav__link">
+    <span class="md-ellipsis">
+      Auto-compact
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-overflow-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Context overflow recovery
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1400,10 +1466,17 @@
 <span class="p">}</span>
 </code></pre></div>
 <p>Default: <code>2000</code> lines</p>
-<h2 id="output-truncation">Output Truncation<a class="headerlink" href="#output-truncation" title="Permanent link">#</a></h2>
-<p>ECA automatically truncates tool call outputs that are too large before sending them to the LLM, preventing context window overflow. When output exceeds the configured limits, ECA:</p>
+<h2 id="context-window-size-management">Context window size management<a class="headerlink" href="#context-window-size-management" title="Permanent link">#</a></h2>
+<p>ECA manages the context window through three layers of defense, each addressing a different stage of the problem:</p>
 <ol>
-<li>Saves the full output to a cache file in <code>~/.cache/eca/toolCallOutputs</code> (cleaning every 7 days).</li>
+<li><strong>Output Truncation</strong> — prevents individual tool outputs from being too large.</li>
+<li><strong>Auto-compact</strong> — proactively summarizes the conversation before it reaches the model's limit.</li>
+<li><strong>Context overflow recovery</strong> — reactively handles the case when the context exceeds the limit despite the above.</li>
+</ol>
+<h3 id="output-truncation">Output Truncation<a class="headerlink" href="#output-truncation" title="Permanent link">#</a></h3>
+<p>ECA automatically truncates tool call outputs that are too large before sending them to the LLM. When output exceeds the configured limits, ECA:</p>
+<ol>
+<li>Saves the full output to a cache file in <code>~/.cache/eca/toolCallOutputs</code> (cleaned every 7 days).</li>
 <li>Truncates the output to the configured line limit.</li>
 <li>Appends an <code>[OUTPUT TRUNCATED]</code> notice telling the LLM where the full content is saved and suggesting it use <code>eca__grep</code> or <code>eca__read_file</code> with offset/limit to access the rest.</li>
 </ol>
@@ -1439,6 +1512,49 @@
 </tbody>
 </table>
 <p>Either limit being exceeded will trigger truncation.</p>
+<h3 id="auto-compact">Auto-compact<a class="headerlink" href="#auto-compact" title="Permanent link">#</a></h3>
+<p>After each LLM response, ECA checks how much of the model's context window has been used. When usage reaches the configured threshold, ECA automatically compacts the conversation by asking the LLM to produce a structured summary, then replaces the full chat history with that summary and resumes the original task.</p>
+<p>You can configure the threshold via <code>autoCompactPercentage</code>:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;autoCompactPercentage&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">75</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>This can also be set per-agent:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;autoCompactPercentage&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">80</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>autoCompactPercentage</code></td>
+<td><code>75</code></td>
+<td>Percentage of context window usage that triggers auto-compaction.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="context-overflow-recovery">Context overflow recovery<a class="headerlink" href="#context-overflow-recovery" title="Permanent link">#</a></h3>
+<p>In some cases the context window can jump from below the auto-compact threshold to above the model's maximum in a single turn — for example, when multiple large tool results arrive at once. When this happens, the LLM provider rejects the request with a "prompt too long" error.</p>
+<p>Instead of showing this error to the user, ECA automatically recovers:</p>
+<ol>
+<li><strong>Detects the overflow</strong> — classifies the provider error (works across Anthropic, OpenAI, Google, Ollama, and custom providers).</li>
+<li><strong>Prunes old tool results</strong> — walks the chat history backwards, keeping the most recent ~40K tokens of tool output intact and replacing older tool results with a lightweight placeholder. This preserves recent context while freeing enough space.</li>
+<li><strong>Triggers auto-compact</strong> — sends the (now smaller) conversation to the LLM for summarization.</li>
+<li><strong>Resumes the original request</strong> — after compaction, retries the user's original message against the compacted history.</li>
+</ol>
+<p>This happens transparently — the user sees a brief "Context window exceeded. Auto-compacting conversation..." notice, and the task continues without manual intervention.</p>
+<p>If recovery itself fails (e.g., the conversation is too large even after pruning), ECA falls back to displaying the error so the user can manually compact or start a new chat.</p>
 
 
 
@@ -1459,7 +1575,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 27, 2026 12:34:42 UTC">February 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 27, 2026 15:09:42 UTC">February 27, 2026</span>
   </span>
 
     
