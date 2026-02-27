@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.107.0
+
 - Fix home (~) expand for command paths in config
 - Add Context overflow recovery feature.
 
