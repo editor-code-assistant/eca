@@ -69,7 +69,12 @@
 
 (defn stringfy-tool-result [result]
   (reduce
-   #(str %1 (:text %2) "\n")
+   (fn [acc content]
+     (str acc
+          (case (:type content)
+            :image (format "[Image: %s]" (:media-type content))
+            (:text content))
+          "\n"))
    ""
    (-> result :output :contents)))
 

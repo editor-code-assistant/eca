@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support other than text type of tool responses in MCPs. #331
+
 ## 0.108.0
 
 - Add support for auto retry for http codes: 429, 500, 502, 503 and 529. #224

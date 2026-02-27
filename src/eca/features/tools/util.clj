@@ -125,10 +125,14 @@
   [contents]
   (reduce
    (fn [^StringBuilder sb content]
-     (when (= :text (:type content))
-       (.append sb ^String (:text content))
-       (.append sb "\n"))
-     sb)
+     (case (:type content)
+       :text (doto sb
+               (.append ^String (:text content))
+               (.append "\n"))
+       :image (doto sb
+                (.append (format "[Image: %s]" (:media-type content)))
+                (.append "\n"))
+       sb))
    (StringBuilder.)
    contents))
 

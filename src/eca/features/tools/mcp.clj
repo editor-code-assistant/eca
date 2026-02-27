@@ -21,11 +21,14 @@
    [io.modelcontextprotocol.client.transport.customizer McpSyncHttpClientRequestCustomizer]
    [io.modelcontextprotocol.json McpJsonMapper]
    [io.modelcontextprotocol.spec
+    McpSchema$BlobResourceContents
     McpSchema$CallToolRequest
     McpSchema$CallToolResult
     McpSchema$ClientCapabilities
     McpSchema$Content
+    McpSchema$EmbeddedResource
     McpSchema$GetPromptRequest
+    McpSchema$ImageContent
     McpSchema$LoggingMessageNotification
     McpSchema$Prompt
     McpSchema$PromptArgument
@@ -169,7 +172,22 @@
   (case (.type content-client)
     "text" {:type :text
             :text (.text ^McpSchema$TextContent content-client)}
-    nil))
+    "image" {:type :image
+             :media-type (.mimeType ^McpSchema$ImageContent content-client)
+             :base64 (.data ^McpSchema$ImageContent content-client)}
+    "resource" (let [resource (.resource ^McpSchema$EmbeddedResource content-client)]
+                 (cond
+                   (instance? McpSchema$TextResourceContents resource)
+                   {:type :text
+                    :text (.text ^McpSchema$TextResourceContents resource)}
+
+                   (instance? McpSchema$BlobResourceContents resource)
+                   {:type :text
+                    :text (format "[Binary resource: %s]" (.uri ^McpSchema$BlobResourceContents resource))}
+
+                   :else nil))
+    (do (logger/warn logger-tag (format "Unsupported MCP content type: %s" (.type content-client)))
+        nil)))
 
 (defn ^:private ->resource-content [^McpSchema$ResourceContents resource-content-client]
   (cond
@@ -405,7 +423,7 @@
                                            (.callTool ^McpSyncClient mcp-client
                                                       (McpSchema$CallToolRequest. name arguments)))]
     {:error (.isError result)
-     :contents (mapv ->content (.content result))}))
+     :contents (into [] (keep ->content) (.content result))}))
 
 (defn all-prompts [db]
   (into []
