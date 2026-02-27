@@ -17,7 +17,7 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
-   [eca.llm-providers.errors :as provider-errors]
+   [eca.llm-providers.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -1296,6 +1296,18 @@
                 :tools all-tools
                 :provider-auth provider-auth
                 :variant (:variant chat-ctx)
+                :cancelled? (fn [] (identical? :stopping (get-in @db* [:chats chat-id :status])))
+                :on-retry (fn [{:keys [attempt max-retries delay-ms error-data]}]
+                            (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
+                                  reason (case error-type
+                                           :rate-limited "Rate limited"
+                                           :overloaded "Provider overloaded"
+                                           "Transient error")]
+                              (send-content! chat-ctx :system
+                                             {:type :progress
+                                              :state :running
+                                              :text (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
+                                                            reason (quot delay-ms 1000) attempt max-retries)})))
                 :on-first-response-received (fn [& _]
                                               (assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
@@ -1428,7 +1440,7 @@
                                                                                 {:name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")}))
                                              nil)))
                 :on-error (fn [{:keys [message exception] :as error-data}]
-                            (let [{error-type :error/type} (provider-errors/classify-error error-data)
+                            (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   compacting? (or (get-in db [:chats chat-id :compacting?])
                                                   (get-in db [:chats chat-id :auto-compacting?]))]

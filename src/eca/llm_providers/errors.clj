@@ -2,8 +2,7 @@
   "Classifies LLM provider errors into semantic types for structured error handling.
 
    Supports context overflow, rate limiting, authentication, and overload detection
-   across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.)."
-)
+   across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.).")
 
 (set! *warn-on-reflection* true)
 
@@ -43,14 +42,14 @@
     (= 429 status)
     {:error/type :rate-limited}
 
-    (and (#{500 503 529} status)
+    (and (#{500 502 503 529} status)
          (matches-any-pattern? body rate-limited-patterns))
     {:error/type :rate-limited}
 
     (#{401 403} status)
     {:error/type :auth}
 
-    (#{500 503 529} status)
+    (#{500 502 503 529} status)
     {:error/type :overloaded}
 
     :else nil))
@@ -91,3 +90,13 @@
   "Returns true if the error is a context window overflow."
   [error-data]
   (= :context-overflow (:error/type (classify-error error-data))))
+
+(def ^:private retryable-error-types
+  #{:rate-limited :overloaded})
+
+(defn retryable?
+  "Returns true if the error is transient and the request can be retried
+   (rate-limited or provider overloaded)."
+  [error-data]
+  (contains? retryable-error-types
+             (:error/type (classify-error error-data))))

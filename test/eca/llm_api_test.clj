@@ -158,3 +158,183 @@
                   :uri "/v1/chat/completions"}
                  (select-keys @req* [:method :uri])))
           (is (= "hi" (:output-text response))))))))
+
+(deftest retry-delay-ms-test
+  ;; Formula: (quot capped 2) + rand(0, capped)
+  ;; Range: [capped/2, capped/2 + capped) = [capped/2, capped*3/2)
+  (testing "exponential backoff with jitter stays within bounds"
+    (dotimes [_ 50]
+      (let [d0 (#'llm-api/retry-delay-ms 0)]
+        (is (<= 1000 d0 3000) "attempt 0: base 2s")))
+    (dotimes [_ 50]
+      (let [d1 (#'llm-api/retry-delay-ms 1)]
+        (is (<= 2000 d1 6000) "attempt 1: base 4s")))
+    (dotimes [_ 50]
+      (let [d2 (#'llm-api/retry-delay-ms 2)]
+        (is (<= 4000 d2 12000) "attempt 2: base 8s"))))
+
+  (testing "capped at max-delay-ms for high attempts"
+    (dotimes [_ 50]
+      (let [d9 (#'llm-api/retry-delay-ms 9)]
+        (is (<= 30000 d9 90000) "attempt 9: capped at 60s base")))))
+
+(deftest sleep-with-cancel-test
+  (testing "completes when not cancelled"
+    (is (true? (#'llm-api/sleep-with-cancel 50 (constantly false)))))
+
+  (testing "returns false when already cancelled"
+    (is (false? (#'llm-api/sleep-with-cancel 1000 (constantly true)))))
+
+  (testing "returns false when cancelled during sleep"
+    (let [cancelled* (atom false)
+          result (future (#'llm-api/sleep-with-cancel 5000 #(deref cancelled*)))]
+      (Thread/sleep 200)
+      (reset! cancelled* true)
+      (is (false? (deref result 2000 :timeout))))))
+
+(defn- make-prompt-opts
+  "Creates minimal sync-or-async-prompt! opts for testing retry behavior.
+   Pass :stream false in overrides for sync mode, defaults to async (stream true)."
+  [overrides]
+  (let [stream (get overrides :stream true)]
+    (merge {:provider "anthropic"
+            :model "claude-sonnet-4-6"
+            :model-capabilities {:tools false :reason? false :web-search false}
+            :instructions "test"
+            :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+            :past-messages []
+            :tools []
+            :config {:providers {"anthropic" {:key "test-key"
+                                              :url "http://test"
+                                              :models {"claude-sonnet-4-6" {:extraPayload {:stream stream}}}}}}
+            :provider-auth {:api-key "test-key"}}
+           (dissoc overrides :stream))))
+
+(deftest sync-retry-on-rate-limited-test
+  (testing "retries on 429 and succeeds on subsequent attempt"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [_opts]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              {:error {:status 429
+                                                       :body "Rate limit exceeded"
+                                                       :message "LLM response status: 429"}}
+                                              {:output-text "success"
+                                               :usage {:input-tokens 10 :output-tokens 5}})))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 2 @attempt*))
+      (is (= 1 (count @retry-events*)))
+      (is (= 1 (:attempt (first @retry-events*))))
+      (is (false? @on-error-called*)))))
+
+(deftest sync-no-retry-on-auth-error-test
+  (testing "does not retry on auth errors (401)"
+    (let [attempt* (atom 0)
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (swap! attempt* inc)
+                                          {:error {:status 401
+                                                   :body "Unauthorized"
+                                                   :message "LLM response status: 401"}})
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 1 @attempt*))
+      (is (true? @on-error-called*)))))
+
+(deftest sync-retry-exhaustion-test
+  (testing "calls on-error after all retries exhausted"
+    (let [attempt* (atom 0)
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (swap! attempt* inc)
+                                          {:error {:status 429
+                                                   :body "Rate limit exceeded"
+                                                   :message "LLM response status: 429"}})
+                    eca.llm-api/default-max-retries 3
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 4 @attempt*) "1 initial + 3 retries")
+      (is (true? @on-error-called*)))))
+
+(deftest sync-retry-cancelled-test
+  (testing "stops retrying when cancelled"
+    (let [attempt* (atom 0)
+          on-error-called* (atom false)
+          cancelled* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (when (= 2 attempt)
+                                              (reset! cancelled* true))
+                                            {:error {:status 429
+                                                     :body "Rate limit exceeded"
+                                                     :message "LLM response status: 429"}}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :cancelled? #(deref cancelled*)
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (<= @attempt* 3) "should stop after cancellation")
+      (is (true? @on-error-called*)))))
+
+(deftest async-retry-on-overloaded-test
+  (testing "retries async streaming on 503 overloaded and succeeds"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          received-text* (atom "")
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error]}]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              (on-error {:status 503
+                                                         :body "Service temporarily unavailable"
+                                                         :message "LLM response status: 503"})
+                                              (do
+                                                (on-message-received {:type :text :text "hello"})
+                                                (on-message-received {:type :finish :finish-reason "stop"})))))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received (fn [{:keys [type text]}]
+                                  (when (= :text type)
+                                    (swap! received-text* str text)))})))
+      (is (= 2 @attempt*))
+      (is (= 1 (count @retry-events*)))
+      (is (false? @on-error-called*))
+      (is (= "hello" @received-text*)))))
+
+(deftest async-no-retry-on-context-overflow-test
+  (testing "does not retry on context overflow"
+    (let [attempt* (atom 0)
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-error]}]
+                                          (swap! attempt* inc)
+                                          (on-error {:status 400
+                                                     :body "prompt is too long: 273112 tokens > 200000 maximum"
+                                                     :message "LLM response status: 400"}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 1 @attempt*))
+      (is (true? @on-error-called*)))))

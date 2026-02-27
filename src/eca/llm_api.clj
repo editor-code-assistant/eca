@@ -7,6 +7,7 @@
    [eca.llm-providers.azure]
    [eca.llm-providers.copilot]
    [eca.llm-providers.deepseek]
+   [eca.llm-providers.errors :as llm-providers.errors]
    [eca.llm-providers.google]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
@@ -22,6 +23,38 @@
 (def ^:private logger-tag "[LLM-API]")
 
 (def no-available-model-error-msg "No available model found. Configure at least one provider model.")
+
+(def ^:private default-max-retries 10)
+(def ^:private default-base-delay-ms 2000)
+(def ^:private default-backoff-multiplier 2)
+(def ^:private max-delay-ms 60000)
+(def ^:private cancel-check-interval-ms 100)
+
+(defn ^:private retry-delay-ms
+  "Computes exponential backoff delay with jitter for the given attempt (0-based).
+   Capped at `max-delay-ms` to avoid excessively long waits."
+  [attempt]
+  (let [base (long (* default-base-delay-ms (Math/pow default-backoff-multiplier (long attempt))))
+        capped (min base max-delay-ms)
+        jitter (long (* capped (rand)))]
+    (+ (quot capped 2) jitter)))
+
+(defn ^:private sleep-with-cancel
+  "Sleeps for `duration-ms`, checking `cancelled-fn?` every 100ms.
+   Returns true if sleep completed, false if cancelled."
+  [duration-ms cancelled-fn?]
+  (loop [remaining duration-ms]
+    (cond
+      (cancelled-fn?)
+      false
+
+      (<= remaining 0)
+      true
+
+      :else
+      (let [chunk (min remaining cancel-check-interval-ms)]
+        (Thread/sleep (long chunk))
+        (recur (long (- remaining chunk)))))))
 
 (defn ^:private first-available-model
   "Returns deterministic first available model from DB."
@@ -290,7 +323,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth variant]
+           past-messages tools provider-auth variant cancelled? on-retry]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -298,7 +331,8 @@
          on-tools-called identity
          on-reason identity
          on-usage-updated identity
-         on-server-web-search identity}}]
+         on-server-web-search identity
+         cancelled? (constantly false)}}]
   (let [first-response-received* (atom false)
         emit-first-message-fn (fn [& args]
                                 (when-not @first-response-received*
@@ -314,12 +348,35 @@
                                        (apply emit-first-message-fn args)
                                        (apply on-prepare-tool-call args))
         on-server-web-search-wrapper (fn [& args]
-                                        (apply emit-first-message-fn args)
-                                        (apply on-server-web-search args))
+                                       (apply emit-first-message-fn args)
+                                       (apply on-server-web-search args))
         on-error-wrapper (fn [{:keys [exception] :as args}]
                            (when-not (:silent? (ex-data exception))
                              (logger/error args)
                              (on-error args)))
+        maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
+                      (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)]
+                        (if (and (contains? #{:rate-limited :overloaded} error-type)
+                                 (< attempt default-max-retries)
+                                 (not (cancelled?)))
+                          (let [delay-ms (retry-delay-ms attempt)]
+                            (logger/info logger-tag
+                                         (format "Retryable error (attempt %d/%d), retrying in %ds"
+                                                 (inc attempt) default-max-retries (quot delay-ms 1000))
+                                         {:error-type error-type
+                                          :status (:status error-data)})
+                            (when on-retry
+                              (try
+                                (on-retry {:attempt (inc attempt)
+                                           :max-retries default-max-retries
+                                           :delay-ms delay-ms
+                                           :error-data error-data})
+                                (catch Exception e
+                                  (logger/warn logger-tag "on-retry callback failed" {:exception e}))))
+                            (if (sleep-with-cancel delay-ms cancelled?)
+                              (retry-prompt-fn (inc attempt))
+                              (on-give-up error-data)))
+                          (on-give-up error-data))))
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model %))
@@ -329,56 +386,65 @@
                   (:stream extra-payload)
                   true)]
     (if (not stream?)
-      (loop [result (prompt!
-                     {:sync? true
-                      :provider provider
-                      :model model
-                      :model-capabilities model-capabilities
-                      :instructions instructions
-                      :tools tools
-                      :provider-auth provider-auth
-                      :past-messages past-messages
-                      :user-messages user-messages
-                      :variant variant
-                      :on-error on-error-wrapper
-                      :config config})]
-        (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
-          (if error
-            (on-error-wrapper error)
-            (do
-              (when reason-text
-                (on-reason-wrapper {:status :started :id reason-id})
-                (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
-                (on-reason-wrapper {:status :finished
-                                    :id reason-id
-                                    :delta-reasoning? (some? reasoning-content)}))
-              (on-message-received-wrapper {:type :text :text output-text})
-              (some-> usage (on-usage-updated))
-              (if-let [new-result (when (seq tools-to-call)
-                                    (doseq [tool-to-call tools-to-call]
-                                      (on-prepare-tool-call tool-to-call))
-                                    (call-tools-fn on-tools-called))]
-                (recur new-result)
-                (on-message-received-wrapper {:type :finish :finish-reason "stop"}))))))
-      (prompt!
-       {:sync? false
-        :provider provider
-        :model model
-        :model-capabilities model-capabilities
-        :instructions instructions
-        :tools tools
-        :provider-auth provider-auth
-        :past-messages past-messages
-        :user-messages user-messages
-        :variant variant
-        :on-message-received on-message-received-wrapper
-        :on-prepare-tool-call on-prepare-tool-call-wrapper
-        :on-tools-called on-tools-called
-        :on-usage-updated on-usage-updated
-        :on-server-web-search on-server-web-search-wrapper
-        :on-reason on-reason-wrapper
-        :on-error on-error-wrapper
-        :config config}))))
+      (let [sync-prompt-with-retry*
+            (fn sync-prompt-with-retry [attempt]
+              (loop [result (prompt!
+                             {:sync? true
+                              :provider provider
+                              :model model
+                              :model-capabilities model-capabilities
+                              :instructions instructions
+                              :tools tools
+                              :provider-auth provider-auth
+                              :past-messages past-messages
+                              :user-messages user-messages
+                              :variant variant
+                              :on-error on-error-wrapper
+                              :config config})]
+                (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
+                  (if error
+                    (maybe-retry error attempt on-error-wrapper sync-prompt-with-retry)
+                    (do
+                      (when reason-text
+                        (on-reason-wrapper {:status :started :id reason-id})
+                        (on-reason-wrapper {:status :thinking :id reason-id :text reason-text})
+                        (on-reason-wrapper {:status :finished
+                                            :id reason-id
+                                            :delta-reasoning? (some? reasoning-content)}))
+                      (on-message-received-wrapper {:type :text :text output-text})
+                      (some-> usage (on-usage-updated))
+                      (if-let [new-result (when (seq tools-to-call)
+                                            (doseq [tool-to-call tools-to-call]
+                                              (on-prepare-tool-call tool-to-call))
+                                            (call-tools-fn on-tools-called))]
+                        (recur new-result)
+                        (on-message-received-wrapper {:type :finish :finish-reason "stop"})))))))]
+        (sync-prompt-with-retry* 0))
+      (let [async-prompt-with-retry*
+            (fn async-prompt-with-retry [attempt]
+              (prompt!
+               {:sync? false
+                :provider provider
+                :model model
+                :model-capabilities model-capabilities
+                :instructions instructions
+                :tools tools
+                :provider-auth provider-auth
+                :past-messages past-messages
+                :user-messages user-messages
+                :variant variant
+                :on-message-received on-message-received-wrapper
+                :on-prepare-tool-call on-prepare-tool-call-wrapper
+                :on-tools-called on-tools-called
+                :on-usage-updated on-usage-updated
+                :on-server-web-search on-server-web-search-wrapper
+                :on-reason on-reason-wrapper
+                :on-error (fn [error-data]
+                            (if (:silent? (ex-data (:exception error-data)))
+                              (on-error-wrapper error-data)
+                              (maybe-retry error-data attempt on-error-wrapper async-prompt-with-retry)))
+                :config config}))]
+        (async-prompt-with-retry* 0)))))
 
 (defn sync-prompt!
   [{:keys [provider model model-capabilities instructions
