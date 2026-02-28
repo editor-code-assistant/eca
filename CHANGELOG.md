@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improve /login text.
+- Add support to workspace folders change via git worktree via `workspace/didChangeWorkspaceFolders`.
 
 ## 0.108.1
 

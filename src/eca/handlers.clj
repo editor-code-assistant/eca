@@ -10,6 +10,7 @@
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
+   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
@@ -112,6 +113,16 @@
                                {}
                                @db*
                                config))
+
+(defn workspace-did-change-folders [{:keys [db*]} params]
+  (let [{:keys [added removed]} (:event params)
+        removed-uris (into #{} (map :uri) removed)]
+    (swap! db* update :workspace-folders
+           (fn [folders]
+             (let [filtered (vec (remove #(contains? removed-uris (:uri %)) folders))]
+               (into filtered added))))
+    (logger/info "[handlers]" "Workspace folders updated:"
+                 (shared/workspaces-as-str @db*))))
 
 (defn shutdown [{:keys [db* config metrics]}]
   (metrics/task metrics :eca/shutdown

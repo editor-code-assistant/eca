@@ -44,6 +44,9 @@
 (defmethod jsonrpc.server/receive-notification "exit" [_ {:keys [server]} _params]
   (exit server))
 
+(defmethod jsonrpc.server/receive-notification "workspace/didChangeWorkspaceFolders" [_ components params]
+  (handlers/workspace-did-change-folders (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
   (handlers/chat-prompt (with-config components) params))
 
