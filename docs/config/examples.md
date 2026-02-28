@@ -2,7 +2,7 @@
 description: "ECA configuration examples: real-world setups for providers, custom tools, MCP servers, hooks, agents, and more."
 ---
 
-# Examples
+# User Examples
 
 ECA config examples showing the power of its features and flexibility
 

@@ -26,7 +26,7 @@ nav:
     - Context Management: config/context-management.md
     - Metrics: config/metrics.md
     - Network / Enterprise: config/network.md
-    - Examples: config/examples.md
+    - User Examples: config/examples.md
   - Protocol: protocol.md
   - Troubleshooting: troubleshooting.md
   - Development: development.md
