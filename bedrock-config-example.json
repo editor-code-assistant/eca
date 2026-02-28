@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "bedrock": {
+      "api": "bedrock",
+      "key": "${env:BEDROCK_API_KEY}",
+      "url": "https://api.company.com/api/cloud/api-management/ai-gateway/1.0/model/",
+      "region": "us-east-1",
+      "models": {
+        "claude-3-sonnet": {
+          "modelName": "anthropic.claude-3-sonnet-20240229-v1:0"
+        },
+        "claude-3-opus": {
+          "modelName": "anthropic.claude-3-opus-20240229-v1:0"
+        },
+        "claude-3-haiku": {
+          "modelName": "anthropic.claude-3-haiku-20240307-v1:0",
+          "extraPayload": {
+            "stream": false,
+            "temperature": 0.3,
+            "top_k": 250
+          }
+        }
+      }
+    }
+  }
+}

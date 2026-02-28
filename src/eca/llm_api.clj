@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   [eca.llm-providers.aws-bedrock]
    [eca.llm-providers.azure]
    [eca.llm-providers.copilot]
    [eca.llm-providers.deepseek]
@@ -131,6 +132,8 @@
                          :handler llm-providers.anthropic/chat!}
             "openai-chat" {:api :openai-chat
                            :handler llm-providers.openai-chat/chat-completion!}
+            "bedrock" {:api :bedrock
+                       :handler eca.llm-providers.aws-bedrock/chat!}
             nil)))
 
 (def ^:private reasoning-keys-by-api
