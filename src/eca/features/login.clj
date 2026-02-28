@@ -4,7 +4,8 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.messenger :as messenger]
-   [eca.models :as models]))
+   [eca.models :as models]
+   [eca.shared :refer [multi-str]]))
 
 (defmulti login-step (fn [ctx] [(:provider ctx) (:step ctx)]))
 
@@ -19,11 +20,14 @@
       (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
           (swap! db* assoc-in [:auth provider] {:step :login/start})
           (login-step (assoc ctx :provider provider)))
-      (send-msg! (reduce
-                  (fn [s provider]
-                    (str s "- " provider "\n"))
-                  "Inform the provider:\n\n"
-                  providers)))))
+      (send-msg! (multi-str
+                   (reduce
+                     (fn [s provider]
+                       (str s "- " provider "\n"))
+                     "Inform the provider:\n\n"
+                     providers)
+                   ""
+                   "For other providers, configure manually in your ECA config.")))))
 
 (defn handle-step [{:keys [message chat-id]} db* messenger config metrics]
   (let [provider (get-in @db* [:chats chat-id :login-provider])

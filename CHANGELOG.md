@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve /login text.
+
 ## 0.108.1
 
 - Support other than text type of tool responses in MCPs. #331

@@ -297,7 +297,10 @@
                  {:chat-id chat-id
                   :role "system"
                   :content {:type :text
-                            :text "Login started, type 'cancel' anytime to exit login."}})
+                            :text (multi-str
+                                   "Login started, type 'cancel' anytime to exit login."
+                                   ""
+                                   "Note: Login should be used to authenticate via oauth (subs) on some providers or auto configure ECA config with a provider API key.")}})
                 (f.login/handle-step {:message (or (first args) "")
                                       :chat-id chat-id}
                                      db*
