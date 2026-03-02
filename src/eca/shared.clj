@@ -350,6 +350,21 @@
       :content (merge {:type :usage}
                       usage)})))
 
+(defn normalize-code-result
+  "Normalize code removing any markdown wrapper"
+  [code]
+  (or
+   ;; Triple backticks with optional language label
+   (when-let [[_ inner] (re-matches #"(?s)^\s*```[^\r\n]*\r?\n(.*?)\r?\n?```\s*$" code)]
+     (string/trim inner))
+   ;; Single backticks wrapping the whole content
+   (when-let [[_ inner] (re-matches #"(?s)^\s*`(.*?)`\s*$" code)]
+     (string/trim inner))
+   ;; Fallback: extract first fenced block anywhere in the string
+   (when-let [[_ inner] (re-find #"(?s)```[^\r\n]*\r?\n(.*?)\r?\n?```" code)]
+     (string/trim inner))
+   code))
+
 (defn full-model->provider+model
   [full-model]
   (string/split full-model #"/" 2))

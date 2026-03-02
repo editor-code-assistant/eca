@@ -160,6 +160,27 @@
   (testing "returns nil for non-string non-keyword input"
     (is (nil? (shared/normalize-model-name 42)))))
 
+(deftest normalize-code-result-test
+  (testing "triple backticks with language label"
+    (is (= "(+ 1 2)\n(foo)"
+           (shared/normalize-code-result "```clojure\n(+ 1 2)\n(foo)\n```"))))
+
+  (testing "triple backticks without language label"
+    (is (= "(+ 1 2)\n(foo)"
+           (shared/normalize-code-result "```\n(+ 1 2)\n(foo)\n```"))))
+
+  (testing "single backticks wrapping the whole content (even multiline)"
+    (is (= "(+ 1 2)\n(foo)"
+           (shared/normalize-code-result "`(+ 1 2)\n(foo)`"))))
+
+  (testing "no fences: return as-is"
+    (is (= "(inc x)"
+           (shared/normalize-code-result "(inc x)"))))
+
+  (testing "preserve leading spaces when no fences"
+    (is (= "    (println \"indented\")"
+           (shared/normalize-code-result "    (println \"indented\")")))))
+
 (deftest normalize-api-url-test
   (testing "trims and removes trailing slash"
     (is (= "https://api.example.com/v1"

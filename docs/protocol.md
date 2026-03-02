@@ -1694,6 +1694,16 @@ interface RewriteErrorContent {
     message: string;
 }
 
+interface RewriteReplaceContent {
+    type: 'replace';
+
+    /**
+     * The full normalized text that should replace the accumulated streamed text.
+     * Sent before 'finished' when markdown fences were detected and stripped.
+     */
+    text: string;
+}
+
 interface RewriteFinishedContent {
     type: 'finished';
 
@@ -1707,6 +1717,7 @@ type RewriteContent =
     RewriteStartedContent
     | RewriteReasoningContent
     | RewriteTextContent
+    | RewriteReplaceContent
     | RewriteErrorContent
     | RewriteFinishedContent;
              

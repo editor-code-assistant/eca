@@ -91,6 +91,61 @@
       (is (= {:max-output-tokens 1024}
              (:model-capabilities @api-opts*))))))
 
+(deftest prompt-strips-markdown-fences-test
+  (testing "Sends replace content when LLM response contains markdown fences"
+    (h/reset-components!)
+    (with-redefs [llm-api/sync-or-async-prompt!
+                  (fn [{:keys [on-first-response-received on-message-received]}]
+                    (on-first-response-received {:type :text})
+                    (on-message-received {:type :text :text "```clojure\n"})
+                    (on-message-received {:type :text :text "(+ 1 2)"})
+                    (on-message-received {:type :text :text "\n```"})
+                    (on-message-received {:type :finish}))
+                  f.prompt/build-rewrite-instructions (constantly "INSTR")
+                  f.login/maybe-renew-auth-token! (fn [& _] nil)
+                  llm-api/default-model (constantly "openai/gpt-4.1")]
+      (h/config! {:env "test"})
+      (f.rewrite/prompt {:id "rw-fence"
+                         :prompt "Rewrite this"
+                         :text "(+ 1 1)"
+                         :range {:start {:line 1 :character 0}
+                                 :end {:line 1 :character 7}}}
+                        (h/db*) (h/config) (h/messenger) (h/metrics))
+      (let [msgs (get (h/messages) :rewrite-content-received)]
+        (is (= 6 (count msgs)))
+        (is (match? [{:content {:type :started}}
+                     {:content {:type :text :text "```clojure\n"}}
+                     {:content {:type :text :text "(+ 1 2)"}}
+                     {:content {:type :text :text "\n```"}}
+                     {:content {:type :replace :text "(+ 1 2)"}}
+                     {:content {:type :finished :total-time-ms number?}}]
+                    msgs))))))
+
+(deftest prompt-no-replace-when-no-fences-test
+  (testing "Does not send replace content when LLM response has no markdown fences"
+    (h/reset-components!)
+    (with-redefs [llm-api/sync-or-async-prompt!
+                  (fn [{:keys [on-first-response-received on-message-received]}]
+                    (on-first-response-received {:type :text})
+                    (on-message-received {:type :text :text "(+ 1 2)"})
+                    (on-message-received {:type :finish}))
+                  f.prompt/build-rewrite-instructions (constantly "INSTR")
+                  f.login/maybe-renew-auth-token! (fn [& _] nil)
+                  llm-api/default-model (constantly "openai/gpt-4.1")]
+      (h/config! {:env "test"})
+      (f.rewrite/prompt {:id "rw-no-fence"
+                         :prompt "Rewrite this"
+                         :text "(+ 1 1)"
+                         :range {:start {:line 1 :character 0}
+                                 :end {:line 1 :character 7}}}
+                        (h/db*) (h/config) (h/messenger) (h/metrics))
+      (let [msgs (get (h/messages) :rewrite-content-received)]
+        (is (= 3 (count msgs)))
+        (is (match? [{:content {:type :started}}
+                     {:content {:type :text :text "(+ 1 2)"}}
+                     {:content {:type :finished :total-time-ms number?}}]
+                    msgs))))))
+
 (deftest prompt-default-model-and-auth-renew-test
   (testing "Falls back to default model when rewrite.model not set and calls auth renew with provider"
     (h/reset-components!)

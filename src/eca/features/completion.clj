@@ -29,20 +29,7 @@
     (->> (assoc lines line-idx updated-line)
          (string/join "\n"))))
 
-(defn ^:private normalize-code-result
-  "Normalize code removing any markdown wrapper"
-  [code]
-  (or
-   ;; Triple backticks with optional language label
-   (when-let [[_ inner] (re-matches #"(?s)^\s*```[^\r\n]*\r?\n(.*?)\r?\n?```\s*$" code)]
-     (string/trim inner))
-   ;; Single backticks wrapping the whole content
-   (when-let [[_ inner] (re-matches #"(?s)^\s*`(.*?)`\s*$" code)]
-     (string/trim inner))
-   ;; Fallback: extract first fenced block anywhere in the string
-   (when-let [[_ inner] (re-find #"(?s)```[^\r\n]*\r?\n(.*?)\r?\n?```" code)]
-     (string/trim inner))
-   code))
+
 
 (defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
   (let [full-model (get-in config [:completion :model])
@@ -94,7 +81,7 @@
                :message "No suggestions found"}}
 
       :else
-      {:items [{:text (normalize-code-result output-text)
+      {:items [{:text (shared/normalize-code-result output-text)
                 :doc-version doc-version
                 :range {:start {:line line :character character}
                         :end {:line line :character character}}}]})))
