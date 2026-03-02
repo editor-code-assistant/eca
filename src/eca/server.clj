@@ -71,6 +71,9 @@
 (defmethod jsonrpc.server/receive-request "chat/delete" [_ components params]
   (handlers/chat-delete (with-config components) params))
 
+(defmethod jsonrpc.server/receive-request "chat/clear" [_ components params]
+  (handlers/chat-clear (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "chat/rollback" [_ components params]
   (handlers/chat-rollback (with-config components) params))
 

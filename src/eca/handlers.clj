@@ -176,6 +176,11 @@
     (f.chat/delete-chat params db* config metrics)
     {}))
 
+(defn chat-clear [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-clear
+    (f.chat/clear-chat params db* metrics)
+    {}))
+
 (defn chat-rollback [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-rollback
     (f.chat/rollback-chat params db* messenger)))

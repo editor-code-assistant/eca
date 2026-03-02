@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `chat/clear` message.
+
 ## 0.109.1
 
 - Strip markdown code fences from rewrite results via new `rewrite/contentReceived` `replace` content type. #336

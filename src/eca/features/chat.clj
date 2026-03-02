@@ -1816,6 +1816,17 @@
   ;; Save updated cache (without this chat)
   (db/update-workspaces-cache! @db* metrics))
 
+(defn clear-chat
+  "Clear specific aspects of a chat. Currently supports clearing :messages."
+  [{:keys [chat-id messages]} db* metrics]
+  (when (get-in @db* [:chats chat-id])
+    (swap! db* update-in [:chats chat-id]
+           (fn [chat]
+             (cond-> chat
+               messages (-> (assoc :messages [])
+                            (dissoc :tool-calls)))))
+    (db/update-workspaces-cache! @db* metrics)))
+
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."

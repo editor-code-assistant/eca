@@ -1373,6 +1373,37 @@ _Response:_
 interface ChatRollbackResponse {}
 ```
 
+### Chat clear (↩️)
+
+A client request to clear specific aspects of an existing chat while keeping the chat entity intact.
+Unlike `chat/delete`, this preserves the chat identity, metadata and any features coupled to it.
+After response, clients should clear only the relevant parts of the chat UI.
+
+_Request:_
+
+* method: `chat/clear`
+* params: `ChatClearParams` defined as follows:
+
+```typescript
+interface ChatClearParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * Whether to clear the messages and tool calls of the chat.
+     */
+    messages?: boolean;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatClearResponse {}
+```
+
 ### Chat cleared (⬅️)
 
 A server notification to clear a chat UI, currently supporting removing only messages of the chat.
