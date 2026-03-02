@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.109.2
+
 - Add `chat/clear` message.
 
 ## 0.109.1
