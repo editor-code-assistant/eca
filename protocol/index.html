@@ -1218,6 +1218,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-clear" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat clear (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-cleared" class="md-nav__link">
     <span class="md-ellipsis">
       Chat cleared (⬅️)
@@ -1666,6 +1675,15 @@
   <a href="#chat-rollback" class="md-nav__link">
     <span class="md-ellipsis">
       Chat rollback (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-clear" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat clear (↩️)
     </span>
   </a>
   
@@ -3146,6 +3164,30 @@ with <code>chat/contentReceived</code> with the kept messages.</p>
 <p><em>Response:</em></p>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatRollbackResponse</span><span class="w"> </span><span class="p">{}</span>
 </code></pre></div>
+<h3 id="chat-clear">Chat clear (↩️)<a class="headerlink" href="#chat-clear" title="Permanent link">#</a></h3>
+<p>A client request to clear specific aspects of an existing chat while keeping the chat entity intact.
+Unlike <code>chat/delete</code>, this preserves the chat identity, metadata and any features coupled to it.
+After response, clients should clear only the relevant parts of the chat UI.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/clear</code></li>
+<li>params: <code>ChatClearParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatClearParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether to clear the messages and tool calls of the chat.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">messages?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatClearResponse</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
 <h3 id="chat-cleared">Chat cleared (⬅️)<a class="headerlink" href="#chat-cleared" title="Permanent link">#</a></h3>
 <p>A server notification to clear a chat UI, currently supporting removing only messages of the chat.</p>
 <p><em>Notification:</em> </p>
@@ -3655,7 +3697,7 @@ Updates its status via <code>tool/serverUpdated</code> notification.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 2, 2026 12:45:59 UTC">March 2, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 2, 2026 18:13:49 UTC">March 2, 2026</span>
   </span>
 
     
