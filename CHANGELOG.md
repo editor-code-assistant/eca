@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Todo tool #246
+
 ## 0.109.5
 
 - Fix clear messages to reset usage tokens as well.

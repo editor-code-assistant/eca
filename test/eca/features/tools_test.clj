@@ -34,6 +34,14 @@
                      :parameters some?
                      :origin :native}])
          (f.tools/all-tools "123" "code" {} {}))))
+
+  (testing "Subagent excludes spawn_agent and todo tools"
+    (let [db {:chats {"sub-1" {:subagent {:name "explorer"}}}}
+          tools (f.tools/all-tools "sub-1" "code" db {})
+          tool-names (set (map :name tools))]
+      (is (not (contains? tool-names "spawn_agent")))
+      (is (not (contains? tool-names "todo")))))
+
   (testing "Do not include disabled native tools"
     (is (match?
          (m/embeds [(m/mismatch {:name "directory_tree"})])

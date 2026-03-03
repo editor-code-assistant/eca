@@ -60,6 +60,14 @@
                         :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
                                     :content-id :string}]
+                        :todo {:goal :string
+                               :next-id :number
+                               :tasks [{:id :number
+                                        :content :string
+                                        :status (or :pending :in-progress :done)
+                                        :priority (or :high :medium :low)
+                                        :done-when (or :string nil)
+                                        :blocked-by #{:number}}]}
                         :tool-calls {"<tool-call-id>"
                                      {:status (or :initial :preparing :check-approval :waiting-approval
                                                   :execution-approved :executing :rejected :cleanup
