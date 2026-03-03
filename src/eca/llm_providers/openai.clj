@@ -100,7 +100,7 @@
             "tool_call" {:type "function_call"
                          :name (:full-name content)
                          :call_id (:id content)
-                         :arguments (json/generate-string (:arguments content))}
+                         :arguments (json/generate-string (or (:arguments content) {}))}
             "tool_call_output"
             {:type "function_call_output"
              :call_id (:id content)

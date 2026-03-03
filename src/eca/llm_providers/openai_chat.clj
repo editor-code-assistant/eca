@@ -168,7 +168,7 @@
                    :tool_calls [(cond-> {:id       tool-call-id
                                          :type     "function"
                                          :function {:name      (:full-name content)
-                                                    :arguments (json/generate-string (:arguments content))}}
+                                                    :arguments (json/generate-string (or (:arguments content) {}))}}
                                  ;; Preserve Google Gemini thought signatures if present
                                   (:external-id content)
                                   (assoc-in [:extra_content :google :thought_signature]

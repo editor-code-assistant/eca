@@ -146,6 +146,22 @@
           thinking-start-tag
           thinking-end-tag))))
 
+  (testing "Tool call transformation with nil arguments defaults to empty object"
+    (is (match?
+         {:role "assistant"
+          :tool_calls [{:id "call-123"
+                        :type "function"
+                        :function {:name "foo__diagnostics"
+                                   :arguments "{}"}}]}
+         (#'llm-providers.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "call-123"
+                     :full-name "foo__diagnostics"
+                     :arguments nil}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
   (testing "Tool call transformation prefers :llm-tool-call-id when present"
     (is (match?
          {:role "assistant"

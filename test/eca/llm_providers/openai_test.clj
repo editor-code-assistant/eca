@@ -150,4 +150,15 @@
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
            {:role "assistant" :content [{:type :text :text "I see /foo/bar"}]}]
+          true))))
+  (testing "With tool_call with nil arguments defaults to empty object"
+    (is (match?
+         [{:role "user" :content [{:type "input_text" :text "Check diagnostics"}]}
+          {:type "function_call"
+           :call_id "call-1"
+           :name "eca__editor_diagnostics"
+           :arguments "{}"}]
+         (#'llm-providers.openai/normalize-messages
+          [{:role "user" :content [{:type :text :text "Check diagnostics"}]}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__editor_diagnostics" :arguments nil}}]
           true)))))
