@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.109.3
+
 - Fix invalid request 400, for tool calls with nil arguments failing when using Anthropic models via GitHub Copilot. #340
 
 ## 0.109.2
