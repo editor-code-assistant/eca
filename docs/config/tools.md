@@ -196,21 +196,3 @@ Check some examples:
 Also check the `plan` agent which is safer.
 
 __The `manualApproval` setting was deprecated and replaced by the `approval` one without breaking changes__
-
-## File Reading
-
-You can configure the maximum number of lines returned by the `eca__read_file` tool:
-
-```javascript title="~/.config/eca/config.json"
-{
-  "toolCall": {
-    "readFile": {
-      "maxLines": 1000
-    }
-  }
-}
-```
-
-Default: `2000` lines
-
-

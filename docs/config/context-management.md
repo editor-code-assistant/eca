@@ -9,6 +9,7 @@ ECA manages the context window through three layers of defense, each addressing 
 1. **Output Truncation** — prevents individual tool outputs from being too large.
 2. **Auto-compact** — proactively summarizes the conversation before it reaches the model's limit.
 3. **Context overflow recovery** — reactively handles the case when the context exceeds the limit despite the above.
+4. **Max lines for read_file** — sets a max number of lines that when LLM tries to full read the file will use (default: 2000).
 
 ## Output Truncation
 
@@ -80,3 +81,20 @@ Instead of showing this error to the user, ECA automatically recovers:
 This happens transparently — the user sees a brief "Context window exceeded. Auto-compacting conversation..." notice, and the task continues without manual intervention.
 
 If recovery itself fails (e.g., the conversation is too large even after pruning), ECA falls back to displaying the error so the user can manually compact or start a new chat.
+
+## File Reading
+
+You can configure the maximum number of lines returned by the `eca__read_file` tool:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "toolCall": {
+    "readFile": {
+      "maxLines": 1000
+    }
+  }
+}
+```
+
+Default: `2000` lines
+
