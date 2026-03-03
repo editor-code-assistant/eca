@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Fix clear messages to reset last api used as well.
-- Avoid server stuck during initialize due to threads unavailable.
+- Avoid server stuck during initialize due to threads unavailable. #169
 
 ## 0.109.3
 
