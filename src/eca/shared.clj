@@ -171,14 +171,14 @@
                           (* output-tokens output-token-cost)))))))
 
 (defn usage-sumary [chat-id full-model db]
-  (let [last-input-tokens (or (get-in db [:chats chat-id :last-input-tokens]) 0)
-        last-output-tokens (or (get-in db [:chats chat-id :last-output-tokens]) 0)
-        last-input-cache-creation-tokens (or (get-in db [:chats chat-id :last-input-cache-creation-tokens]) 0)
-        last-input-cache-read-tokens (or (get-in db [:chats chat-id :last-input-cache-read-tokens]) 0)
-        total-input-tokens (or (get-in db [:chats chat-id :total-input-tokens]) 0)
-        total-input-cache-creation-tokens (or (get-in db [:chats chat-id :total-input-cache-creation-tokens]) 0)
-        total-input-cache-read-tokens (or (get-in db [:chats chat-id :total-input-cache-read-tokens]) 0)
-        total-output-tokens (or (get-in db [:chats chat-id :total-output-tokens]) 0)
+  (let [last-input-tokens (or (get-in db [:chats chat-id :usage :last-input-tokens]) 0)
+        last-output-tokens (or (get-in db [:chats chat-id :usage :last-output-tokens]) 0)
+        last-input-cache-creation-tokens (or (get-in db [:chats chat-id :usage :last-input-cache-creation-tokens]) 0)
+        last-input-cache-read-tokens (or (get-in db [:chats chat-id :usage :last-input-cache-read-tokens]) 0)
+        total-input-tokens (or (get-in db [:chats chat-id :usage :total-input-tokens]) 0)
+        total-input-cache-creation-tokens (or (get-in db [:chats chat-id :usage :total-input-cache-creation-tokens]) 0)
+        total-input-cache-read-tokens (or (get-in db [:chats chat-id :usage :total-input-cache-read-tokens]) 0)
+        total-output-tokens (or (get-in db [:chats chat-id :usage :total-output-tokens]) 0)
         model-capabilities (get-in db [:models full-model])]
     (assoc-some {:session-tokens (+ last-input-tokens
                                     last-input-cache-read-tokens
@@ -198,16 +198,16 @@
    full-model
    {:keys [chat-id db*]}]
   (when (and output-tokens input-tokens)
-    (swap! db* assoc-in [:chats chat-id :last-input-tokens] input-tokens)
-    (swap! db* assoc-in [:chats chat-id :last-output-tokens] output-tokens)
-    (swap! db* update-in [:chats chat-id :total-input-tokens] (fnil + 0) input-tokens)
-    (swap! db* update-in [:chats chat-id :total-output-tokens] (fnil + 0) output-tokens)
+    (swap! db* assoc-in [:chats chat-id :usage :last-input-tokens] input-tokens)
+    (swap! db* assoc-in [:chats chat-id :usage :last-output-tokens] output-tokens)
+    (swap! db* update-in [:chats chat-id :usage :total-input-tokens] (fnil + 0) input-tokens)
+    (swap! db* update-in [:chats chat-id :usage :total-output-tokens] (fnil + 0) output-tokens)
     (when input-cache-creation-tokens
-      (swap! db* assoc-in [:chats chat-id :last-input-cache-creation-tokens] input-cache-creation-tokens)
-      (swap! db* update-in [:chats chat-id :total-input-cache-creation-tokens] (fnil + 0) input-cache-creation-tokens))
+      (swap! db* assoc-in [:chats chat-id :usage :last-input-cache-creation-tokens] input-cache-creation-tokens)
+      (swap! db* update-in [:chats chat-id :usage :total-input-cache-creation-tokens] (fnil + 0) input-cache-creation-tokens))
     (when input-cache-read-tokens
-      (swap! db* assoc-in [:chats chat-id :last-input-cache-read-tokens] input-cache-read-tokens)
-      (swap! db* update-in [:chats chat-id :total-input-cache-read-tokens] (fnil + 0) input-cache-read-tokens))
+      (swap! db* assoc-in [:chats chat-id :usage :last-input-cache-read-tokens] input-cache-read-tokens)
+      (swap! db* update-in [:chats chat-id :usage :total-input-cache-read-tokens] (fnil + 0) input-cache-read-tokens))
     (usage-sumary chat-id full-model @db*)))
 
 (defn map->camel-cased-map [m]
@@ -326,14 +326,7 @@
                                                  (get-in db [:chats chat-id :last-summary]))}]}])))
 
   ;; Zero chat usage
-  (swap! db* assoc-in [:chats chat-id :last-input-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :last-output-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :last-input-cache-creation-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :last-input-cache-read-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :total-input-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :total-output-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :total-input-cache-creation-tokens] nil)
-  (swap! db* assoc-in [:chats chat-id :total-input-cache-read-tokens] nil)
+  (swap! db* update-in [:chats chat-id] dissoc :usage)
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id

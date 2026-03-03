@@ -1824,7 +1824,7 @@
            (fn [chat]
              (cond-> chat
                messages (-> (assoc :messages [])
-                            (dissoc :tool-calls :last-api)))))
+                            (dissoc :tool-calls :last-api :usage)))))
     (db/update-workspaces-cache! @db* metrics)))
 
 (defn rollback-chat

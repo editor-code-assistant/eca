@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix clear messages to reset usage tokens as well.
+
 ## 0.109.4
 
 - Fix clear messages to reset last api used as well.

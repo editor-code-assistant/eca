@@ -358,10 +358,10 @@
                       :chats {chat-id {:title (:title chat)
                                        :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
                                                          (:messages chat))}}})))
-      "costs" (let [total-input-tokens (get-in db [:chats chat-id :total-input-tokens] 0)
-                    total-input-cache-creation-tokens (get-in db [:chats chat-id :total-input-cache-creation-tokens] nil)
-                    total-input-cache-read-tokens (get-in db [:chats chat-id :total-input-cache-read-tokens] nil)
-                    total-output-tokens (get-in db [:chats chat-id :total-output-tokens] 0)
+      "costs" (let [total-input-tokens (get-in db [:chats chat-id :usage :total-input-tokens] 0)
+                    total-input-cache-creation-tokens (get-in db [:chats chat-id :usage :total-input-cache-creation-tokens] nil)
+                    total-input-cache-read-tokens (get-in db [:chats chat-id :usage :total-input-cache-read-tokens] nil)
+                    total-output-tokens (get-in db [:chats chat-id :usage :total-output-tokens] 0)
                     model-capabilities (get-in db [:models full-model])
                     text (multi-str (str "Total input tokens: " total-input-tokens)
                                     (when total-input-cache-creation-tokens
