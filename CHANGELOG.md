@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.109.4
+
 - Fix clear messages to reset last api used as well.
 - Avoid server stuck during initialize due to threads unavailable. #169
 
