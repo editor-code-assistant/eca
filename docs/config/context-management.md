@@ -4,7 +4,7 @@ description: "How ECA manages context window size: output truncation, auto-compa
 
 # Context window management
 
-ECA manages the context window through three layers of defense, each addressing a different stage of the problem:
+ECA manages the context window through four layers of defense, each addressing a different stage of the problem:
 
 1. **Output Truncation** — prevents individual tool outputs from being too large.
 2. **Auto-compact** — proactively summarizes the conversation before it reaches the model's limit.
