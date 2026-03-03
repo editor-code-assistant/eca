@@ -391,3 +391,115 @@ If you think your config is relevant to be shared for other people, [open a pull
         (str/upper-case \"test\")
         - Very large outputs   may be truncated
     ```
+
+??? quote "Agent orchestration, subagents, and reusable skills (@davidvujic)"
+    This example shows a Eca `config.json` that define the models, and
+
+    - AGENTS.md (human-readable definitions for agents, their responsibilities, and global guidance for use)
+    - agents/ (subagent configurations with task-specific instructions and expected outputs)
+    - skills/ (small, repeatable procedures that agents invoke to perform specialized work)
+
+    ```json title="config.json"
+    {
+      "defaultModel": "anthropic/claude-opus-4-6",
+      "providers": {
+        "anthropic": {
+          "keyRc": "api.anthropic.com",
+          "models": {
+            "claude-opus-4-6": {},
+            "anthropic/claude-sonnet-4-5": {}
+          }
+        },
+        "google": {
+          "keyRc": "generativelanguage.googleapis.com",
+          "models": {
+            "gemini-2.5-flash": {},
+            "gemini-3-flash-preview": {},
+            "gemini-3-pro-preview": {}
+          }
+        }
+      }
+    }
+    ```
+
+    ```markdown title="AGENTS.md"
+    # AGENTS.md
+
+    ## Review instructions
+    When the user asks for a code review / PR review / diff review, use the `code-review` subagent configured in `agents/code-review.md`.
+
+    ## Five Whys instructions
+    When the user asks for a 5 Whys analysis, use the `five-whys` subagent configured in `agents/five-whys.md`.
+
+    ## Changes summary instructions
+    When the user asks for a changes summary, use the `changes-summary` subagent configured in `agents/changes-summary.md`.
+
+    ## Pull Request instructions
+    When the user asks to make a pull request, use the `pull-request` subagent configured in `agents/pull-request.md`.
+
+    ## Planning instructions
+    When the user asks to plan an implementation or requests a step-by-step plan before coding, load the `plan` skill via `eca__skill` before writing the plan.
+
+    ## Implementation instructions
+    When the user asks to implement a plan, write code, refactor, or apply changes, use the `implement` subagent configured in `agents/implement.md`.
+    ```
+
+    ```markdown title="agents/implement.md"
+    ---
+    mode: subagent
+    description: Implement planned changes by editing code in the repo; uses functional-leaning, idiomatic style and lightweight data structures.
+    model: anthropic/claude-opus-4-6
+    ---
+
+    STYLE POLICY (REQUIRED):
+    Load the `fp-idiomatic-style` skill via `eca__skill` before writing or modifying any code.
+    All generated code MUST follow that policy.
+
+    WORKFLOW:
+    - Identify target files and exact edits needed.
+    - Make minimal, correct changes consistent with existing project conventions.
+    - Prefer functional-leaning, idiomatic solutions; avoid dataclasses/pydantic unless clearly justified.
+
+    OUTPUT:
+    - Provide exact code patches or file edits (as your usual workflow expects).
+    ```
+
+    ```markdown title="skills/fp-idiomatic-style/SKILL.md"
+    ---
+    name: "fp-idiomatic-style"
+    description: "Coding style policy for generated code: prefer idiomatic language conventions with a functional-leaning approach (pure-ish functions, composability), and prefer lightweight data structures over heavy schema/class abstractions unless clearly justified."
+    ---
+
+    # Functional-leaning, idiomatic coding style policy
+
+    Applies whenever you write new code OR propose code changes, in any language.
+
+    ## Priorities (in order)
+    1) Correctness and clarity first.
+    2) Idiomatic for the target language (e.g., Pythonic for Python, idiomatic TS for TypeScript).
+    3) Functional-leaning style when it fits naturally:
+       - explicit inputs/outputs
+       - minimize side effects and shared mutable state
+       - small composable functions
+       - declarative transformations over imperative loops where readable
+
+    ## Data modeling preference (important)
+    - Prefer lightweight structures for transient data over heavy class/schema abstractions.
+    - Only introduce richer types when clearly beneficial, e.g.:
+      - validation/invariants are required
+      - long-lived domain objects
+      - meaningful behavior/methods beyond data transport
+
+    ### Language examples
+    - **Python:** prefer `dict`/`Mapping`/tuples; avoid `dataclasses` or `pydantic` models unless justified.
+    - **TypeScript:** prefer plain objects, interfaces, or type aliases; avoid classes unless justified.
+    - **Other languages:** follow the same principle — reach for the lightest idiomatic container first.
+
+    ## Don't force FP purity
+    - Avoid clever chaining, excessive `map`/`filter`, or recursion if it reduces readability.
+    - Choose the most readable idiomatic solution, then make it functional-leaning where it remains clear.
+
+    ## When editing existing code
+    - Prefer the smallest change that satisfies requirements.
+    - Preserve local conventions unless they conflict with correctness/security.
+    ```
