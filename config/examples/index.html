@@ -1534,6 +1534,112 @@ Usage:
 <span class="w">    </span><span class="k">-</span><span class="w"> </span>Very large outputs   may be truncated
 </code></pre></div>
 </details>
+<details class="quote">
+<summary>Agent orchestration, subagents, and reusable skills (@davidvujic)</summary>
+<p>This example shows a Eca <code>config.json</code> that define the models, and</p>
+<ul>
+<li>AGENTS.md (human-readable definitions for agents, their responsibilities, and global guidance for use)</li>
+<li>agents/ (subagent configurations with task-specific instructions and expected outputs)</li>
+<li>skills/ (small, repeatable procedures that agents invoke to perform specialized work)</li>
+</ul>
+<div class="highlight"><span class="filename">config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;defaultModel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-opus-4-6&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;providers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;anthropic&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;keyRc&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;api.anthropic.com&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;claude-opus-4-6&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="nt">&quot;anthropic/claude-sonnet-4-5&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;google&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;keyRc&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;generativelanguage.googleapis.com&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;models&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;gemini-2.5-flash&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="nt">&quot;gemini-3-flash-preview&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="nt">&quot;gemini-3-pro-preview&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="highlight"><span class="filename">AGENTS.md</span><pre><span></span><code><span class="gh"># AGENTS.md</span>
+
+<span class="gu">## Review instructions</span>
+When the user asks for a code review / PR review / diff review, use the <span class="sb">`code-review`</span> subagent configured in <span class="sb">`agents/code-review.md`</span>.
+
+<span class="gu">## Five Whys instructions</span>
+When the user asks for a 5 Whys analysis, use the <span class="sb">`five-whys`</span> subagent configured in <span class="sb">`agents/five-whys.md`</span>.
+
+<span class="gu">## Changes summary instructions</span>
+When the user asks for a changes summary, use the <span class="sb">`changes-summary`</span> subagent configured in <span class="sb">`agents/changes-summary.md`</span>.
+
+<span class="gu">## Pull Request instructions</span>
+When the user asks to make a pull request, use the <span class="sb">`pull-request`</span> subagent configured in <span class="sb">`agents/pull-request.md`</span>.
+
+<span class="gu">## Planning instructions</span>
+When the user asks to plan an implementation or requests a step-by-step plan before coding, load the <span class="sb">`plan`</span> skill via <span class="sb">`eca__skill`</span> before writing the plan.
+
+<span class="gu">## Implementation instructions</span>
+When the user asks to implement a plan, write code, refactor, or apply changes, use the <span class="sb">`implement`</span> subagent configured in <span class="sb">`agents/implement.md`</span>.
+</code></pre></div>
+<div class="highlight"><span class="filename">agents/implement.md</span><pre><span></span><code>---
+mode: subagent
+description: Implement planned changes by editing code in the repo; uses functional-leaning, idiomatic style and lightweight data structures.
+<span class="gu">model: anthropic/claude-opus-4-6</span>
+<span class="gu">---</span>
+
+STYLE POLICY (REQUIRED):
+Load the <span class="sb">`fp-idiomatic-style`</span> skill via <span class="sb">`eca__skill`</span> before writing or modifying any code.
+All generated code MUST follow that policy.
+
+WORKFLOW:
+<span class="k">-</span><span class="w"> </span>Identify target files and exact edits needed.
+<span class="k">-</span><span class="w"> </span>Make minimal, correct changes consistent with existing project conventions.
+<span class="k">-</span><span class="w"> </span>Prefer functional-leaning, idiomatic solutions; avoid dataclasses/pydantic unless clearly justified.
+
+OUTPUT:
+<span class="k">-</span><span class="w"> </span>Provide exact code patches or file edits (as your usual workflow expects).
+</code></pre></div>
+<div class="highlight"><span class="filename">skills/fp-idiomatic-style/SKILL.md</span><pre><span></span><code>---
+name: &quot;fp-idiomatic-style&quot;
+<span class="gu">description: &quot;Coding style policy for generated code: prefer idiomatic language conventions with a functional-leaning approach (pure-ish functions, composability), and prefer lightweight data structures over heavy schema/class abstractions unless clearly justified.&quot;</span>
+<span class="gu">---</span>
+
+<span class="gh"># Functional-leaning, idiomatic coding style policy</span>
+
+Applies whenever you write new code OR propose code changes, in any language.
+
+<span class="gu">## Priorities (in order)</span>
+1) Correctness and clarity first.
+2) Idiomatic for the target language (e.g., Pythonic for Python, idiomatic TS for TypeScript).
+3) Functional-leaning style when it fits naturally:
+<span class="w">   </span><span class="k">-</span><span class="w"> </span>explicit inputs/outputs
+<span class="w">   </span><span class="k">-</span><span class="w"> </span>minimize side effects and shared mutable state
+<span class="w">   </span><span class="k">-</span><span class="w"> </span>small composable functions
+<span class="w">   </span><span class="k">-</span><span class="w"> </span>declarative transformations over imperative loops where readable
+
+<span class="gu">## Data modeling preference (important)</span>
+<span class="k">-</span><span class="w"> </span>Prefer lightweight structures for transient data over heavy class/schema abstractions.
+<span class="k">-</span><span class="w"> </span>Only introduce richer types when clearly beneficial, e.g.:
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>validation/invariants are required
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>long-lived domain objects
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>meaningful behavior/methods beyond data transport
+
+<span class="gu">### Language examples</span>
+<span class="k">-</span><span class="w"> </span><span class="gs">**Python:**</span> prefer <span class="sb">`dict`</span>/<span class="sb">`Mapping`</span>/tuples; avoid <span class="sb">`dataclasses`</span> or <span class="sb">`pydantic`</span> models unless justified.
+<span class="k">-</span><span class="w"> </span><span class="gs">**TypeScript:**</span> prefer plain objects, interfaces, or type aliases; avoid classes unless justified.
+<span class="k">-</span><span class="w"> </span><span class="gs">**Other languages:**</span> follow the same principle — reach for the lightest idiomatic container first.
+
+<span class="gu">## Don&#39;t force FP purity</span>
+<span class="k">-</span><span class="w"> </span>Avoid clever chaining, excessive <span class="sb">`map`</span>/<span class="sb">`filter`</span>, or recursion if it reduces readability.
+<span class="k">-</span><span class="w"> </span>Choose the most readable idiomatic solution, then make it functional-leaning where it remains clear.
+
+<span class="gu">## When editing existing code</span>
+<span class="k">-</span><span class="w"> </span>Prefer the smallest change that satisfies requirements.
+<span class="k">-</span><span class="w"> </span>Preserve local conventions unless they conflict with correctness/security.
+</code></pre></div>
+</details>
 
 
 
@@ -1554,7 +1660,7 @@ Usage:
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 3, 2026 12:01:19 UTC">March 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 3, 2026 12:29:46 UTC">March 3, 2026</span>
   </span>
 
     
