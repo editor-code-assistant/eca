@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.109.6
+
 - Allow manually starting MCP servers even when configured with `disabled: true` (still not auto-started).
 - Fix MCP OAuth discovery for servers that don't support HEAD requests (e.g. Glean) by falling back to POST, and fix two-step metadata discovery (PRM → Authorization Server Metadata per RFC 8414).
 
