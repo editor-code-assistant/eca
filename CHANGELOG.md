@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix rollback when there are subagents messages in chat.
 - Add Task tool #246
 
 ## 0.109.6
