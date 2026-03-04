@@ -112,6 +112,7 @@
                                                  "eca__grep" {}
                                                  "eca__editor_diagnostics" {}
                                                  "eca__skill" {}
+                                                 "eca__todo" {}
                                                  "eca__spawn_agent" {}}
                                          :deny {"eca__shell_command"
                                                 {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
@@ -132,7 +133,8 @@
                                                      "eca__directory_tree" {}
                                                      "eca__grep" {}
                                                      "eca__editor_diagnostics" {}
-                                                     "eca__skill" {}}
+                                                     "eca__skill" {}
+                                                     "eca__todo" {}}
                                              :deny {"eca__shell_command"
                                                     {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
            "general" {:mode "subagent"
@@ -160,6 +162,7 @@
                                  "eca__grep" {}
                                  "eca__editor_diagnostics" {}
                                  "eca__skill" {}
+                                 "eca__todo" {}
                                  "eca__spawn_agent" {}}
                          :ask {}
                          :deny {}}
