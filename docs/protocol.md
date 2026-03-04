@@ -1030,7 +1030,7 @@ interface ChatToolCallRejectedContent {
 
 type ToolCallOrigin = 'mcp' | 'native' | 'server' | 'unknown';
 
-type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails;
+type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails | TaskDetails;
 
 interface FileChangeDetails {
     type: 'fileChange';
@@ -1095,6 +1095,78 @@ interface SubagentDetails {
      * The current step.
      */
     step: number;
+}
+
+/**
+ * Task management details returned by the task tool.
+ * Clients can use this to render a task list UI showing planning and progress.
+ */
+interface TaskDetails {
+    type: 'task';
+
+    /**
+     * The list of tasks in the current plan.
+     */
+    tasks: TaskItem[];
+
+    /**
+     * IDs of tasks currently in progress.
+     */
+    inProgressTaskIds: number[];
+
+    /**
+     * Aggregate counts of tasks by status.
+     */
+    summary: {
+        done: number;
+        inProgress: number;
+        pending: number;
+        total: number;
+    };
+
+    /**
+     * Summary of what the agent is currently working on.
+     * Set when a task is started, cleared when no tasks are in progress.
+     */
+    activeSummary?: string;
+}
+
+interface TaskItem {
+    /**
+     * The task ID.
+     */
+    id: number;
+
+    /**
+     * Brief, actionable title.
+     */
+    subject: string;
+
+    /**
+     * Detailed description including acceptance criteria.
+     */
+    description: string;
+
+    /**
+     * Current status of the task.
+     */
+    status: 'pending' | 'in-progress' | 'done';
+
+    /**
+     * Task priority.
+     */
+    priority: 'high' | 'medium' | 'low';
+
+    /**
+     * Whether this task is currently blocked by incomplete dependencies.
+     */
+    isBlocked: boolean;
+
+    /**
+     * IDs of tasks that must be completed before this task can start.
+     * Only present when the task has dependencies.
+     */
+    blockedBy?: number[];
 }
 
 /**
@@ -1848,6 +1920,14 @@ interface EcaServerUpdatedParams {
 
     /**
      * The built-in tools supported by eca.
+     *
+     * Built-in tools include: read_file, write_file, edit_file, move_file,
+     * directory_tree, shell_command, editor_diagnostics, compact_chat,
+     * skill, spawn_agent, and task.
+     *
+     * Note: `spawn_agent` and `task` are excluded from subagent tool sets.
+     * `spawn_agent` is excluded to prevent nesting, and `task` because
+     * task list state is chat-local and should be managed by the parent agent.
      */
     tools: ServerTool[];
 }
