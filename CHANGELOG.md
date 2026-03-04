@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Allow manually starting MCP servers even when configured with `disabled: true` (still not auto-started).
 - Add Task tool #246
 
 ## 0.109.5
