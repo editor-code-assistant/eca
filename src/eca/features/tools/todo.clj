@@ -213,11 +213,8 @@
                 true (conj (str "  description: " description))
                 (seq blocked-by) (conj (str "  blocked_by: " (str/join ", " (sort blocked-by))))))))
 
-(defn ^:private read-task-line-short [{:keys [id subject status priority blocked-by]}]
-  (let [base (format "- #%d [%s] [%s] %s" id (name status) (name priority) subject)]
-    (str/join "\n"
-              (cond-> [base]
-                (seq blocked-by) (conj (str "  blocked_by: " (str/join ", " (sort blocked-by))))))))
+(defn ^:private read-task-line-short [{:keys [id subject status]}]
+  (format "- #%d [%s] %s" id (name status) subject))
 
 (defn ^:private read-text [state]
   (let [tasks (:tasks state)]
@@ -252,8 +249,8 @@
 (defn ^:private success [state text]
   (assoc (tools.util/single-text-content text) :details (todo-details state)))
 
-(defn ^:private format-tasks-list [tasks & [full?]]
-  (str/join "\n" (map (if full? read-task-line-full read-task-line-short) tasks)))
+(defn ^:private format-tasks-list [tasks]
+  (str/join "\n" (map read-task-line-short tasks)))
 
 (defmethod tools.util/tool-call-details-after-invocation :todo
   [_name _arguments before-details result _ctx]
@@ -401,7 +398,7 @@
             (success state
                      (format "Started %d task(s):\n%s"
                              (count started)
-                             (format-tasks-list started true))))))))
+                             (format-tasks-list started))))))))
 
 (defn ^:private clean-summary-if-no-in-progress [state]
   (if (empty? (filter #(= :in-progress (:status %)) (:tasks state)))
