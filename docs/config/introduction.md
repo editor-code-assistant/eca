@@ -69,7 +69,7 @@ Eca is written in Clojure and compiled into a native binary via graalvm.
     eca --version
     ```
 
-=== "Gtihub releases"
+=== "Github releases"
 
     You can download the [native binaries from Github Releases](https://github.com/editor-code-assistant/eca/releases), although it's easy to have outdated ECA using this way.
 
