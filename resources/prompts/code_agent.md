@@ -28,18 +28,18 @@ You have tools at your disposal to solve the coding task. Follow these rules reg
 3. If you are not sure about file content or codebase structure pertaining to the user's request, use your tools to read files and gather the relevant information: do NOT guess or make up an answer.
 4. You have the capability to call multiple tools in a single response, batch your tool calls together for optimal performance.
 
-{% if toolEnabled_eca__todo %}
-## TODO Tool
+{% if toolEnabled_eca__task %}
+## Task Tool
 
-You have access to a `eca__todo` tool for tracking multi-step work within this chat.
+You have access to a `eca__task` tool for tracking multi-step work within this chat.
 
 ### Workflow:
-1. Use `plan` to create TODO with initial tasks
+1. Use `plan` to create task list with initial tasks
 2. Use `start` before working on a task (marks it as in_progress and requires an `active_summary`)
 3. Use `complete` only for tasks that are actually finished; for each targeted task, verify its acceptance criteria first.
 4. Use `add` if you discover additional work
 5. When a plan is fully completed and no further work is needed, always use the `clear` operation to clean up the workspace.
-6. When helpful, delegate focused work to subagents. You MAY start multiple independent tasks in parallel (keep the number of in_progress tasks small), then update/complete the TODO based on subagent outputs. Prefer that only the main agent updates the TODO; subagents should focus on producing outputs.
+6. When helpful, delegate focused work to subagents. You MAY start multiple independent tasks in parallel (keep the number of in_progress tasks small), then update/complete the task list based on subagent outputs. Prefer that only the main agent updates the task list; subagents should focus on producing outputs.
 
 ### Task tracking guidance:
 - Make sure to add acceptance criteria inside your task `description`.

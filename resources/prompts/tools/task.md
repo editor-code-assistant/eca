@@ -12,17 +12,17 @@ When NOT to Use:
 - Quick fixes where tracking adds no organizational value
 
 Operations:
-- read: View current TODO state
-- plan: Create/replace TODO with initial tasks (required: tasks)
-- add: Append task(s) to existing TODO
+- read: View current task list state
+- plan: Create/replace task list with initial tasks (required: tasks)
+- add: Append task(s) to existing task list
 - update: Modify a single task metadata by `id` (subject, description, priority, blocked_by) — cannot change status
 - start: Begin work on tasks by `ids` (sets to in_progress; rejects blocked or done tasks). Requires `active_summary` to summarize what you are about to do.
 - complete: Mark tasks by `ids` as done (verify acceptance criteria in description first)
 - delete: Remove tasks by `ids`
-- clear: Reset entire TODO (removes all tasks)
+- clear: Reset entire task list (removes all tasks)
 
 Workflow:
-1. Use 'plan' to create TODO with initial tasks
+1. Use 'plan' to create task list with initial tasks
 2. Use 'start' before working on a task — marks it as in_progress and requires an `active_summary`
 3. Work sequentially by default. Batch 'start' or 'complete' operations (using multiple 'ids') ONLY for independent tasks being executed simultaneously (e.g., via subagents).
 4. Use 'complete' only for tasks that are actually finished; verify acceptance criteria first — the response tells you which tasks got unblocked

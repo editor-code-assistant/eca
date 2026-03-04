@@ -13,7 +13,7 @@
    [eca.features.tools.mcp.clojure-mcp]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.skill :as f.tools.skill]
-   [eca.features.tools.todo :as f.tools.todo]
+   [eca.features.tools.task :as f.tools.task]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -149,7 +149,7 @@
           f.tools.editor/definitions
           f.tools.chat/definitions
           f.tools.skill/definitions
-          f.tools.todo/definitions
+          f.tools.task/definitions
           (f.tools.agent/definitions config)
           (f.tools.custom/definitions config))))
 
@@ -160,9 +160,9 @@
   "Filter tools for subagent execution.
 
    - Excludes spawn_agent to prevent nesting.
-   - Excludes todo because TODO state is currently chat-local; it should be managed by the parent agent."
+   - Excludes task because task list state is currently chat-local; it should be managed by the parent agent."
   [tools]
-  (filterv #(not (contains? #{"spawn_agent" "todo"} (:name %))) tools))
+  (filterv #(not (contains? #{"spawn_agent" "task"} (:name %))) tools))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools

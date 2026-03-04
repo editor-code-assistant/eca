@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add Todo tool #246
+- Add Task tool #246
 
 ## 0.109.5
 

@@ -1,4 +1,4 @@
-(ns eca.features.tools.todo
+(ns eca.features.tools.task
   (:require
    [clojure.string :as str]
    [eca.features.tools.util :as tools.util]))
@@ -7,7 +7,7 @@
 
 ;; --- Helpers ---
 
-(def ^:private empty-todo {:next-id 1 :active-summary nil :tasks []})
+(def ^:private empty-task {:next-id 1 :active-summary nil :tasks []})
 (def ^:private valid-priorities #{:high :medium :low})
 
 (defn ^:private error [msg]
@@ -32,23 +32,23 @@
 
 ;; --- State management ---
 
-(defn get-todo
-  "Get TODO state for the chat."
+(defn get-task
+  "Get task list state for the chat."
   [db chat-id]
-  (get-in db [:chats chat-id :todo] empty-todo))
+  (get-in db [:chats chat-id :task] empty-task))
 
-(defn ^:private mutate-todo!
-  "Atomically update TODO for a chat via compare-and-set loop.
+(defn ^:private mutate-task!
+  "Atomically update task list for a chat via compare-and-set loop.
    `mutate-fn` receives current state, returns {:state ...} or {:error true ...}.
    Extra keys in the result map are preserved."
   [db* chat-id mutate-fn]
   (loop []
     (let [db @db*
-          state (get-todo db chat-id)
+          state (get-task db chat-id)
           result (mutate-fn state)]
       (if (:error result)
         result
-        (let [new-db (assoc-in db [:chats chat-id :todo] (:state result))]
+        (let [new-db (assoc-in db [:chats chat-id :task] (:state result))]
           (if (compare-and-set! db* db new-db)
             result
             (recur)))))))
@@ -226,13 +226,13 @@
            (str/join "\n" (map read-task-line-full tasks))
            "(none)"))))
 
-(defn ^:private todo-details
+(defn ^:private task-details
   "Structured data for client rendering."
   [state]
   (let [{:keys [tasks active-summary]} state
         tasks-by-id (task-index tasks)
         {:keys [done in-progress pending]} (status-counts tasks)]
-    (cond-> {:type :todo
+    (cond-> {:type :task
              :in-progress-task-ids (mapv :id (filter #(= :in-progress (:status %)) tasks))
              :tasks (mapv (fn [{:keys [id subject description status priority blocked-by]}]
                             (cond-> {:id id
@@ -247,40 +247,40 @@
       active-summary (assoc :active-summary active-summary))))
 
 (defn ^:private success [state text]
-  (assoc (tools.util/single-text-content text) :details (todo-details state)))
+  (assoc (tools.util/single-text-content text) :details (task-details state)))
 
 (defn ^:private format-tasks-list [tasks]
   (str/join "\n" (map read-task-line-short tasks)))
 
-(defmethod tools.util/tool-call-details-after-invocation :todo
+(defmethod tools.util/tool-call-details-after-invocation :task
   [_name _arguments before-details result _ctx]
   (or (:details result) before-details))
 
 ;; --- Operations ---
 
 (defn ^:private op-read [_arguments {:keys [db chat-id]}]
-  (let [state (get-todo db chat-id)]
+  (let [state (get-task db chat-id)]
     (success state (read-text state))))
 
 (defn ^:private op-plan [{:strs [tasks]} {:keys [db* chat-id]}]
   (or (when-not (and (sequential? tasks) (seq tasks))
         (error "plan requires 'tasks' (non-empty array)"))
-      (let [result (mutate-todo! db* chat-id
+      (let [result (mutate-task! db* chat-id
                                  (fn [_state]
-                                   (let [built (build-tasks empty-todo tasks)]
+                                   (let [built (build-tasks empty-task tasks)]
                                      (if (:error built)
                                        built
                                        (or (detect-cycle (:tasks built))
-                                           {:state (assoc empty-todo
+                                           {:state (assoc empty-task
                                                           :tasks (:tasks built)
                                                           :next-id (inc (count (:tasks built))))})))))]
         (if (:error result)
           result
           (success (:state result)
-                   (str "TODO created with " (count (get-in result [:state :tasks])) " tasks"))))))
+                   (str "Task list created with " (count (get-in result [:state :tasks])) " tasks"))))))
 
 (defn ^:private op-add [{:strs [tasks task] :as _arguments} {:keys [db* chat-id]}]
-  (let [result (mutate-todo! db* chat-id
+  (let [result (mutate-task! db* chat-id
                              (fn [state]
                                (cond
                                  tasks
@@ -317,7 +317,7 @@
 (def ^:private updatable-keys #{"subject" "description" "priority" "blocked_by"})
 
 (defn ^:private op-update [{:strs [id task]} {:keys [db* chat-id]}]
-  (let [result (mutate-todo! db* chat-id
+  (let [result (mutate-task! db* chat-id
                              (fn [state]
                                (let [[id err] (resolve-id state id)]
                                  (or err
@@ -372,7 +372,7 @@
 
 (defn ^:private op-start [{:strs [ids active_summary]} {:keys [db* chat-id]}]
   (or (require-nonblank "active_summary" active_summary)
-      (let [result (mutate-todo! db* chat-id
+      (let [result (mutate-task! db* chat-id
                                  (fn [state]
                                    (let [tasks-by-id (task-index (:tasks state))
                                          [ids err] (resolve-ids state ids)]
@@ -406,7 +406,7 @@
     state))
 
 (defn ^:private op-complete [{:strs [ids]} {:keys [db* chat-id]}]
-  (let [result (mutate-todo! db* chat-id
+  (let [result (mutate-task! db* chat-id
                              (fn [state]
                                (let [tasks-by-id (task-index (:tasks state))
                                      [ids err] (resolve-ids state ids)]
@@ -444,7 +444,7 @@
                         (format "\nUnblocked: %s" (str/join ", " unblocked)))))))))
 
 (defn ^:private op-delete [{:strs [ids]} {:keys [db* chat-id]}]
-  (let [result (mutate-todo! db* chat-id
+  (let [result (mutate-task! db* chat-id
                              (fn [state]
                                (let [[ids err] (resolve-ids state ids)]
                                  (or err
@@ -465,10 +465,10 @@
                        (format-tasks-list (:deleted result)))))))
 
 (defn ^:private op-clear [_arguments {:keys [db* chat-id]}]
-  (let [result (mutate-todo! db* chat-id (fn [_] {:state empty-todo}))]
+  (let [result (mutate-task! db* chat-id (fn [_] {:state empty-task}))]
     (if (:error result)
       result
-      (success (:state result) "TODO cleared"))))
+      (success (:state result) "Task list cleared"))))
 
 ;; --- Dispatch ---
 
@@ -482,7 +482,7 @@
    "delete" op-delete
    "clear" op-clear})
 
-(defn ^:private execute-todo [arguments ctx]
+(defn ^:private execute-task [arguments ctx]
   (let [op (get arguments "op")
         handler (get ops op)]
     (if handler
@@ -490,8 +490,8 @@
       (error (str "Unknown operation: " op)))))
 
 (def definitions
-  {"todo"
-   {:description (tools.util/read-tool-description "todo")
+  {"task"
+   {:description (tools.util/read-tool-description "task")
     :parameters {:type "object"
                  :properties {:op {:type "string"
                                    :enum ["read" "plan" "add" "update" "start" "complete" "delete" "clear"]
@@ -520,4 +520,4 @@
                                                            :blocked_by {:type "array" :items {:type "integer"}}}
                                               :required ["subject" "description"]}}}
                  :required ["op"]}
-    :handler execute-todo}})
+    :handler execute-task}})

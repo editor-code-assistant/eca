@@ -60,7 +60,7 @@
                         :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
                                     :content-id :string}]
-                        :todo {:next-id :number
+                        :task {:next-id :number
                                :active-summary (or :string nil)
                                :tasks [{:id :number
                                         :subject :string
