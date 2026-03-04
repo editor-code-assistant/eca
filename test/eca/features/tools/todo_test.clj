@@ -56,15 +56,15 @@
             result (handler {"op" "read"} {:db db :chat-id "c1"})]
         (is (match? {:details {:type :todo
                                :goal "Test Goal"
-                               :inProgressTaskIds [1]
+                               :in-progress-task-ids [1]
                                :tasks [{:id 1
                                         :content "Task 1"
                                         :status "in-progress"
                                         :priority "high"
-                                        :isBlocked false
-                                        :doneWhen "criteria"}]
+                                        :is-blocked false
+                                        :done-when "criteria"}]
                                :summary {:done 0
-                                         :inProgress 1
+                                         :in-progress 1
                                          :pending 0
                                          :total 1}}}
                     result))))
@@ -458,7 +458,7 @@
                   :details {:type :todo
                             :goal "Goal"
                             :tasks []
-                            :summary {:done 0 :inProgress 0 :pending 0 :total 0}}
+                            :summary {:done 0 :in-progress 0 :pending 0 :total 0}}
                   :contents [{:type :text :text "TODO created"}]}
           details (f.tools/tool-call-details-after-invocation
                    :todo
