@@ -110,27 +110,56 @@
                                                    :error-message error}))
             (response/content-type "text/html"))))))
 
+(defn ^:private probe-auth
+  "Probe the MCP server for a 401 auth challenge.
+   Tries HEAD first; falls back to POST if HEAD returns non-401
+   (some servers like Glean don't support HEAD)."
+  [^String url]
+  (let [head-response (http/head url {:timeout 10000
+                                      :throw-exceptions? false})]
+    (if (= 401 (:status head-response))
+      head-response
+      (let [post-response (http/post url {:timeout 10000
+                                          :throw-exceptions? false
+                                          :headers {"Content-Type" "application/json"
+                                                    "Accept" "application/json, text/event-stream"}
+                                          :body "{}"})]
+        (when (= 401 (:status post-response))
+          post-response)))))
+
 (defn oauth-info [^String url]
   (let [base-url (url->base-url url)
-        {:keys [status headers]} (http/head
-                                  url
-                                  {:timeout 10000
-                                   :throw-exceptions? false})]
-    (when (= 401 status)
+        auth-response (probe-auth url)]
+    (when-let [headers (:headers auth-response)]
       (let [callback-port (get-free-port)
             redirect-uri (format "http://localhost:%s/auth/callback" callback-port)
             www-authenticate (some-> (get headers "www-authenticate") parse-www-authenticate)
-            auth-resource-meta (:body (http/get
-                                       (or (:resource_metadata www-authenticate)
-                                           (str base-url "/.well-known/oauth-authorization-server"))
-                                       {:timeout 10000
-                                        :throw-exceptions? false
-                                        :as :json})
-                                      :body)
-            auth-server (first (:authorization_servers auth-resource-meta))
-            base-auth-endpoint (or (:authorization_endpoint auth-resource-meta)
+            ;; Step 1: Fetch resource metadata (PRM) or auth server metadata directly
+            first-meta (some-> (http/get
+                                (or (:resource_metadata www-authenticate)
+                                    (str base-url "/.well-known/oauth-authorization-server"))
+                                {:timeout 10000
+                                 :throw-exceptions? false
+                                 :as :json})
+                               :body)
+            auth-server (first (:authorization_servers first-meta))
+            ;; Step 2: If PRM returned authorization_servers but no token_endpoint,
+            ;; fetch the actual Authorization Server Metadata (RFC 8414)
+            auth-server-meta (when (and auth-server (not (:token_endpoint first-meta)))
+                               (let [uri (java.net.URI. ^String auth-server)
+                                     well-known-url (str (.getScheme uri) "://" (.getAuthority uri)
+                                                         "/.well-known/oauth-authorization-server"
+                                                         (.getPath uri))]
+                                 (some-> (http/get well-known-url
+                                                   {:timeout 10000
+                                                    :throw-exceptions? false
+                                                    :as :json})
+                                         :body)))
+            ;; Merge: auth server metadata takes precedence, PRM as fallback
+            meta (merge first-meta auth-server-meta)
+            base-auth-endpoint (or (:authorization_endpoint meta)
                                    (str auth-server "/authorize"))
-            new-client-id (when-let [reg-endpoint (:registration_endpoint auth-resource-meta)]
+            new-client-id (when-let [reg-endpoint (:registration_endpoint meta)]
                             (let [res
                                   (http/post
                                    reg-endpoint
@@ -153,11 +182,11 @@
                            :client_id client-id
                            :code_challenge_method "S256"
                            :code_challenge challenge
-                           :scopes (:scopes_supported auth-resource-meta)
+                           :scopes (:scopes_supported meta)
                            :state verifier
                            :redirect_uri redirect-uri})]
         {:callback-port callback-port
-         :token-endpoint (or (:token_endpoint auth-resource-meta)
+         :token-endpoint (or (:token_endpoint meta)
                              (str auth-server "/access_token"))
          :verifier verifier
          :client-id client-id
