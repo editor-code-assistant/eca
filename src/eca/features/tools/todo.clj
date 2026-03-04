@@ -7,7 +7,7 @@
 
 ;; --- Helpers ---
 
-(def ^:private empty-todo {:goal "" :next-id 1 :tasks []})
+(def ^:private empty-todo {:next-id 1 :active-summary nil :tasks []})
 (def ^:private valid-priorities #{:high :medium :low})
 
 (defn ^:private error [msg]
@@ -72,10 +72,6 @@
   (when-not (and (string? priority)
                  (contains? valid-priorities (keyword priority)))
     (error (format "Invalid priority: %s. Allowed: high, medium, low" priority))))
-
-(defn ^:private validate-done-when [done-when]
-  (when-not (or (nil? done-when) (string? done-when))
-    (error "done_when must be a string when provided")))
 
 (defn ^:private resolve-ids
   "Validate task IDs. Returns [ids error]."
@@ -159,23 +155,22 @@
 (defn ^:private make-task
   "Build a task map from string-keyed JSON input. Returns {:task ...} or error response."
   [raw-task id allowed-ids]
-  (let [{:strs [content priority blocked_by done_when]} raw-task]
-    (or (require-nonblank "content" content)
+  (let [{:strs [subject description priority blocked_by]} raw-task]
+    (or (require-nonblank "subject" subject)
+        (require-nonblank "description" description)
         (when (contains? raw-task "status")
           (error "Cannot set status when creating tasks. New tasks always start as pending; use 'start' or 'complete'."))
         (when (contains? raw-task "priority")
           (validate-priority priority))
-        (when (contains? raw-task "done_when")
-          (validate-done-when done_when))
         (let [[blocked-by err] (validate-blocked-by blocked_by allowed-ids id)]
           (or err
               {:task {:id id
-                      :content content
+                      :subject subject
+                      :description description
                       :status :pending
                       :priority (if (contains? raw-task "priority")
                                   (keyword priority)
                                   :medium)
-                      :done-when done_when
                       :blocked-by blocked-by}})))))
 
 (defn ^:private build-tasks
@@ -211,46 +206,54 @@
 (defn ^:private summary-line-with-total [tasks]
   (format "%s, %d total" (summary-line tasks) (count tasks)))
 
-(defn ^:private read-task-line [{:keys [id content status priority done-when blocked-by]}]
-  (let [base (format "- #%d [%s] [%s] %s" id (name status) (name priority) content)]
+(defn ^:private read-task-line-full [{:keys [id subject description status priority blocked-by]}]
+  (let [base (format "- #%d [%s] [%s] %s" id (name status) (name priority) subject)]
     (str/join "\n"
               (cond-> [base]
-                (and (string? done-when) (not-empty done-when)) (conj (str "  done_when: " done-when))
+                true (conj (str "  description: " description))
+                (seq blocked-by) (conj (str "  blocked_by: " (str/join ", " (sort blocked-by))))))))
+
+(defn ^:private read-task-line-short [{:keys [id subject status priority blocked-by]}]
+  (let [base (format "- #%d [%s] [%s] %s" id (name status) (name priority) subject)]
+    (str/join "\n"
+              (cond-> [base]
                 (seq blocked-by) (conj (str "  blocked_by: " (str/join ", " (sort blocked-by))))))))
 
 (defn ^:private read-text [state]
   (let [tasks (:tasks state)]
-    (str "Goal: " (or (not-empty (:goal state)) "(none)") "\n"
+    (str (when-let [summary (:active-summary state)]
+           (str "Active Summary: " summary "\n"))
          "Summary: " (summary-line-with-total tasks) "\n"
          "Tasks:\n"
          (if (seq tasks)
-           (str/join "\n" (map read-task-line tasks))
+           (str/join "\n" (map read-task-line-full tasks))
            "(none)"))))
 
 (defn ^:private todo-details
   "Structured data for client rendering."
   [state]
-  (let [{:keys [goal tasks]} state
+  (let [{:keys [tasks active-summary]} state
         tasks-by-id (task-index tasks)
         {:keys [done in-progress pending]} (status-counts tasks)]
-    {:type :todo
-     :goal (or goal "")
-     :in-progress-task-ids (mapv :id (filter #(= :in-progress (:status %)) tasks))
-     :tasks (mapv (fn [{:keys [id content status priority done-when blocked-by]}]
-                    (cond-> {:id id :content content
-                             :status (name status)
-                             :priority (name priority)
-                             :is-blocked (boolean (active-blockers tasks-by-id id))}
-                      (and (string? done-when) (not-empty done-when)) (assoc :done-when done-when)
-                      (seq blocked-by) (assoc :blocked-by (vec (sort blocked-by)))))
-                  tasks)
-     :summary {:done done :in-progress in-progress :pending pending :total (count tasks)}}))
+    (cond-> {:type :todo
+             :in-progress-task-ids (mapv :id (filter #(= :in-progress (:status %)) tasks))
+             :tasks (mapv (fn [{:keys [id subject description status priority blocked-by]}]
+                            (cond-> {:id id
+                                     :subject subject
+                                     :description description
+                                     :status (name status)
+                                     :priority (name priority)
+                                     :is-blocked (boolean (active-blockers tasks-by-id id))}
+                              (seq blocked-by) (assoc :blocked-by (vec (sort blocked-by)))))
+                          tasks)
+             :summary {:done done :in-progress in-progress :pending pending :total (count tasks)}}
+      active-summary (assoc :active-summary active-summary))))
 
 (defn ^:private success [state text]
   (assoc (tools.util/single-text-content text) :details (todo-details state)))
 
-(defn ^:private format-tasks-list [tasks]
-  (str/join "\n" (map #(format "- #%d: %s" (:id %) (:content %)) tasks)))
+(defn ^:private format-tasks-list [tasks & [full?]]
+  (str/join "\n" (map (if full? read-task-line-full read-task-line-short) tasks)))
 
 (defmethod tools.util/tool-call-details-after-invocation :todo
   [_name _arguments before-details result _ctx]
@@ -262,18 +265,16 @@
   (let [state (get-todo db chat-id)]
     (success state (read-text state))))
 
-(defn ^:private op-plan [{:strs [goal tasks]} {:keys [db* chat-id]}]
-  (or (require-nonblank "goal" goal)
-      (when-not (and (sequential? tasks) (seq tasks))
+(defn ^:private op-plan [{:strs [tasks]} {:keys [db* chat-id]}]
+  (or (when-not (and (sequential? tasks) (seq tasks))
         (error "plan requires 'tasks' (non-empty array)"))
       (let [result (mutate-todo! db* chat-id
                                  (fn [_state]
-                                   (let [fresh (assoc empty-todo :goal goal)
-                                         built (build-tasks fresh tasks)]
+                                   (let [built (build-tasks empty-todo tasks)]
                                      (if (:error built)
                                        built
                                        (or (detect-cycle (:tasks built))
-                                           {:state (assoc fresh
+                                           {:state (assoc empty-todo
                                                           :tasks (:tasks built)
                                                           :next-id (inc (count (:tasks built))))})))))]
         (if (:error result)
@@ -316,7 +317,7 @@
         (success (:state result)
                  (format "Added %d task(s): %s" (count added) (str/join ", " ids)))))))
 
-(def ^:private updatable-keys #{"content" "priority" "done_when" "blocked_by"})
+(def ^:private updatable-keys #{"subject" "description" "priority" "blocked_by"})
 
 (defn ^:private op-update [{:strs [id task]} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
@@ -334,13 +335,13 @@
                                        (error "No updatable fields in task")
 
                                        :else
-                                       (let [{:strs [content priority done_when blocked_by]} task]
-                                         (or (when (contains? task "content")
-                                               (require-nonblank "content" content))
+                                       (let [{:strs [subject description priority blocked_by]} task]
+                                         (or (when (contains? task "subject")
+                                               (require-nonblank "subject" subject))
+                                             (when (contains? task "description")
+                                               (require-nonblank "description" description))
                                              (when (contains? task "priority")
                                                (validate-priority priority))
-                                             (when (contains? task "done_when")
-                                               (validate-done-when done_when))
                                              (let [[blocked-by err] (if (contains? task "blocked_by")
                                                                       (validate-blocked-by
                                                                        blocked_by
@@ -351,9 +352,9 @@
                                                    (let [new-tasks (mapv (fn [t]
                                                                            (if (= id (:id t))
                                                                              (cond-> t
-                                                                               (contains? task "content")    (assoc :content content)
-                                                                               (contains? task "priority")   (assoc :priority (keyword priority))
-                                                                               (contains? task "done_when")  (assoc :done-when done_when)
+                                                                               (contains? task "subject") (assoc :subject subject)
+                                                                               (contains? task "description") (assoc :description description)
+                                                                               (contains? task "priority") (assoc :priority (keyword priority))
                                                                                (contains? task "blocked_by") (assoc :blocked-by blocked-by))
                                                                              t))
                                                                          (:tasks state))]
@@ -372,32 +373,40 @@
   [tasks id-set status]
   (mapv #(if (contains? id-set (:id %)) (assoc % :status status) %) tasks))
 
-(defn ^:private op-start [{:strs [ids]} {:keys [db* chat-id]}]
-  (let [result (mutate-todo! db* chat-id
-                             (fn [state]
-                               (let [tasks-by-id (task-index (:tasks state))
-                                     [ids err] (resolve-ids state ids)]
-                                 (or err
-                                     (some (fn [id]
-                                             (let [task (get tasks-by-id id)]
-                                               (cond
-                                                 (= :done (:status task))
-                                                 (error (format "Cannot start task %d: already done" id))
+(defn ^:private op-start [{:strs [ids active_summary]} {:keys [db* chat-id]}]
+  (or (require-nonblank "active_summary" active_summary)
+      (let [result (mutate-todo! db* chat-id
+                                 (fn [state]
+                                   (let [tasks-by-id (task-index (:tasks state))
+                                         [ids err] (resolve-ids state ids)]
+                                     (or err
+                                         (some (fn [id]
+                                                 (let [task (get tasks-by-id id)]
+                                                   (cond
+                                                     (= :done (:status task))
+                                                     (error (format "Cannot start task %d: already done" id))
 
-                                                 (seq (active-blockers tasks-by-id id))
-                                                 (error (format "Cannot start task %d: blocked by %s"
-                                                                id (str/join ", " (active-blockers tasks-by-id id)))))))
-                                           ids)
-                                     {:state (assoc state :tasks (set-status (:tasks state) (set ids) :in-progress))
-                                      :ids ids}))))]
-    (if (:error result)
-      result
-      (let [state (:state result)
-            started (filter #(contains? (set (:ids result)) (:id %)) (:tasks state))]
-        (success state
-                 (format "Started %d task(s):\n%s"
-                         (count started)
-                         (format-tasks-list started)))))))
+                                                     (seq (active-blockers tasks-by-id id))
+                                                     (error (format "Cannot start task %d: blocked by %s"
+                                                                    id (str/join ", " (active-blockers tasks-by-id id)))))))
+                                               ids)
+                                         {:state (-> state
+                                                     (assoc :tasks (set-status (:tasks state) (set ids) :in-progress))
+                                                     (assoc :active-summary active_summary))
+                                          :ids ids}))))]
+        (if (:error result)
+          result
+          (let [state (:state result)
+                started (filter #(contains? (set (:ids result)) (:id %)) (:tasks state))]
+            (success state
+                     (format "Started %d task(s):\n%s"
+                             (count started)
+                             (format-tasks-list started true))))))))
+
+(defn ^:private clean-summary-if-no-in-progress [state]
+  (if (empty? (filter #(= :in-progress (:status %)) (:tasks state)))
+    (assoc state :active-summary nil)
+    state))
 
 (defn ^:private op-complete [{:strs [ids]} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
@@ -414,7 +423,9 @@
                                                                 id
                                                                 (str/join ", " blockers))))))
                                            ids)
-                                     {:state (assoc state :tasks (set-status (:tasks state) (set ids) :done))
+                                     {:state (-> state
+                                                 (assoc :tasks (set-status (:tasks state) (set ids) :done))
+                                                 clean-summary-if-no-in-progress)
                                       :ids ids}))))]
     (if (:error result)
       result
@@ -444,7 +455,9 @@
                                            remaining (->> (:tasks state)
                                                           (remove #(contains? id-set (:id %)))
                                                           (mapv #(update % :blocked-by (fn [b] (reduce disj b ids)))))]
-                                       {:state (assoc state :tasks remaining)
+                                       {:state (-> state
+                                                   (assoc :tasks remaining)
+                                                   clean-summary-if-no-in-progress)
                                         :ids ids
                                         :deleted (filter #(contains? id-set (:id %)) (:tasks state))})))))]
     (if (:error result)
@@ -491,23 +504,23 @@
                               :ids {:type "array"
                                     :items {:type "integer"}
                                     :description "Task IDs (required for start/complete/delete)"}
-                              :goal {:type "string"
-                                     :description "Overall objective (required for plan)"}
+                              :active_summary {:type "string"
+                                              :description "Summary of what will be done in the current active session. Required for start operation."}
                               :task {:type "object"
                                      :description "Single task data (for add/update)"
-                                     :properties {:content {:type "string" :description "Task description"}
+                                     :properties {:subject {:type "string" :description "Task subject/title (required)"}
+                                                  :description {:type "string" :description "Detailed description of the task (required)"}
                                                   :priority {:type "string" :enum ["high" "medium" "low"]
                                                              :description "Task priority (default: medium)"}
-                                                  :done_when {:type "string" :description "Optional acceptance criteria (recommended for non-trivial tasks)"}
                                                   :blocked_by {:type "array" :items {:type "integer"}
                                                                :description "IDs of blocking tasks"}}}
                               :tasks {:type "array"
                                       :description "Array of tasks (required for plan, alternative for add)"
                                       :items {:type "object"
-                                              :properties {:content {:type "string" :description "Task description (required)"}
+                                              :properties {:subject {:type "string" :description "Task subject/title (required)"}
+                                                           :description {:type "string" :description "Detailed description of the task (required)"}
                                                            :priority {:type "string" :enum ["high" "medium" "low"]}
-                                                           :done_when {:type "string" :description "Optional acceptance criteria (recommended for non-trivial tasks)"}
                                                            :blocked_by {:type "array" :items {:type "integer"}}}
-                                              :required ["content"]}}}
+                                              :required ["subject" "description"]}}}
                  :required ["op"]}
     :handler execute-todo}})

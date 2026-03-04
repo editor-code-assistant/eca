@@ -34,15 +34,14 @@ You have tools at your disposal to solve the coding task. Follow these rules reg
 You have access to a `eca__todo` tool for tracking multi-step work within this chat.
 
 ### Workflow:
-1. Use `plan` to create TODO with goal and tasks
-2. Use `start` before working on a task (marks it as in_progress)
-3. Use `complete` only for tasks that are actually finished; for each targeted task that has `done_when`, verify it first.
+1. Use `plan` to create TODO with initial tasks
+2. Use `start` before working on a task (marks it as in_progress and requires an `active_summary`)
+3. Use `complete` only for tasks that are actually finished; for each targeted task, verify its acceptance criteria first.
 4. Use `add` if you discover additional work
-5. When a plan is fully completed and no further work is needed for the current goal, always use the `clear` operation to clean up the workspace.
-6. Delegate focused work to subagents when helpful. Work sequentially by default; batch operations ONLY for tasks executing simultaneously.
+5. When a plan is fully completed and no further work is needed, always use the `clear` operation to clean up the workspace.
+6. When helpful, delegate focused work to subagents. You MAY start multiple independent tasks in parallel (keep the number of in_progress tasks small), then update/complete the TODO based on subagent outputs. Prefer that only the main agent updates the TODO; subagents should focus on producing outputs.
 
-### done_when guidance:
-- `done_when` is optional.
-- Prefer setting it for non-trivial tasks where completion should be objectively verifiable.
-- For trivial tasks, you may omit it to keep tracking lightweight.
+### Task tracking guidance:
+- Make sure to add acceptance criteria inside your task `description`.
+- Objective verification of acceptance criteria is required for completion.
 {% endif %}
