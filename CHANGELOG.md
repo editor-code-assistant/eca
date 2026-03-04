@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix rollback when there are subagents messages in chat.
+
 ## 0.109.6
 
 - Allow manually starting MCP servers even when configured with `disabled: true` (still not auto-started).

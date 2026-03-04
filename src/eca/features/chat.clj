@@ -1860,5 +1860,6 @@
       (send-chat-contents!
        new-messages
        {:chat-id chat-id
+        :db* db*
         :messenger messenger}))
     {}))
