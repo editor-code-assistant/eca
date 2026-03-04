@@ -10,18 +10,18 @@
 (def ^:private empty-todo {:goal "" :next-id 1 :tasks []})
 (def ^:private valid-priorities #{:high :medium :low})
 
-(defn- error [msg]
+(defn ^:private error [msg]
   (tools.util/single-text-content msg true))
 
-(defn- find-task [state id]
+(defn ^:private find-task [state id]
   (some #(when (= id (:id %)) %) (:tasks state)))
 
-(defn- task-index
+(defn ^:private task-index
   "Index tasks by ID for O(1) lookups."
   [tasks]
   (into {} (map (juxt :id identity)) tasks))
 
-(defn- active-blockers
+(defn ^:private active-blockers
   "Sorted seq of IDs blocking task `id` (blockers not yet :done), or nil."
   [tasks-by-id id]
   (when-let [task (get tasks-by-id id)]
@@ -37,7 +37,7 @@
   [db chat-id]
   (get-in db [:chats chat-id :todo] empty-todo))
 
-(defn- mutate-todo!
+(defn ^:private mutate-todo!
   "Atomically update TODO for a chat via compare-and-set loop.
    `mutate-fn` receives current state, returns {:state ...} or {:error true ...}.
    Extra keys in the result map are preserved."
@@ -57,7 +57,7 @@
 ;; Contract: validators return nil on success or an error response map.
 ;; Values flow through function arguments, not through validator return values.
 
-(defn- require-nonblank [label v]
+(defn ^:private require-nonblank [label v]
   (cond
     (nil? v)
     (error (str label " must be a non-blank string"))
@@ -68,16 +68,16 @@
     (str/blank? v)
     (error (str label " must be a non-blank string"))))
 
-(defn- validate-priority [priority]
+(defn ^:private validate-priority [priority]
   (when-not (and (string? priority)
                  (contains? valid-priorities (keyword priority)))
     (error (format "Invalid priority: %s. Allowed: high, medium, low" priority))))
 
-(defn- validate-done-when [done-when]
+(defn ^:private validate-done-when [done-when]
   (when-not (or (nil? done-when) (string? done-when))
     (error "done_when must be a string when provided")))
 
-(defn- resolve-ids
+(defn ^:private resolve-ids
   "Validate task IDs. Returns [ids error]."
   [state raw-ids]
   (if-not (and (sequential? raw-ids) (seq raw-ids))
@@ -97,7 +97,7 @@
             [nil (error (format "Tasks not found: %s" (str/join ", " (sort missing))))]
             [ids nil]))))))
 
-(defn- resolve-id
+(defn ^:private resolve-id
   "Validate a single task ID. Returns [id error]."
   [state raw-id]
   (cond
@@ -105,7 +105,7 @@
     (not (find-task state raw-id)) [nil (error (format "Task %d not found" raw-id))]
     :else [raw-id nil]))
 
-(defn- validate-blocked-by
+(defn ^:private validate-blocked-by
   "Validate blocked_by references. Returns [normalized-set error]."
   [raw allowed-ids self-id]
   (cond
@@ -126,7 +126,7 @@
             [nil (error (format "Invalid blocked_by references: %s" (str/join ", " (sort bad))))]
             [(set ids) nil]))))))
 
-(defn- detect-cycle
+(defn ^:private detect-cycle
   "DFS cycle detection. Returns error response if cycle found, nil otherwise."
   [tasks]
   (let [graph (into {} (map (juxt :id #(:blocked-by % #{}))) tasks)]
@@ -156,7 +156,7 @@
 
 ;; --- Task construction ---
 
-(defn- make-task
+(defn ^:private make-task
   "Build a task map from string-keyed JSON input. Returns {:task ...} or error response."
   [raw-task id allowed-ids]
   (let [{:strs [content priority blocked_by done_when]} raw-task]
@@ -178,7 +178,7 @@
                       :done-when done_when
                       :blocked-by blocked-by}})))))
 
-(defn- build-tasks
+(defn ^:private build-tasks
   "Validate and build a batch of tasks. Returns {:tasks [...]} or error response."
   [state raw-tasks]
   (if-not (and (sequential? raw-tasks) (seq raw-tasks))
@@ -200,25 +200,25 @@
 
 ;; --- Response formatting ---
 
-(defn- status-counts [tasks]
+(defn ^:private status-counts [tasks]
   (let [freqs (frequencies (map :status tasks))]
     {:done (freqs :done 0) :in-progress (freqs :in-progress 0) :pending (freqs :pending 0)}))
 
-(defn- summary-line [tasks]
+(defn ^:private summary-line [tasks]
   (let [{:keys [done in-progress pending]} (status-counts tasks)]
     (format "%d done, %d in progress, %d pending" done in-progress pending)))
 
-(defn- summary-line-with-total [tasks]
+(defn ^:private summary-line-with-total [tasks]
   (format "%s, %d total" (summary-line tasks) (count tasks)))
 
-(defn- read-task-line [{:keys [id content status priority done-when blocked-by]}]
+(defn ^:private read-task-line [{:keys [id content status priority done-when blocked-by]}]
   (let [base (format "- #%d [%s] [%s] %s" id (name status) (name priority) content)]
     (str/join "\n"
               (cond-> [base]
                 (and (string? done-when) (not-empty done-when)) (conj (str "  done_when: " done-when))
                 (seq blocked-by) (conj (str "  blocked_by: " (str/join ", " (sort blocked-by))))))))
 
-(defn- read-text [state]
+(defn ^:private read-text [state]
   (let [tasks (:tasks state)]
     (str "Goal: " (or (not-empty (:goal state)) "(none)") "\n"
          "Summary: " (summary-line-with-total tasks) "\n"
@@ -227,29 +227,29 @@
            (str/join "\n" (map read-task-line tasks))
            "(none)"))))
 
-(defn- todo-details
+(defn ^:private todo-details
   "Structured data for client rendering."
   [state]
   (let [{:keys [goal tasks]} state
         tasks-by-id (task-index tasks)
         {:keys [done in-progress pending]} (status-counts tasks)]
-    {:type :todoState
+    {:type :todo
      :goal (or goal "")
-     :inProgressTaskIds (mapv :id (filter #(= :in-progress (:status %)) tasks))
+     :in-progress-task-ids (mapv :id (filter #(= :in-progress (:status %)) tasks))
      :tasks (mapv (fn [{:keys [id content status priority done-when blocked-by]}]
                     (cond-> {:id id :content content
                              :status (name status)
                              :priority (name priority)
-                             :isBlocked (boolean (active-blockers tasks-by-id id))}
-                      (and (string? done-when) (not-empty done-when)) (assoc :doneWhen done-when)
-                      (seq blocked-by) (assoc :blockedBy (vec (sort blocked-by)))))
+                             :is-blocked (boolean (active-blockers tasks-by-id id))}
+                      (and (string? done-when) (not-empty done-when)) (assoc :done-when done-when)
+                      (seq blocked-by) (assoc :blocked-by (vec (sort blocked-by)))))
                   tasks)
-     :summary {:done done :inProgress in-progress :pending pending :total (count tasks)}}))
+     :summary {:done done :in-progress in-progress :pending pending :total (count tasks)}}))
 
-(defn- success [state text]
+(defn ^:private success [state text]
   (assoc (tools.util/single-text-content text) :details (todo-details state)))
 
-(defn- format-tasks-list [tasks]
+(defn ^:private format-tasks-list [tasks]
   (str/join "\n" (map #(format "- #%d: %s" (:id %) (:content %)) tasks)))
 
 (defmethod tools.util/tool-call-details-after-invocation :todo
@@ -258,11 +258,11 @@
 
 ;; --- Operations ---
 
-(defn- op-read [_arguments {:keys [db chat-id]}]
+(defn ^:private op-read [_arguments {:keys [db chat-id]}]
   (let [state (get-todo db chat-id)]
     (success state (read-text state))))
 
-(defn- op-plan [{:strs [goal tasks]} {:keys [db* chat-id]}]
+(defn ^:private op-plan [{:strs [goal tasks]} {:keys [db* chat-id]}]
   (or (require-nonblank "goal" goal)
       (when-not (and (sequential? tasks) (seq tasks))
         (error "plan requires 'tasks' (non-empty array)"))
@@ -281,7 +281,7 @@
           (success (:state result)
                    (str "TODO created with " (count (get-in result [:state :tasks])) " tasks"))))))
 
-(defn- op-add [{:strs [tasks task] :as _arguments} {:keys [db* chat-id]}]
+(defn ^:private op-add [{:strs [tasks task] :as _arguments} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
                              (fn [state]
                                (cond
@@ -318,7 +318,7 @@
 
 (def ^:private updatable-keys #{"content" "priority" "done_when" "blocked_by"})
 
-(defn- op-update [{:strs [id task]} {:keys [db* chat-id]}]
+(defn ^:private op-update [{:strs [id task]} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
                              (fn [state]
                                (let [[id err] (resolve-id state id)]
@@ -367,12 +367,12 @@
                                (:task-id result)
                                (format-tasks-list [task])))))))
 
-(defn- set-status
+(defn ^:private set-status
   "Set status on tasks by IDs."
   [tasks id-set status]
   (mapv #(if (contains? id-set (:id %)) (assoc % :status status) %) tasks))
 
-(defn- op-start [{:strs [ids]} {:keys [db* chat-id]}]
+(defn ^:private op-start [{:strs [ids]} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
                              (fn [state]
                                (let [tasks-by-id (task-index (:tasks state))
@@ -399,7 +399,7 @@
                          (count started)
                          (format-tasks-list started)))))))
 
-(defn- op-complete [{:strs [ids]} {:keys [db* chat-id]}]
+(defn ^:private op-complete [{:strs [ids]} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
                              (fn [state]
                                (let [tasks-by-id (task-index (:tasks state))
@@ -418,24 +418,24 @@
                                       :ids ids}))))]
     (if (:error result)
       result
-            (let [state (:state result)
-                  tasks-by-id (task-index (:tasks state))
-                  ids (set (:ids result))
-                  unblocked (keep (fn [t]
-                                    (when (and (= :pending (:status t))
-                                               (some ids (:blocked-by t))
-                                               (not (active-blockers tasks-by-id (:id t))))
-                                      (:id t)))
-                                  (:tasks state))
-                  completed (filter #(contains? ids (:id %)) (:tasks state))]
-              (success state
-                       (str (format "Completed %d task(s):\n%s"
-                                    (count completed)
-                                    (format-tasks-list completed))
-                            (when (seq unblocked)
-                              (format "\nUnblocked: %s" (str/join ", " unblocked)))))))))
+      (let [state (:state result)
+            tasks-by-id (task-index (:tasks state))
+            ids (set (:ids result))
+            unblocked (keep (fn [t]
+                              (when (and (= :pending (:status t))
+                                         (some ids (:blocked-by t))
+                                         (not (active-blockers tasks-by-id (:id t))))
+                                (:id t)))
+                            (:tasks state))
+            completed (filter #(contains? ids (:id %)) (:tasks state))]
+        (success state
+                 (str (format "Completed %d task(s):\n%s"
+                              (count completed)
+                              (format-tasks-list completed))
+                      (when (seq unblocked)
+                        (format "\nUnblocked: %s" (str/join ", " unblocked)))))))))
 
-(defn- op-delete [{:strs [ids]} {:keys [db* chat-id]}]
+(defn ^:private op-delete [{:strs [ids]} {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id
                              (fn [state]
                                (let [[ids err] (resolve-ids state ids)]
@@ -454,7 +454,7 @@
                        (count (:deleted result))
                        (format-tasks-list (:deleted result)))))))
 
-(defn- op-clear [_arguments {:keys [db* chat-id]}]
+(defn ^:private op-clear [_arguments {:keys [db* chat-id]}]
   (let [result (mutate-todo! db* chat-id (fn [_] {:state empty-todo}))]
     (if (:error result)
       result
@@ -472,7 +472,7 @@
    "delete" op-delete
    "clear" op-clear})
 
-(defn- execute-todo [arguments ctx]
+(defn ^:private execute-todo [arguments ctx]
   (let [op (get arguments "op")
         handler (get ops op)]
     (if handler

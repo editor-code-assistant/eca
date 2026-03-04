@@ -43,7 +43,7 @@
     (testing "reads empty state"
       (let [result (handler {"op" "read"} {:db {} :chat-id "c1"})]
         (is (not (:error result)))
-        (is (match? {:details {:type :todoState :goal "" :tasks []}} result))))
+        (is (match? {:details {:type :todo :goal "" :tasks []}} result))))
 
     (testing "includes structured details"
       (let [db {:chats {"c1" {:todo {:goal "Test Goal"
@@ -54,7 +54,7 @@
                                               :done-when "criteria"
                                               :blocked-by #{}}]}}}}
             result (handler {"op" "read"} {:db db :chat-id "c1"})]
-        (is (match? {:details {:type :todoState
+        (is (match? {:details {:type :todo
                                :goal "Test Goal"
                                :inProgressTaskIds [1]
                                :tasks [{:id 1
@@ -455,7 +455,7 @@
 (deftest todo-tool-call-details-test
   (testing "todo details are propagated to tool call details for clients"
     (let [result {:error false
-                  :details {:type :todoState
+                  :details {:type :todo
                             :goal "Goal"
                             :tasks []
                             :summary {:done 0 :inProgress 0 :pending 0 :total 0}}
