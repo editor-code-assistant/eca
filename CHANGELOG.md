@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow manually starting MCP servers even when configured with `disabled: true` (still not auto-started).
+
 ## 0.109.5
 
 - Fix clear messages to reset usage tokens as well.

@@ -401,9 +401,9 @@
 
 (defn start-server! [name db* config metrics {:keys [on-server-updated]}]
   (when-let [server-config (get-in config [:mcpServers name])]
-    (if (get server-config :disabled false)
-      (logger/warn logger-tag (format "MCP server %s is disabled and cannot be started" name))
-      (initialize-server! name db* config metrics on-server-updated))))
+    (when (get server-config :disabled false)
+      (logger/info logger-tag (format "Starting MCP server %s from manual request despite :disabled=true" name)))
+    (initialize-server! name db* config metrics on-server-updated)))
 
 (defn all-tools [db]
   (into []
