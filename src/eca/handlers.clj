@@ -92,7 +92,7 @@
                                                      messenger
                                                      db*)))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
-      (future (sync-models-and-notify! config))))
+      (shared/future* config (sync-models-and-notify! config))))
   (future
     (Thread/sleep 1000) ;; wait chat window is open in some editors.
     (when-let [error (config/validation-error)]
@@ -108,7 +108,7 @@
   (future
     (cache/cleanup-tool-call-outputs!))
   ;; Trigger sessionStart hook after initialization
-  (future
+  (shared/future* config
     (f.hooks/trigger-if-matches! :sessionStart
                                  (f.hooks/base-hook-data @db*)
                                  {}
