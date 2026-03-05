@@ -8,6 +8,7 @@ For technical or coding sessions, cover the following points:
   - Key decisions and architectural changes
   - Unfinished tasks and next steps
   - Technical details that need to be preserved
+  - Always save task lists if any.
 
 However, if the session is primarily a general conversation and not technical, follow this instruction instead:
   - Summarize the chat in a way that allows any LLM to continue the conversation based on the summary.
