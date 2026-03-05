@@ -249,7 +249,68 @@
             {"path" (h/file-path "/project/foo")
              "pattern" "some-content"
              "output_mode" "count"}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "ripgrep truncates long lines to 200 characters"
+    (let [long-line (apply str (repeat 300 "x"))
+          expected-output (str "/project/foo/bla.txt:1:" (subs long-line 0 200))]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text expected-output}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         tools.util/command-available? (fn [command & _args] (= "rg" command))
+                         shell/sh (fn [& args]
+                                    ;; Verify that --max-columns is being passed
+                                    (is (some #(= "--max-columns=200" %) args)
+                                        "Expected --max-columns=200 flag in ripgrep command")
+                                    {:out expected-output})]
+             ((get-in f.tools.filesystem/definitions ["grep" :handler])
+              {"path" (h/file-path "/project/foo")
+               "pattern" "xxx"
+               "output_mode" "content"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
+  (testing "grep truncates long lines to 200 characters"
+    (let [long-line (apply str (repeat 300 "x"))
+          expected-output (str "/project/foo/bla.txt:1:" (subs long-line 0 200))]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text expected-output}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         tools.util/command-available? (fn [command & _args] (= "grep" command))
+                         shell/sh (fn [& args]
+                                    ;; Verify that --max-columns is being passed
+                                    (is (some #(= "--max-columns=200" %) args)
+                                        "Expected --max-columns=200 flag in grep command")
+                                    {:out expected-output})]
+             ((get-in f.tools.filesystem/definitions ["grep" :handler])
+              {"path" (h/file-path "/project/foo")
+               "pattern" "xxx"
+               "output_mode" "content"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
+  (testing "java grep truncates long lines to 200 characters"
+    (let [long-line (apply str (repeat 300 "x"))
+          expected-output (str (h/file-path "/project/foo/bla.txt") ":1:" (subs long-line 0 200))]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text expected-output}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         tools.util/command-available? (constantly false)
+                         fs/list-dir (constantly [(fs/path (h/file-path "/project/foo/bla.txt"))])
+                         fs/canonicalize identity
+                         fs/directory? (constantly false)
+                         fs/hidden? (constantly false)
+                         fs/file (constantly (ByteArrayInputStream. (.getBytes long-line)))]
+             ((get-in f.tools.filesystem/definitions ["grep" :handler])
+              {"path" (h/file-path "/project/foo")
+               "pattern" "xxx"
+               "output_mode" "content"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
+)
 
 (deftest edit-file-test
   (testing "Not readable path"

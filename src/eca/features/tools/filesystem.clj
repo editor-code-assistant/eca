@@ -128,6 +128,7 @@
                      ;; files_with_matches (default)
                      ["--files-with-matches" "--no-heading"])
         cmd (cond-> (into ["rg"] mode-flags)
+              :always (concat ["--max-columns=200"])
               include (concat ["--glob" include])
               :always (concat ["-e" pattern path]))]
     (->> (apply shell/sh cmd)
@@ -146,7 +147,7 @@
                     "count" "-c"
                     ;; files_with_matches (default)
                     "-l")
-        cmd (cond-> ["grep" "-E" mode-flag "-r" "--exclude-dir=.*"]
+        cmd (cond-> ["grep" "-E" mode-flag "-r" "--exclude-dir=.*" "--max-columns=200"]
               (and include (> (count include-patterns) 1)) (concat (mapv #(str "--include=" %) include-patterns))
               include (concat [(str "--include=" include)])
               :always (concat [pattern path]))]
@@ -173,14 +174,18 @@
                            matches []
                            match-count 0]
                       (if (seq lines)
-                        (if (re-find pattern-regex (first lines))
-                          (recur (rest lines)
-                                 (inc line-num)
-                                 (conj matches {:file file-path
-                                                :line-num line-num
-                                                :content (first lines)})
-                                 (inc match-count))
-                          (recur (rest lines) (inc line-num) matches match-count))
+                        (let [line (first lines)
+                              truncated-line (if (> (count line) 200)
+                                               (subs line 0 200)
+                                               line)]
+                          (if (re-find pattern-regex line)
+                            (recur (rest lines)
+                                   (inc line-num)
+                                   (conj matches {:file file-path
+                                                  :line-num line-num
+                                                  :content truncated-line})
+                                   (inc match-count))
+                            (recur (rest lines) (inc line-num) matches match-count)))
                         ;; Return based on output-mode
                         (when (pos? match-count)
                           (case output-mode
