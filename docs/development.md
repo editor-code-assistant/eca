@@ -23,7 +23,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/config.clj`     | Centralized place to get ECA configs from multiple places.
    `src/eca/logger.clj`     | Logger interface to log to stderr.
    `src/eca/shared.clj`     | shared utility fns to whole project.
-   `src/eca/db.clj`         | Simple in-memory KV store that backs sessions/MCP, all in-memory statue lives here.
+   `src/eca/db.clj`         | Simple in-memory KV store that backs sessions/MCP, all in-memory state lives here.
    `src/eca/llm_api.clj`    | Public façade used by features to call an LLM.
    `src/eca/llm_providers/` | Vendor adapters (`openai.clj`, `anthropic.clj`, `ollama.clj`).
    `src/eca/llm_util.clj`   | Token counting, chunking, rate-limit helpers.

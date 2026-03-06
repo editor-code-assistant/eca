@@ -722,7 +722,7 @@
 
 ## 0.55.0
 
-- Add support for Opentelemetry via `otlp` config.
+- Add support for OpenTelemetry via `otlp` config.
   - Export metrics of server tasks, tool calls, prompts, resources.
 
 ## 0.54.4

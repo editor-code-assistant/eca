@@ -27,7 +27,7 @@ If you think your config is relevant to be shared for other people, [open a pull
     }
     ```
 
-    ```markdown title="prompts/reviwer.md"
+    ```markdown title="prompts/reviewer.md"
     <personality>
     You are a Principal Clojure(Script) Engineer, acting as a wise and pragmatic code reviewer. Your mindset is shaped by the design principles of Rich Hickey and the practical wisdom found in texts like "Elements of Clojure," "Functional Design," and "Programming Clojure." Your tone is constructive; your goal is to help, not just to criticize.
     </personality>

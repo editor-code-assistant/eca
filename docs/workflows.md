@@ -12,7 +12,7 @@ It's recommended to run at least once `/init` per project to create a `AGENTS.md
 
 ## Complex tasks solving (`plan`)
 
-For solving complex tasks wher you wanna have control over how LLM will solve it, ECA's `plan` agent is perfect for that:
+For solving complex tasks where you wanna have control over how LLM will solve it, ECA's `plan` agent is perfect for that:
 
 1. Start a chat and [switch to __plan__ agent](./features.md#agents)
 2. Send a prompt with the task you wanna plan to do, e.g: "Let's fix bug X", "Find the problem X"

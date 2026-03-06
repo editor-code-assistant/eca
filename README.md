@@ -22,7 +22,7 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
   <a href="https://eca.dev/features"><strong>features</strong></a> •
   <a href="https://eca.dev/config/introduction"><strong>configuration</strong></a> •
   <a href="https://eca.dev/config/models"><strong>models</strong></a> •
-  <a href="https://eca.dev/protocol"><strong>protocol</strong></a>
+  <a href="https://eca.dev/protocol"><strong>protocol</strong></a> •
   <a href="https://eca.dev/troubleshooting"><strong>troubleshooting</strong></a>
 </p>
 <hr>

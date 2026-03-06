@@ -27,7 +27,7 @@ There are 3 possible ways to configure rules following this order of priority:
 
 === "Config"
 
-    Just add toyour config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
+    Just add to your config the `:rules` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
 
     ```javascript title="~/.config/eca/config.json"
     {
