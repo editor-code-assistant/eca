@@ -484,7 +484,7 @@
                          "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}}
         config {:variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]"
                                   {:variants anthropic-variants}
-                                  ".*gpt[-._]5[-._]3[-._]codex|gpt[-._]5[-._]2(?!\\d)"
+                                  ".*gpt[-._]5(?:[-._](?:2|4)(?!\\d)|[-._]3[-._]codex)"
                                   {:variants openai-variants
                                    :excludeProviders ["github-copilot"]}}}]
 
