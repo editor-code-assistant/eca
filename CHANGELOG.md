@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.110.0
+
 - Fix rollback when there are subagents messages in chat.
 - Add Task tool #246
 - Use OpenAI Responses API for GitHub Copilot models that require it (gpt-5.3-codex, gpt-5.4).
