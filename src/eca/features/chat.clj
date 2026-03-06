@@ -1186,8 +1186,8 @@
 (defn ^:private assert-compatible-apis-between-models!
   "Ensure new request is compatible with last api used.
    E.g. Anthropic is not compatible with openai and vice versa."
-  [db chat-id provider config]
-  (let [current-api (:api (llm-api/provider->api-handler provider config))
+  [db chat-id provider model config]
+  (let [current-api (:api (llm-api/provider->api-handler provider model config))
         last-api (get-in db [:chats chat-id :last-api])]
     (cond
       (not last-api) nil
@@ -1261,7 +1261,7 @@
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  (send-content! chat-ctx :system (merge {:type :usage} usage))))]
-        (assert-compatible-apis-between-models! db chat-id provider config)
+        (assert-compatible-apis-between-models! db chat-id provider model config)
         (when (and (not (get-in db [:chats chat-id :title]))
                    (get-in config [:chat :title]))
           (future* config
@@ -1313,7 +1313,7 @@
                                               (doseq [message user-messages]
                                                 (add-to-history!
                                                  (assoc message :content-id (:user-content-id chat-ctx))))
-                                              (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider config)))
+                                              (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider model config)))
                                               (send-content! chat-ctx :system {:type :progress
                                                                                :state :running
                                                                                :text "Generating"}))

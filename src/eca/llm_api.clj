@@ -24,6 +24,9 @@
 
 (def no-available-model-error-msg "No available model found. Configure at least one provider model.")
 
+(def ^:private copilot-responses-api-models
+  #{"gpt-5.3-codex" "gpt-5.4"})
+
 (def ^:private default-max-retries 10)
 (def ^:private default-base-delay-ms 2000)
 (def ^:private default-backoff-multiplier 2)
@@ -112,14 +115,17 @@
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
-(defn provider->api-handler [provider config]
+(defn provider->api-handler [provider model config]
   (cond
     (= "openai" provider) {:api :openai-responses
                            :handler llm-providers.openai/create-response!}
     (= "anthropic" provider) {:api :anthropic
                               :handler llm-providers.anthropic/chat!}
-    (= "github-copilot" provider) {:api :openai-chat
-                                   :handler llm-providers.openai-chat/chat-completion!}
+    (= "github-copilot" provider) (if (copilot-responses-api-models model)
+                                    {:api :openai-responses
+                                     :handler llm-providers.openai/create-response!}
+                                    {:api :openai-chat
+                                     :handler llm-providers.openai-chat/chat-completion!})
     (= "google" provider) {:api :openai-chat
                            :handler llm-providers.openai-chat/chat-completion!}
     (= "ollama" provider) {:api :ollama
@@ -168,7 +174,7 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model %))
-        {:keys [handler] :as api-handler} (provider->api-handler provider config)
+        {:keys [handler] :as api-handler} (provider->api-handler provider model config)
         extra-payload (extra-payload-considering-variant model-config variant api-handler reason?)
         extra-headers (:extraHeaders model-config)
         reasoning-history (or (:reasoningHistory model-config) :all)
@@ -225,31 +231,39 @@
          callbacks)
 
         (= "github-copilot" provider)
-        (handler
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :extra-payload (merge {:parallel_tool_calls true}
-                                extra-payload)
-          :reasoning-history reasoning-history
-          :api-url api-url
-          :api-key api-key
-          :extra-headers (fn [{:keys [body]}]
-                           (let [user-initiator? (= "user" (-> body :messages last :role))]
-                             (merge {"openai-intent" "conversation-panel"
-                                     "x-request-id" (str (random-uuid))
-                                     "x-initiator" (if user-initiator? "user" "agent")
-                                     "vscode-sessionid" ""
-                                     "vscode-machineid" ""
-                                     "Copilot-Vision-Request" "true"
-                                     "copilot-integration-id" "vscode-chat"}
-                                    extra-headers)))}
-         callbacks)
+        (let [copilot-headers (fn [user-initiator?]
+                                (merge {"openai-intent" "conversation-panel"
+                                        "x-request-id" (str (random-uuid))
+                                        "x-initiator" (if user-initiator? "user" "agent")
+                                        "vscode-sessionid" ""
+                                        "vscode-machineid" ""
+                                        "Copilot-Vision-Request" "true"
+                                        "copilot-integration-id" "vscode-chat"}
+                                       extra-headers))
+              base-opts {:model real-model
+                         :instructions instructions
+                         :user-messages user-messages
+                         :max-output-tokens max-output-tokens
+                         :reason? reason?
+                         :supports-image? supports-image?
+                         :past-messages past-messages
+                         :tools tools
+                         :extra-payload (merge {:parallel_tool_calls true}
+                                               extra-payload)
+                         :reasoning-history reasoning-history
+                         :api-url api-url
+                         :api-key api-key}]
+          (if (= :openai-responses (:api api-handler))
+            (handler
+             (assoc base-opts
+                    :web-search web-search
+                    :extra-headers (copilot-headers (= "user" (-> user-messages last :role))))
+             callbacks)
+            (handler
+             (assoc base-opts
+                    :extra-headers (fn [{:keys [body]}]
+                                    (copilot-headers (= "user" (-> body :messages last :role)))))
+             callbacks)))
 
         (= "google" provider)
         (handler
@@ -380,7 +394,7 @@
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model %))
-        api-handler (provider->api-handler provider config)
+        api-handler (provider->api-handler provider model config)
         extra-payload (extra-payload-considering-variant model-config variant api-handler (:reason? model-capabilities))
         stream? (if (not (nil? (:stream extra-payload)))
                   (:stream extra-payload)

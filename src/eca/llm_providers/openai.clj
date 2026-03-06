@@ -173,6 +173,7 @@
                :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
+        reasoning-item-id* (atom nil)
         on-stream-fn
         (when stream?
           (fn handle-stream [event data]
@@ -189,9 +190,10 @@
 
               "response.output_item.done"
               (case (:type (:item data))
-                "reasoning" (on-reason {:status :finished
-                                        :id (-> data :item :id)
-                                        :external-id (-> data :item :encrypted_content)})
+                "reasoning" (do (reset! reasoning-item-id* nil)
+                               (on-reason {:status :finished
+                                           :id (-> data :item :id)
+                                           :external-id (-> data :item :encrypted_content)}))
                 "web_search_call" (on-server-web-search {:status :finished
                                                           :id (-> data :item :id)
                                                           :output nil})
@@ -209,18 +211,19 @@
               ;; reasoning / tools
               "response.reasoning_summary_text.delta"
               (on-reason {:status :thinking
-                          :id (:item_id data)
+                          :id (or @reasoning-item-id* (:item_id data))
                           :text (:delta data)})
 
               "response.reasoning_summary_text.done"
               (on-reason {:status :thinking
-                          :id (:item_id data)
+                          :id (or @reasoning-item-id* (:item_id data))
                           :text "\n"})
 
               "response.output_item.added"
               (case (-> data :item :type)
-                "reasoning" (on-reason {:status :started
-                                        :id (-> data :item :id)})
+                "reasoning" (let [id (-> data :item :id)]
+                              (reset! reasoning-item-id* id)
+                              (on-reason {:status :started :id id}))
                 "function_call" (let [call-id (-> data :item :call_id)
                                       item-id (-> data :item :id)
                                       function-name (-> data :item :name)
