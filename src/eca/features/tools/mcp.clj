@@ -41,6 +41,7 @@
     McpSchema$TextResourceContents
     McpSchema$Tool
     McpTransport]
+   [java.io IOException]
    [java.net.http HttpClient$Builder]
    [java.time Duration]
    [java.util List Map]
@@ -145,7 +146,10 @@
 (defn ^:private ->client ^McpSyncClient [name transport init-timeout workspaces
                                          {:keys [on-tools-change]}]
   (-> (McpClient/sync transport)
-      (.requestTimeout (Duration/ofHours 10)) ;; required any value for initializationTimeout work
+      ;; requestTimeout must be < initializationTimeout so that MCP Java SDK's
+      ;; DummyEvent bug on 202 notification responses can timeout without
+      ;; blocking the entire initialization flow.
+      (.requestTimeout (Duration/ofSeconds (max 10 (quot init-timeout 2))))
       (.initializationTimeout (Duration/ofSeconds init-timeout))
       (.capabilities (-> (McpSchema$ClientCapabilities/builder)
                          (.roots true)
@@ -293,6 +297,20 @@
           (db/update-global-cache! @db* metrics)
           true)))))
 
+(def ^:private max-init-retries 3)
+
+(defn ^:private transient-http-error?
+  "Checks if the exception root cause is a transient HTTP error (e.g. chunked
+   encoding EOF) that warrants a retry. This is a known issue with the MCP Java
+   SDK's Streamable HTTP transport when infrastructure (load balancers, proxies)
+   closes SSE connections."
+  [^Exception e]
+  (let [cause (.getCause e)]
+    (and (instance? IOException cause)
+         (when-let [msg (.getMessage cause)]
+           (or (string/includes? msg "chunked transfer encoding")
+               (string/includes? msg "EOF reached while reading"))))))
+
 (defn ^:private initialize-server! [name db* config metrics on-server-updated]
   (let [db @db*
         workspaces (:workspace-folders @db*)
@@ -329,54 +347,66 @@
                                          (on-server-updated (->server name server-config :failed db)))})
       (let [obj-mapper (ObjectMapper.)
             init-timeout (:mcpTimeoutSeconds config)
-            transport (->transport name server-config workspaces db)
             on-tools-change (fn [tools-client]
                               (let [tools (mapv #(tool-client->tool % obj-mapper)
                                                 tools-client)]
                                 (swap! db* assoc-in [:mcp-clients name :tools] tools)
-                                (on-server-updated (->server name server-config :running @db*))))
-            client (->client name transport init-timeout workspaces
-                             {:on-tools-change on-tools-change})]
-        (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
-        (try
-          (.initialize client)
-          (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
-          (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
-          (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
-          (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
-          (swap! db* assoc-in [:mcp-clients name :status] :running)
-          (on-server-updated (->server name server-config :running @db*))
-          (logger/info logger-tag (format "Started MCP server %s" name))
-          (catch Exception e
-            (let [cause (.getCause e)
-                  is-sse-error (and cause
-                                    (string/includes? (.getMessage cause) "Invalid SSE response"))
-                  is-404 (and cause
-                              (string/includes? (.getMessage cause) "Status code: 404"))
-                  cause-message (cond
-                                  (instance? TimeoutException cause)
-                                  (format "Timeout of %s secs waiting for server start" init-timeout)
+                                (on-server-updated (->server name server-config :running @db*))))]
+        (loop [attempt 1]
+          (let [transport (->transport name server-config workspaces db)
+                client (->client name transport init-timeout workspaces
+                                 {:on-tools-change on-tools-change})]
+            (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
+            (let [result (try
+                           (.initialize client)
+                           (swap! db* assoc-in [:mcp-clients name :version] (.version (.getServerInfo client)))
+                           (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools obj-mapper client))
+                           (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
+                           (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
+                           (swap! db* assoc-in [:mcp-clients name :status] :running)
+                           (on-server-updated (->server name server-config :running @db*))
+                           (logger/info logger-tag (format "Started MCP server %s" name))
+                           :ok
+                           (catch Exception e
+                             (if (and (transient-http-error? e) (< attempt max-init-retries))
+                               (do
+                                 (logger/warn logger-tag (format "Transient HTTP error initializing MCP server %s (attempt %d/%d), retrying: %s"
+                                                                 name attempt max-init-retries (.getMessage (.getCause e))))
+                                 (try (.close client) (catch Exception _))
+                                 :retry)
+                               (do
+                                 (let [cause (.getCause e)
+                                       is-sse-error (and cause
+                                                         (string/includes? (.getMessage cause) "Invalid SSE response"))
+                                       is-404 (and cause
+                                                   (string/includes? (.getMessage cause) "Status code: 404"))
+                                       cause-message (cond
+                                                       (instance? TimeoutException cause)
+                                                       (format "Timeout of %s secs waiting for server start" init-timeout)
 
-                                  (and is-sse-error is-404)
-                                  (str "SSE endpoint returned 404 Not Found. "
-                                       "Please verify the URL is correct. "
-                                       "For SSE connections, the URL should point to the SSE stream endpoint "
-                                       "(e.g., ending with '/sse' or '/messages')")
+                                                       (and is-sse-error is-404)
+                                                       (str "SSE endpoint returned 404 Not Found. "
+                                                            "Please verify the URL is correct. "
+                                                            "For SSE connections, the URL should point to the SSE stream endpoint "
+                                                            "(e.g., ending with '/sse' or '/messages')")
 
-                                  is-sse-error
-                                  (str "SSE connection failed: " (.getMessage cause))
+                                                       is-sse-error
+                                                       (str "SSE connection failed: " (.getMessage cause))
 
-                                  cause
-                                  (.getMessage cause)
+                                                       cause
+                                                       (.getMessage cause)
 
-                                  :else
-                                  "Unknown error")]
-              (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message))
-              (when (and is-sse-error (:url server-config))
-                (logger/error logger-tag (format "SSE URL was: %s" (replace-env-vars (:url server-config))))))
-            (swap! db* assoc-in [:mcp-clients name :status] :failed)
-            (on-server-updated (->server name server-config :failed db))
-            (.close client)))))))
+                                                       :else
+                                                       "Unknown error")]
+                                   (logger/error logger-tag (format "Could not initialize MCP server %s: %s: %s" name (.getMessage e) cause-message))
+                                   (when (and is-sse-error (:url server-config))
+                                     (logger/error logger-tag (format "SSE URL was: %s" (replace-env-vars (:url server-config))))))
+                                 (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                                 (on-server-updated (->server name server-config :failed db))
+                                 (.close client)))))]
+              (when (= result :retry)
+                (Thread/sleep 1000)
+                (recur (inc attempt))))))))))
 
 (defn initialize-servers-async! [{:keys [on-server-updated]} db* config metrics]
   (let [db @db*]
@@ -465,11 +495,11 @@
   (try
     (let [clients (vals (:mcp-clients @db*))
           futures (doall
-                    (pmap (fn [{:keys [^McpSyncClient client]}]
-                            (future
-                              (try (.closeGracefully client)
-                                   (catch Exception _ nil))))
-                          clients))]
+                   (pmap (fn [{:keys [^McpSyncClient client]}]
+                           (future
+                             (try (.closeGracefully client)
+                                  (catch Exception _ nil))))
+                         clients))]
       (doseq [f futures]
         (try (deref f 5000 nil) (catch Exception _ nil))))
     (catch Exception _ nil))

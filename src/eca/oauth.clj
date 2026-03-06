@@ -110,21 +110,30 @@
                                                    :error-message error}))
             (response/content-type "text/html"))))))
 
+(defn ^:private valid-auth-challenge?
+  "A 401 is only a valid OAuth challenge if it includes a www-authenticate header.
+   Some proxies (e.g. istio-envoy) return 401 for unsupported methods like HEAD
+   without actually requiring authentication."
+  [response]
+  (and (= 401 (:status response))
+       (some? (get (:headers response) "www-authenticate"))))
+
 (defn ^:private probe-auth
-  "Probe the MCP server for a 401 auth challenge.
-   Tries HEAD first; falls back to POST if HEAD returns non-401
-   (some servers like Glean don't support HEAD)."
+  "Probe the MCP server for a 401 auth challenge with www-authenticate header.
+   Tries HEAD first; falls back to POST if HEAD doesn't return a valid challenge
+   (some servers like Glean don't support HEAD, some proxies like istio-envoy
+   return 401 on HEAD without actually requiring auth)."
   [^String url]
   (let [head-response (http/head url {:timeout 10000
                                       :throw-exceptions? false})]
-    (if (= 401 (:status head-response))
+    (if (valid-auth-challenge? head-response)
       head-response
       (let [post-response (http/post url {:timeout 10000
                                           :throw-exceptions? false
                                           :headers {"Content-Type" "application/json"
                                                     "Accept" "application/json, text/event-stream"}
                                           :body "{}"})]
-        (when (= 401 (:status post-response))
+        (when (valid-auth-challenge? post-response)
           post-response)))))
 
 (defn oauth-info [^String url]
