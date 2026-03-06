@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.110.1
+
 - Fix MCP Streamable HTTP servers stuck at starting due to Java SDK DummyEvent bug on 202 notification responses, and spurious OAuth detection from proxies returning 401 without www-authenticate on HEAD requests.
 - Retry MCP server initialization on transient HTTP errors (e.g. chunked encoding EOF from infrastructure closing SSE connections).
 
