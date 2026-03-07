@@ -152,7 +152,6 @@ By default ECA consider the following as the base configuration:
       "hooks": {},
       "rules" : [],
       "commands" : [],
-      "enabledSkills": [".*"],
       "disabledTools": [],
       "toolCall": {
         "approval": {
