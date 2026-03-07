@@ -4,6 +4,10 @@
 
 - Fix MCP OAuth client registration failing for servers that require Content-Type header
 - Prevent MCP servers from getting stuck at "starting" when OAuth or other initialization errors occur.
+- Fix GitHub Copilot premium request overconsumption: 
+  - Chat titles LLM request don't spend premium requests.
+  - Subagents now use same premium request of primary agent.
+  - gpt-5.3-codex and gpt-5.4 now spend way less premium requests.
 
 ## 0.110.1
 
