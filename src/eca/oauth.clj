@@ -174,6 +174,8 @@
                                    reg-endpoint
                                    {:timeout 10000
                                     :as :json
+                                    :throw-exceptions? false
+                                    :headers {"Content-Type" "application/json"}
                                     :body (json/generate-string
                                            {:redirect_uris [redirect-uri]
                                             :token_endpoint_auth_method "none"
@@ -183,7 +185,8 @@
                                             :client_uri "http://github.com/editor-code-assistant/eca"
                                             :client_id eca-client-id
                                             :client_id_issued_at (.getEpochSecond (java.time.Instant/now))})})]
-                              (:client_id (:body res))))
+                              (when (<= 200 (:status res) 299)
+                                (:client_id (:body res)))))
             {:keys [challenge verifier]} (generate-pkce)
             client-id (or new-client-id eca-client-id)
             query-params (ring.util/form-encode
