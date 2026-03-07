@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.110.2
+
 - Fix MCP OAuth client registration failing for servers that require Content-Type header
 - Prevent MCP servers from getting stuck at "starting" when OAuth or other initialization errors occur.
 - Fix GitHub Copilot premium request overconsumption: 
