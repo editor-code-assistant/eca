@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `outputTruncation.sizeKb` not being honored
+
 ## 0.110.1
 
 - Fix MCP Streamable HTTP servers stuck at starting due to Java SDK DummyEvent bug on 202 notification responses, and spurious OAuth detection from proxies returning 401 without www-authenticate on HEAD requests.

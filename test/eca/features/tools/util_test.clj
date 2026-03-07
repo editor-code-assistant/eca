@@ -99,3 +99,17 @@
           truncated (tools.util/maybe-truncate-output result config test-tool-call-id)]
       (is (= 1 (count (:contents truncated))))
       (is (match? {:type :text :text string?} (first (:contents truncated)))))))
+
+(deftest maybe-truncate-output-truncates-very-long-lines-test
+  (testing "truncates output by size when lines are very long"
+    (let [text (apply str (repeat 20480 "x"))
+          result (make-result text)
+          max-size-kb 10
+          config (config-with-truncation 5 max-size-kb)
+          truncated (tools.util/maybe-truncate-output result config test-tool-call-id)
+          output-text (-> truncated :contents first :text)
+          output-size-kb (/ (alength (.getBytes output-text "UTF-8")) 1024.0)]
+      (is (string/includes? output-text "[OUTPUT TRUNCATED]"))
+      (is (< (- output-size-kb max-size-kb) 1)
+          (str "Expected output to be truncated to be " max-size-kb "KB, but got " output-size-kb "KB"))
+      (is (false? (:error truncated))))))
