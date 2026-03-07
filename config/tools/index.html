@@ -740,6 +740,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#disabled-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      Disabled tools
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#approval-permissions" class="md-nav__link">
     <span class="md-ellipsis">
       Approval / permissions
@@ -1173,6 +1182,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#disabled-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      Disabled tools
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#approval-permissions" class="md-nav__link">
     <span class="md-ellipsis">
       Approval / permissions
@@ -1299,11 +1317,38 @@
 </div>
 </div>
 </div>
+<h2 id="disabled-tools">Disabled tools<a class="headerlink" href="#disabled-tools" title="Permanent link">#</a></h2>
+<p>You can completely disable tools so they are never available to the LLM. This is configured via the <code>disabledTools</code> config, which accepts a list of tool name strings.</p>
+<p>It can be set globally or per agent.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="global" name="__tabbed_3" type="radio" /><input id="per-agent" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="global">Global</label><label for="per-agent">Per agent</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;eca__shell_command&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;my-mcp__dangerous_tool&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;plan&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;eca__edit_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;eca__write_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;eca__move_file&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Disabled vs Denied</p>
+<p><code>disabledTools</code> removes the tool entirely from the LLM — it won't even know it exists. This is different from <code>toolCall.approval.deny</code> which lets the LLM see the tool but blocks execution.</p>
+</div>
 <h2 id="approval-permissions">Approval / permissions<a class="headerlink" href="#approval-permissions" title="Permanent link">#</a></h2>
 <p>By default, ECA asks to call any non read-only tool (default <a href="https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96">here</a>), but that can easily be configured in several ways via the <code>toolCall.approval</code> config.</p>
 <p>You can configure the default approval with <code>byDefault</code> and/or configure a tool in <code>ask</code>, <code>allow</code> or <code>deny</code> configs.</p>
 <p>Check some examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="3:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_3" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_3" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_3" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_3" type="radio" /><input id="denying-a-tool" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_4" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_4" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_4" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_4" type="radio" /><input id="denying-a-tool" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1396,7 +1441,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 6, 2026 16:04:26 UTC">March 6, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 7, 2026 18:02:27 UTC">March 7, 2026</span>
   </span>
 
     
