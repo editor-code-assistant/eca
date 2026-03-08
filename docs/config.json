@@ -89,17 +89,6 @@
         "additionalProperties": false
       }
     },
-    "enabledSkills": {
-      "type": "array",
-      "description": "List of regex patterns matching skill names to enable. Defaults to all skills enabled.",
-      "markdownDescription": "List of regex patterns matching skill names to enable. Defaults to all skills enabled.",
-      "items": {
-        "type": "string"
-      },
-      "default": [
-        ".*"
-      ]
-    },
     "disabledTools": {
       "type": "array",
       "description": "List of tool names to disable globally.",
@@ -535,14 +524,6 @@
           "type": "array",
           "description": "Tools to disable for this agent.",
           "markdownDescription": "Tools to disable for this agent.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "enabledSkills": {
-          "type": "array",
-          "description": "List of regex patterns matching skill names to enable for this agent.",
-          "markdownDescription": "List of regex patterns matching skill names to enable for this agent.",
           "items": {
             "type": "string"
           }

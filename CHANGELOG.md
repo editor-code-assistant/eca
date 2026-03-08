@@ -4,6 +4,15 @@
 
 - Fix `outputTruncation.sizeKb` not being honored
 
+## 0.110.2
+
+- Fix MCP OAuth client registration failing for servers that require Content-Type header
+- Prevent MCP servers from getting stuck at "starting" when OAuth or other initialization errors occur.
+- Fix GitHub Copilot premium request overconsumption: 
+  - Chat titles LLM request don't spend premium requests.
+  - Subagents now use same premium request of primary agent.
+  - gpt-5.3-codex and gpt-5.4 now spend way less premium requests.
+
 ## 0.110.1
 
 - Fix MCP Streamable HTTP servers stuck at starting due to Java SDK DummyEvent bug on 202 notification responses, and spurious OAuth detection from proxies returning 401 without www-authenticate on HEAD requests.

@@ -107,6 +107,36 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
     }
     ```
 
+## Disabled tools
+
+You can completely disable tools so they are never available to the LLM. This is configured via the `disabledTools` config, which accepts a list of tool name strings.
+
+It can be set globally or per agent.
+
+=== "Global"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "disabledTools": ["eca__shell_command", "my-mcp__dangerous_tool"]
+    }
+    ```
+
+=== "Per agent"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "agent": {
+        "plan": {
+          "disabledTools": ["eca__edit_file", "eca__write_file", "eca__move_file"]
+        }
+      }
+    }
+    ```
+
+!!! tip "Disabled vs Denied"
+
+    `disabledTools` removes the tool entirely from the LLM — it won't even know it exists. This is different from `toolCall.approval.deny` which lets the LLM see the tool but blocks execution.
+
 ## Approval / permissions
 
 By default, ECA asks to call any non read-only tool (default [here](https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96)), but that can easily be configured in several ways via the `toolCall.approval` config.

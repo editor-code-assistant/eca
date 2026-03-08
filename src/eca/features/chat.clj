@@ -1273,7 +1273,8 @@
                                                :instructions (f.prompt/chat-title-prompt agent config)
                                                :user-messages user-messages
                                                :config config
-                                               :provider-auth provider-auth})]
+                                               :provider-auth provider-auth
+                                               :subagent? true})]
               (when output-text
                 (let [title (subs output-text 0 (min (count output-text) 40))]
                   (swap! db* assoc-in [:chats chat-id :title] title)
@@ -1296,6 +1297,7 @@
                 :tools all-tools
                 :provider-auth provider-auth
                 :variant (:variant chat-ctx)
+                :subagent? (some? (get-in @db* [:chats chat-id :subagent]))
                 :cancelled? (fn [] (identical? :stopping (get-in @db* [:chats chat-id :status])))
                 :on-retry (fn [{:keys [attempt max-retries delay-ms error-data]}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)

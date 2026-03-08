@@ -163,7 +163,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth sync?]
+           past-messages tools provider-auth sync? subagent?]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities) tools)
@@ -257,12 +257,15 @@
             (handler
              (assoc base-opts
                     :web-search web-search
-                    :extra-headers (copilot-headers (= "user" (-> user-messages last :role))))
+                    :extra-headers (fn [{:keys [body]}]
+                                     (copilot-headers (and (not subagent?)
+                                                           (= "user" (-> body :input last :role))))))
              callbacks)
             (handler
              (assoc base-opts
                     :extra-headers (fn [{:keys [body]}]
-                                    (copilot-headers (= "user" (-> body :messages last :role)))))
+                                     (copilot-headers (and (not subagent?)
+                                                           (= "user" (-> body :messages last :role))))))
              callbacks)))
 
         (= "google" provider)
@@ -337,7 +340,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth variant cancelled? on-retry]
+           past-messages tools provider-auth variant cancelled? on-retry subagent?]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -413,6 +416,7 @@
                               :past-messages past-messages
                               :user-messages user-messages
                               :variant variant
+                              :subagent? subagent?
                               :on-error on-error-wrapper
                               :config config})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
@@ -447,6 +451,7 @@
                 :past-messages past-messages
                 :user-messages user-messages
                 :variant variant
+                :subagent? subagent?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
                 :on-tools-called on-tools-called
@@ -462,7 +467,7 @@
 
 (defn sync-prompt!
   [{:keys [provider model model-capabilities instructions
-           prompt past-messages user-messages config tools provider-auth]}]
+           prompt past-messages user-messages config tools provider-auth subagent?]}]
   (prompt!
    {:sync? true
     :provider provider
@@ -474,5 +479,6 @@
     :past-messages past-messages
     :user-messages (or user-messages
                        [{:role "user" :content [{:type :text :text prompt}]}])
+    :subagent? subagent?
     :config config
     :on-error (fn [error] {:error error})}))

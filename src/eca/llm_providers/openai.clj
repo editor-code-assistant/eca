@@ -53,6 +53,9 @@
               (join-api-url api-url (or url-relative-path responses-path)))
         ;; Use persisted account-id first, fall back to extracting from JWT
         resolved-account-id (or account-id (jwt-token->account-id api-key))
+        extra-headers (if (fn? extra-headers)
+                        (extra-headers {:body body})
+                        extra-headers)
         headers (client/merge-llm-headers
                  (merge
                   (assoc-some
