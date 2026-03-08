@@ -108,8 +108,41 @@
           config (config-with-truncation 5 max-size-kb)
           truncated (tools.util/maybe-truncate-output result config test-tool-call-id)
           output-text (-> truncated :contents first :text)
-          output-size-kb (/ (alength (.getBytes output-text "UTF-8")) 1024.0)]
+          output-size-kb (/ (alength (.getBytes ^String output-text "UTF-8")) 1024.0)]
       (is (string/includes? output-text "[OUTPUT TRUNCATED]"))
       (is (< (- output-size-kb max-size-kb) 1)
-          (str "Expected output to be truncated to be " max-size-kb "KB, but got " output-size-kb "KB"))
+          (str "Expected output to be truncated to " max-size-kb "KB, but got " output-size-kb "KB"))
       (is (false? (:error truncated))))))
+
+(deftest maybe-truncate-output-truncates-multibyte-utf8-test
+  (testing "truncates output with multi-byte UTF-8 characters without corruption"
+    (let [text (apply str (repeat 5000 "🎉"))
+          result (make-result text)
+          max-size-kb 10
+          config (config-with-truncation 50000 max-size-kb)
+          truncated (tools.util/maybe-truncate-output result config test-tool-call-id)
+          output-text (-> truncated :contents first :text)]
+      (is (string/includes? output-text "[OUTPUT TRUNCATED]"))
+      (is (not (string/includes? output-text "\uFFFD"))
+          "Truncated output should not contain replacement characters")
+      (is (<= (alength (.getBytes ^String output-text "UTF-8")) (+ (* max-size-kb 1024) 512))
+          "Output should be within size limit plus truncation notice overhead")
+      (is (false? (:error truncated)))))
+
+  (testing "truncates output with CJK characters without corruption"
+    (let [text (apply str (repeat 5000 "漢字"))
+          result (make-result text)
+          max-size-kb 10
+          config (config-with-truncation 50000 max-size-kb)
+          truncated (tools.util/maybe-truncate-output result config test-tool-call-id)
+          output-text (-> truncated :contents first :text)]
+      (is (string/includes? output-text "[OUTPUT TRUNCATED]"))
+      (is (not (string/includes? output-text "\uFFFD"))
+          "Truncated output should not contain replacement characters")
+      (is (false? (:error truncated))))))
+
+(deftest maybe-truncate-output-empty-string-test
+  (testing "handles empty string without error"
+    (let [result (make-result "")
+          config (config-with-truncation 5 10)]
+      (is (= result (tools.util/maybe-truncate-output result config "call-empty"))))))

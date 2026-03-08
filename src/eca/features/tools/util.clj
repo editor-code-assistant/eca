@@ -151,26 +151,31 @@
 (defn ^:private truncate-text-lines
   "Truncates text to the given number of lines."
   [^String text max-lines]
-  (->> text
-       string/split-lines
-       (take max-lines)
-       (string/join "\n")))
+  (let [lines (string/split-lines text)]
+    (if (<= (count lines) max-lines)
+      text
+      (string/join "\n" (take max-lines lines)))))
 
 (defn ^:private truncate-text-size
-  "Truncates text to the given size in kb."
+  "Truncates text to the given size in KB, respecting UTF-8 character boundaries."
   [^String text max-size-kb]
-  (->> text
-       (#(.getBytes % "UTF-8"))
-       (take (* max-size-kb 1024))
-       (byte-array)
-       (#(String. % "UTF-8"))))
+  (let [max-bytes (long (* max-size-kb 1024))
+        bs (.getBytes text "UTF-8")]
+    (if (<= (alength bs) max-bytes)
+      text
+      (let [truncated (java.util.Arrays/copyOf bs (int max-bytes))
+            result (String. truncated "UTF-8")]
+        ;; Remove trailing replacement character from split multi-byte sequence
+        (if (.endsWith result "\uFFFD")
+          (subs result 0 (dec (.length result)))
+          result)))))
 
 (defn ^:private truncate-text
-  "Truncates text to the given number of lines and size"
+  "Truncates text to the given number of lines and size."
   [^String text max-lines max-size-kb]
   (-> text
-       (truncate-text-lines max-lines)
-       (truncate-text-size max-size-kb)))
+      (truncate-text-lines max-lines)
+      (truncate-text-size max-size-kb)))
 
 (defn maybe-truncate-output
   "Checks if a tool call result exceeds configured output truncation limits.
