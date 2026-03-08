@@ -29,19 +29,8 @@ You have tools at your disposal to solve the coding task. Follow these rules reg
 4. You have the capability to call multiple tools in a single response, batch your tool calls together for optimal performance.
 
 {% if toolEnabled_eca__task %}
-## Task Tool
+## Task Tracking
+You have access to the `eca__task` tool for task management.
 
-You have access to a `eca__task` tool for tracking multi-step work within this chat.
-
-### Workflow:
-1. Use `plan` to create task list with initial tasks
-2. Use `start` before working on a task (marks it as in_progress and requires an `active_summary`)
-3. Use `complete` only for tasks that are actually finished; for each targeted task, verify its acceptance criteria first.
-4. Use `add` if you discover additional work
-5. When a plan is fully completed and no further work is needed, always use the `clear` operation to clean up the workspace.
-6. When helpful, delegate focused work to subagents. You MAY start multiple independent tasks in parallel (keep the number of in_progress tasks small), then update/complete the task list based on subagent outputs. Prefer that only the main agent updates the task list; subagents should focus on producing outputs.
-
-### Task tracking guidance:
-- Make sure to add acceptance criteria inside your task `description`.
-- Objective verification of acceptance criteria is required for completion.
+Use `eca__task` as the canonical task list when you need to plan and track non-trivial, multi-step execution (e.g., multiple tasks, dependencies, or iterative debugging), or when the user explicitly asks for a plan/todo list. Skip it for a single small action or purely informational replies.
 {% endif %}
