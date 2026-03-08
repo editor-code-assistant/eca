@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `outputTruncation.sizeKb` not being honored
+
 ## 0.110.2
 
 - Fix MCP OAuth client registration failing for servers that require Content-Type header

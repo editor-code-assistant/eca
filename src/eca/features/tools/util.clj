@@ -148,13 +148,29 @@
     (or (> line-count max-lines)
         (> size-kb max-size-kb))))
 
-(defn ^:private truncate-text-to-lines
+(defn ^:private truncate-text-lines
   "Truncates text to the given number of lines."
   [^String text max-lines]
-  (let [lines (string/split-lines text)]
-    (if (<= (count lines) max-lines)
-      text
-      (string/join "\n" (take max-lines lines)))))
+  (->> text
+       string/split-lines
+       (take max-lines)
+       (string/join "\n")))
+
+(defn ^:private truncate-text-size
+  "Truncates text to the given size in kb."
+  [^String text max-size-kb]
+  (->> text
+       (#(.getBytes % "UTF-8"))
+       (take (* max-size-kb 1024))
+       (byte-array)
+       (#(String. % "UTF-8"))))
+
+(defn ^:private truncate-text
+  "Truncates text to the given number of lines and size"
+  [^String text max-lines max-size-kb]
+  (-> text
+       (truncate-text-lines max-lines)
+       (truncate-text-size max-size-kb)))
 
 (defn maybe-truncate-output
   "Checks if a tool call result exceeds configured output truncation limits.
@@ -171,7 +187,7 @@
       (let [full-text (str (contents->text (:contents result)))]
         (if (exceeds-truncation-limits? full-text max-lines max-size-kb)
           (let [saved-path (cache/save-tool-call-output! tool-call-id full-text)
-                truncated (truncate-text-to-lines full-text max-lines)
+                truncated (truncate-text full-text max-lines max-size-kb)
                 notice (str "\n\n[OUTPUT TRUNCATED] The tool call succeeded but the output was truncated. "
                             "Full output saved to: " saved-path "\n"
                             "Use `eca__grep` or `eca__read_file` with offset/limit to view specific sections. Do not full read the file.")]
