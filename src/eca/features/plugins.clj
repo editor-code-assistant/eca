@@ -12,6 +12,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
+   [eca.config :as config]
    [eca.features.agents :as agents]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -340,3 +341,57 @@
           :source-name source-name
           :source-url source-url
           :installed? (contains? installed-set (:name plugin))})))))
+
+(defn ^:private parse-plugin-arg
+  "Parses a plugin install argument. Supports 'plugin-name' or 'plugin-name@marketplace'.
+   Returns {:plugin-name ... :marketplace ...} where :marketplace may be nil."
+  [^String arg]
+  (let [parts (string/split arg #"@" 2)]
+    {:plugin-name (first parts)
+     :marketplace (when (= 2 (count parts)) (second parts))}))
+
+(defn ^:private find-plugin-in-marketplaces
+  "Finds a plugin by name across all resolved marketplaces, optionally filtered by source name.
+   Returns {:name :source-name :source-url} or nil."
+  [plugins-config plugin-name marketplace-filter]
+  (let [sources (parse-sources plugins-config)]
+    (first
+     (for [[source-name source-url] sources
+           :when (or (nil? marketplace-filter) (= marketplace-filter source-name))
+           :let [source-dir (resolve-source! source-url)]
+           :when source-dir
+           :let [marketplace (read-marketplace source-dir)]
+           :when marketplace
+           :let [entry (find-plugin-entry plugin-name marketplace)]
+           :when entry]
+       {:name plugin-name
+        :source-name source-name
+        :source-url source-url}))))
+
+(defn install-plugin!
+  "Installs a plugin by adding it to the global config install list.
+   `input` is either 'plugin-name' or 'plugin-name@marketplace'.
+   Returns {:status :ok/:error, :message ...}."
+  [plugins-config ^String input]
+  (let [{:keys [plugin-name marketplace]} (parse-plugin-arg input)
+        sources (parse-sources plugins-config)
+        current-install (set (get plugins-config :install []))]
+    (cond
+      (empty? sources)
+      {:status :error
+       :message "No plugin marketplaces configured. Add plugin sources to your config under the `plugins` key."}
+
+      (contains? current-install plugin-name)
+      {:status :error
+       :message (str "Plugin `" plugin-name "` is already installed.")}
+
+      :else
+      (if-let [found (find-plugin-in-marketplaces plugins-config plugin-name marketplace)]
+        (let [new-install (vec (sort (conj current-install plugin-name)))]
+          (config/update-global-config! {:plugins {:install new-install}})
+          {:status :ok
+           :message (str "Plugin `" plugin-name "` installed from **" (:source-name found) "**. Restart ECA to activate it.")})
+        {:status :error
+         :message (if marketplace
+                    (str "Plugin `" plugin-name "` not found in marketplace `" marketplace "`.")
+                    (str "Plugin `" plugin-name "` not found in any configured marketplace."))}))))
