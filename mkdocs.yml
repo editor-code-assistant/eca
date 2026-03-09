@@ -24,6 +24,7 @@ nav:
     - Completion: config/completion.md
     - Rewrite: config/rewrite.md
     - Context Management: config/context-management.md
+    - Plugins / Marketplace: config/plugins.md
     - Metrics: config/metrics.md
     - Network / Enterprise: config/network.md
     - User Examples: config/examples.md

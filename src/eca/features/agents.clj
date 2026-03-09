@@ -42,7 +42,7 @@
                      (get tools-map "ask")
                      (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
 
-(defn ^:private agent-md-file->agent
+(defn agent-md-file->agent
   [md-file]
   (try
     (let [agent-name (string/lower-case (fs/strip-ext (fs/file-name md-file)))

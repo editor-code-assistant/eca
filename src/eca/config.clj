@@ -192,6 +192,7 @@
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :autoCompactPercentage 75
+   :plugins {}
    :env "prod"})
 
 (defn ^:private parse-dynamic-string-values
@@ -306,6 +307,8 @@
 
 (def initialization-config* (atom {}))
 
+(def plugin-components* (atom nil))
+
 (defn ^:private deep-merge [& maps]
   (apply merge-with (fn [& args]
                       (if (every? #(or (map? %) (nil? %)) args)
@@ -411,7 +414,8 @@
     [:behavior :ANY :toolCall :approval :ask :ANY :argsMatchers]
     [:behavior :ANY :toolCall :approval :deny]
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
-    [:otlp]]})
+    [:otlp]
+    [:plugins]]})
 
 (defn ^:private migrate-legacy-agent-name
   "Migrates legacy agent names 'agent' and 'build' to 'code'."
@@ -455,7 +459,15 @@
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
         merge-config (fn [c1 c2]
-                       (deep-merge c1 (normalize-fields normalization-rules c2)))]
+                       (deep-merge c1 (normalize-fields normalization-rules c2)))
+        plugin-data (when-not pure-config? @plugin-components*)
+        plugin-config (when plugin-data
+                        (let [cfg (:config-fragment plugin-data)]
+                          ;; commands/rules are vectors — separate them to avoid deep-merge replacement
+                          (dissoc cfg :commands :rules)))
+        plugin-commands (:commands plugin-data)
+        plugin-rules (:rules plugin-data)
+        plugin-agents (:agents plugin-data)]
     (-> (as-> {} $
           (merge-config $ (initial-config))
           (merge-config $ initialization-config)
@@ -465,16 +477,22 @@
             (merge-config $ (when-not pure-config? custom-config))
             (-> $
                 (merge-config (when-not pure-config? (config-from-global-file)))
-                (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db)))))))
+                (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db))))))
+          ;; Plugin config merges after all file configs (user local config wins via later merge)
+          (merge-config $ plugin-config))
+        ;; Append plugin commands/rules (vector concat, not deep-merge replace)
+        (cond->
+          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
+          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
         migrate-legacy-config
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
+        ;; Plugin agents merge at same level as markdown agents
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                       ;; TODO how to avoid this dependency?
-                                       (agents/all-md-agents (:workspace-folders db)))]
-                (if (seq md-agent-configs)
+                                      (agents/all-md-agents (:workspace-folders db)))]
+                (if (or (seq md-agent-configs) (seq plugin-agents))
                   (update config :agent (fn [existing]
-                                          (merge md-agent-configs existing)))
+                                          (merge md-agent-configs plugin-agents existing)))
                   config))))))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))

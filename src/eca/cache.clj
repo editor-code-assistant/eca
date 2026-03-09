@@ -41,11 +41,17 @@
 
 (def ^:private logger-tag "[CACHE]")
 (def ^:private tool-call-outputs-dir-name "toolCallOutputs")
+(def ^:private plugins-dir-name "plugins")
 
 (defn tool-call-outputs-dir
   "Returns the File object for the tool call outputs cache directory."
   ^File []
   (io/file (global-dir) tool-call-outputs-dir-name))
+
+(defn plugins-dir
+  "Returns the base directory for caching cloned plugin sources."
+  ^java.io.File []
+  (io/file (global-dir) plugins-dir-name))
 
 (defn save-tool-call-output!
   "Saves the full tool call output text to a cache file.

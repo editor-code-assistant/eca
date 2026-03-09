@@ -281,6 +281,57 @@
         }
       }
     },
+    "plugins": {
+      "type": "object",
+      "description": "Plugin system for loading external configuration from git repos or local paths. Each key (except 'install') is a named plugin source with a 'source' URL or path. 'install' lists plugin names to install from any registered source.",
+      "markdownDescription": "Plugin system for loading external configuration from git repos or local paths. Each key (except `install`) is a named plugin source with a `source` URL or path. `install` lists plugin names to install from any registered source.",
+      "examples": [
+        {
+          "my-org": {
+            "source": "https://github.com/org/ai-plugins.git"
+          },
+          "install": ["plugin-a", "plugin-b"]
+        }
+      ],
+      "properties": {
+        "install": {
+          "type": "array",
+          "description": "List of plugin names to install from registered sources.",
+          "markdownDescription": "List of plugin names to install from registered sources.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "A named plugin source.",
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Git URL or local path to a plugin repository containing .eca-plugin/marketplace.json.",
+                "markdownDescription": "Git URL or local path to a plugin repository containing `.eca-plugin/marketplace.json`.",
+                "examples": [
+                  "https://github.com/org/ai-plugins.git",
+                  "git@github.com:org/ai-plugins.git",
+                  "/home/user/local-plugins"
+                ]
+              }
+            },
+            "required": ["source"],
+            "additionalProperties": false
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "network": {
       "type": "object",
       "description": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",

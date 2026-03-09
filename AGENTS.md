@@ -31,3 +31,4 @@ ECA Agent Guide (AGENTS.md)
 - Avoid adding too many comments, only add essential or when you think is really important to mention something. 
 - ECA's protocol specification of client <-> server lives in docs/protocol.md
 - When adding support to a new feature or fixing a existing github issue, add a entry to Unreleased in CHANGELOG.md if not already there.
+- If changing ECA config structure, remember to update its docs/config.json

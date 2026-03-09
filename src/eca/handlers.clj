@@ -7,6 +7,7 @@
    [eca.features.completion :as f.completion]
    [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
+   [eca.features.plugins :as f.plugins]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -104,7 +105,15 @@
                                 error)}}))
     (config/listen-for-changes! db*))
   (future
-    (f.tools/init-servers! db* messenger config metrics))
+    ;; Resolve plugins before MCP init so plugin-provided servers are included
+    (try
+      (let [plugins-config (:plugins config)]
+        (when (seq plugins-config)
+          (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
+      (catch Exception e
+        (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
+    (let [config (config/all @db*)]
+      (f.tools/init-servers! db* messenger config metrics)))
   (future
     (cache/cleanup-tool-call-outputs!))
   ;; Trigger sessionStart hook after initialization
