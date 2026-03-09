@@ -32,7 +32,9 @@
                        {:name "doctor" :arguments []}
                        {:name "repo-map-show" :arguments []}
                        {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
-                       {:name "subagents" :arguments []}]}
+                       {:name "subagents" :arguments []}
+                       {:name "plugins" :arguments []}
+                       {:name "plugin-install" :arguments [{:name "plugin"}]}]}
            resp))))
 
   (testing "We query specific commands"
@@ -45,7 +47,8 @@
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "config" :arguments []}
-                       {:name "subagents" :arguments []}]}
+                       {:name "subagents" :arguments []}
+                       {:name "plugins" :arguments []}]}
            resp))))
 
   (testing "We send a built-in command"

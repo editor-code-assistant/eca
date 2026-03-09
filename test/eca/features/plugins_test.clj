@@ -171,8 +171,8 @@
                  {:mcpServers {"test-mcp" {:type "http"
                                            :url "https://example.com/mcp"}}}))
           (let [result (plugins/resolve-all!
-                        {:my-source {:source (str source-dir)}
-                         :install ["my-plugin"]})]
+                        {"my-source" {:source (str source-dir)}
+                         "install" ["my-plugin"]})]
             (is (= 1 (count (get-in result [:config-fragment :pluginSkillDirs]))))
             (is (match? {:test-mcp {:url "https://example.com/mcp"}}
                         (get-in result [:config-fragment :mcpServers])))
@@ -186,8 +186,8 @@
 
       (testing "returns empty for empty install"
         (let [result (plugins/resolve-all!
-                      {:my-source {:source "/some/path"}
-                       :install []})]
+                      {"my-source" {:source "/some/path"}
+                       "install" []})]
           (is (empty? (:agents result)))))
 
       (testing "skips missing plugins gracefully"
@@ -196,8 +196,8 @@
           (spit (fs/file source-dir ".eca-plugin" "marketplace.json")
                 (json/generate-string {:plugins [{:name "exists" :source "./plugins/exists"}]}))
           (let [result (plugins/resolve-all!
-                        {:src {:source (str source-dir)}
-                         :install ["does-not-exist"]})]
+                        {"src" {:source (str source-dir)}
+                         "install" ["does-not-exist"]})]
             (is (empty? (:agents result))))))
       (finally
         (fs/delete-tree tmp-dir)))))
