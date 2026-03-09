@@ -69,11 +69,14 @@
 
 (defn path-outside-workspace?
   "Returns true if `path` is outside any workspace root in `db`.
+   Paths inside the ECA tool-call-outputs cache dir are always considered 'inside'.
    Works for existing or non-existing paths by absolutizing."
   [db path]
   (let [p (when path (str (fs/absolutize path)))
         roots (workspace-root-paths db)]
-    (and p (not-any? #(fs/starts-with? p %) roots))))
+    (and p
+         (not (fs/starts-with? p (str (cache/tool-call-outputs-dir))))
+         (not-any? #(fs/starts-with? p %) roots))))
 
 (defn require-approval-when-outside-workspace
   "Returns a function suitable for tool `:require-approval-fn` that triggers

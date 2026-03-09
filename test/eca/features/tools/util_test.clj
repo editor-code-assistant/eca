@@ -6,6 +6,7 @@
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.cache :as cache]
    [eca.features.tools.util :as tools.util]
+   [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
 (def ^:private test-tool-call-id "test-truncation-call-1")
@@ -146,3 +147,12 @@
     (let [result (make-result "")
           config (config-with-truncation 5 10)]
       (is (= result (tools.util/maybe-truncate-output result config "call-empty"))))))
+
+(deftest path-outside-workspace-allows-tool-call-outputs-dir-test
+  (testing "path inside tool-call-outputs cache dir is not considered outside workspace"
+    (let [db {:workspace-folders [{:uri (h/file-uri "file:///home/user/project") :name "project"}]}
+          cache-path (str (cache/tool-call-outputs-dir) "/some-call-id.txt")]
+      (is (false? (tools.util/path-outside-workspace? db cache-path)))))
+  (testing "path outside workspace and not in cache dir is still outside"
+    (let [db {:workspace-folders [{:uri (h/file-uri "file:///home/user/project") :name "project"}]}]
+      (is (true? (tools.util/path-outside-workspace? db (h/file-path "/tmp/random/file.txt")))))))
