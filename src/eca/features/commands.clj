@@ -8,6 +8,7 @@
    [eca.db :as db]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
+   [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
@@ -135,6 +136,10 @@
                       {:name "subagents"
                        :type :native
                        :description "List available subagents and their configuration."
+                       :arguments []}
+                      {:name "plugins-list"
+                       :type :native
+                       :description "List available plugins from configured marketplaces."
                        :arguments []}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
@@ -408,6 +413,27 @@
       "subagents" (let [msg (subagents-msg config)]
                     {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
+      "plugins-list" (let [plugins-config (:plugins config)
+                           plugins (f.plugins/list-marketplace-plugins plugins-config)
+                           msg (if (seq plugins)
+                                 (let [by-source (group-by :source-name plugins)]
+                                   (reduce-kv
+                                    (fn [s source-name source-plugins]
+                                      (str s "**" source-name "** (`" (:source-url (first source-plugins)) "`)\n"
+                                           (reduce
+                                            (fn [s2 {:keys [name description installed?]}]
+                                              (str s2 "- " name
+                                                   (when installed? " ✅")
+                                                   (when description (str " — " description))
+                                                   "\n"))
+                                            ""
+                                            source-plugins)
+                                           "\n"))
+                                    "Plugins available:\n\n"
+                                    by-source))
+                                 "No plugin marketplaces configured. Add plugin sources to your config under the `plugins` key.")]
+                       {:type :chat-messages
+                        :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
 
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

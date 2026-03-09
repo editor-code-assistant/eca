@@ -294,7 +294,7 @@
   [plugins-config]
   (if (or (nil? plugins-config) (empty? plugins-config))
     empty-result
-    (let [auto-install (get plugins-config :install [])
+    (let [auto-install (get plugins-config "install" [])
           sources (parse-sources plugins-config)]
       (if (empty? auto-install)
         (do (logger/debug logger-tag "No plugins in install, skipping")
@@ -320,3 +320,23 @@
                  (do (logger/info logger-tag "Loading plugin:" plugin-name "from" source-name)
                      (discover-components plugin-dir))))]
           (merge-components components))))))
+
+(defn list-marketplace-plugins
+  "Lists all available plugins from configured marketplace sources.
+   Returns a seq of {:name :source-name :source-url :description :installed?} maps."
+  [plugins-config]
+  (when (seq plugins-config)
+    (let [installed-set (set (get plugins-config :install []))
+          sources (parse-sources plugins-config)]
+      (doall
+       (for [[source-name source-url] sources
+             :let [source-dir (resolve-source! source-url)]
+             :when source-dir
+             :let [marketplace (read-marketplace source-dir)]
+             :when marketplace
+             plugin marketplace]
+         {:name (:name plugin)
+          :description (:description plugin)
+          :source-name source-name
+          :source-url source-url
+          :installed? (contains? installed-set (:name plugin))})))))

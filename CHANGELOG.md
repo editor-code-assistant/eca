@@ -3,8 +3,9 @@
 ## Unreleased
 
 - Fix MCP server initialization crash (`String cannot be cast to IPersistentCollection`) when OAuth metadata endpoint returns a non-JSON or error response.
-- Add `plugins` config for loading external configuration from git repos or local paths.
+- Add `plugins` config for loading external configuration from git repos or local paths. #349
   - Plugins can provide skills, MCP servers, agents, commands, hooks, rules, and arbitrary config overrides.
+  - Add commands `/plugins-list` and `/plugins-add`.
 
 ## 0.110.3
 
