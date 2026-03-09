@@ -110,6 +110,15 @@
                                                    :error-message error}))
             (response/content-type "text/html"))))))
 
+(defn ^:private successful-json-body
+  "Extracts :body from an HTTP response only when status is 2xx and body is a map.
+   Hato with {:as :json :coerce :unexceptional} leaves :body as a raw String for
+   non-2xx responses, which would break callers expecting a map."
+  [response]
+  (when (and response (<= 200 (:status response) 299))
+    (let [body (:body response)]
+      (when (map? body) body))))
+
 (defn ^:private valid-auth-challenge?
   "A 401 is only a valid OAuth challenge if it includes a www-authenticate header.
    Some proxies (e.g. istio-envoy) return 401 for unsupported methods like HEAD
@@ -144,13 +153,13 @@
             redirect-uri (format "http://localhost:%s/auth/callback" callback-port)
             www-authenticate (some-> (get headers "www-authenticate") parse-www-authenticate)
             ;; Step 1: Fetch resource metadata (PRM) or auth server metadata directly
-            first-meta (some-> (http/get
-                                (or (:resource_metadata www-authenticate)
-                                    (str base-url "/.well-known/oauth-authorization-server"))
-                                {:timeout 10000
-                                 :throw-exceptions? false
-                                 :as :json})
-                               :body)
+            first-meta (successful-json-body
+                        (http/get
+                         (or (:resource_metadata www-authenticate)
+                             (str base-url "/.well-known/oauth-authorization-server"))
+                         {:timeout 10000
+                          :throw-exceptions? false
+                          :as :json}))
             auth-server (first (:authorization_servers first-meta))
             ;; Step 2: If PRM returned authorization_servers but no token_endpoint,
             ;; fetch the actual Authorization Server Metadata (RFC 8414)
@@ -159,11 +168,11 @@
                                      well-known-url (str (.getScheme uri) "://" (.getAuthority uri)
                                                          "/.well-known/oauth-authorization-server"
                                                          (.getPath uri))]
-                                 (some-> (http/get well-known-url
-                                                   {:timeout 10000
-                                                    :throw-exceptions? false
-                                                    :as :json})
-                                         :body)))
+                                 (successful-json-body
+                                  (http/get well-known-url
+                                            {:timeout 10000
+                                             :throw-exceptions? false
+                                             :as :json}))))
             ;; Merge: auth server metadata takes precedence, PRM as fallback
             meta (merge first-meta auth-server-meta)
             base-auth-endpoint (or (:authorization_endpoint meta)

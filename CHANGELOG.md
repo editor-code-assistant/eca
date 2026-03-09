@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix MCP server initialization crash (`String cannot be cast to IPersistentCollection`) when OAuth metadata endpoint returns a non-JSON or error response.
+
 ## 0.110.3
 
 - Fix `outputTruncation.sizeKb` not being honored
