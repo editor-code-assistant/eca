@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.110.3
+
 - Fix `outputTruncation.sizeKb` not being honored
 - Improve tasks feature prompt
 
