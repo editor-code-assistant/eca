@@ -25,6 +25,27 @@ flowchart TD
 4. ECA matches `install` names against the marketplace, then **discovers components** from each matched plugin directory.
 5. All components are **merged** into the config waterfall — user config always takes precedence on conflicts.
 
+## Commands
+
+### `/plugins`
+
+Lists all available plugins from your configured marketplaces. Plugins that are already installed are marked with ✅.
+
+```
+/plugins
+```
+
+### `/plugin-install`
+
+Installs a plugin by adding it to the `install` list in your global config.
+
+```
+/plugin-install <plugin-name>
+/plugin-install <plugin-name@marketplace>
+```
+
+Use `<plugin-name@marketplace>` to disambiguate when multiple sources provide a plugin with the same name. After installing, restart ECA for the plugin to take effect.
+
 ## Pointing to a plugin source / marketplace
 
 Add a `plugins` key to your config with one or more named sources and an `install` array:
