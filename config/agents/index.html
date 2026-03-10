@@ -846,6 +846,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#inheriting-from-other-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      Inheriting from other agents
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-agents-and-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom agents and prompts
@@ -1187,6 +1196,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#inheriting-from-other-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      Inheriting from other agents
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-agents-and-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom agents and prompts
@@ -1263,9 +1281,36 @@
 </tr>
 </tbody>
 </table>
+<h2 id="inheriting-from-other-agents">Inheriting from other agents<a class="headerlink" href="#inheriting-from-other-agents" title="Permanent link">#</a></h2>
+<p>You can create a new agent that inherits all settings from an existing agent using the <code>inherit</code> key. The new agent's settings are deep-merged on top of the inherited agent's settings, so any field you specify overrides the parent's value while the rest is preserved.</p>
+<p>This is useful when you want a variant of a built-in or custom agent with small tweaks, without duplicating the entire configuration.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="config" name="__tabbed_1" type="radio" /><input id="markdown" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="config">Config</label><label for="markdown">Markdown</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;my-plan&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;inherit&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai/gpt-5&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The <code>my-plan</code> agent above inherits all of <code>plan</code>'s configuration (disabled tools, tool approval rules, prompts, etc.) but uses a different default model.</p>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">.eca/agents/my-explorer.md</span><pre><span></span><code>---
+inherit: explorer
+description: Explorer with a custom model
+<span class="gu">defaultModel: google/gemini-2.5-pro</span>
+<span class="gu">---</span>
+</code></pre></div>
+</div>
+</div>
+</div>
 <h2 id="custom-agents-and-prompts">Custom agents and prompts<a class="headerlink" href="#custom-agents-and-prompts" title="Permanent link">#</a></h2>
 <p>You can create an agent and define its prompt, tool call approval and default model.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="example-my-agent" name="__tabbed_1" type="radio" /><input id="example-overriding-a-tool-description" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="example-my-agent">Example: my-agent</label><label for="example-overriding-a-tool-description">Example: Overriding a tool description</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="example-my-agent" name="__tabbed_2" type="radio" /><input id="example-overriding-a-tool-description" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="example-my-agent">Example: my-agent</label><label for="example-overriding-a-tool-description">Example: Overriding a tool description</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1301,18 +1346,19 @@
 </ul>
 <p>Subagents can be configured in config or markdown and support/require these fields:</p>
 <ul>
-<li><code>mode</code> (required): <code>subagent</code> always, this is waht differ a primary agent than a subagent for ECA.</li>
+<li><code>mode</code> (required): <code>subagent</code> always, this is what differs a primary agent from a subagent for ECA.</li>
 <li><code>description</code> (required): a short summary of what this subagent will do, this is important to primary agent knows when to delegate to it.</li>
 <li>
-<p><code>systemPrompt</code> or the markdown content (required): Instructions for the subagent to what do when receive a task.</p>
+<p><code>systemPrompt</code> or the markdown content (required unless using <code>inherit</code>): Instructions for the subagent to what do when receive a task.</p>
 </li>
 <li>
-<p><code>model</code> (optional): which full model to use for this subagent, using primary agent model if not specified.</p>
+<p><code>inherit</code> (optional): name of another agent to inherit all settings from. The subagent's own fields are merged on top.</p>
 </li>
+<li><code>model</code> (optional): which full model to use for this subagent, using primary agent model if not specified.</li>
 <li><code>tools</code> (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.</li>
 <li><code>maxSteps</code> (optional): set a max limit of turns/steps that his subagent must finish and return an answer.</li>
 </ul>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="markdown" name="__tabbed_2" type="radio" /><input id="config" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="markdown">Markdown</label><label for="config">Config</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="markdown_1" name="__tabbed_3" type="radio" /><input id="config_1" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="markdown_1">Markdown</label><label for="config_1">Config</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>Agents can be defined in local or global markdown files inside a <code>agents</code> folder, those will be merged to ECA config. Example:</p>
@@ -1372,7 +1418,7 @@ You should run sleep 1 and return &quot;I slept 1 second&quot;
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 15:29:29 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 15:36:00 UTC">March 10, 2026</span>
   </span>
 
     
