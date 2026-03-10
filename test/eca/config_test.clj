@@ -166,6 +166,65 @@
       (with-redefs [logger/warn (fn [_ _] nil)]
         (is (= "code" (config/validate-agent-name "anything" config)))))))
 
+(deftest resolve-agent-inheritance-test
+  (testing "basic inheritance copies parent fields to child"
+    (let [agents {"plan" {:mode "primary"
+                          :disabledTools ["edit_file" "write_file"]
+                          :toolCall {:approval {:byDefault "ask"}}}
+                  "my-plan" {:inherit "plan"
+                             :description "custom plan"}}]
+      (is (match?
+           {"plan" {:mode "primary"
+                    :disabledTools ["edit_file" "write_file"]}
+            "my-plan" {:mode "primary"
+                       :disabledTools ["edit_file" "write_file"]
+                       :toolCall {:approval {:byDefault "ask"}}
+                       :description "custom plan"}}
+           (#'config/resolve-agent-inheritance agents)))))
+
+  (testing "child values override parent values"
+    (let [agents {"code" {:mode "primary"
+                          :disabledTools ["preview_file_change"]
+                          :defaultModel "anthropic/claude-sonnet-4-6"}
+                  "my-code" {:inherit "code"
+                             :defaultModel "openai/gpt-5"}}]
+      (is (match?
+           {"my-code" {:mode "primary"
+                       :disabledTools ["preview_file_change"]
+                       :defaultModel "openai/gpt-5"}}
+           (#'config/resolve-agent-inheritance agents)))))
+
+  (testing "missing parent is skipped with warning"
+    (let [agents {"child" {:inherit "nonexistent"
+                           :mode "primary"}}]
+      (is (match?
+           {"child" {:mode "primary"}}
+           (#'config/resolve-agent-inheritance agents)))
+      (is (not (contains? (get (#'config/resolve-agent-inheritance agents) "child") :inherit)))))
+
+  (testing "self-inheritance is skipped"
+    (let [agents {"self" {:inherit "self"
+                          :mode "primary"}}]
+      (is (match?
+           {"self" {:mode "primary"}}
+           (#'config/resolve-agent-inheritance agents)))
+      (is (not (contains? (get (#'config/resolve-agent-inheritance agents) "self") :inherit)))))
+
+  (testing "agent without inherit is unchanged"
+    (let [agents {"code" {:mode "primary"
+                          :disabledTools ["preview_file_change"]}}]
+      (is (match?
+           {"code" {:mode "primary"
+                    :disabledTools ["preview_file_change"]}}
+           (#'config/resolve-agent-inheritance agents)))))
+
+  (testing "inherit key is stripped from resolved config"
+    (let [agents {"plan" {:mode "primary"}
+                  "child" {:inherit "plan"
+                           :description "my child"}}
+          resolved (#'config/resolve-agent-inheritance agents)]
+      (is (not (contains? (get resolved "child") :inherit))))))
+
 (deftest diff-keeping-vectors-test
   (testing "like clojure.data/diff"
     (is (= {:b 3}

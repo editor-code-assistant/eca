@@ -567,6 +567,12 @@
       "description": "A named agent configuration.",
       "markdownDescription": "A named agent configuration.",
       "properties": {
+        "inherit": {
+          "type": "string",
+          "description": "Name of another agent to inherit configuration from. The current agent's settings are deep-merged on top of the inherited agent's settings.",
+          "markdownDescription": "Name of another agent to inherit configuration from. The current agent's settings are deep-merged on top of the inherited agent's settings.",
+          "examples": ["code", "plan", "explorer"]
+        },
         "mode": {
           "type": "string",
           "description": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",

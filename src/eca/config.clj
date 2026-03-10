@@ -316,6 +316,31 @@
                         (last args)))
          maps))
 
+(defn ^:private resolve-agent-inheritance
+  "Resolves :inherit keys in agent configs. When an agent has :inherit \"other\",
+   its config is deep-merged on top of the parent agent's config (child wins).
+   The :inherit key is stripped from the resolved config."
+  [agents]
+  (reduce-kv
+   (fn [result agent-name agent-config]
+     (if-let [parent-name (:inherit agent-config)]
+       (let [parent-config (get agents parent-name)]
+         (cond
+           (= parent-name agent-name)
+           (do (logger/warn logger-tag (format "Agent '%s' inherits from itself, ignoring inherit" agent-name))
+               (assoc result agent-name (dissoc agent-config :inherit)))
+
+           (nil? parent-config)
+           (do (logger/warn logger-tag (format "Agent '%s' inherits from unknown agent '%s', ignoring inherit" agent-name parent-name))
+               (assoc result agent-name (dissoc agent-config :inherit)))
+
+           :else
+           (assoc result agent-name (deep-merge (dissoc parent-config :inherit)
+                                                (dissoc agent-config :inherit)))))
+       (assoc result agent-name agent-config)))
+   {}
+   agents))
+
 (defn ^:private eca-version* []
   (string/trim (slurp (io/resource "ECA_VERSION"))))
 
@@ -493,7 +518,8 @@
                 (if (or (seq md-agent-configs) (seq plugin-agents))
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs plugin-agents existing)))
-                  config))))))
+                  config)))
+        (update :agent resolve-agent-inheritance))))
 
 (def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
 
