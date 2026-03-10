@@ -30,7 +30,7 @@ nav:
     - User Examples: config/examples.md
   - Protocol: protocol.md
   - Troubleshooting: troubleshooting.md
-  - Development: development.md
+  - Plugins: https://plugins.eca.dev
   - Support Us: https://github.com/sponsors/ericdallo
 
 theme:
