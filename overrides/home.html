@@ -867,7 +867,8 @@
   #eca-sc-4:checked ~ .eca-showcase__dots label[for="eca-sc-4"],
   #eca-sc-5:checked ~ .eca-showcase__dots label[for="eca-sc-5"],
   #eca-sc-6:checked ~ .eca-showcase__dots label[for="eca-sc-6"],
-  #eca-sc-7:checked ~ .eca-showcase__dots label[for="eca-sc-7"] {
+  #eca-sc-7:checked ~ .eca-showcase__dots label[for="eca-sc-7"],
+  #eca-sc-8:checked ~ .eca-showcase__dots label[for="eca-sc-8"] {
     color: var(--eca-dot-active-color);
     background: var(--eca-dot-active-bg);
     border-color: var(--eca-dot-active-border);
@@ -894,7 +895,8 @@
   #eca-sc-4:checked ~ .eca-showcase__slides .eca-showcase__slide--4,
   #eca-sc-5:checked ~ .eca-showcase__slides .eca-showcase__slide--5,
   #eca-sc-6:checked ~ .eca-showcase__slides .eca-showcase__slide--6,
-  #eca-sc-7:checked ~ .eca-showcase__slides .eca-showcase__slide--7 {
+  #eca-sc-7:checked ~ .eca-showcase__slides .eca-showcase__slide--7,
+  #eca-sc-8:checked ~ .eca-showcase__slides .eca-showcase__slide--8 {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1710,6 +1712,13 @@
               <p class="eca-feature__desc">OpenTelemetry integration for exporting tool usage, prompt performance, and server metrics.</p>
             </div>
           </a>
+          <a href="config/plugins" class="eca-feature">
+            <div class="eca-feature__icon">🧩</div>
+            <div class="eca-feature__body">
+              <h3 class="eca-feature__title">Plugins</h3>
+              <p class="eca-feature__desc">Extend ECA with community plugins &mdash; bundles of tools, rules, skills, and more from the marketplace.</p>
+            </div>
+          </a>
         </div>
       </div>
 
@@ -1732,6 +1741,7 @@
         <input type="radio" name="eca-sc" id="eca-sc-5">
         <input type="radio" name="eca-sc" id="eca-sc-6">
         <input type="radio" name="eca-sc" id="eca-sc-7">
+        <input type="radio" name="eca-sc" id="eca-sc-8">
 
         <div class="eca-showcase__dots">
           <label for="eca-sc-1" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🌐</span> Any Provider</label>
@@ -1743,6 +1753,7 @@
             <label for="eca-sc-5" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🤖</span> Agents</label>
             <label for="eca-sc-6" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">⌨️</span> Commands</label>
             <label for="eca-sc-7" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🔧</span> Tools</label>
+            <label for="eca-sc-8" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🧩</span> Plugins</label>
           </span>
         </div>
 
@@ -1964,6 +1975,39 @@ git changes.</pre></div>
         <span class="hl-key">"properties"</span>: <span class="hl-brace">{</span>
           <span class="hl-key">"url"</span>: <span class="hl-brace">{</span> <span class="hl-key">"type"</span>: <span class="hl-str">"string"</span> <span class="hl-brace">}</span>
         <span class="hl-brace">}</span>
+      <span class="hl-brace">}</span>
+    <span class="hl-brace">}</span>
+  <span class="hl-brace">}</span>
+<span class="hl-brace">}</span></pre></div>
+            </div>
+          </div>
+
+          <!-- 8: Plugins Marketplace -->
+          <div class="eca-showcase__slide eca-showcase__slide--8">
+            <div class="eca-showcase__text">
+              <span class="eca-showcase__badge">Plugins</span>
+              <h3 class="eca-showcase__slide-title">Install plugins from the marketplace</h3>
+              <p class="eca-showcase__slide-desc">
+                Browse <a href="https://plugins.eca.dev" target="_blank" class="eca-showcase__inline-link">plugins.eca.dev</a> for community plugins &mdash;
+                bundles of skills, agents, commands, rules, hooks, and more.
+                Install with a single line of config, or add your own plugin sources.
+              </p>
+              <a href="config/plugins" class="eca-showcase__slide-link">
+                Explore plugins config
+                {{ icon_chevron_right() }}
+              </a>
+            </div>
+            <div class="eca-showcase__code-wrap">
+              {{ code_chrome("~/.config/eca/config.json") }}
+              <div class="eca-showcase__code"><pre><span class="hl-brace">{</span>
+  <span class="hl-key">"plugins"</span>: <span class="hl-brace">{</span>
+    <span class="hl-comm">// Install from the official marketplace</span>
+    <span class="hl-key">"install"</span>: [<span class="hl-str">"secret-guard"</span>, <span class="hl-str">"tdd"</span>, <span class="hl-str">"security-review"</span>],
+
+    <span class="hl-comm">// Add custom plugin sources</span>
+    <span class="hl-key">"sources"</span>: <span class="hl-brace">{</span>
+      <span class="hl-key">"my-team"</span>: <span class="hl-brace">{</span>
+        <span class="hl-key">"url"</span>: <span class="hl-str">"https://github.com/my-org/eca-plugins"</span>
       <span class="hl-brace">}</span>
     <span class="hl-brace">}</span>
   <span class="hl-brace">}</span>
