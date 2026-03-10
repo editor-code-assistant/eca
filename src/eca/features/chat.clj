@@ -1299,12 +1299,13 @@
                 :variant (:variant chat-ctx)
                 :subagent? (some? (get-in @db* [:chats chat-id :subagent]))
                 :cancelled? (fn [] (identical? :stopping (get-in @db* [:chats chat-id :status])))
-                :on-retry (fn [{:keys [attempt max-retries delay-ms error-data]}]
-                            (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
-                                  reason (case error-type
-                                           :rate-limited "Rate limited"
-                                           :overloaded "Provider overloaded"
-                                           "Transient error")]
+                :on-retry (fn [{:keys [attempt max-retries delay-ms classified]}]
+                            (let [{error-type :error/type error-label :error/label} classified
+                                  reason (or error-label
+                                             (case error-type
+                                               :rate-limited "Rate limited"
+                                               :overloaded "Provider overloaded"
+                                               "Transient error"))]
                               (send-content! chat-ctx :system
                                              {:type :progress
                                               :state :running

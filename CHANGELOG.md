@@ -2,11 +2,15 @@
 
 ## Unreleased
 
-- Fix MCP server initialization crash (`String cannot be cast to IPersistentCollection`) when OAuth metadata endpoint returns a non-JSON or error response.
-- Auto-approve `eca__read_file` for tool call output cache files (`~/.cache/eca/toolCallOutputs`).
 - Add `plugins` config for loading external configuration from git repos or local paths. #349
   - Plugins can provide skills, MCP servers, agents, commands, hooks, rules, and arbitrary config overrides.
   - Add commands `/plugins` and `/plugin-install`.
+
+## 0.111.0
+
+- Fix MCP server initialization crash (`String cannot be cast to IPersistentCollection`) when OAuth metadata endpoint returns a non-JSON or error response.
+- Auto-approve `eca__read_file` for tool call output cache files (`~/.cache/eca/toolCallOutputs`).
+- Support configurable retry rules per provider via `retryRules`, allowing users to define custom HTTP status and/or body pattern matching for automatic retries with optional labels.
 
 ## 0.110.3
 

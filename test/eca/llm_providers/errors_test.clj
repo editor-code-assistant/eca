@@ -128,6 +128,80 @@
                  {:status 429
                   :body "Rate limit exceeded"})))))
 
+(deftest classify-error-custom-retry-rules-test
+  (testing "matches by status code only"
+    (is (= {:error/type :retryable-custom :error/label "Proxy throttle"}
+           (llm-providers.errors/classify-error
+            {:status 418 :body "I'm a teapot" :message "status 418"}
+            [{:status 418 :label "Proxy throttle"}]))))
+
+  (testing "matches by body pattern only"
+    (is (= {:error/type :retryable-custom :error/label "Capacity exceeded"}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "server capacity exceeded, try again" :message "status 500"}
+            [{:bodyPattern "capacity.*exceeded" :label "Capacity exceeded"}]))))
+
+  (testing "matches by both status and body pattern"
+    (is (= {:error/type :retryable-custom :error/label "Maintenance"}
+           (llm-providers.errors/classify-error
+            {:status 503 :body "scheduled maintenance window" :message "status 503"}
+            [{:status 503 :bodyPattern "maintenance" :label "Maintenance"}]))))
+
+  (testing "does not match when status differs"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:status 400 :body "bad request" :message "status 400"}
+            [{:status 418 :label "Teapot"}]))))
+
+  (testing "does not match when body pattern does not match"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "internal error" :message "status 500"}
+            [{:bodyPattern "capacity.*exceeded" :label "Capacity"}]))))
+
+  (testing "body pattern is case-insensitive"
+    (is (= {:error/type :retryable-custom}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "RATE LIMIT HIT" :message "status 500"}
+            [{:bodyPattern "rate limit hit"}]))))
+
+  (testing "label is optional"
+    (is (= {:error/type :retryable-custom}
+           (llm-providers.errors/classify-error
+            {:status 418 :body "" :message "status 418"}
+            [{:status 418}]))))
+
+  (testing "first matching rule wins"
+    (is (= {:error/type :retryable-custom :error/label "First"}
+           (llm-providers.errors/classify-error
+            {:status 418 :body "" :message "status 418"}
+            [{:status 418 :label "First"}
+             {:status 418 :label "Second"}]))))
+
+  (testing "custom rules take priority over built-in classification"
+    (is (= {:error/type :retryable-custom :error/label "Custom 429"}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            [{:status 429 :label "Custom 429"}]))))
+
+  (testing "falls through to built-in when no custom rule matches"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            [{:status 418 :label "Teapot"}]))))
+
+  (testing "nil retry-rules falls through to built-in"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            nil))))
+
+  (testing "empty retry-rules falls through to built-in"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            [])))))
+
 (deftest retryable?-test
   (testing "429 rate-limited is retryable"
     (is (true? (llm-providers.errors/retryable?
@@ -175,4 +249,14 @@
 
   (testing "unknown error is not retryable"
     (is (false? (llm-providers.errors/retryable?
-                 {:message "Something went wrong"})))))
+                 {:message "Something went wrong"}))))
+
+  (testing "custom retry rule makes error retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 418 :body "I'm a teapot"}
+                [{:status 418 :label "Teapot"}]))))
+
+  (testing "non-matching custom rule does not affect retryability"
+    (is (false? (llm-providers.errors/retryable?
+                 {:message "Something went wrong"}
+                 [{:status 418 :label "Teapot"}])))))

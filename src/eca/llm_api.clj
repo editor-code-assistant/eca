@@ -371,9 +371,12 @@
                            (when-not (:silent? (ex-data exception))
                              (logger/error args)
                              (on-error args)))
+        provider-config (get-in config [:providers provider])
+        retry-rules (:retryRules provider-config)
         maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
-                      (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)]
-                        (if (and (contains? #{:rate-limited :overloaded} error-type)
+                      (let [{error-type :error/type
+                             :as classified} (llm-providers.errors/classify-error error-data retry-rules)]
+                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom} error-type)
                                  (< attempt default-max-retries)
                                  (not (cancelled?)))
                           (let [delay-ms (retry-delay-ms attempt)]
@@ -387,14 +390,14 @@
                                 (on-retry {:attempt (inc attempt)
                                            :max-retries default-max-retries
                                            :delay-ms delay-ms
-                                           :error-data error-data})
+                                           :error-data error-data
+                                           :classified classified})
                                 (catch Exception e
                                   (logger/warn logger-tag "on-retry callback failed" {:exception e}))))
                             (if (sleep-with-cancel delay-ms cancelled?)
                               (retry-prompt-fn (inc attempt))
                               (on-give-up error-data)))
                           (on-give-up error-data))))
-        provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model %))
         api-handler (provider->api-handler provider model config)
