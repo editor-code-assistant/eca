@@ -68,23 +68,47 @@
 
       :else nil)))
 
+(defn ^:private classify-by-custom-rules
+  "Checks user-configured retry rules. Each rule may have :status (int),
+   :body-pattern (regex string, case-insensitive), and :label (string).
+   Returns {:error/type :retryable-custom :error/label label} on first match, nil otherwise."
+  [{:keys [status body]} retry-rules]
+  (when (seq retry-rules)
+    (some (fn [{rule-status :status rule-body-pattern :bodyPattern rule-label :label}]
+            (let [status-matches? (if rule-status
+                                    (= rule-status status)
+                                    true)
+                  body-matches? (if rule-body-pattern
+                                  (when (string? body)
+                                    (re-find (re-pattern (str "(?i)" rule-body-pattern)) body))
+                                  true)
+                  has-condition? (or rule-status rule-body-pattern)]
+              (when (and has-condition? status-matches? body-matches?)
+                (cond-> {:error/type :retryable-custom}
+                  rule-label (assoc :error/label rule-label)))))
+          retry-rules)))
+
 (defn classify-error
   "Classifies an error map into a semantic error type.
 
    Accepts the standard on-error map shape: {:message :status :body :exception}.
+   Optional `retry-rules` seq of user-configured rules checked before built-in classification.
    Returns a map with :error/type — one of:
+     :retryable-custom  — matched a user-configured retry rule (with optional :error/label)
      :context-overflow  — prompt exceeds model context window
      :rate-limited      — 429 or rate limit pattern in body/message
      :overloaded        — provider overloaded (503, 529, etc.)
      :auth              — authentication/authorization failure (401, 403)
      :unknown           — unclassified error"
-  [{:keys [status exception] :as error-data}]
-  (or (when status
-        (classify-by-status-and-body error-data))
-      (classify-by-message error-data)
-      (when exception
-        (classify-by-message {:message (ex-message exception)}))
-      {:error/type :unknown}))
+  ([error-data] (classify-error error-data nil))
+  ([{:keys [status exception] :as error-data} retry-rules]
+   (or (classify-by-custom-rules error-data retry-rules)
+       (when status
+         (classify-by-status-and-body error-data))
+       (classify-by-message error-data)
+       (when exception
+         (classify-by-message {:message (ex-message exception)}))
+       {:error/type :unknown})))
 
 (defn context-overflow?
   "Returns true if the error is a context window overflow."
@@ -92,11 +116,12 @@
   (= :context-overflow (:error/type (classify-error error-data))))
 
 (def ^:private retryable-error-types
-  #{:rate-limited :overloaded})
+  #{:rate-limited :overloaded :retryable-custom})
 
 (defn retryable?
   "Returns true if the error is transient and the request can be retried
-   (rate-limited or provider overloaded)."
-  [error-data]
-  (contains? retryable-error-types
-             (:error/type (classify-error error-data))))
+   (rate-limited, provider overloaded, or matched a custom retry rule)."
+  ([error-data] (retryable? error-data nil))
+  ([error-data retry-rules]
+   (contains? retryable-error-types
+              (:error/type (classify-error error-data retry-rules)))))

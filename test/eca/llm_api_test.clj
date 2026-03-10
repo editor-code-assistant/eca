@@ -338,3 +338,87 @@
            :on-message-received identity})))
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
+
+(deftest sync-retry-on-custom-retry-rule-test
+  (testing "retries when custom retryRules status matches"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [_opts]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              {:error {:status 418
+                                                       :body "I'm a teapot"
+                                                       :message "LLM response status: 418"}}
+                                              {:output-text "success"
+                                               :usage {:input-tokens 10 :output-tokens 5}})))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :config {:providers {"anthropic" {:key "test-key"
+                                             :url "http://test"
+                                             :retryRules [{:status 418 :label "Proxy throttle"}]
+                                             :models {"claude-sonnet-4-6" {:extraPayload {:stream false}}}}}}
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 2 @attempt*))
+      (is (= 1 (count @retry-events*)))
+      (is (= :retryable-custom (get-in (first @retry-events*) [:classified :error/type])))
+      (is (= "Proxy throttle" (get-in (first @retry-events*) [:classified :error/label])))
+      (is (false? @on-error-called*)))))
+
+(deftest async-retry-on-custom-retry-rule-body-pattern-test
+  (testing "retries async when custom retryRules bodyPattern matches"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          received-text* (atom "")
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error]}]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              (on-error {:status 500
+                                                         :body "server capacity exceeded"
+                                                         :message "LLM response status: 500"})
+                                              (do
+                                                (on-message-received {:type :text :text "hello"})
+                                                (on-message-received {:type :finish :finish-reason "stop"})))))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:config {:providers {"anthropic" {:key "test-key"
+                                             :url "http://test"
+                                             :retryRules [{:bodyPattern "capacity.*exceeded"
+                                                           :label "Capacity exceeded"}]
+                                             :models {"claude-sonnet-4-6" {}}}}}
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received (fn [{:keys [type text]}]
+                                  (when (= :text type)
+                                    (swap! received-text* str text)))})))
+      (is (= 2 @attempt*))
+      (is (= 1 (count @retry-events*)))
+      (is (= "Capacity exceeded" (get-in (first @retry-events*) [:classified :error/label])))
+      (is (false? @on-error-called*))
+      (is (= "hello" @received-text*))))
+
+  (testing "does not retry when no custom rule matches"
+    (let [attempt* (atom 0)
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-error]}]
+                                          (swap! attempt* inc)
+                                          (on-error {:status 418
+                                                     :body "I'm a teapot"
+                                                     :message "LLM response status: 418"}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:config {:providers {"anthropic" {:key "test-key"
+                                             :url "http://test"
+                                             :retryRules [{:status 599 :label "Something else"}]
+                                             :models {"claude-sonnet-4-6" {}}}}}
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 1 @attempt*))
+      (is (true? @on-error-called*)))))
