@@ -31,7 +31,7 @@ nav:
   - Protocol: protocol.md
   - Troubleshooting: troubleshooting.md
   - Plugins: https://plugins.eca.dev
-  - Support Us: https://github.com/sponsors/ericdallo
+  - Support Us: https://github.com/sponsors/editor-code-assistant
 
 theme:
   name: material
@@ -59,7 +59,7 @@ extra:
     - icon: fontawesome/brands/slack
       link: https://clojurians.slack.com/archives/C093426FPUG
     - icon: fontawesome/solid/heart
-      link: https://github.com/sponsors/ericdallo
+      link: https://github.com/sponsors/editor-code-assistant
 
 extra_css:
   - stylesheets/layout.css

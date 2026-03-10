@@ -90,7 +90,7 @@ Check the planned work [here](https://github.com/orgs/editor-code-assistant/proj
 
 ## Be the first to sponsor the project 💖
 
-Consider [sponsoring the project](https://github.com/sponsors/ericdallo) to help grow faster, the support helps to keep the project going, being updated and maintained!
+Consider [sponsoring the project](https://github.com/sponsors/editor-code-assistant) to help grow faster, the support helps to keep the project going, being updated and maintained!
 
 ## Contributing
 
