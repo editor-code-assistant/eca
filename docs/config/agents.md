@@ -22,6 +22,37 @@ There are 2 types of agents defined via `mode` field (when absent, defaults to p
 | __explorer__ | subagent | Fast agent specialized for exploring codebases. Finds files by patterns, searches code for keywords, or answers questions about the codebase. Read-only, no edit tools. |
 | __general__  | subagent | General-purpose agent for researching complex questions and executing multi-step tasks. Can be used to execute multiple units of work in parallel.                      |
 
+## Inheriting from other agents
+
+You can create a new agent that inherits all settings from an existing agent using the `inherit` key. The new agent's settings are deep-merged on top of the inherited agent's settings, so any field you specify overrides the parent's value while the rest is preserved.
+
+This is useful when you want a variant of a built-in or custom agent with small tweaks, without duplicating the entire configuration.
+
+=== "Config"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "agent": {
+        "my-plan": {
+          "inherit": "plan",
+          "defaultModel": "openai/gpt-5"
+        }
+      }
+    }
+    ```
+
+    The `my-plan` agent above inherits all of `plan`'s configuration (disabled tools, tool approval rules, prompts, etc.) but uses a different default model.
+
+=== "Markdown"
+
+    ```markdown title=".eca/agents/my-explorer.md"
+    ---
+    inherit: explorer
+    description: Explorer with a custom model
+    defaultModel: google/gemini-2.5-pro
+    ---
+    ```
+
 ## Custom agents and prompts
 
 You can create an agent and define its prompt, tool call approval and default model.
@@ -64,10 +95,11 @@ The major advantages of subagents are:
 
 Subagents can be configured in config or markdown and support/require these fields:
 
-- `mode` (required): `subagent` always, this is waht differ a primary agent than a subagent for ECA.
+- `mode` (required): `subagent` always, this is what differs a primary agent from a subagent for ECA.
 - `description` (required): a short summary of what this subagent will do, this is important to primary agent knows when to delegate to it.
-- `systemPrompt` or the markdown content (required): Instructions for the subagent to what do when receive a task.
+- `systemPrompt` or the markdown content (required unless using `inherit`): Instructions for the subagent to what do when receive a task.
 
+- `inherit` (optional): name of another agent to inherit all settings from. The subagent's own fields are merged on top.
 - `model` (optional): which full model to use for this subagent, using primary agent model if not specified.
 - `tools` (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.

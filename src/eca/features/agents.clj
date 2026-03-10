@@ -20,8 +20,9 @@
     (into {} (map (fn [name] [(str name) {}]) tool-names))))
 
 (defn ^:private md->agent-config
-  [{:keys [description mode model steps tools body]}]
+  [{:keys [description mode model steps tools body inherit]}]
   (cond-> {}
+    inherit (assoc :inherit (str inherit))
     description (assoc :description description)
     mode (assoc :mode (str mode))
     model (assoc :defaultModel (str model))
