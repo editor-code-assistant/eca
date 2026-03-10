@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Configure ECA rules: define coding standards, conventions, and constraints the LLM must follow globally or per project.">
+        <meta name="description" content="Configure ECA plugins: load external skills, agents, commands, rules, hooks, MCP servers and config overrides from git repos or local paths.">
       
       
       
-        <link rel="canonical" href="https://eca.dev/config/rules/">
+        <link rel="canonical" href="https://eca.dev/config/plugins/">
       
       
-        <link rel="prev" href="../skills/">
+        <link rel="prev" href="../context-management/">
       
       
-        <link rel="next" href="../commands/">
+        <link rel="next" href="../metrics/">
       
       
       <link rel="icon" href="../../images/logo.svg">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Rules - ECA - Editor Code Assistant</title>
+        <title>Plugins / Marketplace - ECA - Editor Code Assistant</title>
       
     
     
@@ -78,9 +78,9 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Rules - ECA - Editor Code Assistant" />
-  <meta property="og:description" content="Configure ECA rules: define coding standards, conventions, and constraints the LLM must follow globally or per project." />
-  <meta property="og:url" content="https://eca.dev/config/rules/" />
+  <meta property="og:title" content="Plugins / Marketplace - ECA - Editor Code Assistant" />
+  <meta property="og:description" content="Configure ECA plugins: load external skills, agents, commands, rules, hooks, MCP servers and config overrides from git repos or local paths." />
+  <meta property="og:url" content="https://eca.dev/config/plugins/" />
   <meta property="og:image" content="https://eca.dev/images/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -88,8 +88,8 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Rules - ECA - Editor Code Assistant" />
-  <meta name="twitter:description" content="Configure ECA rules: define coding standards, conventions, and constraints the LLM must follow globally or per project." />
+  <meta name="twitter:title" content="Plugins / Marketplace - ECA - Editor Code Assistant" />
+  <meta name="twitter:description" content="Configure ECA plugins: load external skills, agents, commands, rules, hooks, MCP servers and config overrides from git repos or local paths." />
   <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
   </head>
@@ -104,7 +104,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#rules" class="md-skip">
+        <a href="#plugins-marketplace" class="md-skip">
           Skip to content
         </a>
       
@@ -137,7 +137,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Rules
+              Plugins / Marketplace
             
           </span>
         </div>
@@ -738,19 +738,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../rules/" class="md-nav__link">
         
   
   
@@ -761,7 +752,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -909,10 +899,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../plugins/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Plugins / Marketplace
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -923,6 +935,110 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How it works
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Commands
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      /plugins
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plugin-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      /plugin-install
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pointing-to-a-plugin-source-marketplace" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pointing to a plugin source / marketplace
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-plugin-source-plugins-marketplace" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating a plugin source (Plugins marketplace)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a plugin source (Plugins marketplace)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#marketplace-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      Marketplace file
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plugin-directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Plugin directory structure
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1112,6 +1228,98 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How it works
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Commands
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#plugins" class="md-nav__link">
+    <span class="md-ellipsis">
+      /plugins
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plugin-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      /plugin-install
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pointing-to-a-plugin-source-marketplace" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pointing to a plugin source / marketplace
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-plugin-source-plugins-marketplace" class="md-nav__link">
+    <span class="md-ellipsis">
+      Creating a plugin source (Plugins marketplace)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a plugin source (Plugins marketplace)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#marketplace-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      Marketplace file
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plugin-directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      Plugin directory structure
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1129,27 +1337,221 @@
   
 
 
-<h1 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">#</a></h1>
-<p>Rules are contexts that are passed to the LLM during a prompt and are useful to tune prompts or LLM responses.
-Rules are text files (typically <code>.md</code>, but any format works):</p>
-<p>There are 3 possible ways to configure rules following this order of priority:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="project-file" name="__tabbed_1" type="radio" /><input id="global-file" name="__tabbed_1" type="radio" /><input id="config" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="project-file">Project file</label><label for="global-file">Global file</label><label for="config">Config</label></div>
+<h1 id="plugins-marketplace">Plugins / Marketplace<a class="headerlink" href="#plugins-marketplace" title="Permanent link">#</a></h1>
+<p>Plugins let you share and reuse ECA configuration across projects and teams. A plugin source is a git repository or local directory containing a <strong>marketplace</strong> of plugins, each providing any combination of skills, agents, commands, rules, hooks, MCP servers, and config overrides.</p>
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">#</a></h2>
+<pre class="mermaid"><code>flowchart TD
+    A[ECA has a 'plugins' in config.json] --&gt; B{Git URL or local path?}
+    B --&gt;|git| C[Clone to ~/.eca/cache/plugins]
+    B --&gt;|local| D[Use directory directly]
+    C --&gt; E[Read .eca-plugin/marketplace.json]
+    D --&gt; E
+    E --&gt; F[Read plugins from 'install']
+    F --&gt; G[Merge into final ECA config]</code></pre>
+<ol>
+<li>You register one or more <strong>sources</strong> (git URL or local path) and list plugin names in <strong><code>install</code></strong>.</li>
+<li>ECA resolves each source — cloning git repos to a local cache or using the local path directly.</li>
+<li>Each source provides a <strong>marketplace</strong> (<code>.eca-plugin/marketplace.json</code>) listing its available plugins.</li>
+<li>ECA matches <code>install</code> names against the marketplace, then <strong>discovers components</strong> from each matched plugin directory.</li>
+<li>All components are <strong>merged</strong> into the config waterfall — user config always takes precedence on conflicts.</li>
+</ol>
+<h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">#</a></h2>
+<h3 id="plugins"><code>/plugins</code><a class="headerlink" href="#plugins" title="Permanent link">#</a></h3>
+<p>Lists all available plugins from your configured marketplaces. Plugins that are already installed are marked with ✅.</p>
+<div class="highlight"><pre><span></span><code>/plugins
+</code></pre></div>
+<h3 id="plugin-install"><code>/plugin-install</code><a class="headerlink" href="#plugin-install" title="Permanent link">#</a></h3>
+<p>Installs a plugin by adding it to the <code>install</code> list in your global config.</p>
+<div class="highlight"><pre><span></span><code>/plugin-install &lt;plugin-name&gt;
+/plugin-install &lt;plugin-name@marketplace&gt;
+</code></pre></div>
+<p>Use <code>&lt;plugin-name@marketplace&gt;</code> to disambiguate when multiple sources provide a plugin with the same name. After installing, restart ECA for the plugin to take effect.</p>
+<h2 id="pointing-to-a-plugin-source-marketplace">Pointing to a plugin source / marketplace<a class="headerlink" href="#pointing-to-a-plugin-source-marketplace" title="Permanent link">#</a></h2>
+<p>Add a <code>plugins</code> key to your config with one or more named sources and an <code>install</code> array:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="git-source" name="__tabbed_1" type="radio" /><input id="local-path-for-development" name="__tabbed_1" type="radio" /><input id="multiple-sources" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="git-source">Git source</label><label for="local-path-for-development">Local path (for development)</label><label for="multiple-sources">Multiple sources</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>A <code>.eca/rules</code> folder from the workspace root containing <code>.md</code> files with the rules.</p>
-<div class="highlight"><span class="filename">.eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>A <code>$XDG_CONFIG_HOME/eca/rules</code> or <code>~/.config/eca/rules</code> folder containing <code>.md</code> files with the rules.</p>
-<div class="highlight"><span class="filename">~/.config/eca/rules/talk_funny.md</span><pre><span></span><code><span class="k">-</span><span class="w"> </span>Talk funny like Mickey!
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>Just add to your config the <code>:rules</code> pointing to <code>.md</code> files that will be searched from the workspace root if not an absolute path:</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;rules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-rule.md&quot;</span><span class="p">}]</span>
+<span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;my-org&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;source&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/my-org/eca-plugins.git&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;install&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;code-review&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;security-scanner&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">.eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;local-dev&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;source&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/home/user/my-eca-plugins&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;install&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;my-plugin&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>ECA searches all registered sources when resolving <code>install</code> entries:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;company&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;source&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/company/eca-plugins.git&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;community&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;source&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://github.com/community/shared-plugins.git&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;install&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;company-standards&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;linter-setup&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;shared-skills&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<h2 id="creating-a-plugin-source-plugins-marketplace">Creating a plugin source (Plugins marketplace)<a class="headerlink" href="#creating-a-plugin-source-plugins-marketplace" title="Permanent link">#</a></h2>
+<p>A plugin source is a directory (typically a git repo) with a <code>.eca-plugin/marketplace.json</code> file that lists available plugins.</p>
+<h3 id="marketplace-file">Marketplace file<a class="headerlink" href="#marketplace-file" title="Permanent link">#</a></h3>
+<div class="highlight"><span class="filename">.eca-plugin/marketplace.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;plugins&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;code-review&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Agents and skills for thorough code review&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;plugins/code-review&quot;</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;security-scanner&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Security-focused rules and hooks&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;source&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;plugins/security-scanner&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Each plugin entry has:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Unique plugin name (used in <code>install</code>)</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>Human-readable description</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>Relative path from the repo root to the plugin directory</td>
+</tr>
+</tbody>
+</table>
+<h3 id="plugin-directory-structure">Plugin directory structure<a class="headerlink" href="#plugin-directory-structure" title="Permanent link">#</a></h3>
+<p>Each plugin directory can contain any combination of:</p>
+<div class="highlight"><pre><span></span><code>plugins/code-review/
+├── skills/
+│   └── review-checklist/
+│       └── SKILL.md
+├── agents/
+│   └── reviewer.md
+├── commands/
+│   └── review.md
+├── rules/
+│   └── code-standards.md
+├── hooks/
+│   └── hooks.json
+├── .mcp.json
+└── eca.json
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>What it provides</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>skills/</code></td>
+<td>Skill definitions</td>
+<td>Each subfolder follows the <a href="https://agentskills.io/">agentskills.io</a> spec with a <code>SKILL.md</code></td>
+</tr>
+<tr>
+<td><code>agents/*.md</code></td>
+<td>Agent definitions</td>
+<td>Markdown files with YAML frontmatter, same format as local agents</td>
+</tr>
+<tr>
+<td><code>commands/*.md</code></td>
+<td>Custom commands</td>
+<td>Markdown command files, same format as local commands</td>
+</tr>
+<tr>
+<td><code>rules/**</code></td>
+<td>Rule files</td>
+<td>Any files under <code>rules/</code> are loaded as rules</td>
+</tr>
+<tr>
+<td><code>hooks/hooks.json</code></td>
+<td>Hooks</td>
+<td><a href="../hooks/">ECA hook format</a></td>
+</tr>
+<tr>
+<td><code>.mcp.json</code></td>
+<td>MCP server definitions</td>
+<td>Standard <code>{"mcpServers": {...}}</code> format</td>
+</tr>
+<tr>
+<td><code>eca.json</code></td>
+<td>Config overrides</td>
+<td>Arbitrary ECA config keys deep-merged into config</td>
+</tr>
+</tbody>
+</table>
+<p>All paths are optional — include only what your plugin needs.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:4"><input checked="checked" id="skill-only-plugin" name="__tabbed_2" type="radio" /><input id="hooks--mcp-plugin" name="__tabbed_2" type="radio" /><input id="config-overrides-only" name="__tabbed_2" type="radio" /><input id="full-plugin" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="skill-only-plugin">Skill-only plugin</label><label for="hooks--mcp-plugin">Hooks + MCP plugin</label><label for="config-overrides-only">Config overrides only</label><label for="full-plugin">Full plugin</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>plugins/gif-maker/
+└── skills/
+    └── gif-generator/
+        ├── SKILL.md
+        └── scripts/
+            └── generate.py
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>plugins/security-scanner/
+├── hooks/
+│   └── hooks.json
+└── .mcp.json
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>plugins/team-defaults/
+└── eca.json
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>plugins/company-standards/
+├── skills/
+│   └── internal-api/
+│       └── SKILL.md
+├── agents/
+│   └── reviewer.md
+├── commands/
+│   └── deploy.md
+├── rules/
+│   └── coding-standards.md
+├── hooks/
+│   └── hooks.json
+├── .mcp.json
+└── eca.json
 </code></pre></div>
 </div>
 </div>
@@ -1205,22 +1607,22 @@ Rules are text files (typically <code>.md</code>, but any format works):</p>
   
   <nav class="md-footer__inner md-grid" aria-label="Footer" >
     
-    <a href="../skills/" class="md-footer__link md-footer__link--prev">
+    <a href="../context-management/" class="md-footer__link md-footer__link--prev">
       <div class="md-footer__button md-icon">
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
       </div>
       <div class="md-footer__title">
         <span class="md-footer__direction">Previous</span>
-        <span class="md-ellipsis">Skills</span>
+        <span class="md-ellipsis">Context Management</span>
       </div>
     </a>
     
     
-    <a href="../commands/" class="md-footer__link md-footer__link--next">
+    <a href="../metrics/" class="md-footer__link md-footer__link--next">
       <div class="md-footer__title">
         <span class="md-footer__direction">Next</span>
-        <span class="md-ellipsis">Commands</span>
+        <span class="md-ellipsis">Metrics</span>
       </div>
       <div class="md-footer__button md-icon">
         
