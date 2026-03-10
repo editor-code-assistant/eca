@@ -4,7 +4,7 @@
 
 - Add `plugins` config for loading external configuration from git repos or local paths. #349
   - Plugins can provide skills, MCP servers, agents, commands, hooks, rules, and arbitrary config overrides.
-  - Add commands `/plugins` and `/plugin-install`.
+  - Add commands `/plugins`, `/plugin-install`, and `/plugin-uninstall`.
   - Add official plugin marketplace as built-in plugin source (`eca`), available by default at `plugins.eca.dev`.
 - Fix race condition where stopping a prompt and immediately sending a new one could cause two concurrent prompts with no way to stop the older one.
 - Support `inherit` key in agent config to inherit settings from another agent.

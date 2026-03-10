@@ -34,7 +34,8 @@
                        {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
                        {:name "subagents" :arguments []}
                        {:name "plugins" :arguments []}
-                       {:name "plugin-install" :arguments [{:name "plugin"}]}]}
+                       {:name "plugin-install" :arguments [{:name "plugin"}]}
+                       {:name "plugin-uninstall" :arguments [{:name "plugin"}]}]}
            resp))))
 
   (testing "We query specific commands"

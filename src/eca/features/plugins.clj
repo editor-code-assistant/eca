@@ -395,3 +395,16 @@
          :message (if marketplace
                     (str "Plugin `" plugin-name "` not found in marketplace `" marketplace "`.")
                     (str "Plugin `" plugin-name "` not found in any configured marketplace."))}))))
+
+(defn uninstall-plugin!
+  "Uninstalls a plugin by removing it from the global config install list.
+   Returns {:status :ok/:error, :message ...}."
+  [plugins-config ^String plugin-name]
+  (let [current-install (set (get plugins-config :install []))]
+    (if (contains? current-install plugin-name)
+      (let [new-install (vec (sort (disj current-install plugin-name)))]
+        (config/update-global-config! {:plugins {:install new-install}})
+        {:status :ok
+         :message (str "Plugin `" plugin-name "` uninstalled. Restart ECA to apply.")})
+      {:status :error
+       :message (str "Plugin `" plugin-name "` is not installed.")})))

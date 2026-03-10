@@ -229,3 +229,26 @@
                    (:agents result)))
       (is (= [{:path "/a/commands/cmd.md"}] (:commands result)))
       (is (= [{:path "/b/rules/rule.mdc"}] (:rules result))))))
+
+(deftest uninstall-plugin!-test
+  (testing "removes plugin from install list"
+    (let [updated (atom nil)]
+      (with-redefs [eca.config/update-global-config! (fn [c] (reset! updated c))]
+        (let [result (plugins/uninstall-plugin!
+                      {:install ["alpha" "beta" "gamma"]}
+                      "beta")]
+          (is (= :ok (:status result)))
+          (is (= ["alpha" "gamma"] (get-in @updated [:plugins :install])))))))
+
+  (testing "returns error when plugin is not installed"
+    (let [result (plugins/uninstall-plugin!
+                  {:install ["alpha"]}
+                  "beta")]
+      (is (= :error (:status result)))
+      (is (re-find #"not installed" (:message result)))))
+
+  (testing "returns error when install list is empty"
+    (let [result (plugins/uninstall-plugin!
+                  {:install []}
+                  "beta")]
+      (is (= :error (:status result))))))

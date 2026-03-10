@@ -144,7 +144,11 @@
                       {:name "plugin-install"
                        :type :native
                        :description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
-                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace"}]}]
+                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace"}]}
+                      {:name "plugin-uninstall"
+                       :type :native
+                       :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin)"
+                       :arguments [{:name "plugin" :description "Plugin name"}]}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -446,6 +450,13 @@
                                       (f.plugins/install-plugin! (:plugins config) plugin-input))]
                          {:type :chat-messages
                           :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
+      "plugin-uninstall" (let [plugin-input (first args)
+                               result (if (string/blank? plugin-input)
+                                        {:status :error
+                                         :message "Usage: `/plugin-uninstall <plugin-name>`"}
+                                        (f.plugins/uninstall-plugin! (:plugins config) plugin-input))]
+                           {:type :chat-messages
+                            :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
 
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
