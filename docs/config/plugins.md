@@ -6,6 +6,22 @@ description: "Configure ECA plugins: load external skills, agents, commands, rul
 
 Plugins let you share and reuse ECA configuration across projects and teams. A plugin source is a git repository or local directory containing a **marketplace** of plugins, each providing any combination of skills, agents, commands, rules, hooks, MCP servers, and config overrides.
 
+## Official Plugin Repository
+
+ECA ships with built-in support for the **official plugin repository** at [plugins.eca.dev](https://plugins.eca.dev). This marketplace is pre-configured as the `"eca"` source, so you can install any of its plugins without adding a custom source — just list them in `install`:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "plugins": {
+    "install": ["secret-guard", "tdd", "security-review"]
+  }
+}
+```
+
+Browse available plugins and their documentation at [plugins.eca.dev](https://plugins.eca.dev), or run `/plugins` inside ECA to see the full list.
+
+Want to contribute a plugin? Check the [eca-plugins](https://github.com/editor-code-assistant/eca-plugins) repository on GitHub.
+
 ## How it works
 
 ```mermaid
@@ -48,9 +64,23 @@ Use `<plugin-name@marketplace>` to disambiguate when multiple sources provide a 
 
 ## Pointing to a plugin source / marketplace
 
-Add a `plugins` key to your config with one or more named sources and an `install` array:
+The official [plugins.eca.dev](https://plugins.eca.dev) marketplace is always available as the built-in `"eca"` source. To install plugins from it, just add their names to `install` — no source configuration needed.
 
-=== "Git source"
+To add **custom** sources (your organization's plugins, community repos, or local directories), add named entries under the `plugins` key:
+
+=== "Official repository only"
+
+    No source configuration required — just list the plugins you want:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "plugins": {
+        "install": ["tdd", "secret-guard"]
+      }
+    }
+    ```
+
+=== "Custom git source"
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -78,7 +108,7 @@ Add a `plugins` key to your config with one or more named sources and an `instal
 
 === "Multiple sources"
 
-    ECA searches all registered sources when resolving `install` entries:
+    ECA searches the built-in `"eca"` source plus all registered sources when resolving `install` entries:
 
     ```javascript title="~/.config/eca/config.json"
     {
