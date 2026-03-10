@@ -36,8 +36,17 @@
                      (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))
        (keep skill-file->skill)))
 
+(defn ^:private plugin-skills [plugin-skill-dirs]
+  (->> plugin-skill-dirs
+       (mapcat (fn [dir]
+                 (let [dir (if (string? dir) (fs/file dir) dir)]
+                   (when (fs/exists? dir)
+                     (fs/glob dir "**/SKILL.md" {:follow-links true})))))
+       (keep skill-file->skill)))
+
 (defn all [config roots]
   (concat []
           (when-not (:pureConfig config)
             (global-skills))
+          (plugin-skills (:pluginSkillDirs config))
           (local-skills roots)))

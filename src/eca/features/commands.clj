@@ -8,6 +8,7 @@
    [eca.db :as db]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
+   [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
@@ -135,7 +136,15 @@
                       {:name "subagents"
                        :type :native
                        :description "List available subagents and their configuration."
-                       :arguments []}]
+                       :arguments []}
+                      {:name "plugins"
+                       :type :native
+                       :description "List available plugins from configured marketplaces."
+                       :arguments []}
+                      {:name "plugin-install"
+                       :type :native
+                       :description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
+                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace"}]}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -408,6 +417,35 @@
       "subagents" (let [msg (subagents-msg config)]
                     {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
+      "plugins" (let [plugins-config (:plugins config)
+                      plugins (f.plugins/list-marketplace-plugins plugins-config)
+                      msg (if (seq plugins)
+                            (let [by-source (group-by :source-name plugins)]
+                              (multi-str (reduce-kv
+                                          (fn [s source-name source-plugins]
+                                            (str s "**" source-name "** (`" (:source-url (first source-plugins)) "`)\n"
+                                                 (reduce
+                                                  (fn [s2 {:keys [name description installed?]}]
+                                                    (str s2 "- " name
+                                                         (when installed? " ✅")
+                                                         (when description (str " — " description))
+                                                         "\n"))
+                                                  ""
+                                                  source-plugins)
+                                                 "\n"))
+                                          "Plugins available:\n\n"
+                                          by-source)
+                                         "Use `/plugin-install <name>` to install a plugin."))
+                            "No plugin marketplaces configured. Add plugin sources to your config under the `plugins` key.")]
+                  {:type :chat-messages
+                   :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
+      "plugin-install" (let [plugin-input (first args)
+                             result (if (string/blank? plugin-input)
+                                      {:status :error
+                                       :message "Usage: `/plugin-install <plugin-name>` or `/plugin-install <plugin-name@marketplace>`"}
+                                      (f.plugins/install-plugin! (:plugins config) plugin-input))]
+                         {:type :chat-messages
+                          :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
 
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
