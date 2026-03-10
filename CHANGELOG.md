@@ -5,6 +5,7 @@
 - Add `plugins` config for loading external configuration from git repos or local paths. #349
   - Plugins can provide skills, MCP servers, agents, commands, hooks, rules, and arbitrary config overrides.
   - Add commands `/plugins` and `/plugin-install`.
+- Fix race condition where stopping a prompt and immediately sending a new one could cause two concurrent prompts with no way to stop the older one.
 
 ## 0.111.0
 

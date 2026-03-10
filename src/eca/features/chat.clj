@@ -104,29 +104,30 @@
                   (update-in % [idx :content :output :contents] conj entry)
                   %))))))
 
-(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect] :as chat-ctx}]
-  (when-not (get-in @db* [:chats chat-id :auto-compacting?])
-    (swap! db* assoc-in [:chats chat-id :status] status)
-    (let [db @db*
-          subagent? (some? (get-in db [:chats chat-id :subagent]))
-          hook-type (if subagent? :subagentPostRequest :postRequest)
-          hook-data (cond-> (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
-                                   {:prompt message})
-                      subagent? (assoc :parent-chat-id (get-in db [:chats chat-id :parent-chat-id])))]
-      (f.hooks/trigger-if-matches! hook-type
-                                   hook-data
-                                   {:on-before-action (partial notify-before-hook-action! chat-ctx)
-                                    :on-after-action (partial notify-after-hook-action! chat-ctx)}
-                                   db
-                                   config))
-    (send-content! chat-ctx :system
-                   {:type :progress
-                    :state :finished})
-    (when-not (get-in @db* [:chats chat-id :created-at])
-      (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
-  (when on-finished-side-effect
-    (on-finished-side-effect))
-  (db/update-workspaces-cache! @db* metrics))
+(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect prompt-id] :as chat-ctx}]
+  (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
+    (when-not (get-in @db* [:chats chat-id :auto-compacting?])
+      (swap! db* assoc-in [:chats chat-id :status] status)
+      (let [db @db*
+            subagent? (some? (get-in db [:chats chat-id :subagent]))
+            hook-type (if subagent? :subagentPostRequest :postRequest)
+            hook-data (cond-> (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
+                                     {:prompt message})
+                        subagent? (assoc :parent-chat-id (get-in db [:chats chat-id :parent-chat-id])))]
+        (f.hooks/trigger-if-matches! hook-type
+                                     hook-data
+                                     {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                      :on-after-action (partial notify-after-hook-action! chat-ctx)}
+                                     db
+                                     config))
+      (send-content! chat-ctx :system
+                     {:type :progress
+                      :state :finished})
+      (when-not (get-in @db* [:chats chat-id :created-at])
+        (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
+    (when on-finished-side-effect
+      (on-finished-side-effect))
+    (db/update-workspaces-cache! @db* metrics)))
 
 (defn ^:private maybe-renew-auth-token [chat-ctx]
   (f.login/maybe-renew-auth-token!
@@ -141,12 +142,15 @@
                 (throw (ex-info "Auth token renew failed" {})))}
    chat-ctx))
 
-(defn ^:private assert-chat-not-stopped! [{:keys [chat-id db*] :as chat-ctx}]
-  (when (identical? :stopping (get-in @db* [:chats chat-id :status]))
-    (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))
-    (logger/info logger-tag "Chat prompt stopped:" chat-id)
-    (throw (ex-info "Chat prompt stopped" {:silent? true
-                                           :chat-id chat-id}))))
+(defn ^:private assert-chat-not-stopped! [{:keys [chat-id db* prompt-id] :as chat-ctx}]
+  (let [chat (get-in @db* [:chats chat-id])
+        superseded? (and prompt-id (not= prompt-id (:prompt-id chat)))
+        stopped? (or (identical? :stopping (:status chat)) superseded?)]
+    (when stopped?
+      (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))
+      (logger/info logger-tag "Chat prompt stopped:" chat-id (when superseded? "(superseded)"))
+      (throw (ex-info "Chat prompt stopped" {:silent? true
+                                             :chat-id chat-id})))))
 
 (defn ^:private update-pre-request-state
   "Pure function to compute new state from hook result."
@@ -1033,10 +1037,10 @@
                                                                      (partial get-tool-call-state @db* chat-id id)
                                                                      (partial transition-tool-call! db* chat-ctx id))
                                           details (f.tools/tool-call-details-after-invocation name arguments details result
-                                                                                                                                  {:db @db*
-                                                                                                                                   :config config
-                                                                                                                                   :chat-id chat-id
-                                                                                                                                   :tool-call-id id})
+                                                                                              {:db @db*
+                                                                                               :config config
+                                                                                               :chat-id chat-id
+                                                                                               :tool-call-id id})
                                           {:keys [start-time]} (get-tool-call-state @db* chat-id id)
                                           total-time-ms (- (System/currentTimeMillis) start-time)]
                                       (add-to-history! {:role "tool_call"
@@ -1243,11 +1247,17 @@
                                                         :else
                                                         rewritten)]
                                     with-contexts)))
-                        user-messages)]
+                        user-messages)
+        prompt-id (random-uuid)]
     (when user-messages
+      (when (#{:running :stopping} (get-in @db* [:chats chat-id :status]))
+        (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
+                                                             :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
+      (swap! db* assoc-in [:chats chat-id :prompt-id] prompt-id)
       (swap! db* assoc-in [:chats chat-id :model] full-model)
-      (let [_ (maybe-renew-auth-token chat-ctx)
+      (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
+            _ (maybe-renew-auth-token chat-ctx)
             db @db*
             past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
@@ -1298,7 +1308,10 @@
                 :provider-auth provider-auth
                 :variant (:variant chat-ctx)
                 :subagent? (some? (get-in @db* [:chats chat-id :subagent]))
-                :cancelled? (fn [] (identical? :stopping (get-in @db* [:chats chat-id :status])))
+                :cancelled? (fn []
+                              (let [chat (get-in @db* [:chats chat-id])]
+                                (or (identical? :stopping (:status chat))
+                                    (not= prompt-id (:prompt-id chat)))))
                 :on-retry (fn [{:keys [attempt max-retries delay-ms classified]}]
                             (let [{error-type :error/type error-label :error/label} classified
                                   reason (or error-label
@@ -1378,70 +1391,70 @@
                                              (send-content! chat-ctx :assistant {:type :reasonFinished :total-time-ms total-time-ms :id id})))
                                nil))
                 :on-server-web-search (fn [{:keys [status id name input output raw-content]}]
-                                         (assert-chat-not-stopped! chat-ctx)
-                                         (let [summary (format "Web searching%s"
-                                                               (if-let [query (:query input)]
-                                                                 (format " '%s'" query)
-                                                                 ""))
-                                               arguments (or input {})]
-                                           (case status
-                                             :started (do
-                                                        (swap! server-tool-times* assoc id (System/currentTimeMillis))
-                                                        (transition-tool-call! db* chat-ctx id :tool-prepare
-                                                                               {:name name
+                                        (assert-chat-not-stopped! chat-ctx)
+                                        (let [summary (format "Web searching%s"
+                                                              (if-let [query (:query input)]
+                                                                (format " '%s'" query)
+                                                                ""))
+                                              arguments (or input {})]
+                                          (case status
+                                            :started (do
+                                                       (swap! server-tool-times* assoc id (System/currentTimeMillis))
+                                                       (transition-tool-call! db* chat-ctx id :tool-prepare
+                                                                              {:name name
+                                                                               :server :llm
+                                                                               :origin :server
+                                                                               :arguments-text ""
+                                                                               :summary summary})
+                                                       (transition-tool-call! db* chat-ctx id :tool-run
+                                                                              {:approved?* (promise)
+                                                                               :future-cleanup-complete?* (promise)
+                                                                               :name name
+                                                                               :server :llm
+                                                                               :origin :server
+                                                                               :arguments arguments
+                                                                               :manual-approval false
+                                                                               :summary summary})
+                                                       (transition-tool-call! db* chat-ctx id :approval-allow
+                                                                              {:reason :server-tool})
+                                                       (transition-tool-call! db* chat-ctx id :execution-start
+                                                                              {:delayed-future (delay nil)
+                                                                               :origin :server
+                                                                               :name name
+                                                                               :server :llm
+                                                                               :arguments arguments
+                                                                               :start-time (System/currentTimeMillis)
+                                                                               :summary summary
+                                                                               :progress-text "Searching the web"}))
+                                            :input-ready (add-to-history! {:role "server_tool_use"
+                                                                           :content {:id id
+                                                                                     :name name
+                                                                                     :input arguments}})
+                                            :finished (let [start-time (get @server-tool-times* id)
+                                                            total-time-ms (if start-time
+                                                                            (- (System/currentTimeMillis) start-time)
+                                                                            0)
+                                                            outputs (when (seq output)
+                                                                      (mapv (fn [{:keys [title url]}]
+                                                                              {:type :text
+                                                                               :text (format "%s: %s" title url)})
+                                                                            output))]
+                                                        (add-to-history! {:role "server_tool_result"
+                                                                          :content {:tool-use-id id
+                                                                                    :raw-content raw-content}})
+                                                        (transition-tool-call! db* chat-ctx id :execution-end
+                                                                               {:origin :server
+                                                                                :name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")
                                                                                 :server :llm
-                                                                                :origin :server
-                                                                                :arguments-text ""
+                                                                                :arguments {}
+                                                                                :error false
+                                                                                :outputs outputs
+                                                                                :total-time-ms total-time-ms
+                                                                                :progress-text "Generating"
                                                                                 :summary summary})
-                                                        (transition-tool-call! db* chat-ctx id :tool-run
-                                                                               {:approved?* (promise)
-                                                                                :future-cleanup-complete?* (promise)
-                                                                                :name name
-                                                                                :server :llm
-                                                                                :origin :server
-                                                                                :arguments arguments
-                                                                                :manual-approval false
-                                                                                :summary summary})
-                                                        (transition-tool-call! db* chat-ctx id :approval-allow
-                                                                               {:reason :server-tool})
-                                                        (transition-tool-call! db* chat-ctx id :execution-start
-                                                                               {:delayed-future (delay nil)
-                                                                                :origin :server
-                                                                                :name name
-                                                                                :server :llm
-                                                                                :arguments arguments
-                                                                                :start-time (System/currentTimeMillis)
-                                                                                :summary summary
-                                                                                :progress-text "Searching the web"}))
-                                             :input-ready (add-to-history! {:role "server_tool_use"
-                                                                            :content {:id id
-                                                                                      :name name
-                                                                                      :input arguments}})
-                                             :finished (let [start-time (get @server-tool-times* id)
-                                                             total-time-ms (if start-time
-                                                                             (- (System/currentTimeMillis) start-time)
-                                                                             0)
-                                                             outputs (when (seq output)
-                                                                       (mapv (fn [{:keys [title url]}]
-                                                                               {:type :text
-                                                                                :text (format "%s: %s" title url)})
-                                                                             output))]
-                                                         (add-to-history! {:role "server_tool_result"
-                                                                           :content {:tool-use-id id
-                                                                                     :raw-content raw-content}})
-                                                         (transition-tool-call! db* chat-ctx id :execution-end
-                                                                                {:origin :server
-                                                                                 :name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")
-                                                                                 :server :llm
-                                                                                 :arguments {}
-                                                                                 :error false
-                                                                                 :outputs outputs
-                                                                                 :total-time-ms total-time-ms
-                                                                                 :progress-text "Generating"
-                                                                                 :summary summary})
-                                                         (transition-tool-call! db* chat-ctx id :cleanup-finished
-                                                                                {:name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")}))
-                                             nil)))
+                                                        (transition-tool-call! db* chat-ctx id :cleanup-finished
+                                                                               {:name (get-in (get-tool-call-state @db* chat-id id) [:name] "web_search")}))
+                                            nil)))
                 :on-error (fn [{:keys [message exception] :as error-data}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
