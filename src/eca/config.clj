@@ -192,7 +192,7 @@
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :autoCompactPercentage 75
-   :plugins {}
+   :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
    :env "prod"})
 
 (defn ^:private parse-dynamic-string-values
