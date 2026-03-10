@@ -952,6 +952,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#official-plugin-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      Official Plugin Repository
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       How it works
@@ -1235,6 +1244,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#official-plugin-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      Official Plugin Repository
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       How it works
@@ -1339,6 +1357,16 @@
 
 <h1 id="plugins-marketplace">Plugins / Marketplace<a class="headerlink" href="#plugins-marketplace" title="Permanent link">#</a></h1>
 <p>Plugins let you share and reuse ECA configuration across projects and teams. A plugin source is a git repository or local directory containing a <strong>marketplace</strong> of plugins, each providing any combination of skills, agents, commands, rules, hooks, MCP servers, and config overrides.</p>
+<h2 id="official-plugin-repository">Official Plugin Repository<a class="headerlink" href="#official-plugin-repository" title="Permanent link">#</a></h2>
+<p>ECA ships with built-in support for the <strong>official plugin repository</strong> at <a href="https://plugins.eca.dev">plugins.eca.dev</a>. This marketplace is pre-configured as the <code>"eca"</code> source, so you can install any of its plugins without adding a custom source — just list them in <code>install</code>:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;install&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;secret-guard&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;tdd&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;security-review&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Browse available plugins and their documentation at <a href="https://plugins.eca.dev">plugins.eca.dev</a>, or run <code>/plugins</code> inside ECA to see the full list.</p>
+<p>Want to contribute a plugin? Check the <a href="https://github.com/editor-code-assistant/eca-plugins">eca-plugins</a> repository on GitHub.</p>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">#</a></h2>
 <pre class="mermaid"><code>flowchart TD
     A[ECA has a 'plugins' in config.json] --&gt; B{Git URL or local path?}
@@ -1367,9 +1395,19 @@
 </code></pre></div>
 <p>Use <code>&lt;plugin-name@marketplace&gt;</code> to disambiguate when multiple sources provide a plugin with the same name. After installing, restart ECA for the plugin to take effect.</p>
 <h2 id="pointing-to-a-plugin-source-marketplace">Pointing to a plugin source / marketplace<a class="headerlink" href="#pointing-to-a-plugin-source-marketplace" title="Permanent link">#</a></h2>
-<p>Add a <code>plugins</code> key to your config with one or more named sources and an <code>install</code> array:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="git-source" name="__tabbed_1" type="radio" /><input id="local-path-for-development" name="__tabbed_1" type="radio" /><input id="multiple-sources" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="git-source">Git source</label><label for="local-path-for-development">Local path (for development)</label><label for="multiple-sources">Multiple sources</label></div>
+<p>The official <a href="https://plugins.eca.dev">plugins.eca.dev</a> marketplace is always available as the built-in <code>"eca"</code> source. To install plugins from it, just add their names to <code>install</code> — no source configuration needed.</p>
+<p>To add <strong>custom</strong> sources (your organization's plugins, community repos, or local directories), add named entries under the <code>plugins</code> key:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="official-repository-only" name="__tabbed_1" type="radio" /><input id="custom-git-source" name="__tabbed_1" type="radio" /><input id="local-path-for-development" name="__tabbed_1" type="radio" /><input id="multiple-sources" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="official-repository-only">Official repository only</label><label for="custom-git-source">Custom git source</label><label for="local-path-for-development">Local path (for development)</label><label for="multiple-sources">Multiple sources</label></div>
 <div class="tabbed-content">
+<div class="tabbed-block">
+<p>No source configuration required — just list the plugins you want:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;install&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;tdd&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;secret-guard&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1393,7 +1431,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>ECA searches all registered sources when resolving <code>install</code> entries:</p>
+<p>ECA searches the built-in <code>"eca"</code> source plus all registered sources when resolving <code>install</code> entries:</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;plugins&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;company&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1576,7 +1614,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 22:04:58 UTC">March 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 22:20:22 UTC">March 10, 2026</span>
   </span>
 
     
