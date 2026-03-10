@@ -424,6 +424,36 @@
             "okhttp"
           ]
         },
+        "retryRules": {
+          "type": "array",
+          "description": "Custom retry rules. Each rule can match by HTTP status code and/or response body regex pattern. When matched, the request is retried with exponential backoff.",
+          "markdownDescription": "Custom retry rules. Each rule can match by HTTP status code and/or response body regex pattern. When matched, the request is retried with exponential backoff.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "integer",
+                "description": "HTTP status code to match.",
+                "markdownDescription": "HTTP status code to match."
+              },
+              "bodyPattern": {
+                "type": "string",
+                "description": "Regex pattern to match against the response body (case-insensitive).",
+                "markdownDescription": "Regex pattern to match against the response body (case-insensitive)."
+              },
+              "label": {
+                "type": "string",
+                "description": "Human-readable label shown in the retry progress message (e.g. 'Rate limited').",
+                "markdownDescription": "Human-readable label shown in the retry progress message (e.g. 'Rate limited')."
+              }
+            },
+            "anyOf": [
+              { "required": ["status"] },
+              { "required": ["bodyPattern"] }
+            ],
+            "additionalProperties": false
+          }
+        },
         "models": {
           "type": "object",
           "description": "Available models for this provider. Each key is the model alias.",
