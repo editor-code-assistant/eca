@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.112.0
+
 - Add `plugins` config for loading external configuration from git repos or local paths. #349
   - Plugins can provide skills, MCP servers, agents, commands, hooks, rules, and arbitrary config overrides.
   - Add commands `/plugins`, `/plugin-install`, and `/plugin-uninstall`.
