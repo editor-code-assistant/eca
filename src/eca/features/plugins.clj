@@ -23,7 +23,7 @@
 
 (defn ^:private sanitize-source-url
   "Converts a git URL into a human-readable directory name.
-   e.g. 'https://github.com/nubank/ai-agents-plugins.git' -> 'github.com-nubank-ai-agents-plugins'"
+   e.g. 'https://github.com/my-org/my-plugins.git' -> 'github.com-my-org-my-plugins'"
   ^String [^String url]
   (-> url
       (string/replace #"^https?://" "")
@@ -327,7 +327,7 @@
    Returns a seq of {:name :source-name :source-url :description :installed?} maps."
   [plugins-config]
   (when (seq plugins-config)
-    (let [installed-set (set (get plugins-config :install []))
+    (let [installed-set (set (get plugins-config "install" []))
           sources (parse-sources plugins-config)]
       (doall
        (for [[source-name source-url] sources
@@ -375,7 +375,7 @@
   [plugins-config ^String input]
   (let [{:keys [plugin-name marketplace]} (parse-plugin-arg input)
         sources (parse-sources plugins-config)
-        current-install (set (get plugins-config :install []))]
+        current-install (set (get plugins-config "install" []))]
     (cond
       (empty? sources)
       {:status :error
@@ -400,7 +400,7 @@
   "Uninstalls a plugin by removing it from the global config install list.
    Returns {:status :ok/:error, :message ...}."
   [plugins-config ^String plugin-name]
-  (let [current-install (set (get plugins-config :install []))]
+  (let [current-install (set (get plugins-config "install" []))]
     (if (contains? current-install plugin-name)
       (let [new-install (vec (sort (disj current-install plugin-name)))]
         (config/update-global-config! {:plugins {:install new-install}})

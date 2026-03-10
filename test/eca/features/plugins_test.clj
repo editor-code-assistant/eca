@@ -9,11 +9,11 @@
 
 (deftest sanitize-source-url-test
   (testing "HTTPS URL"
-    (is (= "github.com-nubank-ai-agents-plugins"
-           (#'plugins/sanitize-source-url "https://github.com/nubank/ai-agents-plugins.git"))))
+    (is (= "github.com-my-org-my-plugins"
+           (#'plugins/sanitize-source-url "https://github.com/my-org/my-plugins.git"))))
   (testing "SSH URL"
-    (is (= "github.com-nubank-ai-agents-plugins"
-           (#'plugins/sanitize-source-url "git@github.com:nubank/ai-agents-plugins.git"))))
+    (is (= "github.com-my-org-my-plugins"
+           (#'plugins/sanitize-source-url "git@github.com:my-org/my-plugins.git"))))
   (testing "GitLab URL"
     (is (= "gitlab.com-org-repo"
            (#'plugins/sanitize-source-url "https://gitlab.com/org/repo.git")))))
@@ -135,15 +135,15 @@
 
 (deftest parse-sources-test
   (testing "extracts source entries, filtering install"
-    (let [config {:nubank {:source "https://github.com/nubank/ai-agents-plugins.git"}
-                  :local {:source "/home/user/plugins"}
-                  :install ["plugin-a" "plugin-b"]}]
-      (is (match? (m/in-any-order [["nubank" "https://github.com/nubank/ai-agents-plugins.git"]
+    (let [config {"my-org" {:source "https://github.com/my-org/my-plugins.git"}
+                  "local" {:source "/home/user/plugins"}
+                  "install" ["plugin-a" "plugin-b"]}]
+      (is (match? (m/in-any-order [["my-org" "https://github.com/my-org/my-plugins.git"]
                                    ["local" "/home/user/plugins"]])
                   (#'plugins/parse-sources config)))))
 
   (testing "returns empty for no sources"
-    (is (empty? (#'plugins/parse-sources {:install ["plugin-a"]})))))
+    (is (empty? (#'plugins/parse-sources {"install" ["plugin-a"]})))))
 
 (deftest resolve-all!-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -235,20 +235,20 @@
     (let [updated (atom nil)]
       (with-redefs [eca.config/update-global-config! (fn [c] (reset! updated c))]
         (let [result (plugins/uninstall-plugin!
-                      {:install ["alpha" "beta" "gamma"]}
+                      {"install" ["alpha" "beta" "gamma"]}
                       "beta")]
           (is (= :ok (:status result)))
           (is (= ["alpha" "gamma"] (get-in @updated [:plugins :install])))))))
 
   (testing "returns error when plugin is not installed"
     (let [result (plugins/uninstall-plugin!
-                  {:install ["alpha"]}
+                  {"install" ["alpha"]}
                   "beta")]
       (is (= :error (:status result)))
       (is (re-find #"not installed" (:message result)))))
 
   (testing "returns error when install list is empty"
     (let [result (plugins/uninstall-plugin!
-                  {:install []}
+                  {"install" []}
                   "beta")]
       (is (= :error (:status result))))))

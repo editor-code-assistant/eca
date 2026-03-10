@@ -61,7 +61,7 @@
     (let [md (str "---\n"
                   "description: You sleep one second when asked\n"
                   "mode: subagent\n"
-                  "model: nubank-anthropic/sonnet-4.5\n"
+                  "model: my-org-anthropic/sonnet-4.5\n"
                   "steps: 5\n"
                   "tools:\n"
                   "  byDefault: ask\n"
@@ -76,7 +76,7 @@
           config (#'agents/md->agent-config parsed)]
       (is (match? {:description "You sleep one second when asked"
                    :mode "subagent"
-                   :defaultModel "nubank-anthropic/sonnet-4.5"
+                   :defaultModel "my-org-anthropic/sonnet-4.5"
                    :maxSteps 5
                    :systemPrompt "You should run sleep 1 and return \"I sleeped 1 second\""
                    :toolCall {:approval {:byDefault "ask"

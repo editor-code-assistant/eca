@@ -430,8 +430,9 @@
                                             (str s "**" source-name "** (`" (:source-url (first source-plugins)) "`)\n"
                                                  (reduce
                                                   (fn [s2 {:keys [name description installed?]}]
-                                                    (str s2 "- " name
-                                                         (when installed? " ✅")
+                                                    (str s2 "- "
+                                                         (when installed? "✅ ")
+                                                         name
                                                          (when description (str " — " description))
                                                          "\n"))
                                                   ""
