@@ -259,6 +259,7 @@
     :on-success (fn [{:keys [code]}]
                   (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
                     (swap! db* assoc-in [:mcp-auth server-name] {:type :auth/oauth
+                                                                 :url (:url server-config)
                                                                  :refresh-token refresh-token
                                                                  :access-token access-token
                                                                  :expires-at expires-at}))
@@ -321,6 +322,8 @@
             ;; Skip OAuth entirely if Authorization header is configured
             has-static-auth? (some-> server-config :headers :Authorization some?)
             mcp-auth (get-in @db* [:mcp-auth name])
+            ;; Invalidate cached credentials when URL changed
+            mcp-auth (when (= url (:url mcp-auth)) mcp-auth)
             has-token? (some? (:access-token mcp-auth))
             token-expired? (token-expired? (:expires-at mcp-auth))
             ;; Try to refresh if token exists but is expired

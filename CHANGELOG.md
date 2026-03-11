@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix MCP OAuth credentials cache not invalidating when the server URL changes.
+
 ## 0.112.0
 
 - Add `plugins` config for loading external configuration from git repos or local paths. #349
