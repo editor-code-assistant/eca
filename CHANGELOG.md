@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix MCP OAuth credentials cache not invalidating when the server URL changes.
+- Add `isSubagent` condition variable for chat system instructions
 
 ## 0.112.0
 

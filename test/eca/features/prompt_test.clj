@@ -58,3 +58,17 @@
       (is (string/includes? result "<resource uri=\"custom://my-resource\">some-cool-content</resource>"))
       (is (string/includes? result "</contexts>"))
       (is (string? result)))))
+
+(deftest build-instructions-subagent-condition-test
+  (let [config {:prompts {:chat "{% if isSubagent %}SUBAGENT{% endif %}{% if not isSubagent %}MAIN{% endif %}"}}]
+    (testing "renders subagent-only content for subagent chats"
+      (let [db (assoc-in (h/db) [:chats "sub-chat" :subagent] {:name "explorer"})
+            result (prompt/build-chat-instructions [] [] [] (delay "TREE") "code" config "sub-chat" [] db)]
+        (is (string/includes? result "SUBAGENT"))
+        (is (not (string/includes? result "MAIN")))))
+
+    (testing "renders main-agent-only content for non-subagent chats"
+      (let [db (assoc-in (h/db) [:chats "main-chat"] {:id "main-chat"})
+            result (prompt/build-chat-instructions [] [] [] (delay "TREE") "code" config "main-chat" [] db)]
+        (is (string/includes? result "MAIN"))
+        (is (not (string/includes? result "SUBAGENT")))))))
