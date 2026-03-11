@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.
 - Replace MCP Java SDK with plumcp for MCP client communication. SSE transport is no longer supported (deprecated in MCP spec 2025-03-26).
 
 ## 0.112.1
