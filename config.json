@@ -477,8 +477,8 @@
         },
         "retryRules": {
           "type": "array",
-          "description": "Custom retry rules. Each rule can match by HTTP status code and/or response body regex pattern. When matched, the request is retried with exponential backoff.",
-          "markdownDescription": "Custom retry rules. Each rule can match by HTTP status code and/or response body regex pattern. When matched, the request is retried with exponential backoff.",
+          "description": "Custom retry rules. Each rule can match by HTTP status code and/or error text regex pattern. When matched, the request is retried with exponential backoff.",
+          "markdownDescription": "Custom retry rules. Each rule can match by HTTP status code and/or error text regex pattern. When matched, the request is retried with exponential backoff.",
           "items": {
             "type": "object",
             "properties": {
@@ -487,10 +487,10 @@
                 "description": "HTTP status code to match.",
                 "markdownDescription": "HTTP status code to match."
               },
-              "bodyPattern": {
+              "errorPattern": {
                 "type": "string",
-                "description": "Regex pattern to match against the response body (case-insensitive).",
-                "markdownDescription": "Regex pattern to match against the response body (case-insensitive)."
+                "description": "Regex pattern to match against any error text — response body, error message, or exception message (case-insensitive). Useful for connection-level errors that have no HTTP status.",
+                "markdownDescription": "Regex pattern to match against any error text — response body, error message, or exception message (case-insensitive). Useful for connection-level errors that have no HTTP status."
               },
               "label": {
                 "type": "string",
@@ -500,7 +500,7 @@
             },
             "anyOf": [
               { "required": ["status"] },
-              { "required": ["bodyPattern"] }
+              { "required": ["errorPattern"] }
             ],
             "additionalProperties": false
           }

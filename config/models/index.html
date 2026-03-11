@@ -1492,7 +1492,7 @@
 <tr>
 <td><code>retryRules</code></td>
 <td>array</td>
-<td>Custom retry rules that match by HTTP status and/or body regex pattern (see <a href="#retry-rules">Retry Rules</a>)</td>
+<td>Custom retry rules that match by HTTP status and/or error pattern (see <a href="#retry-rules">Retry Rules</a>)</td>
 <td>No</td>
 </tr>
 <tr>
@@ -1651,14 +1651,14 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
 - Authentication priority (short): <code>key</code> (with dynamic string pase support) &gt; OAuth.
 - All providers with API key auth can use credential files.</p>
 <h3 id="retry-rules">Retry Rules<a class="headerlink" href="#retry-rules" title="Permanent link">#</a></h3>
-<p>ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using <code>retryRules</code> to handle additional status codes or response body patterns.</p>
+<p>ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using <code>retryRules</code> to handle additional status codes or error patterns.</p>
 <p>Each rule can match by:</p>
 <ul>
 <li><strong><code>status</code></strong> (integer): HTTP status code to match</li>
-<li><strong><code>bodyPattern</code></strong> (string): Regex pattern to match against the response body (case-insensitive)</li>
+<li><strong><code>errorPattern</code></strong> (string): Regex pattern to match against any error text — response body, error message, or exception message (case-insensitive). Useful for both HTTP response errors and connection-level errors (e.g. TLS handshake failures)</li>
 <li><strong><code>label</code></strong> (string, optional): Human-readable text shown in the retry progress message</li>
 </ul>
-<p>At least one of <code>status</code> or <code>bodyPattern</code> is required. When both are specified, both must match. Custom rules are checked before built-in classification, so they can override default behavior.</p>
+<p>At least one of <code>status</code> or <code>errorPattern</code> is required. When both are specified, both must match. Custom rules are checked before built-in classification, so they can override default behavior.</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;my-company&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1667,8 +1667,9 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
 <span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:MY_COMPANY_API_KEY}&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;retryRules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">418</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Corporate proxy throttle&quot;</span><span class="p">},</span>
-<span class="w">        </span><span class="p">{</span><span class="s2">&quot;bodyPattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;capacity.*exceeded&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Capacity exceeded&quot;</span><span class="p">},</span>
-<span class="w">        </span><span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">503</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bodyPattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;maintenance&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Under maintenance&quot;</span><span class="p">}</span>
+<span class="w">        </span><span class="p">{</span><span class="s2">&quot;errorPattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;capacity.*exceeded&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Capacity exceeded&quot;</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">503</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;errorPattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;maintenance&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Under maintenance&quot;</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="s2">&quot;errorPattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;terminated.*handshake&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;TLS handshake failed&quot;</span><span class="p">}</span>
 <span class="w">      </span><span class="p">],</span>
 <span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="s2">&quot;gpt-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
@@ -1894,7 +1895,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 11, 2026 14:57:52 UTC">March 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 11, 2026 15:52:15 UTC">March 11, 2026</span>
   </span>
 
     
