@@ -45,6 +45,22 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+=== "Disabling a MCP"
+
+    Set `"disabled": true` to keep the configuration but prevent ECA from starting the server.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "memory": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-memory"],
+          "disabled": true
+        }
+      }
+    }
+    ```
+
 ## Custom Tools
 
 You can define your own command-line tools that the LLM can use. These are configured via the `customTools` key in your `config.json`.
