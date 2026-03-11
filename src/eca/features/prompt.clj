@@ -92,17 +92,21 @@
      (str "\n<additionalContext from=\"chatStart\">\n" startup-ctx "\n</additionalContext>\n\n"))
    "</contexts>"))
 
-(defn ^:private ->base-selmer-ctx [all-tools db]
-  (merge
-   {:workspaceRoots (shared/workspaces-as-str db)}
-   (reduce
-    (fn [m tool]
-      (assoc m (keyword (str "toolEnabled_" (:full-name tool))) true))
-    {}
-    all-tools)))
+(defn ^:private ->base-selmer-ctx
+  ([all-tools db]
+   (->base-selmer-ctx all-tools nil db))
+  ([all-tools chat-id db]
+   (merge
+    {:workspaceRoots (shared/workspaces-as-str db)
+     :isSubagent (boolean (get-in db [:chats chat-id :subagent]))}
+    (reduce
+     (fn [m tool]
+       (assoc m (keyword (str "toolEnabled_" (:full-name tool))) true))
+     {}
+     all-tools))))
 
 (defn build-chat-instructions [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
-  (let [selmer-ctx (->base-selmer-ctx all-tools db)]
+  (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)]
     (multi-str
      (selmer/render (eca-chat-prompt agent-name config) selmer-ctx)
      (when (seq rules)
