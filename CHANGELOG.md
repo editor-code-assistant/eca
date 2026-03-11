@@ -2,7 +2,6 @@
 
 ## Unreleased
 
-- Update Github copilot instructions on how to configure for different copilot plans.
 - Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.
 
 ## 0.112.1
