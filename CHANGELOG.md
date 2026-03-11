@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replace MCP Java SDK with plumcp for MCP client communication. SSE transport is no longer supported (deprecated in MCP spec 2025-03-26).
+
 ## 0.112.1
 
 - Fix MCP OAuth credentials cache not invalidating when the server URL changes.
