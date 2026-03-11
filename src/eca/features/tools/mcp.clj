@@ -100,14 +100,21 @@
 
 (defn ^:private ->client [name transport init-timeout workspaces
                           {:keys [on-tools-change]}]
-  (let [tools-consumer (fn [tools]
+  (let [initialized? (atom false)
+        tools-consumer (fn [tools]
                          (logger/info logger-tag
                                       (format "[%s] Tools list changed, received %d tools"
                                               name (count tools)))
                          (on-tools-change tools))
-        tools-nhandler (fn [jsonrpc-notification]
-                         (pcs/fetch-tools jsonrpc-notification
-                                          {:on-tools tools-consumer}))
+        ;; Guard handlers to ignore list_changed notifications arriving before
+        ;; initialize handshake completes. plumcp registers default handlers
+        ;; that send requests (e.g. prompts/list) on list_changed, but MCP
+        ;; servers ignore requests before initialize, causing a permanent block.
+        guarded-tools-nhandler (fn [jsonrpc-notification]
+                                 (when @initialized?
+                                   (pcs/fetch-tools jsonrpc-notification
+                                                    {:on-tools tools-consumer})))
+        guarded-nop (fn [_] nil)
         client (pmc/make-mcp-client
                 {:info (pes/make-info name "current")
                  :client-transport transport
@@ -115,13 +122,16 @@
                                                                  {:name (:name %)})
                                            workspaces)}
                  :notification-handlers
-                 {psd/method-notifications-tools-list_changed tools-nhandler
+                 {psd/method-notifications-tools-list_changed guarded-tools-nhandler
+                  psd/method-notifications-prompts-list_changed guarded-nop
+                  psd/method-notifications-resources-list_changed guarded-nop
                   psd/method-notifications-message (fn [params]
                                                      (logger/info logger-tag
                                                                   (format "[MCP-%s] %s" name (:data params))))}
                  :print-banner? false})]
     (pmc/initialize-and-notify! client
                                 {:timeout-millis (* 1000 init-timeout)})
+    (reset! initialized? true)
     client))
 
 (defn ^:private ->server [mcp-name server-config status db]
