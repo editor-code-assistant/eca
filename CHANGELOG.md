@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.112.1
+
 - Fix MCP OAuth credentials cache not invalidating when the server URL changes.
 - Add `isSubagent` condition variable for chat system instructions
 - **Breaking:** Replace `bodyPattern` with `errorPattern` in `retryRules`, which matches against any error text (response body, error message, or exception message).
