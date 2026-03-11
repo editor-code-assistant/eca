@@ -78,7 +78,7 @@ Schema:
 | `thinkTagStart`                   | string  | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
 | `thinkTagEnd`                     | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
 | `httpClient`                      | map     | Allow customize the http-client for this provider requests, like changing http version                       | No       |
-| `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or body regex pattern (see [Retry Rules](#retry-rules))    | No       |
+| `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Rules](#retry-rules))    | No       |
 | `models`                          | map     | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload`     | map     | Extra payload sent in body to LLM                                                                            | No       |
 | `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
@@ -233,15 +233,15 @@ Notes:
 
 ### Retry Rules
 
-ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using `retryRules` to handle additional status codes or response body patterns.
+ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using `retryRules` to handle additional status codes or error patterns.
 
 Each rule can match by:
 
 - **`status`** (integer): HTTP status code to match
-- **`bodyPattern`** (string): Regex pattern to match against the response body (case-insensitive)
+- **`errorPattern`** (string): Regex pattern to match against any error text — response body, error message, or exception message (case-insensitive). Useful for both HTTP response errors and connection-level errors (e.g. TLS handshake failures)
 - **`label`** (string, optional): Human-readable text shown in the retry progress message
 
-At least one of `status` or `bodyPattern` is required. When both are specified, both must match. Custom rules are checked before built-in classification, so they can override default behavior.
+At least one of `status` or `errorPattern` is required. When both are specified, both must match. Custom rules are checked before built-in classification, so they can override default behavior.
 
 ```javascript title="~/.config/eca/config.json"
 {
@@ -252,8 +252,9 @@ At least one of `status` or `bodyPattern` is required. When both are specified, 
       "key": "${env:MY_COMPANY_API_KEY}",
       "retryRules": [
         {"status": 418, "label": "Corporate proxy throttle"},
-        {"bodyPattern": "capacity.*exceeded", "label": "Capacity exceeded"},
-        {"status": 503, "bodyPattern": "maintenance", "label": "Under maintenance"}
+        {"errorPattern": "capacity.*exceeded", "label": "Capacity exceeded"},
+        {"status": 503, "errorPattern": "maintenance", "label": "Under maintenance"},
+        {"errorPattern": "terminated.*handshake", "label": "TLS handshake failed"}
       ],
       "models": {
         "gpt-5": {}

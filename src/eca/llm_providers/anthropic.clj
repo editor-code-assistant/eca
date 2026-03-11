@@ -88,14 +88,14 @@
                      (llm-util/log-response logger-tag rid "response-error" body)
                      (reset! response* error-data)))]
     (llm-util/log-request logger-tag rid url body headers)
-    (let [{:keys [status body]} (http/post
-                                 url
-                                 {:headers headers
-                                  :body (json/generate-string body)
-                                  :throw-exceptions? false
-                                  :http-client (client/merge-with-global-http-client http-client)
-                                  :as (if on-stream :stream :json)})]
-      (try
+    (try
+      (let [{:keys [status body]} (http/post
+                                   url
+                                   {:headers headers
+                                    :body (json/generate-string body)
+                                    :throw-exceptions? false
+                                    :http-client (client/merge-with-global-http-client http-client)
+                                    :as (if on-stream :stream :json)})]
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
@@ -110,9 +110,10 @@
             (do
               (llm-util/log-response logger-tag rid "response" body)
               (reset! response*
-                      {:output-text (:text (last (:content body)))}))))
-        (catch Exception e
-          (on-error {:exception e}))))
+                      {:output-text (:text (last (:content body)))})))))
+      (catch Exception e
+        (on-error {:exception e
+                   :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))})))
     @response*))
 
 (defn ^:private normalize-messages [past-messages supports-image?]

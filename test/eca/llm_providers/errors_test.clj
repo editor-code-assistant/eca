@@ -115,7 +115,31 @@
   (testing "exception with context overflow message"
     (is (= {:error/type :context-overflow}
            (llm-providers.errors/classify-error
-            {:exception (Exception. "prompt is too long")})))))
+            {:exception (Exception. "prompt is too long")}))))
+
+  (testing "remote host terminated the handshake is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "Remote host terminated the handshake"}))))
+
+  (testing "exception with handshake termination message"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "Remote host terminated the handshake")}))))
+
+  (testing "connection error message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "Connection error: java.nio.channels.UnresolvedAddressException"}))))
+
+  (testing "connection refused message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "Connection error: Connection refused"}))))
+
+  (testing "connection error is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "Connection error: java.nio.channels.UnresolvedAddressException"})))))
 
 (deftest context-overflow?-test
   (testing "returns true for overflow errors"
@@ -135,17 +159,17 @@
             {:status 418 :body "I'm a teapot" :message "status 418"}
             [{:status 418 :label "Proxy throttle"}]))))
 
-  (testing "matches by body pattern only"
+  (testing "matches by error pattern only"
     (is (= {:error/type :retryable-custom :error/label "Capacity exceeded"}
            (llm-providers.errors/classify-error
             {:status 500 :body "server capacity exceeded, try again" :message "status 500"}
-            [{:bodyPattern "capacity.*exceeded" :label "Capacity exceeded"}]))))
+            [{:errorPattern "capacity.*exceeded" :label "Capacity exceeded"}]))))
 
-  (testing "matches by both status and body pattern"
+  (testing "matches by both status and error pattern"
     (is (= {:error/type :retryable-custom :error/label "Maintenance"}
            (llm-providers.errors/classify-error
             {:status 503 :body "scheduled maintenance window" :message "status 503"}
-            [{:status 503 :bodyPattern "maintenance" :label "Maintenance"}]))))
+            [{:status 503 :errorPattern "maintenance" :label "Maintenance"}]))))
 
   (testing "does not match when status differs"
     (is (= {:error/type :unknown}
@@ -153,17 +177,11 @@
             {:status 400 :body "bad request" :message "status 400"}
             [{:status 418 :label "Teapot"}]))))
 
-  (testing "does not match when body pattern does not match"
+  (testing "does not match when error pattern does not match"
     (is (= {:error/type :overloaded}
            (llm-providers.errors/classify-error
             {:status 500 :body "internal error" :message "status 500"}
-            [{:bodyPattern "capacity.*exceeded" :label "Capacity"}]))))
-
-  (testing "body pattern is case-insensitive"
-    (is (= {:error/type :retryable-custom}
-           (llm-providers.errors/classify-error
-            {:status 500 :body "RATE LIMIT HIT" :message "status 500"}
-            [{:bodyPattern "rate limit hit"}]))))
+            [{:errorPattern "capacity.*exceeded" :label "Capacity"}]))))
 
   (testing "label is optional"
     (is (= {:error/type :retryable-custom}
@@ -200,7 +218,49 @@
     (is (= {:error/type :rate-limited}
            (llm-providers.errors/classify-error
             {:status 429 :body "Rate limit exceeded" :message "status 429"}
-            [])))))
+            []))))
+
+  (testing "matches by error pattern against message"
+    (is (= {:error/type :retryable-custom :error/label "TLS handshake"}
+           (llm-providers.errors/classify-error
+            {:message "Remote host terminated the handshake"}
+            [{:errorPattern "terminated.*handshake" :label "TLS handshake"}]))))
+
+  (testing "error pattern matches against body"
+    (is (= {:error/type :retryable-custom :error/label "Custom"}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "server capacity exceeded"}
+            [{:errorPattern "capacity.*exceeded" :label "Custom"}]))))
+
+  (testing "error pattern is case-insensitive"
+    (is (= {:error/type :retryable-custom}
+           (llm-providers.errors/classify-error
+            {:message "REMOTE HOST TERMINATED THE HANDSHAKE"}
+            [{:errorPattern "terminated.*handshake"}]))))
+
+  (testing "error pattern matches exception message"
+    (is (= {:error/type :retryable-custom :error/label "Connection error"}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "Remote host terminated the handshake")}
+            [{:errorPattern "terminated.*handshake" :label "Connection error"}]))))
+
+  (testing "matches by status and error pattern"
+    (is (= {:error/type :retryable-custom :error/label "Combo"}
+           (llm-providers.errors/classify-error
+            {:status 500 :message "connection reset"}
+            [{:status 500 :errorPattern "connection reset" :label "Combo"}]))))
+
+  (testing "does not match when error pattern does not match"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:message "Something went wrong"}
+            [{:errorPattern "terminated.*handshake"}]))))
+
+  (testing "does not match when status differs but error pattern matches"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:status 400 :message "some weird error happened"}
+            [{:status 500 :errorPattern "terminated.*handshake"}])))))
 
 (deftest retryable?-test
   (testing "429 rate-limited is retryable"
@@ -259,4 +319,13 @@
   (testing "non-matching custom rule does not affect retryability"
     (is (false? (llm-providers.errors/retryable?
                  {:message "Something went wrong"}
-                 [{:status 418 :label "Teapot"}])))))
+                 [{:status 418 :label "Teapot"}]))))
+
+  (testing "handshake termination is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "Remote host terminated the handshake"}))))
+
+  (testing "custom error pattern rule makes error retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "Remote host terminated the handshake"}
+                [{:errorPattern "terminated.*handshake" :label "TLS error"}])))))

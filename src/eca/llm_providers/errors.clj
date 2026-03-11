@@ -25,6 +25,14 @@
    #"(?i)throttl"
    #"(?i)overloaded_error"])
 
+(def ^:private overloaded-patterns
+  "Regex patterns matching transient connection/infrastructure errors across providers."
+  [#"(?i)remote host terminated the handshake"
+   #"(?i)host is unreachable"
+   #"(?i)connection error"
+   #"(?i)connection refused"
+   #"(?i)UnresolvedAddressException"])
+
 (defn ^:private matches-any-pattern? [^String text patterns]
   (when text
     (some #(re-find % text) patterns)))
@@ -66,24 +74,34 @@
       (matches-any-pattern? message rate-limited-patterns)
       {:error/type :rate-limited}
 
+      (matches-any-pattern? message overloaded-patterns)
+      {:error/type :overloaded}
+
       :else nil)))
 
 (defn ^:private classify-by-custom-rules
   "Checks user-configured retry rules. Each rule may have :status (int),
-   :body-pattern (regex string, case-insensitive), and :label (string).
+   :errorPattern (regex string, case-insensitive, matched against body, message,
+   and exception message), and :label (string).
    Returns {:error/type :retryable-custom :error/label label} on first match, nil otherwise."
-  [{:keys [status body]} retry-rules]
+  [{:keys [status body message exception]} retry-rules]
   (when (seq retry-rules)
-    (some (fn [{rule-status :status rule-body-pattern :bodyPattern rule-label :label}]
+    (some (fn [{rule-status :status rule-error-pattern :errorPattern rule-label :label}]
             (let [status-matches? (if rule-status
                                     (= rule-status status)
                                     true)
-                  body-matches? (if rule-body-pattern
-                                  (when (string? body)
-                                    (re-find (re-pattern (str "(?i)" rule-body-pattern)) body))
-                                  true)
-                  has-condition? (or rule-status rule-body-pattern)]
-              (when (and has-condition? status-matches? body-matches?)
+                  error-matches? (if rule-error-pattern
+                                   (let [pattern (re-pattern (str "(?i)" rule-error-pattern))]
+                                     (or (when (string? body)
+                                           (re-find pattern body))
+                                         (when (string? message)
+                                           (re-find pattern message))
+                                         (when exception
+                                           (some-> (ex-message exception)
+                                                   (as-> msg (re-find pattern msg))))))
+                                   true)
+                  has-condition? (or rule-status rule-error-pattern)]
+              (when (and has-condition? status-matches? error-matches?)
                 (cond-> {:error/type :retryable-custom}
                   rule-label (assoc :error/label rule-label)))))
           retry-rules)))

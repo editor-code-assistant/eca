@@ -253,6 +253,38 @@
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
 
+(deftest async-retry-on-custom-retry-rule-error-pattern-test
+  (testing "retries async when custom retryRules errorPattern matches error message"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          received-text* (atom "")
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error]}]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              (on-error {:message "Remote host terminated the handshake"})
+                                              (do
+                                                (on-message-received {:type :text :text "hello"})
+                                                (on-message-received {:type :finish :finish-reason "stop"})))))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:config {:providers {"anthropic" {:key "test-key"
+                                             :url "http://test"
+                                             :retryRules [{:errorPattern "terminated.*handshake"
+                                                           :label "TLS handshake failed"}]
+                                             :models {"claude-sonnet-4-6" {}}}}}
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received (fn [{:keys [type text]}]
+                                  (when (= :text type)
+                                    (swap! received-text* str text)))})))
+      (is (= 2 @attempt*))
+      (is (= 1 (count @retry-events*)))
+      (is (= "TLS handshake failed" (get-in (first @retry-events*) [:classified :error/label])))
+      (is (false? @on-error-called*))
+      (is (= "hello" @received-text*)))))
+
 (deftest sync-retry-exhaustion-test
   (testing "calls on-error after all retries exhausted"
     (let [attempt* (atom 0)
@@ -369,8 +401,8 @@
       (is (= "Proxy throttle" (get-in (first @retry-events*) [:classified :error/label])))
       (is (false? @on-error-called*)))))
 
-(deftest async-retry-on-custom-retry-rule-body-pattern-test
-  (testing "retries async when custom retryRules bodyPattern matches"
+(deftest async-retry-on-custom-retry-rule-error-pattern-body-test
+  (testing "retries async when custom retryRules errorPattern matches response body"
     (let [attempt* (atom 0)
           retry-events* (atom [])
           received-text* (atom "")
@@ -389,7 +421,7 @@
          (make-prompt-opts
           {:config {:providers {"anthropic" {:key "test-key"
                                              :url "http://test"
-                                             :retryRules [{:bodyPattern "capacity.*exceeded"
+                                             :retryRules [{:errorPattern "capacity.*exceeded"
                                                            :label "Capacity exceeded"}]
                                              :models {"claude-sonnet-4-6" {}}}}}
            :on-retry (fn [event] (swap! retry-events* conj event))

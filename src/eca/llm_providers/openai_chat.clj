@@ -129,14 +129,14 @@
                          "Content-Type" "application/json"}
                         extra-headers))]
     (llm-util/log-request logger-tag rid url body headers)
-    (let [{:keys [status body]} (http/post
-                                 url
-                                 {:headers headers
-                                  :body (json/generate-string body)
-                                  :throw-exceptions? false
-                                  :http-client (client/merge-with-global-http-client http-client)
-                                  :as (if on-stream :stream :json)})]
-      (try
+    (try
+      (let [{:keys [status body]} (http/post
+                                   url
+                                   {:headers headers
+                                    :body (json/generate-string body)
+                                    :throw-exceptions? false
+                                    :http-client (client/merge-with-global-http-client http-client)
+                                    :as (if on-stream :stream :json)})]
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
@@ -151,9 +151,10 @@
               (on-stream "stream-end" {}))
             (do
               (llm-util/log-response logger-tag rid "full-response" body)
-              (response-body->result body on-tools-called-wrapper))))
-        (catch Exception e
-          (on-error {:exception e}))))))
+              (response-body->result body on-tools-called-wrapper)))))
+      (catch Exception e
+        (on-error {:exception e
+                   :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))})))))
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles.

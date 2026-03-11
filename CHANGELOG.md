@@ -4,6 +4,9 @@
 
 - Fix MCP OAuth credentials cache not invalidating when the server URL changes.
 - Add `isSubagent` condition variable for chat system instructions
+- **Breaking:** Replace `bodyPattern` with `errorPattern` in `retryRules`, which matches against any error text (response body, error message, or exception message).
+  - Retry on "Remote host terminated the handshake" TLS errors.
+  - Fix empty "Error: " message on connection failures (e.g. DNS resolution, connection refused) and retry them as transient errors.
 
 ## 0.112.0
 

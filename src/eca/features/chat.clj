@@ -1473,11 +1473,11 @@
                                 (do
                                   (when compacting?
                                     (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?))
-                                  (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (ex-message exception)))})
+                                  (send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))})
                                   (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))})
               (catch Exception e
                 (logger/error e)
-                (send-content! chat-ctx :system {:type :text :text (str "Error: " (ex-message e))})
+                (send-content! chat-ctx :system {:type :text :text (str "Error: " (or (ex-message e) (.getName (class e))))})
                 (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))))
 
 (defn ^:private send-mcp-prompt!
