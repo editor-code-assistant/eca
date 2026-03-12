@@ -1053,6 +1053,26 @@
       "hash": "sha256-RLTLjpPU9rJiwE7Qdx1w3WbnbUXX/HVYIGcaYmVcVDk="
     },
     {
+      "mvn-path": "io/github/plumce/plumcp.core-json-cheshire/0.2.0-beta3/plumcp.core-json-cheshire-0.2.0-beta3.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-zv+Trbz3BWVF2jWgADInlyjqsDsanbWKVYGOceV+WnM="
+    },
+    {
+      "mvn-path": "io/github/plumce/plumcp.core-json-cheshire/0.2.0-beta3/plumcp.core-json-cheshire-0.2.0-beta3.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-w6nOMod07L7uKT2Vl+Ici/Oonq3CvGCCrJix3f0y7Cs="
+    },
+    {
+      "mvn-path": "io/github/plumce/plumcp.core/0.2.0-beta3/plumcp.core-0.2.0-beta3.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-M/6egOI3jY8hVnave6Cx12P5Hmd6M1J5QuZEszUx2nk="
+    },
+    {
+      "mvn-path": "io/github/plumce/plumcp.core/0.2.0-beta3/plumcp.core-0.2.0-beta3.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-I6gSOKlouC7ZMoJYow4/XZEgwMeZYGLZwtj2oblpVoA="
+    },
+    {
       "mvn-path": "io/methvin/directory-watcher/0.17.3/directory-watcher-0.17.3.jar",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-BSPdOKOTpjt15DIP9SMDSgrDzqaX9hUaesiok8MiUx4="
@@ -3476,6 +3496,16 @@
       "mvn-path": "org/yaml/snakeyaml/2.3/snakeyaml-2.3.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-D1omWgYzGwBJ41K+MsoyLeGLF/PU27cGNdQNppLjWC8="
+    },
+    {
+      "mvn-path": "org/yaml/snakeyaml/2.4/snakeyaml-2.4.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-73ea9dKand6MxwzgNB9cb3c14j7f+Whc6qnTU1m3u38="
+    },
+    {
+      "mvn-path": "org/yaml/snakeyaml/2.4/snakeyaml-2.4.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-4VSjIxzWzeaKq/J0/RiWTUmpwaX16e079HHprnvfCOY="
     },
     {
       "mvn-path": "progrock/progrock/0.1.2/progrock-0.1.2.jar",
