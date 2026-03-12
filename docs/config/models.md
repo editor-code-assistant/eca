@@ -351,6 +351,23 @@ When a retry rule matches, the chat shows a progress message like:
     3. Authenticate in Github in your browser with the given code.
     4. Type anything in the chat to continue and done!
 
+	By default `eca` connects to `api.githubcopilot.com`, for 
+	Copilot Business: `api.business.githubcopilot.com`
+	Copilot Enterprise: `api.enterprise.githubcopilot.com`
+	Copilot Pro and Pro+: `api.individual.githubcopilot.com`
+
+	the configuration can be overwritten in ~/.config/eca/config.json
+
+	```javascript title="~/.config/eca/config.json"
+	  "providers": {
+	    "github-copilot": {
+      		"url": "https://api.business.githubcopilot.com"
+			}
+		}
+	```	
+
+	see - https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/#whats-changing
+
     _Tip: check [Your Copilot plan](https://github.com/settings/copilot/features) to enable models to your account._
 
 === "Google / Gemini"

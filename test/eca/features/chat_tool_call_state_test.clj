@@ -4,6 +4,7 @@
    [clojure.string :as s]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.tool-calls :as tc]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -25,7 +26,7 @@
           tool-origin :native
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           resources {:a 1 :b 2}]
-      (#'f.chat/execute-action! :init-tool-call-state db* chat-ctx tool-call-id {:name tool-name
+      (#'tc/execute-action! :init-tool-call-state db* chat-ctx tool-call-id {:name tool-name
                                                                                  :full-name (str "eca__" tool-name)
                                                                                  :server "eca"
                                                                                  :arguments tool-arguments
@@ -37,15 +38,15 @@
               :origin tool-origin
               :decision-reason {:code :none
                                 :text "No reason"}}
-             (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
+             (#'tc/get-tool-call-state @db* chat-id tool-call-id))
           "Expected tool-call-state to be initialized.")
 
-      (#'f.chat/execute-action! :add-resources db* chat-ctx tool-call-id {:resources resources})
-      (is (= (:resources (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
+      (#'tc/execute-action! :add-resources db* chat-ctx tool-call-id {:resources resources})
+      (is (= (:resources (#'tc/get-tool-call-state @db* chat-id tool-call-id))
              resources))
 
-      (#'f.chat/execute-action! :remove-resources db* chat-ctx tool-call-id {:resources (keys resources)})
-      (is (= (:resources (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
+      (#'tc/execute-action! :remove-resources db* chat-ctx tool-call-id {:resources (keys resources)})
+      (is (= (:resources (#'tc/get-tool-call-state @db* chat-id tool-call-id))
              {})))))
 
 ;;; State machine intent tests
@@ -54,7 +55,7 @@
   ;; Test that all intended state transitions are defined
   (testing "All intended state machine transitions are defined"
     (h/reset-components!)
-    (let [state-machine (deref #'f.chat/tool-call-state-machine)]
+    (let [state-machine (deref #'tc/tool-call-state-machine)]
 
       ;; Verify state machine has expected transitions
       (is (contains? state-machine [:initial :tool-prepare])
@@ -119,23 +120,23 @@
           chat-id "test-chat"
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}]
 
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                       {:name "test" :origin "test" :arguments-text "{}"})
 
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"Invalid state transition"
-           (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :user-approve))
+           (#'tc/transition-tool-call! db* chat-ctx "tool-1" :user-approve))
           "Expected exception for invalid transition from :preparing to :user-approve")
 
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"Invalid state transition"
-           (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :no-such-event))
+           (#'tc/transition-tool-call! db* chat-ctx "tool-1" :no-such-event))
           "Expected exception for invalid transition from :preparing to :user-approve")
 
       (try
-        (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :user-approve)
+        (#'tc/transition-tool-call! db* chat-ctx "tool-1" :user-approve)
         (catch clojure.lang.ExceptionInfo e
           (let [data (ex-data e)]
             (is (= :preparing (:current-status data))
@@ -160,18 +161,18 @@
                       :arguments-text "{\"path\": \"/tmp\"}"
                       :summary "List files in directory"}]
 
-      (is (nil? (#'f.chat/get-tool-call-state @db* chat-id tool-call-id))
+      (is (nil? (#'tc/get-tool-call-state @db* chat-id tool-call-id))
           "Expected no tool call state to exist initially")
 
       ;; Step 1: :initial -> :preparing
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data)]
 
         (is (match? {:status :preparing
                      :actions [:init-tool-call-state :send-toolCallPrepare]}
                     result)
             "Expected return value to show :preparing status and send toolCallPrepare action")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (match? {:status :preparing}
                       tool-state)
               "Expected tool call state to be created and transitioned to :preparing")
@@ -208,17 +209,17 @@
                         :summary "List files in directory recursively"}]
 
       ;; Step 1: :initial -> :preparing
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data-1)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data-1)
 
       ;; Step 2: :preparing -> :preparing
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data-2)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare event-data-2)]
 
         (is (match? {:status :preparing
                      :actions [:send-toolCallPrepare]}
                     result)
             "Expected to stay in :preparing state and send toolCallPrepare action")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :preparing (:status tool-state))
               "Expected tool call state to remain in :preparing status"))
 
@@ -253,22 +254,22 @@
           run-event-data (assoc run-event-args :approved?* approved?*)]
 
       ;; Step 1: :initial -> :preparing
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare prepare-event-data)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare prepare-event-data)
 
-      (let [initial-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+      (let [initial-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
         (is (= :preparing (:status initial-state))
             "Expected tool call to be in :preparing state after prepare transition")
         (is (nil? (:approved?* initial-state)) "Expected no promise to exist yet"))
 
       ;; Step 2: :preparing -> :check-approval
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
 
         (is (match? {:status :check-approval
                      :actions [:init-arguments :init-approval-promise :init-future-cleanup-promise :send-toolCallRun]}
                     result)
             "Expected next state to be :check-approval with actions of :init-approval-promise and :send-toolCallRun")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (match? {:status :check-approval
                        :approved?* #(instance? clojure.lang.IPending %)}
                       tool-state)
@@ -314,40 +315,40 @@
                                      :text "Waiting for tool call approval"}]
 
       ;; Step 1: :initial -> :preparing
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare prepare-event-data)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare prepare-event-data)
 
       ;; Step 2: :preparing -> :check-approval
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)]
         (is (match? {:status :check-approval
                      :actions [:init-arguments :init-approval-promise :init-future-cleanup-promise :send-toolCallRun]}
                     result)
             "Expected transition to :check-approval with init promise and send run actions")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :check-approval (:status tool-state))
               "Expected tool call state to be in :check-approval status")
           (is (identical? approved?* (:approved?* tool-state))
               "Expected the exact promise passed in to be stored")))
 
       ;; Step 3: :check-approval -> :waiting-approval (manual approval needed)
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-ask manual-approve-event-data)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-ask manual-approve-event-data)]
         (is (match? {:status :waiting-approval
                      :actions [:send-progress]}
                     result)
             "Expected transition to :waiting-approval with send progress action")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :waiting-approval (:status tool-state))
               "Expected tool call state to be in :waiting-approval status")))
 
       ;; Step 4: :waiting-approval -> :execution-approved (user approves)
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :user-approve)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve)]
         (is (match? {:status :execution-approved
                      :actions [:set-decision-reason :deliver-approval-true]}
                     result)
             "Expected transition to :execution-approved with deliver approval true action")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :execution-approved (:status tool-state))
               "Expected tool call state to be in :execution-approved status")
           ;; Promise should now be delivered with true
@@ -375,19 +376,19 @@
                           :summary "List safe directory"}]
 
       ;; Step 1: :initial -> :preparing
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare prepare-event-data)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare prepare-event-data)
 
       ;; Step 2: :preparing -> :check-approval
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run run-event-data)
 
       ;; Step 3: :check-approval -> :execution-approved (auto approval)
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)]
         (is (match? {:status :execution-approved
                      :actions [:set-decision-reason :deliver-approval-true]}
                     result)
             "Expected transition to :execution-approved with deliver approval true action")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :execution-approved (:status tool-state))
               "Expected tool call state to be in :execution-approved status")
           (is (= true (deref (:approved?* tool-state) 100 :timeout))
@@ -402,26 +403,26 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           approved?* (promise)]
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "test" :origin "test" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval true})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-ask
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-ask
                                       {:state :running :text "Waiting"})
 
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :user-reject)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject)]
         (is (match? {:status :rejected
                      :actions [:set-decision-reason :deliver-approval-false :log-rejection]}
                     result)
             "Expected transition to :rejected with deliver approval false and log rejection actions")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :rejected (:status tool-state))
               "Expected tool call state to be in :rejected status")
           (is (= false (deref (:approved?* tool-state) 100 :timeout))
               "Expected promise to be delivered with false value")))
 
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :send-reject
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :send-reject
                                                    {:origin "test" :name "test" :arguments {} :reason :user})]
         (is (match? {:status :rejected
                      :actions [:send-toolCallRejected]}
@@ -437,13 +438,13 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           approved?* (promise)]
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{\"path\": \"/tmp\"}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name "list_files" :origin "filesystem" :arguments {:path "/tmp"} :manual-approval false})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
 
-      (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+      (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
         (is (= :execution-approved (:status tool-state))
             "Expected tool call state to be in :execution-approved status")
         (is (= true (deref (:approved?* tool-state) 100 :timeout))
@@ -451,14 +452,14 @@
 
       ;; Step 1: :execution-approved -> :executing
       (testing ":execution-approved -> :executing transition"
-        (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
+        (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                                      {:name "list_files" :origin "filesystem" :arguments {:path "/tmp"}})]
           (is (match? {:status :executing
                        :actions [:set-start-time :add-future :send-toolCallRunning :send-progress]}
                       result)
               "Expected transition to :executing status with no additional actions")
 
-          (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+          (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
             (is (= :executing (:status tool-state))
                 "Expected tool call state to be in :executing status"))))
 
@@ -469,14 +470,14 @@
                            :name "list_files"
                            :origin "filesystem"
                            :arguments {:path "/tmp"}}
-              result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end result-data)]
+              result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-end result-data)]
 
           (is (match? {:status :cleanup
                        :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
                       result)
               "Expected transition to :cleanup with send toolCalled and record metrics actions")
 
-          (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+          (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
             (is (= :cleanup (:status tool-state))
                 "Expected tool call state to be in :cleanup status"))
 
@@ -506,7 +507,7 @@
 
       ;; Test :initial -> :cleanup
       (testing ":initial -> :cleanup"
-        (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-initial" :stop-requested)]
+        (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-initial" :stop-requested)]
           (is (match? {:status :cleanup :actions []} result)
               "Expected transition from :initial to :cleanup with no actions")))
 
@@ -514,12 +515,12 @@
       ;; Test :check-approval -> :cleanup
       (testing ":check-approval -> :cleanup"
         (let [approved?* (promise)]
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-check" :tool-prepare
+          (#'tc/transition-tool-call! db* chat-ctx "tool-check" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-check" :tool-run
+          (#'tc/transition-tool-call! db* chat-ctx "tool-check" :tool-run
                                           {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval false})
 
-          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-check" :stop-requested)]
+          (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-check" :stop-requested)]
             (is (match? {:status :rejected
                          :actions [:set-decision-reason :deliver-approval-false]}
                         result)
@@ -528,20 +529,20 @@
       ;; Test :executing -> :stopping -> :cleanup
       (testing ":executing -> :stopping -> :cleanup"
         (let [approved?* (promise)]
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :tool-prepare
+          (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :tool-run
+          (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :tool-run
                                           {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval false})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :approval-allow)
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :execution-start
+          (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :approval-allow)
+          (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :execution-start
                                           {:name "test" :origin "test" :arguments {}})
 
-          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :stop-requested)]
+          (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :stop-requested)]
             (is (match? {:status :stopping
                          :actions [:cancel-future]}
                         result)
                 "Expected transition from :executing to :stopping with relevant actions"))
-          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-executing" :stop-attempted)]
+          (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :stop-attempted)]
             (is (match? {:status :cleanup
                          :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCallRejected :trigger-post-tool-call-hook]}
                         result)
@@ -550,18 +551,18 @@
 ;; Test :cleanup -> :cleanup (should be no-op or error)
       (testing ":cleanup -> :cleanup (should handle gracefully)"
         (let [approved?* (promise)]
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :tool-prepare
+          (#'tc/transition-tool-call! db* chat-ctx "tool-completed" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :tool-run
+          (#'tc/transition-tool-call! db* chat-ctx "tool-completed" :tool-run
                                           {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval false})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :approval-allow)
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :execution-start
+          (#'tc/transition-tool-call! db* chat-ctx "tool-completed" :approval-allow)
+          (#'tc/transition-tool-call! db* chat-ctx "tool-completed" :execution-start
                                           {:name "test" :origin "test" :arguments {}})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :execution-end
+          (#'tc/transition-tool-call! db* chat-ctx "tool-completed" :execution-end
                                           {:outputs "success" :error nil :name "test" :origin "test" :arguments {}})
 
           ;; Now try to stop a tool call in :cleanup
-          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-completed" :stop-requested)]
+          (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-completed" :stop-requested)]
             (is (match? {:status :cleanup
                          :actions []}
                         result)
@@ -570,19 +571,19 @@
       ;; Test :rejected -> :cleanup
       (testing ":rejected -> :cleanup (should handle gracefully)"
         (let [approved?* (promise)]
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :tool-prepare
+          (#'tc/transition-tool-call! db* chat-ctx "tool-rejected" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :tool-run
+          (#'tc/transition-tool-call! db* chat-ctx "tool-rejected" :tool-run
                                           {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval true})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :approval-ask
+          (#'tc/transition-tool-call! db* chat-ctx "tool-rejected" :approval-ask
                                           {:state :running :text "Waiting"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :user-reject)
+          (#'tc/transition-tool-call! db* chat-ctx "tool-rejected" :user-reject)
 
           ;; Try to stop an already rejected tool call
           (is (thrown-with-msg?
                clojure.lang.ExceptionInfo
                #"Invalid state transition"
-               (#'f.chat/transition-tool-call! db* chat-ctx "tool-rejected" :stop-requested))
+               (#'tc/transition-tool-call! db* chat-ctx "tool-rejected" :stop-requested))
               "Expected exception as already rejected tool calls cannot be stopped"))))))
 
 ;; TODO: This test and the previous test seem to be testing similar things.  Clean up.
@@ -594,50 +595,50 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}]
 
       (testing ":preparing -> :cleanup"
-        (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
+        (#'tc/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                         {:name "test" :origin "test" :arguments-text "{}"})
 
-        (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :stop-requested)]
+        (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-1" :stop-requested)]
           (is (match? {:status :cleanup
                        :actions [:set-decision-reason :send-toolCallRejected]}
                       result)
               "Expected transition to :cleanup with send toolCallRejected action")
-          (is (= :cleanup (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-1")))
+          (is (= :cleanup (:status (#'tc/get-tool-call-state @db* chat-id "tool-1")))
               "Expected tool call state to be in :cleanup status")))
 
       (testing ":waiting-approval -> :rejected"
         (let [approved?* (promise)]
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
+          (#'tc/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :tool-run
+          (#'tc/transition-tool-call! db* chat-ctx "tool-2" :tool-run
                                           {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval true})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :approval-ask
+          (#'tc/transition-tool-call! db* chat-ctx "tool-2" :approval-ask
                                           {:state :running :text "Waiting"})
 
-          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :stop-requested)]
+          (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-2" :stop-requested)]
             (is (match? {:status :rejected
                          :actions [:set-decision-reason :deliver-approval-false]}
                         result)
                 "Expected transition to :refected with deliver approval false action")
-            (is (= :rejected (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-2")))
+            (is (= :rejected (:status (#'tc/get-tool-call-state @db* chat-id "tool-2")))
                 "Expected tool call state to be in :rejected status")
             (is (= false (deref approved?* 100 :timeout))
                 "Expected promise to be delivered with false value"))))
 
       (testing ":execution-approved -> :cleanup"
         (let [approved?* (promise)]
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :tool-prepare
+          (#'tc/transition-tool-call! db* chat-ctx "tool-3" :tool-prepare
                                           {:name "test" :origin "test" :arguments-text "{}"})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :tool-run
+          (#'tc/transition-tool-call! db* chat-ctx "tool-3" :tool-run
                                           {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval false})
-          (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :approval-allow)
+          (#'tc/transition-tool-call! db* chat-ctx "tool-3" :approval-allow)
 
-          (let [result (#'f.chat/transition-tool-call! db* chat-ctx "tool-3" :stop-requested)]
+          (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-3" :stop-requested)]
             (is (match? {:status :cleanup
                          :actions [:send-toolCallRejected]}
                         result)
                 "Expected transition to :cleanup with send toolCallRejected action")
-            (is (= :cleanup (:status (#'f.chat/get-tool-call-state @db* chat-id "tool-3")))
+            (is (= :cleanup (:status (#'tc/get-tool-call-state @db* chat-id "tool-3")))
                 "Expected tool call state to be in :cleanup status")))))))
 
 (deftest test-stop-prompt-messages
@@ -652,9 +653,9 @@
              {:status :running
               :current-request-id "req-123"})
 
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                       {:name "read_file" :origin "filesystem" :arguments-text "{}"})
 
       (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
@@ -690,7 +691,7 @@
              {:status :running
               :current-request-id "req-123"})
 
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
 
       (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
@@ -713,16 +714,16 @@
              {:status :running
               :current-request-id "req-123"})
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?*
                                        :name "list_files"
                                        :origin "filesystem"
                                        :arguments {"id" 123 "value" 42}})
       (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
       (when-not @approved?*
-        (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :send-reject
+        (#'tc/transition-tool-call! db* chat-ctx tool-call-id :send-reject
                                         {:approved?* approved?*
                                          :name "list_files"
                                          :origin "filesystem"
@@ -767,9 +768,9 @@
              {:status :running
               :current-request-id "req-123"})
 
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                       {:name "read_file" :origin "filesystem" :arguments-text "{}"})
 
       (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
@@ -812,18 +813,18 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           approved?* (promise)]
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "test" :origin "test" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval false})
 
-      (let [result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)]
+      (let [result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)]
         (is (match? {:status :execution-approved
                      :actions [:set-decision-reason :deliver-approval-true]}
                     result)
             "Expected transition to :execution-approved with deliver approval true action")
 
-        (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+        (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
           (is (= :execution-approved (:status tool-state))
               "Expected tool call state to be in :execution-approved status")
           (is (= true (deref (:approved?* tool-state) 100 :timeout))
@@ -841,23 +842,23 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           approved?* (promise)]
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name name :origin origin :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name name :origin origin :arguments {} :manual-approval false})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                       {:name name :origin origin :arguments {}})
 
       ;; TODO: Expand on these tests as we develop the tool cancellation.
-      (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)
-            result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :stop-requested)]
+      (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)
+            result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested)]
         (is (= :executing (:status tool-state))
             "Expected tool call state to be in :executing status")
         (is (= :stopping (:status result))
             "Expected tool call state to be :stopping after :stop-requested"))
-      (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)
-            result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :stop-attempted)]
+      (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)
+            result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :stop-attempted)]
         (is (= :stopping (:status tool-state))
             "Expected tool call state to be in :stopping status")
         (is (= :cleanup (:status result))
@@ -876,7 +877,7 @@
         (is (thrown-with-msg?
              clojure.lang.ExceptionInfo
              #"Invalid state transition"
-             (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :user-approve))
+             (#'tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve))
             "Expected exception for nonexistent tool call")))))
 
 (deftest transition-tool-call-execution-error-handling-test
@@ -889,12 +890,12 @@
           chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
           approved?* (promise)]
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "test" :server "eca" :origin "test" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name "test" :server "eca" :origin "test" :arguments {} :manual-approval false})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-start
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-start
                                       {:name "test" :server "eca" :origin "test" :arguments {}})
 
       (testing ":executing -> :cleanup with error"
@@ -904,7 +905,7 @@
                             :server "eca"
                             :origin "test"
                             :arguments {}}
-              result (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :execution-end error-result)]
+              result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-end error-result)]
 
           (is (match? {:status :cleanup
                        :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
@@ -933,25 +934,25 @@
           approved?* (promise)]
 
       ;; Create a complete tool call and verify state at each step
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "test" :origin "test" :arguments-text "{\"arg\": \"value\"}"})
 
-      (let [state-after-prepare (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+      (let [state-after-prepare (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
         (is (= :preparing (:status state-after-prepare))
             "Expected state to be :preparing after prepare transition"))
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name "test" :origin "test" :arguments {:arg "value"} :manual-approval false})
 
-      (let [state-after-run (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+      (let [state-after-run (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
         (is (= :check-approval (:status state-after-run))
             "Expected state to be :check-approval after run transition")
         (is (identical? approved?* (:approved?* state-after-run))
             "Expected same promise to be stored in state"))
 
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-allow)
 
-      (let [state-after-approve (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+      (let [state-after-approve (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
         (is (= :execution-approved (:status state-after-approve))
             "Expected state to be :execution-approved after approve transition")
         (is (= true (deref (:approved?* state-after-approve) 100 :timeout))
@@ -971,20 +972,20 @@
           approved-2* (promise)]
 
       ;; Tool 1
-      (#'f.chat/transition-tool-call! db* chat-ctx-1 tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx-1 tool-call-id :tool-prepare
                                       {:name "test1" :origin "test" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx-1 tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx-1 tool-call-id :tool-run
                                       {:approved?* approved-1* :name "test1" :origin "test" :arguments {} :manual-approval false})
-      (#'f.chat/transition-tool-call! db* chat-ctx-1 tool-call-id :approval-allow)
+      (#'tc/transition-tool-call! db* chat-ctx-1 tool-call-id :approval-allow)
 
       ;; Tool 2
-      (#'f.chat/transition-tool-call! db* chat-ctx-2 tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx-2 tool-call-id :tool-prepare
                                       {:name "test2" :origin "test" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx-2 tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx-2 tool-call-id :tool-run
                                       {:approved?* approved-2* :name "test2" :origin "test" :arguments {} :manual-approval true})
 
-      (let [state-1 (#'f.chat/get-tool-call-state @db* chat-id-1 tool-call-id)
-            state-2 (#'f.chat/get-tool-call-state @db* chat-id-2 tool-call-id)]
+      (let [state-1 (#'tc/get-tool-call-state @db* chat-id-1 tool-call-id)
+            state-2 (#'tc/get-tool-call-state @db* chat-id-2 tool-call-id)]
         (is (= :execution-approved (:status state-1))
             "Expected first chat's tool call to be in :execution-approved status")
         (is (= :check-approval (:status state-2))
@@ -1009,7 +1010,7 @@
       ;; This should work since tool-prepare only triggers send actions
       ;; which would fail with nil messenger, but the state should still transition
       (is (thrown? Exception
-                   (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+                   (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                                    {:name "test" :origin "test" :arguments-text "{}"}))
           "Expected exception when messenger is nil or appropriate error handling"))))
 
@@ -1024,12 +1025,12 @@
           approved?* (promise)]
 
       ;; Set up tool call with promise but don't approve/reject
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
                                       {:name "test" :origin "test" :arguments-text "{}"})
-      (#'f.chat/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+      (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
                                       {:approved?* approved?* :name "test" :origin "test" :arguments {} :manual-approval true})
 
       ;; Verify promise times out when not delivered
-      (let [tool-state (#'f.chat/get-tool-call-state @db* chat-id tool-call-id)]
+      (let [tool-state (#'tc/get-tool-call-state @db* chat-id tool-call-id)]
         (is (= :timeout (deref (:approved?* tool-state) 50 :timeout))
             "Expected promise to timeout when not delivered within timeout period")))))
