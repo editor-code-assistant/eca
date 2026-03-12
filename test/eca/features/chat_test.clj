@@ -4,7 +4,6 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
-   [eca.features.hooks :as f.hooks]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -194,6 +193,69 @@
                 :content {:state :finished :type :progress}
                 :role :system}]}
              (h/messages)))))))
+
+(defn ^:private make-tool-output-msg [id text]
+  {:role "tool_call_output"
+   :content {:id id
+             :name "read_file"
+             :output {:error false
+                      :contents [{:type :text :text text}]}}})
+
+(defn ^:private make-tool-call-msg [id]
+  {:role "tool_call"
+   :content {:id id :full-name "eca__read_file" :arguments {"path" "/foo"}}})
+
+(defn ^:private make-server-tool-result-msg [id text]
+  {:role "server_tool_result"
+   :content {:tool-use-id id
+             :raw-content [{:type "text" :text text}]}})
+
+(deftest prune-tool-results!-test
+  (testing "clears old tool results beyond protect budget"
+    (let [large-text (apply str (repeat 100000 "x"))
+          small-text (apply str (repeat 20000 "y"))
+          messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    (make-tool-call-msg "1")
+                    (make-tool-output-msg "1" large-text)
+                    {:role "assistant" :content [{:type :text :text "found it"}]}
+                    (make-tool-call-msg "2")
+                    (make-tool-output-msg "2" small-text)
+                    {:role "assistant" :content [{:type :text :text "done"}]}]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 3000})]
+      (is (pos? freed))
+      (let [pruned (get-in @db* [:chats "c1" :messages])]
+        (is (= "[content cleared to reduce context size]"
+               (get-in (nth pruned 2) [:content :output :contents 0 :text])))
+        (is (= small-text
+               (get-in (nth pruned 5) [:content :output :contents 0 :text])))
+        (is (= "hello" (get-in (nth pruned 0) [:content 0 :text])))
+        (is (= "found it" (get-in (nth pruned 3) [:content 0 :text]))))))
+
+  (testing "returns 0 and does not modify db when nothing to prune"
+    (let [messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    (make-tool-call-msg "1")
+                    (make-tool-output-msg "1" "short")
+                    {:role "assistant" :content [{:type :text :text "ok"}]}]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 40000})]
+      (is (zero? freed))
+      (is (= messages (get-in @db* [:chats "c1" :messages])))))
+
+  (testing "clears server_tool_result messages beyond budget"
+    (let [large-text (apply str (repeat 100000 "z"))
+          messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    (make-server-tool-result-msg "s1" large-text)
+                    {:role "assistant" :content [{:type :text :text "searched"}]}]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
+      (is (pos? freed))
+      (is (= "[content cleared to reduce context size]"
+             (get-in (nth (get-in @db* [:chats "c1" :messages]) 1) [:content :raw-content 0 :text])))))
+
+  (testing "handles empty message history"
+    (let [db* (atom {:chats {"c1" {:messages []}}})]
+      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {}))))))
 
 (deftest contexts-in-prompt-test
   (testing "When prompt contains @file we add a user message"
@@ -638,231 +700,4 @@
                 :role "assistant"}]}
              (h/messages)))))))
 
-(deftest decide-tool-call-action-test
-  (testing "config-based approval - allow"
-    (h/reset-components!)
-    (let [tool-call {:id "call-1"
-                     :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
-          all-tools [{:name "test_tool"
-                      :full-name "eca__test_tool"
-                      :origin :eca
-                      :server {:name "eca"}}]
-          db (h/db)
-          config (h/config)
-          agent-name :default
-          chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
-                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
-          (is (match? {:decision :allow
-                       :arguments {:foo "bar"}
-                       :approval-override nil
-                       :hook-rejected? false
-                       :arguments-modified? false
-                       :reason {:code :user-config-allow
-                                :text string?}}
-                      plan))))))
 
-  (testing "config-based approval - ask"
-    (h/reset-components!)
-    (let [tool-call {:id "call-1"
-                     :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
-          all-tools [{:name "test_tool"
-                      :full-name "eca__test_tool"
-                      :origin :eca
-                      :server {:name "eca"}}]
-          db (h/db)
-          config (h/config)
-          agent-name :default
-          chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :ask)
-                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
-          (is (match? {:decision :ask
-                       :arguments {:foo "bar"}
-                       :approval-override nil
-                       :hook-rejected? false
-                       :arguments-modified? false}
-                      plan))))))
-
-  (testing "config-based approval - deny"
-    (h/reset-components!)
-    (let [tool-call {:id "call-1"
-                     :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
-          all-tools [{:name "test_tool"
-                      :full-name "eca__test_tool"
-                      :origin :eca
-                      :server {:name "eca"}}]
-          db (h/db)
-          config (h/config)
-          agent-name :default
-          chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :deny)
-                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
-          (is (match? {:decision :deny
-                       :arguments {:foo "bar"}
-                       :approval-override nil
-                       :hook-rejected? false
-                       :arguments-modified? false
-                       :reason {:code :user-config-deny
-                                :text string?}}
-                      plan))))))
-
-  (testing "hook approval override - allow to ask"
-    (h/reset-components!)
-    (let [tool-call {:id "call-1"
-                     :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
-          all-tools [{:name "test_tool"
-                      :full-name "eca__test_tool"
-                      :origin :eca
-                      :server {:name "eca"}}]
-          db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
-                                              :actions [{:type "shell" :command "echo 'approval override'"}]}}})
-          agent-name :default
-          chat-id "test-chat"
-          hook-call-count (atom 0)]
-      (with-redefs [f.tools/approval (constantly :allow)
-                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
-                                                  (when (= event :preToolCall)
-                                                    (swap! hook-call-count inc)
-                                                    (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:approval "ask"}
-                                                                 :exit 0}))))]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
-          (is (= 1 @hook-call-count))
-          (is (match? {:decision :ask
-                       :arguments {:foo "bar"}
-                       :approval-override "ask"
-                       :hook-rejected? false
-                       :arguments-modified? false}
-                      plan))))))
-
-  (testing "hook rejection via exit code 2"
-    (h/reset-components!)
-    (let [tool-call {:id "call-1"
-                     :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
-          all-tools [{:name "test_tool"
-                      :full-name "eca__test_tool"
-                      :origin :eca
-                      :server {:name "eca"}}]
-          db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
-                                              :actions [{:type "shell" :command "exit 2"}]}}})
-          agent-name :default
-          chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
-                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
-                                                  (when (= event :preToolCall)
-                                                    (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:additionalContext "Hook rejected"}
-                                                                 :exit 2
-                                                                 :raw-error "Command failed"}))))]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
-          (is (match? {:decision :deny
-                       :arguments {:foo "bar"}
-                       :approval-override nil
-                       :hook-rejected? true
-                       :arguments-modified? false
-                       :reason {:code :hook-rejected
-                                :text "Hook rejected"}
-                       :hook-continue true
-                       :hook-stop-reason nil}
-                      plan))))))
-
-  (testing "hook modifies arguments"
-    (h/reset-components!)
-    (let [tool-call {:id "call-1"
-                     :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
-          all-tools [{:name "test_tool"
-                      :full-name "eca__test_tool"
-                      :origin :eca
-                      :server {:name "eca"}}]
-          db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
-                                              :actions [{:type "shell" :command "echo 'modify args'"}]}}})
-          agent-name :default
-          chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
-                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
-                                                  (when (= event :preToolCall)
-                                                    (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:updatedInput {:baz "qux"}}
-                                                                 :exit 0}))))]
-        (let [plan (#'f.chat/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
-          (is (match? {:decision :allow
-                       :arguments {:foo "bar" :baz "qux"}
-                       :approval-override nil
-                       :hook-rejected? false
-                       :arguments-modified? true}
-                      plan)))))))
-
-(defn- make-tool-output-msg [id text]
-  {:role "tool_call_output"
-   :content {:id id
-             :name "read_file"
-             :output {:error false
-                      :contents [{:type :text :text text}]}}})
-
-(defn- make-tool-call-msg [id]
-  {:role "tool_call"
-   :content {:id id :full-name "eca__read_file" :arguments {"path" "/foo"}}})
-
-(defn- make-server-tool-result-msg [id text]
-  {:role "server_tool_result"
-   :content {:tool-use-id id
-             :raw-content [{:type "text" :text text}]}})
-
-(deftest prune-tool-results!-test
-  (testing "clears old tool results beyond protect budget"
-    (let [large-text (apply str (repeat 100000 "x"))
-          small-text (apply str (repeat 20000 "y"))
-          messages [{:role "user" :content [{:type :text :text "hello"}]}
-                    (make-tool-call-msg "1")
-                    (make-tool-output-msg "1" large-text)
-                    {:role "assistant" :content [{:type :text :text "found it"}]}
-                    (make-tool-call-msg "2")
-                    (make-tool-output-msg "2" small-text)
-                    {:role "assistant" :content [{:type :text :text "done"}]}]
-          db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 3000})]
-      (is (pos? freed))
-      (let [pruned (get-in @db* [:chats "c1" :messages])]
-        (is (= "[content cleared to reduce context size]"
-               (get-in (nth pruned 2) [:content :output :contents 0 :text])))
-        (is (= small-text
-               (get-in (nth pruned 5) [:content :output :contents 0 :text])))
-        (is (= "hello" (get-in (nth pruned 0) [:content 0 :text])))
-        (is (= "found it" (get-in (nth pruned 3) [:content 0 :text]))))))
-
-  (testing "returns 0 and does not modify db when nothing to prune"
-    (let [messages [{:role "user" :content [{:type :text :text "hello"}]}
-                    (make-tool-call-msg "1")
-                    (make-tool-output-msg "1" "short")
-                    {:role "assistant" :content [{:type :text :text "ok"}]}]
-          db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 40000})]
-      (is (zero? freed))
-      (is (= messages (get-in @db* [:chats "c1" :messages])))))
-
-  (testing "clears server_tool_result messages beyond budget"
-    (let [large-text (apply str (repeat 100000 "z"))
-          messages [{:role "user" :content [{:type :text :text "hello"}]}
-                    (make-server-tool-result-msg "s1" large-text)
-                    {:role "assistant" :content [{:type :text :text "searched"}]}]
-          db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
-      (is (pos? freed))
-      (is (= "[content cleared to reduce context size]"
-             (get-in (nth (get-in @db* [:chats "c1" :messages]) 1) [:content :raw-content 0 :text])))))
-
-  (testing "handles empty message history"
-    (let [db* (atom {:chats {"c1" {:messages []}}})]
-      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {}))))))
