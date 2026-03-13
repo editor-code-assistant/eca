@@ -115,7 +115,8 @@
     (let [config (config/all @db*)]
       (f.tools/init-servers! db* messenger config metrics)))
   (future
-    (cache/cleanup-tool-call-outputs!))
+    (cache/cleanup-tool-call-outputs!)
+    (db/cleanup-old-chats! db* metrics))
   ;; Trigger sessionStart hook after initialization
   (shared/future* config
     (f.hooks/trigger-if-matches! :sessionStart

@@ -32,14 +32,51 @@
         key (.encodeToString encoder digest)]
     (subs key 0 (min 8 (count key)))))
 
+(def ^:private logger-tag "[CACHE]")
+
+(def ^:private max-prefix-length 30)
+
+(defn ^:private workspace-dir-name
+  "Returns a human-readable directory name for the workspace cache.
+   Format: <sanitized-project-name>_<hash>, or just <hash> if no name is available."
+  [workspaces uri->filename-fn]
+  (let [hash (workspaces-hash workspaces uri->filename-fn)
+        first-uri (some-> workspaces first :uri)
+        project-name (when first-uri
+                       (some-> (uri->filename-fn first-uri)
+                               fs/file-name
+                               str
+                               not-empty))
+        sanitized (when project-name
+                    (let [s (string/replace project-name #"[^a-zA-Z0-9._-]" "_")]
+                      (subs s 0 (min max-prefix-length (count s)))))]
+    (if (not-empty sanitized)
+      (str sanitized "_" hash)
+      hash)))
+
+(defn ^:private migrate-workspace-cache-dir!
+  "Migrates old hash-only workspace cache directory to new human-readable format."
+  [^File old-dir ^File new-dir]
+  (try
+    (fs/move old-dir new-dir)
+    (logger/info logger-tag (str "Migrated workspace cache from " old-dir " to " new-dir))
+    (catch Exception e
+      (logger/warn logger-tag "Failed to migrate workspace cache directory:" (.getMessage e)))))
+
 (defn workspace-cache-file
   "Returns a File object for a workspace-specific cache file."
   [workspaces filename uri->filename-fn]
-  (io/file (global-dir)
-           (workspaces-hash workspaces uri->filename-fn)
-           filename))
+  (let [dir-name (workspace-dir-name workspaces uri->filename-fn)
+        hash-only (workspaces-hash workspaces uri->filename-fn)
+        base (global-dir)
+        new-dir (io/file base dir-name)
+        old-dir (io/file base hash-only)]
+    (when (and (not= dir-name hash-only)
+               (not (fs/exists? new-dir))
+               (fs/exists? old-dir))
+      (migrate-workspace-cache-dir! old-dir new-dir))
+    (io/file new-dir filename)))
 
-(def ^:private logger-tag "[CACHE]")
 (def ^:private tool-call-outputs-dir-name "toolCallOutputs")
 (def ^:private plugins-dir-name "plugins")
 

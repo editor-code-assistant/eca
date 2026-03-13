@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Delete chats older than 7 days on server startup.
+- Use human-readable workspace cache directory names (e.g. `my-project_a1b2c3d4`), with automatic migration from old hash-only format.
+
 ## 0.113.1
 
 - Fix MCP server threads blocking ECA shutdown when stuck during initialization; startup now uses daemon threads with interrupt-based cancellation for clean exit.
