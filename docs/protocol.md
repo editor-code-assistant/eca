@@ -1941,46 +1941,122 @@ interface MCPServerUpdatedParams {
     name: string;
     
     /**
-     * The command to start this server.
+     * The command used to start this server (stdio transport).
      */
-    command: string;
+    command?: string;
 
     /**
-     * The arguments to start this server.
+     * The arguments passed to the command (stdio transport).
      */
-    args: string[];
+    args?: string[];
+
+    /**
+     * The URL of the server (Streamable HTTP transport).
+     */
+    url?: string;
     
     /**
      * The status of the server.
      */
     status: 'running' | 'starting' | 'stopped' | 'failed' | 'disabled' | 'requires-auth';
+
+    /**
+     * Whether the server has an OAuth access token.
+     */
+    hasAuth: boolean;
     
     /**
-     * The tools supported by this mcp server if not disabled.
+     * The tools provided by this MCP server.
      */
     tools?: ServerTool[];
+
+    /**
+     * The prompts provided by this MCP server.
+     */
+    prompts?: ServerPrompt[];
+
+    /**
+     * The resources provided by this MCP server.
+     */
+    resources?: ServerResource[];
 }
 
 interface ServerTool {
     /**
-     * The server tool name.
+     * The tool name.
      */
     name: string;
     
     /**
-     * The server tool description.
+     * The tool description.
      */
     description: string;
     
     /**
-     * The server tool parameters.
+     * The tool parameters (JSON Schema).
      */
     parameters: any; 
     
     /**
-     * Whether this tool is disabled.
+     * Whether this tool is disabled by the current agent configuration.
      */
     disabled?: boolean;
+}
+
+interface ServerPrompt {
+    /**
+     * The prompt name.
+     */
+    name: string;
+
+    /**
+     * The prompt description.
+     */
+    description: string;
+
+    /**
+     * The prompt arguments.
+     */
+    arguments?: PromptArgument[];
+}
+
+interface PromptArgument {
+    /**
+     * The argument name.
+     */
+    name: string;
+
+    /**
+     * The argument description.
+     */
+    description: string;
+
+    /**
+     * Whether this argument is required.
+     */
+    required: boolean;
+}
+
+interface ServerResource {
+    /**
+     * The resource URI.
+     */
+    uri: string;
+
+    /**
+     * The resource name.
+     */
+    name: string;
+
+    /**
+     * The resource description.
+     */
+    description: string;
+
+    /**
+     * The MIME type of the resource.
+     */
+    mimeType: string;
 }
 ```
 
