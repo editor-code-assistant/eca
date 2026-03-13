@@ -26,6 +26,25 @@
 
 (def ^:private logger-tag "[MCP]")
 
+(def ^:private init-threads*
+  "Tracks in-flight MCP server initialization threads (server-name → Thread)
+   so they can be interrupted during shutdown."
+  (atom {}))
+
+(defn ^:private register-init-thread! [server-name ^Thread thread]
+  (swap! init-threads* assoc server-name thread))
+
+(defn ^:private deregister-init-thread! [server-name]
+  (swap! init-threads* dissoc server-name))
+
+(defn ^:private interrupt-init-threads!
+  "Interrupt all in-flight init threads to unblock stuck startups."
+  []
+  (doseq [[server-name ^Thread thread] @init-threads*]
+    (logger/info logger-tag (format "Interrupting init thread for server '%s'" server-name))
+    (.interrupt thread))
+  (reset! init-threads* {}))
+
 (def ^:private env-var-regex
   #"\$(\w+)|\$\{([^}]+)\}")
 
@@ -230,6 +249,8 @@
         server-config (get-in config [:mcpServers name])]
     (on-server-updated (->server name server-config :starting db))
     (try
+      (when (Thread/interrupted)
+        (throw (InterruptedException. "Init cancelled")))
       (let [workspaces (:workspace-folders @db*)
             url (:url server-config)
             ;; Skip OAuth entirely if Authorization header is configured
@@ -301,6 +322,10 @@
                 (when (= result :retry)
                   (Thread/sleep 1000)
                   (recur (inc attempt))))))))
+      (catch InterruptedException _
+        (logger/info logger-tag (format "Initialization of MCP server %s was interrupted" name))
+        (swap! db* assoc-in [:mcp-clients name :status] :failed)
+        (on-server-updated (->server name server-config :failed @db*)))
       (catch Exception e
         (logger/error logger-tag (format "Unexpected error initializing MCP server %s: %s" name (.getMessage e)))
         (swap! db* assoc-in [:mcp-clients name :status] :failed)
@@ -309,19 +334,32 @@
 (defn initialize-servers-async! [{:keys [on-server-updated]} db* config metrics]
   (let [db @db*]
     (doseq [[name-kwd server-config] (:mcpServers config)]
-      (let [name (name name-kwd)]
-        (when-not (get-in db [:mcp-clients name])
+      (let [server-name (name name-kwd)]
+        (when-not (get-in db [:mcp-clients server-name])
           (if (get server-config :disabled false)
-            (on-server-updated (->server name server-config :disabled db))
-            (future
-              (initialize-server! name db* config metrics on-server-updated))))))))
+            (on-server-updated (->server server-name server-config :disabled db))
+            (let [t (Thread.
+                     (fn []
+                       (try
+                         (initialize-server! server-name db* config metrics on-server-updated)
+                         (finally
+                           (deregister-init-thread! server-name)))))]
+              (.setName t (str "mcp-init-" server-name))
+              (.setDaemon t true)
+              (register-init-thread! server-name t)
+              (.start t))))))))
+
+(def ^:private disconnect-timeout-ms 5000)
 
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
   (when-let [{:keys [client]} (get-in @db* [:mcp-clients name])]
     (let [server-config (get-in config [:mcpServers name])]
       (swap! db* assoc-in [:mcp-clients name :status] :stopping)
       (on-server-updated (->server name server-config :stopping @db*))
-      (pmc/disconnect! client)
+      (let [f (future (try (pmc/disconnect! client) (catch Exception _ nil)))]
+        (when-not (deref f disconnect-timeout-ms nil)
+          (logger/warn logger-tag (format "Timeout disconnecting MCP server %s, forcing transport stop" name))
+          (try (pp/stop-client-transport! client false) (catch Exception _))))
       (swap! db* assoc-in [:mcp-clients name :status] :stopped)
       (on-server-updated (->server name server-config :stopped @db*))
       (swap! db* update :mcp-clients dissoc name)
@@ -370,8 +408,16 @@
     (db/update-global-cache! @db* metrics)
     (when (get-in @db* [:mcp-clients name :client])
       (stop-server! name db* config {:on-server-updated on-server-updated}))
-    (future
-      (initialize-server! name db* config metrics on-server-updated))))
+    (let [t (Thread.
+             (fn []
+               (try
+                 (initialize-server! name db* config metrics on-server-updated)
+                 (finally
+                   (deregister-init-thread! name)))))]
+      (.setName t (str "mcp-init-" name))
+      (.setDaemon t true)
+      (register-init-thread! name t)
+      (.start t))))
 
 (defn all-tools [db]
   (into []
@@ -438,17 +484,30 @@
       {:contents (mapv ->resource-content (:contents resource))})))
 
 (defn shutdown!
-  "Shutdown MCP servers in parallel waiting max 5s in total."
+  "Shutdown MCP servers: interrupts in-flight init threads and disconnects
+   running clients in parallel with a total 5s timeout."
   [db*]
+  ;; 1. Interrupt any servers still initializing so they unblock promptly
+  (interrupt-init-threads!)
+  ;; 2. Disconnect running clients in parallel via daemon threads
   (try
     (let [clients (vals (:mcp-clients @db*))
-          futures (doall
-                   (pmap (fn [{:keys [client]}]
-                           (future
-                             (try (pmc/disconnect! client)
-                                  (catch Exception _ nil))))
-                         clients))]
-      (doseq [f futures]
-        (try (deref f 5000 nil) (catch Exception _ nil))))
+          latch (java.util.concurrent.CountDownLatch. (count clients))
+          threads (doall
+                   (map (fn [{:keys [client]}]
+                          (doto (Thread.
+                                 (fn []
+                                   (try
+                                     (pmc/disconnect! client)
+                                     (catch Exception _)
+                                     (finally
+                                       (.countDown latch)))))
+                            (.setDaemon true)
+                            (.start)))
+                        clients))]
+      (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+        (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
+        (doseq [^Thread t threads]
+          (.interrupt t))))
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))

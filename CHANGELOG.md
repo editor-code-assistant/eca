@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix MCP server threads blocking ECA shutdown when stuck during initialization; startup now uses daemon threads with interrupt-based cancellation for clean exit.
+
 ## 0.113.0
 
 - Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.

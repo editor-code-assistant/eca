@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
    [eca.features.plugins :as plugins]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -221,19 +222,19 @@
       (is (= ["/a/skills" "/b/skills"]
              (get-in result [:config-fragment :pluginSkillDirs])))
       (is (match? {:server-a {:url "http://a"}
-                    :server-b {:url "http://b"}}
-                   (get-in result [:config-fragment :mcpServers])))
+                   :server-b {:url "http://b"}}
+                  (get-in result [:config-fragment :mcpServers])))
       (is (= 60 (get-in result [:config-fragment :mcpTimeoutSeconds])))
       (is (match? {"agent-a" {:description "A"}
-                    "agent-b" {:description "B"}}
-                   (:agents result)))
+                   "agent-b" {:description "B"}}
+                  (:agents result)))
       (is (= [{:path "/a/commands/cmd.md"}] (:commands result)))
       (is (= [{:path "/b/rules/rule.mdc"}] (:rules result))))))
 
 (deftest uninstall-plugin!-test
   (testing "removes plugin from install list"
     (let [updated (atom nil)]
-      (with-redefs [eca.config/update-global-config! (fn [c] (reset! updated c))]
+      (with-redefs [config/update-global-config! (fn [c] (reset! updated c))]
         (let [result (plugins/uninstall-plugin!
                       {"install" ["alpha" "beta" "gamma"]}
                       "beta")]
