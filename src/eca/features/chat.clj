@@ -215,6 +215,7 @@
 
   State is a map:
   - :final-prompt
+  - :all-messages
   - :additional-contexts
   - :stop? (true when any hook requests stop)"
   [db chat-ctx chat-id hook hook-name idx action state]
@@ -234,7 +235,8 @@
                                                 action-name
                                                 :preRequest
                                                 (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
-                                                       {:prompt (:final-prompt state)})
+                                                       {:prompt (:final-prompt state)
+                                                        :all-messages (:all-messages state)})
                                                 db)]
         (let [{:keys [parsed raw-output raw-error exit]} result
               should-continue? (get parsed :continue true)]
@@ -284,16 +286,17 @@
   - :final-prompt
   - :additional-contexts (vector of {:hook-name name :content context})
   - :stop? (true when any hook requests stop)"
-  [{:keys [db* config chat-id message] :as chat-ctx}]
+  [{:keys [db* config chat-id message all-messages] :as chat-ctx}]
   (let [db @db*]
     (reduce
      (fn [state hook-entry]
        (if (:stop? state)
          (reduced state)
          (run-pre-request-hook! db chat-ctx chat-id state hook-entry)))
-     {:final-prompt        message
+     {:final-prompt message
+      :all-messages all-messages
       :additional-contexts []
-      :stop?               false}
+      :stop? false}
      (->> (:hooks config)
           (filter #({"preRequest" "prePrompt"} (:type (val %))))
           (sort-by key)))))
@@ -387,8 +390,10 @@
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
         user-messages (if run-hooks?
-                        (let [{:keys [final-prompt additional-contexts stop?]}
-                              (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
+                        (let [past-messages (get-in @db* [:chats chat-id :messages] [])
+                              {:keys [final-prompt additional-contexts stop?]}
+                              (run-pre-request-hooks! (assoc chat-ctx :message original-text
+                                                             :all-messages (into past-messages user-messages)))]
                           (cond
                             stop? (do (lifecycle/finish-chat-prompt! :idle chat-ctx) nil)
                             :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)

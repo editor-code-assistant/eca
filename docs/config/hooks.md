@@ -40,6 +40,7 @@ Hooks receive JSON via stdin with event data (top-level keys `snake_case`, neste
 
 - All hooks: `hook_name`, `hook_type`, `workspaces`, `db_cache_path`
 - Chat hooks add: `chat_id`, `agent`, `behavior` (deprecated alias)
+- `preRequest` adds: `prompt` (current user text), `all_messages` (full conversation history including the current turn)
 - Tool hooks add: `tool_name`, `server`, `tool_input`, `approval` (pre) or `tool_response`, `error` (post)
 - `chatStart` adds: `resumed` (boolean)
 - `subagentPostRequest` adds: `parent_chat_id`
