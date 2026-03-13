@@ -289,6 +289,24 @@
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
+(defn connect-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/connect-server!
+     name
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn logout-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/logout-server!
+     name
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
 (defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
                                                     all-tools)))]

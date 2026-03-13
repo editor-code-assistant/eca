@@ -176,28 +176,14 @@
     []))
 
 (defn ^:private initialize-mcp-oauth
-  [{:keys [authorization-endpoint callback-port] :as oauth-info}
+  [oauth-info
    server-name
    db*
    server-config
-   {:keys [on-success on-error on-server-updated]}]
-  (oauth/start-oauth-server!
-   {:port callback-port
-    :on-success (fn [{:keys [code]}]
-                  (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
-                    (swap! db* assoc-in [:mcp-auth server-name] {:type :auth/oauth
-                                                                 :url (:url server-config)
-                                                                 :refresh-token refresh-token
-                                                                 :access-token access-token
-                                                                 :expires-at expires-at}))
-                  (oauth/stop-oauth-server! callback-port)
-                  (on-success))
-    :on-error (fn [error]
-                (oauth/stop-oauth-server! callback-port)
-                (on-error error))})
-  (logger/info logger-tag (format "Authenticating MCP server '%s' at '%s'" server-name authorization-endpoint))
-  (swap! db* assoc-in [:mcp-clients server-name] {:status :requires-auth})
-  (browse/browse-url authorization-endpoint)
+   {:keys [on-server-updated]}]
+  (logger/info logger-tag (format "MCP server '%s' requires authentication" server-name))
+  (swap! db* assoc-in [:mcp-clients server-name] {:status :requires-auth
+                                                   :oauth-info oauth-info})
   (on-server-updated (->server server-name server-config :requires-auth @db*)))
 
 (defn ^:private token-expired?
@@ -266,15 +252,7 @@
                                 name
                                 db*
                                 server-config
-                                {:on-server-updated on-server-updated
-                                 :on-success (fn []
-                                               ;; :mcp-auth exists now
-                                               (db/update-global-cache! @db* metrics)
-                                               (initialize-server! name db* config metrics on-server-updated))
-                                 :on-error (fn [error]
-                                             (logger/error logger-tag error)
-                                             (swap! db* assoc-in [:mcp-clients name :status] :failed)
-                                             (on-server-updated (->server name server-config :failed db)))})
+                                {:on-server-updated on-server-updated})
           (let [init-timeout (:mcpTimeoutSeconds config)
                 on-tools-change (fn [tools]
                                   (let [tools (mapv tool->internal tools)]
@@ -353,6 +331,46 @@
     (when (get server-config :disabled false)
       (logger/info logger-tag (format "Starting MCP server %s from manual request despite :disabled=true" name)))
     (initialize-server! name db* config metrics on-server-updated)))
+
+(defn connect-server!
+  "Initiate OAuth authorization for an MCP server that requires auth.
+   Starts the local OAuth callback server and returns the authorization URL."
+  [name db* config metrics {:keys [on-server-updated]}]
+  (let [server-config (get-in config [:mcpServers name])
+        {:keys [oauth-info]} (get-in @db* [:mcp-clients name])]
+    (when (and server-config oauth-info)
+      (let [{:keys [authorization-endpoint callback-port]} oauth-info]
+        (swap! db* assoc-in [:mcp-clients name :status] :starting)
+        (on-server-updated (->server name server-config :starting @db*))
+        (oauth/start-oauth-server!
+         {:port callback-port
+          :on-success (fn [{:keys [code]}]
+                        (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
+                          (swap! db* assoc-in [:mcp-auth name] {:type :auth/oauth
+                                                                :url (:url server-config)
+                                                                :refresh-token refresh-token
+                                                                :access-token access-token
+                                                                :expires-at expires-at}))
+                        (oauth/stop-oauth-server! callback-port)
+                        (db/update-global-cache! @db* metrics)
+                        (initialize-server! name db* config metrics on-server-updated))
+          :on-error (fn [error]
+                      (oauth/stop-oauth-server! callback-port)
+                      (logger/error logger-tag error)
+                      (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                      (on-server-updated (->server name server-config :failed @db*)))})
+        (browse/browse-url authorization-endpoint)))))
+
+(defn logout-server!
+  "Logout from an MCP server by clearing stored OAuth credentials and restarting it."
+  [name db* config metrics {:keys [on-server-updated]}]
+  (when (get-in config [:mcpServers name])
+    (swap! db* update :mcp-auth dissoc name)
+    (db/update-global-cache! @db* metrics)
+    (when (get-in @db* [:mcp-clients name :client])
+      (stop-server! name db* config {:on-server-updated on-server-updated}))
+    (future
+      (initialize-server! name db* config metrics on-server-updated))))
 
 (defn all-tools [db]
   (into []

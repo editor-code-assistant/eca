@@ -203,6 +203,14 @@
   (metrics/task metrics :eca/mcp-start-server
     (f.tools/start-server! (:name params) db* messenger config metrics)))
 
+(defn mcp-connect-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-connect-server
+    (f.tools/connect-server! (:name params) db* messenger config metrics)))
+
+(defn mcp-logout-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-logout-server
+    (f.tools/logout-server! (:name params) db* messenger config metrics)))
+
 (defn ^:private update-agent-model-and-variants!
   "Updates the selected model and variants based on agent configuration."
   [agent-config config messenger db*]

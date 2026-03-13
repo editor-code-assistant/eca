@@ -1953,7 +1953,7 @@ interface MCPServerUpdatedParams {
     /**
      * The status of the server.
      */
-    status: 'running' | 'starting' | 'stopped' | 'failed' | 'disabled';
+    status: 'running' | 'starting' | 'stopped' | 'failed' | 'disabled' | 'requires-auth';
     
     /**
      * The tools supported by this mcp server if not disabled.
@@ -2017,6 +2017,46 @@ _Notification:_
 interface MCPStartServerParams {
     /**
      * The server name.
+     */
+    name: string;
+}
+```
+
+### Connect MCP server (➡️)
+
+A client notification to initiate OAuth authorization for an MCP server that has `requires-auth` status.
+The server starts a local OAuth callback server and opens the authorization URL in the browser.
+On successful authorization, the server completes the OAuth flow and sends `tool/serverUpdated` with status `running`.
+
+_Notification:_
+
+* method: `mcp/connectServer`
+* params: `MCPConnectServerParams` defined as follows:
+
+```typescript
+interface MCPConnectServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+### Logout MCP server (➡️)
+
+A client notification to logout from an MCP server, clearing its stored OAuth credentials
+and restarting the server. The server will re-detect auth requirements and send
+`tool/serverUpdated` with status `requires-auth`.
+
+_Notification:_
+
+* method: `mcp/logoutServer`
+* params: `MCPLogoutServerParams` defined as follows:
+
+```typescript
+interface MCPLogoutServerParams {
+    /**
+     * The MCP server name.
      */
     name: string;
 }
