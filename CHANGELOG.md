@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.113.1
+
 - Fix MCP server threads blocking ECA shutdown when stuck during initialization; startup now uses daemon threads with interrupt-based cancellation for clean exit.
 - Re-initialize MCP session and retry tool call on HTTP 404 (session expired) or 5xx (e.g. pod swap dropping the SSE stream), per MCP Streamable HTTP spec.
 - Fix `preRequest` hook `all_messages` containing only the current turn instead of the full conversation history.
