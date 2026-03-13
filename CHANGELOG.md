@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.113.0
+
 - Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.
 - Improve MCP server auth: stop auto-opening browser on OAuth, add `mcp/connectServer` request for client-driven auth and `mcp/logoutServer` notification for clearing credentials.
 - Replace MCP Java SDK with plumcp for MCP client communication. SSE transport is no longer supported (deprecated in MCP spec 2025-03-26).
