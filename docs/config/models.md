@@ -415,7 +415,27 @@ When a retry rule matches, the chat shows a progress message like:
       }
     }
     ```
-    
+
+=== "Mistral"
+
+    The property `max_completion_token` is set to `null`, because Mistral does not support it.
+
+    More details in the [Mistral API docs](https://docs.mistral.ai/api).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "mistral": {
+          "api": "openai-chat",
+          "url": "https://api.mistral.ai/v1",
+          "key": "your-api-key",
+          "models": {
+            "mistral-medium": {"extraPayload": { "max_completion_tokens": null}}
+          }
+        }
+    }
+    ```
+
 === "Moonshot"
 
     ```javascript title="~/.config/eca/config.json"
