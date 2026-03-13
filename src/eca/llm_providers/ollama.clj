@@ -118,9 +118,9 @@
              }))
         messages))
 
-(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers]}
+(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers extra-payload]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
-                     on-reason extra-payload] :as callbacks}]
+                     on-reason] :as callbacks}]
   (let [messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
                   (normalize-messages user-messages))
