@@ -3,6 +3,7 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.background-tasks :as f.background-tasks]
    [eca.features.chat :as f.chat]
    [eca.features.completion :as f.completion]
    [eca.features.hooks :as f.hooks]
@@ -147,6 +148,7 @@
                                  config)
 
     ;; 3. Then shutdown
+    (f.background-tasks/cleanup-all!)
     (f.mcp/shutdown! db*)
     (swap! db* assoc :stopping true)
     nil))

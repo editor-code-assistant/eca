@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.
+- Add background shell command support via `background` parameter on `shell_command` tool and new `bg_job` tool for managing long-running processes (#77).
 - Replace MCP Java SDK with plumcp for MCP client communication. SSE transport is no longer supported (deprecated in MCP spec 2025-03-26).
 - Fix crash on invalid YAML frontmatter in plugin skill files.
 - Show "Waiting subagent" instead of "Calling tool" in progress messages during subagent execution.
