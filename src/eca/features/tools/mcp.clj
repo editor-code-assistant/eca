@@ -112,6 +112,7 @@
    :tools (get-in db [:mcp-clients mcp-name :tools])
    :prompts (get-in db [:mcp-clients mcp-name :prompts])
    :resources (get-in db [:mcp-clients mcp-name :resources])
+   :has-auth (boolean (get-in db [:mcp-auth mcp-name :access-token]))
    :status status})
 
 (defn ^:private ->content [content-client]
