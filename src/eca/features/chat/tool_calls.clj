@@ -739,7 +739,9 @@
                                                                      :start-time (System/currentTimeMillis)
                                                                      :details details
                                                                      :summary summary
-                                                                     :progress-text "Calling tool"})))
+                                                                     :progress-text (if (= name "spawn_agent")
+                                                                         "Waiting subagent"
+                                                                         "Calling tool")})))
                         (let [tool-call-state (get-tool-call-state @db* chat-id id)
                               {:keys [code text]} (:decision-reason tool-call-state)
                               effective-hook-continue (when hook-rejected? hook-continue)

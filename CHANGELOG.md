@@ -5,6 +5,7 @@
 - Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.
 - Replace MCP Java SDK with plumcp for MCP client communication. SSE transport is no longer supported (deprecated in MCP spec 2025-03-26).
 - Fix crash on invalid YAML frontmatter in plugin skill files.
+- Show "Waiting subagent" instead of "Calling tool" in progress messages during subagent execution.
 
 ## 0.112.1
 
