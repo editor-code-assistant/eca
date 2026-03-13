@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix MCP server threads blocking ECA shutdown when stuck during initialization; startup now uses daemon threads with interrupt-based cancellation for clean exit.
+- Re-initialize MCP session and retry tool call on HTTP 404 (session expired) or 5xx (e.g. pod swap dropping the SSE stream), per MCP Streamable HTTP spec.
 
 ## 0.113.0
 

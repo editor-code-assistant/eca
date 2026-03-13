@@ -60,7 +60,8 @@
 (defn ^:private ->transport [server-name server-config workspaces db]
   (if (:url server-config)
     ;; HTTP Streamable transport
-    (let [url (replace-env-vars (:url server-config))
+    (let [needs-reinit?* (atom false)
+          url (replace-env-vars (:url server-config))
           config-headers (:headers server-config)
           ssl-ctx network/*ssl-context*
           rm (fn [request]
@@ -77,7 +78,25 @@
       (when (string/includes? url "/sse")
         (logger/warn logger-tag (format "SSE transport is no longer supported for server '%s'. Using Streamable HTTP instead. Consider updating the URL." server-name)))
       (logger/info logger-tag (format "Creating HTTP transport for server '%s' at %s" server-name url))
-      (phct/make-streamable-http-transport hc))
+      {:transport (phct/make-streamable-http-transport
+                   hc
+                   :on-other-response (fn [response]
+                                        (let [status (long (:status response))]
+                                          (cond
+                                            (= 202 status) nil
+
+                                            (= 404 status)
+                                            (do (logger/info logger-tag (format "MCP server '%s' returned 404, session expired" server-name))
+                                                (reset! needs-reinit?* true))
+
+                                            (<= 500 status)
+                                            (do (logger/warn logger-tag (format "MCP server '%s' returned %d, needs re-initialization" server-name status))
+                                                (reset! needs-reinit?* true))
+
+                                            :else
+                                            (logger/warn logger-tag (format "Unexpected HTTP response from MCP server '%s': %d"
+                                                                            server-name status))))))
+       :needs-reinit?* needs-reinit?*})
 
     ;; STDIO transport
     (let [{:keys [command args env]} server-config
@@ -86,15 +105,15 @@
                                :uri
                                shared/uri->filename)
                        (config/get-property "user.home"))]
-      (psct/run-command
-        {:command-tokens (into [(replace-env-vars command)]
-                               (map replace-env-vars)
-                               (or args []))
-         :dir work-dir
-         :env (when env (update-keys env name))
-         :on-stderr-text (fn [msg]
-                           (logger/info logger-tag (format "[%s] %s" server-name msg)))}))))
-
+      {:transport (psct/run-command
+                   {:command-tokens (into [(replace-env-vars command)]
+                                          (map replace-env-vars)
+                                          (or args []))
+                    :dir work-dir
+                    :env (when env (update-keys env name))
+                    :on-stderr-text (fn [msg]
+                                      (logger/info logger-tag (format "[%s] %s" server-name msg)))})
+       :needs-reinit?* nil})))
 
 (defn ^:private ->client [name transport init-timeout workspaces
                           {:keys [on-tools-change]}]
@@ -203,7 +222,7 @@
    {:keys [on-server-updated]}]
   (logger/info logger-tag (format "MCP server '%s' requires authentication" server-name))
   (swap! db* assoc-in [:mcp-clients server-name] {:status :requires-auth
-                                                   :oauth-info oauth-info})
+                                                  :oauth-info oauth-info})
   (on-server-updated (->server server-name server-config :requires-auth @db*)))
 
 (defn ^:private token-expired?
@@ -281,13 +300,15 @@
                                     (swap! db* assoc-in [:mcp-clients name :tools] tools)
                                     (on-server-updated (->server name server-config :running @db*))))]
             (loop [attempt 1]
-              (let [transport (->transport name server-config workspaces db)
+              (let [{:keys [transport needs-reinit?*]} (->transport name server-config workspaces db)
                     result (try
                              (let [client (->client name transport init-timeout workspaces
                                                     {:on-tools-change on-tools-change})
                                    init-result (pmc/get-initialize-result client)
                                    version (get-in init-result [:serverInfo :version])]
-                               (swap! db* assoc-in [:mcp-clients name] {:client client :status :starting})
+                               (swap! db* assoc-in [:mcp-clients name] {:client client
+                                                                        :status :starting
+                                                                        :needs-reinit?* needs-reinit?*})
                                (swap! db* assoc-in [:mcp-clients name :version] version)
                                (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client))
                                (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
@@ -426,22 +447,77 @@
                                           :version version}) tools)))
         (:mcp-clients db)))
 
-(defn call-tool! [name arguments {:keys [db]}]
-  (if-let [mcp-client (->> (vals (:mcp-clients db))
-                           (keep (fn [{:keys [client tools]}]
-                                   (when (some #(= name (:name %)) tools)
-                                     client)))
-                           first)]
-    ;; Synchronize on the client to prevent concurrent tool calls to the same MCP server
-    (locking mcp-client
-      (if-let [result (->> {:on-error (fn [_id jsonrpc-error]
-                                        (logger/warn logger-tag "Error calling tool:" (:message jsonrpc-error))
-                                        nil)}
-                           (pmc/call-tool mcp-client name arguments))]
+(defn ^:private reinitialize-server!
+  "Re-initialize an MCP server after a transport error (HTTP 404/5xx).
+   Stops the old transport without attempting disconnect (the session is already
+   gone server-side), then runs a fresh initialize-server! cycle."
+  [server-name old-client db* config metrics]
+  (logger/info logger-tag (format "Re-initializing MCP server '%s'" server-name))
+  (try (pp/stop-client-transport! old-client false) (catch Exception _))
+  (swap! db* update :mcp-clients dissoc server-name)
+  (initialize-server! server-name db* config metrics (constantly nil)))
+
+(def ^:private reinit-poll-interval-ms 100)
+(def ^:private tool-call-timeout-ms 120000)
+
+(defn ^:private do-call-tool
+  "Execute a tool call. When needs-reinit?* is provided (HTTP transport), runs
+   pmc/call-tool in a future and polls for transport errors (404/5xx) so we can
+   short-circuit instead of blocking until plumcp's internal timeout — the error
+   is set in a virtual thread that pmc/call-tool never joins."
+  [mcp-client name arguments needs-reinit?*]
+  (locking mcp-client
+    (when needs-reinit?*
+      (reset! needs-reinit?* false))
+    (let [call-opts {:on-error (fn [_id jsonrpc-error]
+                                 (logger/warn logger-tag "Error calling tool:" (:message jsonrpc-error))
+                                 nil)}
+          call-future (future (pmc/call-tool mcp-client name arguments call-opts))
+          result (if needs-reinit?*
+                   (loop [elapsed 0]
+                     (cond
+                       (realized? call-future)
+                       (deref call-future)
+
+                       @needs-reinit?*
+                       (do (future-cancel call-future) nil)
+
+                       (>= elapsed tool-call-timeout-ms)
+                       (do (future-cancel call-future) nil)
+
+                       :else
+                       (do (Thread/sleep reinit-poll-interval-ms)
+                           (recur (+ elapsed reinit-poll-interval-ms)))))
+                   (deref call-future))]
+      (if result
         {:error (:isError result)
          :contents (into [] (keep ->content) (:content result))}
         {:error true
-         :contents nil}))
+         :contents nil}))))
+
+(defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments]
+  (reinitialize-server! server-name mcp-client db* config metrics)
+  (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
+    (let [new-needs-reinit?* (get-in @db* [:mcp-clients server-name :needs-reinit?*])]
+      (do-call-tool new-client name arguments new-needs-reinit?*))
+    {:error true
+     :contents nil}))
+
+(defn call-tool! [name arguments {:keys [db db* config metrics]}]
+  (if-let [[server-name mcp-client needs-reinit?*]
+           (->> (:mcp-clients db)
+                (keep (fn [[sn {:keys [client tools needs-reinit?*]}]]
+                        (when (some #(= name (:name %)) tools)
+                          [sn client needs-reinit?*])))
+                first)]
+    (if (and needs-reinit?* @needs-reinit?* db* config metrics)
+      ;; Already flagged (e.g. GET stream 5xx) — reinit before attempting the call
+      (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
+      (let [result (do-call-tool mcp-client name arguments needs-reinit?*)]
+        (if (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
+          ;; Flagged during the call (e.g. POST 404) — reinit and retry
+          (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
+          result)))
     {:error true
      :contents nil}))
 
