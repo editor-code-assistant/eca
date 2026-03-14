@@ -4,6 +4,8 @@
 
 - Delete chats older than 7 days on server startup.
 - Use human-readable workspace cache directory names (e.g. `my-project_a1b2c3d4`), with automatic migration from old hash-only format.
+- Show MCP server URL in the details page and allow editing command/args/url inline with `mcp/updateServer` endpoint.
+- Add `mcp/updateServer` to support change mcp commands/urls from client UI.
 
 ## 0.113.1
 

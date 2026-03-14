@@ -1,6 +1,10 @@
 (ns eca.features.tools.mcp
   (:require
+   [cheshire.core :as json]
+   [cheshire.factory :as json.factory]
+   [clojure.core.memoize :as memoize]
    [clojure.java.browse :as browse]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
@@ -421,24 +425,84 @@
                       (on-server-updated (->server name server-config :failed @db*)))})
         (browse/browse-url authorization-endpoint)))))
 
+(defn ^:private restart-server!
+  "Stop the server if running, then spawn a daemon thread to re-initialize it."
+  [name db* config metrics on-server-updated]
+  (when (get-in @db* [:mcp-clients name :client])
+    (stop-server! name db* config {:on-server-updated on-server-updated}))
+  (let [t (Thread.
+           (fn []
+             (try
+               (initialize-server! name db* config metrics on-server-updated)
+               (finally
+                 (deregister-init-thread! name)))))]
+    (.setName t (str "mcp-init-" name))
+    (.setDaemon t true)
+    (register-init-thread! name t)
+    (.start t)))
+
 (defn logout-server!
   "Logout from an MCP server by clearing stored OAuth credentials and restarting it."
   [name db* config metrics {:keys [on-server-updated]}]
   (when (get-in config [:mcpServers name])
     (swap! db* update :mcp-auth dissoc name)
     (db/update-global-cache! @db* metrics)
-    (when (get-in @db* [:mcp-clients name :client])
-      (stop-server! name db* config {:on-server-updated on-server-updated}))
-    (let [t (Thread.
-             (fn []
-               (try
-                 (initialize-server! name db* config metrics on-server-updated)
-                 (finally
-                   (deregister-init-thread! name)))))]
-      (.setName t (str "mcp-init-" name))
-      (.setDaemon t true)
-      (register-init-thread! name t)
-      (.start t))))
+    (restart-server! name db* config metrics on-server-updated)))
+
+(defn ^:private parse-json-with-comments [^String s]
+  (binding [json.factory/*json-factory* (json.factory/make-json-factory {:allow-comments true})]
+    (json/parse-string s)))
+
+(defn ^:private find-server-config-source
+  "Returns {:source :local :workspace-root-uri uri} or {:source :global}
+   indicating where the MCP server `server-name` is defined.
+   Checks local workspace configs first (highest priority), then global."
+  [server-name db]
+  (let [roots (:workspace-folders db)]
+    (or (some (fn [{:keys [uri]}]
+                (let [config-file (io/file (shared/uri->filename uri) ".eca" "config.json")]
+                  (when (.exists ^java.io.File config-file)
+                    (let [local-config (parse-json-with-comments (slurp config-file))]
+                      (when (get-in local-config ["mcpServers" server-name])
+                        {:source :local :workspace-root-uri uri})))))
+              roots)
+        (let [global-file (config/global-config-file)]
+          (when (.exists global-file)
+            (let [global-config (parse-json-with-comments (slurp global-file))]
+              (when (get-in global-config ["mcpServers" server-name])
+                {:source :global}))))
+        {:source :global})))
+
+(defn ^:private replace-server-in-config-file!
+  "Replace a single MCP server entry in a JSON config file using assoc-in
+   instead of deep-merge, so old keys (e.g. :command when switching to :url)
+   are removed. Note: comments in the original file are stripped since JSON
+   output cannot preserve them."
+  [^java.io.File config-file server-name new-server-config]
+  (let [raw (when (.exists config-file)
+              (parse-json-with-comments (slurp config-file)))
+        updated (assoc-in (or raw {}) ["mcpServers" server-name]
+                          (json/parse-string (json/generate-string new-server-config)))]
+    (io/make-parents config-file)
+    (spit config-file (json/generate-string updated {:pretty true}))))
+
+(defn update-server!
+  "Update an MCP server's connection config (command/args/url), persist to the
+   correct config file (local or global), clear the config cache, then restart."
+  [server-name server-fields db* config metrics {:keys [on-server-updated]}]
+  (let [db @db*
+        {:keys [source workspace-root-uri]} (find-server-config-source server-name db)
+        current-server-config (get-in config [:mcpServers server-name])
+        ;; Build clean server entry: preserve env/disabled/headers, replace connection fields
+        preserved-keys (select-keys current-server-config [:env :disabled :headers])
+        new-server-config (merge preserved-keys server-fields)
+        config-file (if (= source :local)
+                      (io/file (shared/uri->filename workspace-root-uri) ".eca" "config.json")
+                      (config/global-config-file))]
+    (replace-server-in-config-file! config-file server-name new-server-config)
+    (memoize/memo-clear! config/all)
+    (let [fresh-config (config/all @db*)]
+      (restart-server! server-name db* fresh-config metrics on-server-updated))))
 
 (defn all-tools [db]
   (into []
@@ -474,7 +538,7 @@
                                  nil)}
           call-future (future (pmc/call-tool mcp-client name arguments call-opts))
           result (if needs-reinit?*
-                   (loop [elapsed 0]
+                   (loop [elapsed (long 0)]
                      (cond
                        (realized? call-future)
                        (deref call-future)
@@ -482,12 +546,12 @@
                        @needs-reinit?*
                        (do (future-cancel call-future) nil)
 
-                       (>= elapsed tool-call-timeout-ms)
+                       (>= elapsed (long tool-call-timeout-ms))
                        (do (future-cancel call-future) nil)
 
                        :else
-                       (do (Thread/sleep reinit-poll-interval-ms)
-                           (recur (+ elapsed reinit-poll-interval-ms)))))
+                       (do (Thread/sleep (long reinit-poll-interval-ms))
+                           (recur (+ elapsed (long reinit-poll-interval-ms))))))
                    (deref call-future))]
       (if result
         {:error (:isError result)

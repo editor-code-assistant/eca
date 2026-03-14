@@ -212,6 +212,16 @@
   (metrics/task metrics :eca/mcp-logout-server
     (f.tools/logout-server! (:name params) db* messenger config metrics)))
 
+(defn mcp-update-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-update-server
+    (let [server-name (:name params)
+          server-fields (cond-> {}
+                          (:command params) (assoc :command (:command params))
+                          (:args params) (assoc :args (:args params))
+                          (:url params) (assoc :url (:url params)))]
+      (f.tools/update-server! server-name server-fields db* messenger config metrics)
+      {})))
+
 (defn ^:private update-agent-model-and-variants!
   "Updates the selected model and variants based on agent configuration."
   [agent-config config messenger db*]

@@ -310,6 +310,16 @@
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
+(defn update-server! [name server-fields db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/update-server!
+     name
+     server-fields
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
 (defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
                                                     all-tools)))]

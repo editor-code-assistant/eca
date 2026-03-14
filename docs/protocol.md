@@ -2138,9 +2138,39 @@ interface MCPLogoutServerParams {
 }
 ```
 
-### Add MCP (↩️)
+### Update MCP Server (↩️)
 
-Soon
+Updates an MCP server's connection configuration (command/args or url), persists the change to the appropriate config file (local or global), and restarts the server.
+
+_Request:_
+
+* method: `mcp/updateServer`
+* params: `MCPUpdateServerParams` defined as follows:
+
+```typescript
+interface MCPUpdateServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+    /**
+     * The command to run (for stdio servers).
+     */
+    command?: string;
+    /**
+     * The command arguments (for stdio servers).
+     */
+    args?: string[];
+    /**
+     * The URL (for remote/HTTP servers).
+     */
+    url?: string;
+}
+```
+
+_Response:_
+
+* result: `{}`
 
 ## General features
 

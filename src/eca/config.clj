@@ -171,7 +171,7 @@
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
-                                                                           :excludeProviders ["github-copilot"]}}
+                                                                            :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :mcpServers {}
@@ -507,14 +507,14 @@
           (merge-config $ plugin-config))
         ;; Append plugin commands/rules (vector concat, not deep-merge replace)
         (cond->
-          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
-          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
+         (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
+         (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
         migrate-legacy-config
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         ;; Plugin agents merge at same level as markdown agents
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                      (agents/all-md-agents (:workspace-folders db)))]
+                                       (agents/all-md-agents (:workspace-folders db)))]
                 (if (or (seq md-agent-configs) (seq plugin-agents))
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs plugin-agents existing)))
@@ -622,3 +622,18 @@
         new-config-json (json/generate-string new-config {:pretty true})]
     (io/make-parents global-config-file)
     (spit global-config-file new-config-json)))
+
+(defn update-local-config!
+  "Deep-merges `config` into the local `.eca/config.json` for `workspace-root-uri`."
+  [workspace-root-uri config]
+  (let [config-dir (io/file (shared/uri->filename workspace-root-uri) ".eca")
+        config-file (io/file config-dir "config.json")
+        current-config (when (.exists config-file)
+                         (normalize-fields normalization-rules
+                                           (safe-read-json-string (slurp config-file) (var *local-config-error*))))
+        new-config (deep-merge (or current-config {})
+                               (normalize-fields normalization-rules config))
+        new-config (assoc new-config "$schema" config-schema-url)
+        new-config-json (json/generate-string new-config {:pretty true})]
+    (io/make-parents config-file)
+    (spit config-file new-config-json)))

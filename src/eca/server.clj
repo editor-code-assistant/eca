@@ -89,6 +89,9 @@
 (defmethod jsonrpc.server/receive-notification "mcp/logoutServer" [_ components params]
   (handlers/mcp-logout-server (with-config components) params))
 
+(defmethod jsonrpc.server/receive-request "mcp/updateServer" [_ components params]
+  (handlers/mcp-update-server (with-config components) params))
+
 (defmethod jsonrpc.server/receive-notification "chat/selectedAgentChanged" [_ components params]
   (handlers/chat-selected-agent-changed (with-config components) params))
 
