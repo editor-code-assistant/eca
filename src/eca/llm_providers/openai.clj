@@ -156,7 +156,6 @@
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (->tools tools web-search codex?)
-        stream? (boolean callbacks)
         body (merge
               (assoc-some
                {:model model
@@ -172,14 +171,15 @@
                 :reasoning (when reason?
                              {:effort "medium"
                               :summary "auto"})
-                :stream stream?}
+                :stream true}
                :max_output_tokens (when-not codex? max-output-tokens)
                :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
         reasoning-item-id* (atom nil)
+        sync-result* (when-not callbacks (atom nil))
         on-stream-fn
-        (when stream?
+        (if callbacks
           (fn handle-stream [event data]
             (case event
               ;; text
@@ -195,12 +195,12 @@
               "response.output_item.done"
               (case (:type (:item data))
                 "reasoning" (do (reset! reasoning-item-id* nil)
-                               (on-reason {:status :finished
-                                           :id (-> data :item :id)
-                                           :external-id (-> data :item :encrypted_content)}))
+                                (on-reason {:status :finished
+                                            :id (-> data :item :id)
+                                            :external-id (-> data :item :encrypted_content)}))
                 "web_search_call" (on-server-web-search {:status :finished
-                                                          :id (-> data :item :id)
-                                                          :output nil})
+                                                         :id (-> data :item :id)
+                                                         :output nil})
                 nil)
 
               ;; URL mentioned
@@ -237,9 +237,9 @@
                                                          :full-name function-name
                                                          :arguments-text function-args}))
                 "web_search_call" (on-server-web-search {:status :started
-                                                          :id (-> data :item :id)
-                                                          :name "web_search"
-                                                          :input nil})
+                                                         :id (-> data :item :id)
+                                                         :name "web_search"
+                                                         :input nil})
                 nil)
 
               ;; done
@@ -291,19 +291,33 @@
                                     (on-error {:message (:message error)}))
                                   (on-message-received {:type :finish
                                                         :finish-reason (-> data :response :status)}))
-              nil)))]
-    (base-responses-request!
-     {:rid (llm-util/gen-rid)
-      :body body
-      :api-url api-url
-      :url-relative-path url-relative-path
-      :api-key api-key
-      :account-id account-id
-      :http-client http-client
-      :extra-headers extra-headers
-      :auth-type auth-type
-      :on-error on-error
-      :on-stream on-stream-fn})))
+              nil))
+          ;; Sync mode: collect text deltas into result atom
+          (let [sb (StringBuilder.)]
+            (fn handle-sync-stream [event data]
+              (case event
+                "response.output_text.delta"
+                (.append sb ^String (:delta data))
+                "response.completed"
+                (reset! sync-result* {:output-text (.toString sb)})
+                "response.failed"
+                (reset! sync-result* {:error {:message (-> data :response :error :message)}})
+                nil))))
+        result (base-responses-request!
+                {:rid (llm-util/gen-rid)
+                 :body body
+                 :api-url api-url
+                 :url-relative-path url-relative-path
+                 :api-key api-key
+                 :account-id account-id
+                 :http-client http-client
+                 :extra-headers extra-headers
+                 :auth-type auth-type
+                 :on-error on-error
+                 :on-stream on-stream-fn})]
+    (if callbacks
+      result
+      (or @sync-result* result))))
 
 (def ^:private client-id "app_EMoamEEZ73f0CkXaXp7hrann")
 

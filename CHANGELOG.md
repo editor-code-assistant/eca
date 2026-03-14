@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix completion requests failing with OpenAI subscription models by always streaming on the Responses API. eca-emacs#183
+
 ## 0.114.1
 
 - Fix native image on Windows not running on older CPUs by enabling `-march=compatibility`. #362
