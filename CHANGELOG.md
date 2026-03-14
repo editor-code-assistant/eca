@@ -4,6 +4,7 @@
 
 - Fix native image on Windows not running on older CPUs by enabling `-march=compatibility`. #362
 - Fix simple summaries in tool calls for ollama.
+- Add MCP server instructions to LLM context. #361
 
 ## 0.114.0
 

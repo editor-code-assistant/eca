@@ -105,6 +105,27 @@
      {}
      all-tools))))
 
+(defn ^:private mcp-instructions-section [db]
+  (let [servers-with-instructions
+        (->> (:mcp-clients db)
+             (keep (fn [[server-name {:keys [status instructions]}]]
+                     (when (and (= :running status)
+                                (not (string/blank? instructions)))
+                       {:name (name server-name)
+                        :instructions instructions})))
+             seq)]
+    (when servers-with-instructions
+      (multi-str
+       "<mcp-server-instructions description=\"Instructions provided by MCP servers describing their capabilities and usage guidelines.\">"
+       ""
+       (reduce
+        (fn [acc {:keys [name instructions]}]
+          (str acc (format "<mcp-server-instruction name=\"%s\">\n%s\n</mcp-server-instruction>\n\n" name instructions)))
+        ""
+        servers-with-instructions)
+       "</mcp-server-instructions>"
+       ""))))
+
 (defn build-chat-instructions [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
   (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)]
     (multi-str
@@ -135,6 +156,7 @@
        ["## Contexts"
         ""
         (contexts-str refined-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
+     (mcp-instructions-section db)
      ""
      (selmer/render (load-builtin-prompt "additional_system_info.md") selmer-ctx))))
 

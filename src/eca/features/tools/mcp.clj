@@ -154,6 +154,7 @@
    :tools (get-in db [:mcp-clients mcp-name :tools])
    :prompts (get-in db [:mcp-clients mcp-name :prompts])
    :resources (get-in db [:mcp-clients mcp-name :resources])
+   :instructions (get-in db [:mcp-clients mcp-name :instructions])
    :has-auth (boolean (get-in db [:mcp-auth mcp-name :access-token]))
    :status status})
 
@@ -314,6 +315,7 @@
                                                                         :status :starting
                                                                         :needs-reinit?* needs-reinit?*})
                                (swap! db* assoc-in [:mcp-clients name :version] version)
+                               (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
                                (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client))
                                (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
                                (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
