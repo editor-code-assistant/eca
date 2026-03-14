@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix native image on Windows not running on older CPUs by enabling `-march=compatibility`. #362
+
 ## 0.114.0
 
 - Delete chats older than 7 days on server startup.
