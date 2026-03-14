@@ -56,16 +56,15 @@
             projectSrc = ./.;
             name = "com.github.editor-code-assistant/eca";
             main-ns = "eca.main";
-            buildInputs = [ pkgs.babashka ];
 
             jdkRunner = jdk;
             buildCommand =
               ''
-                bb prod-jar
-                export jarPath=eca.jar
+                clojure -T:build prod-jar
+                export jarPath=target/eca.jar
               '';
             doCheck = true;
-            checkPhase = "bb test";
+            checkPhase = "clojure -M:test";
           };
 
           eca = cljpkgs.mkGraalBin {
