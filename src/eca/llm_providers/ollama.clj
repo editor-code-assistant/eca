@@ -143,7 +143,7 @@
                                    call-id (str (random-uuid))
                                    tool-call {:id call-id
                                               :full-name (:name function)
-                                              :arguments (:arguments function)}]
+                                              :arguments (update-keys (:arguments function) name)}]
                                (on-prepare-tool-call (assoc tool-call :arguments-text ""))
                                (swap! tool-calls* assoc rid tool-call))
 
