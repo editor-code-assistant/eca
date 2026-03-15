@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Drop UPX compression for all native image builds.
+- Optimize native image for size with `-Os`.
 
 ## 0.114.2
 

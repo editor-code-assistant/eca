@@ -85,7 +85,7 @@
                         "--native-image-info"
                         "--features=clj_easy.graal_build_time.InitClojureClasses"
                         "-march=compatibility"
-                        "-O1"
+                        "-Os"
                         (or (System/getenv "ECA_XMX")
                             "-J-Xmx8g")
                         (when (and linux? aarch64?)
