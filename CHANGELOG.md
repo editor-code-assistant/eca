@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Drop UPX compression for all native image builds.
+
 ## 0.114.2
 
 - Fix completion requests failing with OpenAI subscription models by always streaming on the Responses API. eca-emacs#183

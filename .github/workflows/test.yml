@@ -120,11 +120,6 @@ jobs:
         run: |
           bb native-cli
 
-      - name: Compress binary
-        uses: svenstaro/upx-action@v2
-        with:
-          file: eca
-
       - name: Upload
         uses: actions/upload-artifact@v4
         with:

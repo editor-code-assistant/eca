@@ -75,11 +75,6 @@ jobs:
         run: |
           bb native-cli
 
-      - name: Compress binary
-        uses: svenstaro/upx-action@v2
-        with:
-          file: eca
-
       - name: Zip binary
         run: zip eca-native-linux-amd64.zip eca
 
@@ -331,8 +326,6 @@ jobs:
           ECA_XMX: "-J-Xmx7g"
         run: |
           bb native-cli
-
-      # UPX compression disabled for Windows due to https://github.com/upx/upx/issues/670
 
       - name: Zip binary
         run: |
