@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.114.2
+
 - Fix completion requests failing with OpenAI subscription models by always streaming on the Responses API. eca-emacs#183
 - Disable upx for Windows binaries. #362
 
