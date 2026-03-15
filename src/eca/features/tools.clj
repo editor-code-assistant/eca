@@ -150,7 +150,7 @@
           f.tools.chat/definitions
           f.tools.skill/definitions
           f.tools.task/definitions
-          (f.tools.agent/definitions config)
+          (f.tools.agent/definitions config db)
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]

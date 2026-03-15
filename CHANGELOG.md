@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-- Drop UPX compression for all native image builds.
-- Optimize native image for size with `-Os`.
+- Improve native image size for smaller eca binaries
+  - Drop UPX compression for all native image builds.
+  - Optimize native image for size with `-Os`.
+- Add optional `model` and `variant` parameters to `spawn_agent` tool, allowing users to run subagents on a different model or variant than the current conversation.
 
 ## 0.114.2
 
