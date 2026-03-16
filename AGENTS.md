@@ -6,9 +6,10 @@ ECA Agent Guide (AGENTS.md)
   - Native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
 - Test (Kaocha via `:test` alias):
   - Run all unit tests: `bb test`  (same as `clojure -M:test`)
-  - Run a single test namespace: `clojure -M:test --focus eca.main-test`
-  - Run a single test var: `clojure -M:test --focus eca.main-test/parse-opts-test`
-  - Integration tests (requires built `./eca` or `eca.exe`): `bb integration-test`
+  - Run a single unit test namespace: `clojure -M:test --focus eca.main-test`
+  - Run a single unit test var: `clojure -M:test --focus eca.main-test/parse-opts-test`
+  - Run all integration tests (requires built `./eca` or `eca.exe`): `bb integration-test`
+  - Run a single integration test: `bb integration-test --dev --ns integration.chat.mcp-remote-test`
 - Lint/format:
   - Lint: `clj-kondo --lint src test dev integration-test`
   - Formatting not enforced; follow idiomatic Clojure (`cljfmt` optional).

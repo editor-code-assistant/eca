@@ -205,6 +205,49 @@
                             :output_tokens 30}})
         (hk/close ch)))))
 
+(defn ^:private mcp-tool-call-0 [ch body]
+  (let [second-stage? (some (fn [{:keys [content]}]
+                              (some #(= "tool_result" (:type %)) content))
+                            (:messages body))]
+    (if-not second-stage?
+      (do
+        ;; Text before tool use
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 0
+                    :delta {:type "text_delta" :text "I will call the echo tool"}})
+        ;; Tool use block start
+        (sse-send! ch "content_block_start"
+                   {:type "content_block_start"
+                    :index 1
+                    :content_block {:type "tool_use"
+                                    :id "mcp-tool-1"
+                                    :name "testMcp__echo"}})
+        ;; Stream JSON args
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 1
+                    :delta {:type "input_json_delta"
+                            :partial_json "{\"message\":\"hello from mcp\"}"}})
+        (sse-send! ch "message_delta"
+                   {:type "message_delta"
+                    :delta {:stop_reason "tool_use"}
+                    :usage {:input_tokens 10
+                            :output_tokens 20}})
+        (hk/close ch))
+      ;; Second stage after tool results
+      (do
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 0
+                    :delta {:type "text_delta" :text "The echo tool returned: hello from mcp"}})
+        (sse-send! ch "message_delta"
+                   {:type "message_delta"
+                    :delta {:stop_reason "end_turn"}
+                    :usage {:input_tokens 15
+                            :output_tokens 10}})
+        (hk/close ch)))))
+
 (defn ^:private chat-title-text-0 [ch]
   (hk/send! ch
             (json/generate-string
@@ -233,4 +276,5 @@
                        :simple-text-2 (simple-text-2 ch)
                        :reasoning-0 (reasoning-0 ch)
                        :reasoning-1 (reasoning-1 ch)
-                       :tool-calling-0 (tool-calling-0 ch body)))))})))
+                       :tool-calling-0 (tool-calling-0 ch body)
+                       :mcp-tool-call-0 (mcp-tool-call-0 ch body)))))})))
