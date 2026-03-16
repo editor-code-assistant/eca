@@ -33,13 +33,48 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 === "HTTP (streamable or sse)"
 
-    ECA supports OAuth authentication as well
+    ECA supports OAuth authentication automatically via MCP spec discovery.
 
     ```javascript title="~/.config/eca/config.json"
     {
       "mcpServers": {
         "cool-mcp": {
           "url": "https://my-remote-mcp.com/mcp"
+        }
+      }
+    }
+    ```
+
+=== "OAuth with pre-registered client"
+
+    Some providers (e.g. Databricks) require a pre-registered OAuth application
+    and don't support dynamic client registration. Use `clientId` with the
+    client ID from your provider's OAuth app settings.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "databricks-sql": {
+          "url": "https://my-workspace.cloud.databricks.com/api/2.0/mcp/sql",
+          "clientId": "<your-oauth-app-client-id>"
+        }
+      }
+    }
+    ```
+
+=== "Static auth header"
+
+    For servers that accept a static token (e.g. a personal access token),
+    set the `Authorization` header directly. This skips OAuth entirely.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "my-api": {
+          "url": "https://my-remote-mcp.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:MY_API_TOKEN}"
+          }
         }
       }
     }

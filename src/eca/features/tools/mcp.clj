@@ -239,16 +239,17 @@
 (defn ^:private try-refresh-token!
   "Attempt to refresh an MCP server's OAuth token.
    Returns true if refresh succeeded, false otherwise."
-  [name db* url metrics]
+  [name db* url metrics {:keys [clientId]}]
   (let [mcp-auth (get-in @db* [:mcp-auth name])
         {:keys [refresh-token]} mcp-auth]
     (when refresh-token
       (logger/info logger-tag (format "Attempting to refresh token for MCP server '%s'" name))
-      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url))]
+      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url) clientId)]
         (when-let [new-tokens (oauth/refresh-token!
                                (:token-endpoint oauth-info)
                                (:client-id oauth-info)
-                               refresh-token)]
+                               refresh-token
+                               :resource (:resource oauth-info))]
           (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
           (swap! db* assoc-in [:mcp-auth name]
                  (merge mcp-auth new-tokens))
@@ -286,13 +287,14 @@
             token-expired? (token-expired? (:expires-at mcp-auth))
             ;; Try to refresh if token exists but is expired
             refresh-succeeded? (when (and has-token? token-expired?)
-                                 (try-refresh-token! name db* url metrics))
+                                 (try-refresh-token! name db* url metrics server-config))
             ;; Only get oauth-info if we don't have a token or refresh failed, and no static auth header
             needs-oauth? (and (not has-static-auth?)
                               (or (not has-token?)
                                   (and token-expired? (not refresh-succeeded?))))
             oauth-info (when (and url needs-oauth?)
-                         (oauth/oauth-info (replace-env-vars url)))]
+                         (oauth/oauth-info (replace-env-vars url)
+                                           (:clientId server-config)))]
         (if oauth-info
           (initialize-mcp-oauth oauth-info
                                 name
