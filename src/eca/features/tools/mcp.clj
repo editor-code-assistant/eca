@@ -85,17 +85,35 @@
       {:transport (phct/make-streamable-http-transport
                    hc
                    :on-other-response (fn [response]
-                                        (let [status (long (:status response))]
+                                        (let [status (long (:status response))
+                                              read-body (fn []
+                                                          (try
+                                                            (let [body* (atom nil)]
+                                                              (when-let [on-msg (:on-msg response)]
+                                                                (on-msg (fn [text] (reset! body* text))))
+                                                              (when-let [body @body*]
+                                                                (subs body 0 (min (count body) 1000))))
+                                                            (catch Exception _ nil)))]
                                           (cond
                                             (= 202 status) nil
 
-                                            (= 404 status)
-                                            (do (logger/info logger-tag (format "MCP server '%s' returned 404, session expired" server-name))
-                                                (reset! needs-reinit?* true))
-
-                                            (<= 500 status)
-                                            (do (logger/warn logger-tag (format "MCP server '%s' returned %d, needs re-initialization" server-name status))
-                                                (reset! needs-reinit?* true))
+                                            (or (<= 400 status 499)
+                                                (<= 500 status))
+                                            (let [body (read-body)
+                                                  ;; 405 with body mentioning GET means server doesn't support
+                                                  ;; SSE streaming, which is fine — it still works via POST.
+                                                  sse-unsupported? (and (= 405 status)
+                                                                       body
+                                                                       (string/includes? body "GET"))]
+                                              (if sse-unsupported?
+                                                (logger/info logger-tag
+                                                  (format "MCP server '%s' does not support SSE streaming, continuing with POST only"
+                                                          server-name))
+                                                (do (logger/warn logger-tag
+                                                      (format "MCP server '%s' returned %d, re-initializing.%s"
+                                                              server-name status
+                                                              (if body (str " Response: " body) "")))
+                                                    (reset! needs-reinit?* true))))
 
                                             :else
                                             (logger/warn logger-tag (format "Unexpected HTTP response from MCP server '%s': %d"
@@ -330,10 +348,16 @@
                                (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client))
                                (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
                                (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
-                               (swap! db* assoc-in [:mcp-clients name :status] :running)
-                               (on-server-updated (->server name server-config :running @db*))
-                               (logger/info logger-tag (format "Started MCP server %s" name))
-                               :ok)
+                               (if (and needs-reinit?* @needs-reinit?*)
+                                 (do (try (pp/stop-client-transport! transport false) (catch Exception _))
+                                     (logger/error logger-tag (format "MCP server '%s' transport error during initialization" name))
+                                     (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                                     (on-server-updated (->server name server-config :failed @db*))
+                                     :failed)
+                                 (do (swap! db* assoc-in [:mcp-clients name :status] :running)
+                                     (on-server-updated (->server name server-config :running @db*))
+                                     (logger/info logger-tag (format "Started MCP server %s" name))
+                                     :ok)))
                              (catch Exception e
                                (try (pp/stop-client-transport! transport false) (catch Exception _))
                                (if (and (transient-transport-error? e) (< attempt max-init-retries))
