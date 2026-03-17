@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.115.0
+
 - Improve native image size for smaller eca binaries
   - Drop UPX compression for all native image builds.
   - Optimize native image for size with `-Os`.
