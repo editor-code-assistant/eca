@@ -251,11 +251,12 @@
             (dissoc result :rollback-changes))
           result))
       (catch Exception e
-        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name (.getMessage e) (with-out-str (.printStackTrace e))))
-        (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
-        {:error true
-         :contents [{:type :text
-                     :text (str "Error calling tool: " (.getMessage e))}]}))))
+        (let [error-msg (or (.getMessage e) (.getName (class e)))]
+          (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name error-msg (with-out-str (.printStackTrace e))))
+          (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
+          {:error true
+           :contents [{:type :text
+                       :text (str "Error calling tool: " error-msg)}]})))))
 
 (defn ^:private notify-server-updated [metrics messenger tool-status-fn server]
   (metrics/count-up! "mcp-server-status" {:name (:name server)

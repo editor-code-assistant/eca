@@ -258,16 +258,25 @@
 
 (def ^:private max-init-retries 3)
 
-(defn ^:private transient-http-error?
-  "Checks if the exception root cause is a transient HTTP error (e.g. chunked
-   encoding EOF) that warrants a retry. This can happen when infrastructure
-   (load balancers, proxies) closes HTTP streaming connections."
+(defn ^:private transient-transport-error?
+  "Checks if the exception (or its root cause) is a transient transport error
+   that warrants a retry. This covers infrastructure issues like load balancers
+   or proxies closing connections, network interruptions, and connection resets."
   [^Exception e]
-  (let [cause (.getCause e)]
-    (and (instance? IOException cause)
-         (when-let [msg (.getMessage cause)]
-           (or (string/includes? msg "chunked transfer encoding")
-               (string/includes? msg "EOF reached while reading"))))))
+  (letfn [(transient-io-msg? [^String msg]
+            (or (string/includes? msg "chunked transfer encoding")
+                (string/includes? msg "EOF reached while reading")
+                (string/includes? msg "Connection reset")
+                (string/includes? msg "Connection refused")
+                (string/includes? msg "Broken pipe")
+                (string/includes? msg "Read timed out")))]
+    (or (and (instance? IOException e)
+             (when-let [msg (.getMessage e)]
+               (transient-io-msg? msg)))
+        (when-let [cause (.getCause e)]
+          (and (instance? IOException cause)
+               (when-let [msg (.getMessage cause)]
+                 (transient-io-msg? msg)))))))
 
 (defn ^:private initialize-server! [name db* config metrics on-server-updated]
   (let [db @db*
@@ -327,7 +336,7 @@
                                :ok)
                              (catch Exception e
                                (try (pp/stop-client-transport! transport false) (catch Exception _))
-                               (if (and (transient-http-error? e) (< attempt max-init-retries))
+                               (if (and (transient-transport-error? e) (< attempt max-init-retries))
                                  (do
                                    (logger/warn logger-tag (format "Transient HTTP error initializing MCP server %s (attempt %d/%d), retrying: %s"
                                                                    name attempt max-init-retries
@@ -528,6 +537,10 @@
 (def ^:private reinit-poll-interval-ms 100)
 (def ^:private tool-call-timeout-ms 120000)
 
+(defn ^:private tool-call-error [msg]
+  {:error true
+   :contents [{:type :text :text msg}]})
+
 (defn ^:private do-call-tool
   "Execute a tool call. When needs-reinit?* is provided (HTTP transport), runs
    pmc/call-tool in a future and polls for transport errors (404/5xx) so we can
@@ -537,39 +550,63 @@
   (locking mcp-client
     (when needs-reinit?*
       (reset! needs-reinit?* false))
-    (let [call-opts {:on-error (fn [_id jsonrpc-error]
-                                 (logger/warn logger-tag "Error calling tool:" (:message jsonrpc-error))
+    (let [error-msg* (atom nil)
+          call-opts {:on-error (fn [_id jsonrpc-error]
+                                 (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")]
+                                   (logger/warn logger-tag "Error calling tool:" msg)
+                                   (reset! error-msg* msg))
                                  nil)}
           call-future (future (pmc/call-tool mcp-client name arguments call-opts))
-          result (if needs-reinit?*
-                   (loop [elapsed (long 0)]
-                     (cond
-                       (realized? call-future)
-                       (deref call-future)
+          result (try
+                   (if needs-reinit?*
+                     (loop [elapsed (long 0)]
+                       (cond
+                         (realized? call-future)
+                         (deref call-future)
 
-                       @needs-reinit?*
-                       (do (future-cancel call-future) nil)
+                         @needs-reinit?*
+                         (do (future-cancel call-future) ::connection-lost)
 
-                       (>= elapsed (long tool-call-timeout-ms))
-                       (do (future-cancel call-future) nil)
+                         (>= elapsed (long tool-call-timeout-ms))
+                         (do (future-cancel call-future) ::timeout)
 
-                       :else
-                       (do (Thread/sleep (long reinit-poll-interval-ms))
-                           (recur (+ elapsed (long reinit-poll-interval-ms))))))
-                   (deref call-future))]
-      (if result
+                         :else
+                         (do (Thread/sleep (long reinit-poll-interval-ms))
+                             (recur (+ elapsed (long reinit-poll-interval-ms))))))
+                     (deref call-future))
+                   (catch Exception e
+                     (future-cancel call-future)
+                     (if (transient-transport-error? e)
+                       (do (logger/warn logger-tag (format "Transient transport error, retrying tool call: %s" (.getMessage e)))
+                           ::retry)
+                       (do (logger/warn logger-tag (format "Error during tool call: %s" (or (.getMessage e) (.getName (class e)))))
+                           {::error-msg (or (.getMessage e) (.getName (class e)))}))))]
+      (cond
+        (= ::retry result)
+        nil
+
+        (= ::timeout result)
+        (tool-call-error (format "MCP tool call timed out after %ds" (/ tool-call-timeout-ms 1000)))
+
+        (= ::connection-lost result)
+        (tool-call-error "MCP server connection lost during tool call")
+
+        (::error-msg result)
+        (tool-call-error (format "MCP server error: %s" (::error-msg result)))
+
+        (map? result)
         {:error (:isError result)
          :contents (into [] (keep ->content) (:content result))}
-        {:error true
-         :contents nil}))))
+
+        :else
+        (tool-call-error (or @error-msg* "MCP server returned empty response"))))))
 
 (defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments]
   (reinitialize-server! server-name mcp-client db* config metrics)
   (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
     (let [new-needs-reinit?* (get-in @db* [:mcp-clients server-name :needs-reinit?*])]
       (do-call-tool new-client name arguments new-needs-reinit?*))
-    {:error true
-     :contents nil}))
+    (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
 (defn call-tool! [name arguments {:keys [db db* config metrics]}]
   (if-let [[server-name mcp-client needs-reinit?*]
@@ -582,12 +619,17 @@
       ;; Already flagged (e.g. GET stream 5xx) — reinit before attempting the call
       (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
       (let [result (do-call-tool mcp-client name arguments needs-reinit?*)]
-        (if (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
+        (cond
+          ;; nil = transient transport error, retry once
+          (nil? result)
+          (do-call-tool mcp-client name arguments needs-reinit?*)
+
           ;; Flagged during the call (e.g. POST 404) — reinit and retry
+          (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
           (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
-          result)))
-    {:error true
-     :contents nil}))
+
+          :else result)))
+    (tool-call-error (format "Tool '%s' not found in any connected MCP server" name))))
 
 (defn all-prompts [db]
   (into []
