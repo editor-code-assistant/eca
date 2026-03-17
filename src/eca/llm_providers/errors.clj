@@ -30,6 +30,7 @@
   [#"(?i)remote host terminated the handshake"
    #"(?i)host is unreachable"
    #"(?i)connection error"
+   #"(?i)internal server error"
    #"(?i)connection refused"
    #"(?i)UnresolvedAddressException"])
 

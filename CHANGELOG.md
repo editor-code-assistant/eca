@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Consider Anthropic internal server error as a retriable error.
+
 ## 0.115.1
 
 - Improve OAuth callback error page to show error code, description, and error URI from the authorization server response.
