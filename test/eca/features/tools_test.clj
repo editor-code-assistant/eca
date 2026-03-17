@@ -205,6 +205,22 @@
       (testing "fallback to manual approval"
         (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))))))
 
+(deftest approval-trust-test
+  (let [request-tool {:name "request" :server {:name "web"} :origin :mcp}
+        all-tools [request-tool]]
+    (testing "trust promotes :ask to :trust/allow"
+      (is (= :trust/allow (f.tools/approval all-tools request-tool {} {} {} nil {:trust true}))))
+    (testing "trust does not override :deny"
+      (is (= :deny (f.tools/approval all-tools request-tool {} {}
+                                     {:toolCall {:approval {:deny {"web__request" {}}}}} nil {:trust true}))))
+    (testing "trust does not change :allow"
+      (is (= :allow (f.tools/approval all-tools request-tool {} {}
+                                      {:toolCall {:approval {:allow {"web__request" {}}}}} nil {:trust true}))))
+    (testing "no trust returns :ask as-is"
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil nil)))
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil {:trust false}))))))
+
 (deftest agent-specific-approval-test
   (let [shell-tool {:name "shell_command" :full-name "eca__shell_command" :server {:name "eca"} :origin :native}
         read-tool {:name "read_file" :full-name "eca__read_file" :server {:name "eca"} :origin :native}
@@ -343,7 +359,8 @@
             (h/messenger)
             (h/metrics)
             identity
-            identity))))))
+            identity
+            nil))))))
 
 (deftest call-tool!-mcp-missing-required-test
   (testing "INVALID_ARGS for missing required param on MCP tool"
@@ -372,7 +389,8 @@
             (h/messenger)
             (h/metrics)
             identity
-            identity))))))
+            identity
+            nil))))))
 
 (deftest call-tool!-missing-multiple-required-test
   (testing "INVALID_ARGS for multiple missing required params on native tool"
@@ -401,4 +419,5 @@
             (h/messenger)
             (h/metrics)
             identity
-            identity))))))
+            identity
+            nil))))))

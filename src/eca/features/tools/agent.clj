@@ -123,7 +123,7 @@
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
    Spawns a subagent to perform a focused task and returns the result."
-  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn]}]
+  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn trust]}]
   (let [agent-name (get arguments "agent")
         task (get arguments "task")
         activity (get arguments "activity" "working")
@@ -200,7 +200,8 @@
                     :chat-id subagent-chat-id
                     :model subagent-model
                     :agent agent-name
-                    :contexts []}
+                    :contexts []
+                    :trust trust}
              user-variant (assoc :variant user-variant))
            db*
            messenger

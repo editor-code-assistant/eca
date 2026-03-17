@@ -531,7 +531,7 @@
    The on-before-hook-action and on-after-hook-action callbacks are optional (default to noops)
    and are used for UI notifications. In tests, these can be omitted."
   [{:keys [full-name arguments]} all-tools db config agent-name chat-id
-   & [{:keys [on-before-hook-action on-after-hook-action]
+   & [{:keys [on-before-hook-action on-after-hook-action trust]
        :or {on-before-hook-action (fn [_] nil)
             on-after-hook-action (fn [_] nil)}}]]
   (let [tool (tool-by-full-name full-name all-tools)
@@ -539,8 +539,10 @@
         server (:server tool)
         server-name (:name server)
 
-        ;; 1. Determine initial config-based approval
-        initial-approval (f.tools/approval all-tools tool arguments db config agent-name)
+        ;; 1. Determine approval (trust promotion handled inside f.tools/approval)
+        approval (f.tools/approval all-tools tool arguments db config agent-name {:trust trust})
+        trusted? (= :trust/allow approval)
+        effective-approval (if trusted? :allow approval)
 
         ;; 2. Run hooks to collect modifications and approval overrides
         hook-state* (atom {:hook-results []
@@ -556,7 +558,7 @@
                   {:tool-name name
                    :server server-name
                    :tool-input arguments
-                   :approval initial-approval})
+                   :approval effective-approval})
            {:on-before-action on-before-hook-action
             :on-after-action (fn [result]
                                (on-after-hook-action result)
@@ -577,12 +579,15 @@
         final-decision (cond
                          hook-rejected? :deny
                          approval-override (keyword approval-override)
-                         :else initial-approval)
+                         :else effective-approval)
 
         ;; 5. Build the reason map
         reason (case final-decision
-                 :allow {:code :user-config-allow
-                         :text "Tool call allowed by user config"}
+                 :allow (if trusted?
+                          {:code :trust-allow
+                           :text "Tool call allowed by trust mode"}
+                          {:code :user-config-allow
+                           :text "Tool call allowed by user config"})
                  :deny (if hook-rejected?
                          {:code :hook-rejected
                           :text hook-rejection-reason}
@@ -627,7 +632,8 @@
                           decision-plan                                  (decide-tool-call-action
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
-                                                                           :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)})
+                                                                           :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
+                                                                           :trust                 (:trust chat-ctx)})
                           {:keys [decision arguments hook-rejected? reason hook-continue
                                   hook-stop-reason arguments-modified?]} decision-plan
                           _ (when arguments-modified?
@@ -674,7 +680,8 @@
                                                                      messenger
                                                                      metrics
                                                                      (partial get-tool-call-state @db* chat-id id)
-                                                                     (partial transition-tool-call! db* chat-ctx id))
+                                                                     (partial transition-tool-call! db* chat-ctx id)
+                                                                     {:trust (:trust chat-ctx)})
                                           details (f.tools/tool-call-details-after-invocation name arguments details result
                                                                                               {:db @db*
                                                                                                :config config

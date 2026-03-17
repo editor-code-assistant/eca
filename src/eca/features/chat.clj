@@ -809,7 +809,7 @@
      :status :prompting}))
 
 (defn prompt
-  [{:keys [message agent behavior chat-id contexts variant] :as params} db* messenger config metrics]
+  [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
   (let [raw-agent (or agent
                       behavior ;; backward compat: accept old 'behavior' param
                       (-> config :chat :defaultAgent) ;; legacy
@@ -830,6 +830,7 @@
                                    :chat-id chat-id
                                    :agent selected-agent
                                    :agent-config agent-config
+                                   :trust trust
                                    :variant (or variant (:variant agent-config))}
                                   :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))]
     (try

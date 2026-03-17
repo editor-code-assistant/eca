@@ -64,45 +64,52 @@
       true)))
 
 (defn approval
-  "Return the approval keyword for the specific tool call: ask, allow or deny.
-   Agent-name parameter is required - pass nil for global-only approval rules."
-  [all-tools tool args db config agent-name]
-  (let [{:keys [server name require-approval-fn]} tool
-        remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
-        native-tools (filter #(= :native (:origin %)) all-tools)
-        {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
-                                                    (get-in config [:agent agent-name :toolCall :approval]))]
-    (cond
-      remember-to-approve?
-      :allow
+  "Return the approval keyword for the specific tool call: :ask, :allow or :deny.
+   Agent-name parameter is required - pass nil for global-only approval rules.
+   Optional opts map supports :trust - when true, promotes :ask to :trust/allow
+   (never overrides :deny). Callers should normalize :trust/allow to :allow."
+  ([all-tools tool args db config agent-name]
+   (approval all-tools tool args db config agent-name nil))
+  ([all-tools tool args db config agent-name {:keys [trust]}]
+   (let [{:keys [server name require-approval-fn]} tool
+         remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
+         native-tools (filter #(= :native (:origin %)) all-tools)
+         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
+                                                     (get-in config [:agent agent-name :toolCall :approval]))
+         result (cond
+                  remember-to-approve?
+                  :allow
 
-      (and require-approval-fn (require-approval-fn args {:db db}))
-      :ask
+                  (and require-approval-fn (require-approval-fn args {:db db}))
+                  :ask
 
-      (some #(approval-matches? % (:name server) name args native-tools) deny)
-      :deny
+                  (some #(approval-matches? % (:name server) name args native-tools) deny)
+                  :deny
 
-      (some #(approval-matches? % (:name server) name args native-tools) ask)
-      :ask
+                  (some #(approval-matches? % (:name server) name args native-tools) ask)
+                  :ask
 
-      (some #(approval-matches? % (:name server) name args native-tools) allow)
-      :allow
+                  (some #(approval-matches? % (:name server) name args native-tools) allow)
+                  :allow
 
-      (legacy-manual-approval? config name)
-      :ask
+                  (legacy-manual-approval? config name)
+                  :ask
 
-      (= "ask" byDefault)
-      :ask
+                  (= "ask" byDefault)
+                  :ask
 
-      (= "allow" byDefault)
-      :allow
+                  (= "allow" byDefault)
+                  :allow
 
-      (= "deny" byDefault)
-      :deny
+                  (= "deny" byDefault)
+                  :deny
 
-       ;; Probably a config error, default to ask
-      :else
-      :ask)))
+                  ;; Probably a config error, default to ask
+                  :else
+                  :ask)]
+     (if (and trust (= result :ask))
+       :trust/allow
+       result))))
 
 (defn ^:private get-disabled-tools
   "Returns a set of disabled tools, merging global and agent-specific."
@@ -201,7 +208,7 @@
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
-                  ]
+                  {:keys [trust]}]
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
   (let [[server-name tool-name] (string/split full-name #"__")
         arguments (update-keys arguments clojure.core/name)
@@ -229,7 +236,8 @@
                                                            :chat-id chat-id
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
-                                                           :state-transition-fn state-transition-fn})
+                                                           :state-transition-fn state-transition-fn
+                                                           :trust trust})
                            (f.mcp/call-tool! tool-name arguments {:db db
                                                                   :db* db*
                                                                   :config config

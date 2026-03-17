@@ -115,6 +115,63 @@
           (testing "preserves subagent chat for resume replay"
             (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
 
+(deftest spawn-agent-trust-propagation-test
+  (testing "forwards trust to subagent chat/prompt"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        ((spawn-handler)
+         {"agent" "explorer" "task" "find files" "activity" "exploring"}
+         {:db* db*
+          :config test-config
+          :messenger (h/messenger)
+          :metrics (h/metrics)
+          :chat-id "chat-1"
+          :tool-call-id "tc-1"
+          :call-state-fn (constantly {:status :executing})
+          :trust true})
+        (is (match? {:chat-id subagent-chat-id
+                     :agent "explorer"
+                     :trust true}
+                    @chat-prompt-called*)))))
+
+  (testing "does not forward trust when not set"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        ((spawn-handler)
+         {"agent" "explorer" "task" "find files" "activity" "exploring"}
+         {:db* db*
+          :config test-config
+          :messenger (h/messenger)
+          :metrics (h/metrics)
+          :chat-id "chat-1"
+          :tool-call-id "tc-1"
+          :call-state-fn (constantly {:status :executing})})
+        (is (nil? (:trust @chat-prompt-called*)))))))
+
 (deftest spawn-agent-max-steps-reached-test
   (testing "returns halted result when subagent reaches max steps"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})

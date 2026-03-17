@@ -185,6 +185,8 @@
                               ""
                               "Add more contexts in `@`"
                               ""
+                              "Toggle **trust mode** to auto-accept all tool calls"
+                              ""
                               "")
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800

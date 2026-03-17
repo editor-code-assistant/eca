@@ -388,6 +388,12 @@ interface ChatPromptParams {
      * Falls back to the agent's configured variant if not specified.
      */
     variant?: string;
+
+    /**
+     * When true, tool calls that would normally require manual approval
+     * are auto-accepted. Does not override deny rules.
+     */
+    trust?: boolean;
 }
 
 /**

@@ -7,6 +7,7 @@
   - Optimize native image for size with `-Os`.
 - Add optional `model` and `variant` parameters to `spawn_agent` tool, allowing users to run subagents on a different model or variant than the current conversation.
 - Improve MCP OAuth spec compliance: add Protected Resource Metadata discovery (RFC 9728), OIDC Discovery 1.0 fallback for authorization server metadata, fix `scope` parameter formatting, include `resource` parameter (RFC 8707) in authorization and token requests, and support `clientId` in MCP server config for pre-registered OAuth applications.
+- Add trust mode: clients can send `trust: true` in `chat/prompt` to auto-accept tool calls that would require manual approval.
 
 ## 0.114.2
 
