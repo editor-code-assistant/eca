@@ -534,7 +534,6 @@
   (swap! db* update :mcp-clients dissoc server-name)
   (initialize-server! server-name db* config metrics (constantly nil)))
 
-(def ^:private reinit-poll-interval-ms 100)
 (def ^:private tool-call-timeout-ms 120000)
 
 (defn ^:private tool-call-error [msg]
@@ -542,40 +541,21 @@
    :contents [{:type :text :text msg}]})
 
 (defn ^:private do-call-tool
-  "Execute a tool call. When needs-reinit?* is provided (HTTP transport), runs
-   pmc/call-tool in a future and polls for transport errors (404/5xx) so we can
-   short-circuit instead of blocking until plumcp's internal timeout — the error
-   is set in a virtual thread that pmc/call-tool never joins."
-  [mcp-client name arguments needs-reinit?*]
+  "Execute a tool call. Delegates timeout handling to plumcp via :timeout-millis.
+   HTTP 400/404/500 errors are returned as JSON-RPC error responses by plumcp,
+   so no polling loop is needed."
+  [mcp-client name arguments]
   (locking mcp-client
-    (when needs-reinit?*
-      (reset! needs-reinit?* false))
     (let [error-msg* (atom nil)
-          call-opts {:on-error (fn [_id jsonrpc-error]
+          call-opts {:timeout-millis tool-call-timeout-ms
+                     :on-error (fn [_id jsonrpc-error]
                                  (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")]
                                    (logger/warn logger-tag "Error calling tool:" msg)
                                    (reset! error-msg* msg))
                                  nil)}
-          call-future (future (pmc/call-tool mcp-client name arguments call-opts))
           result (try
-                   (if needs-reinit?*
-                     (loop [elapsed (long 0)]
-                       (cond
-                         (realized? call-future)
-                         (deref call-future)
-
-                         @needs-reinit?*
-                         (do (future-cancel call-future) ::connection-lost)
-
-                         (>= elapsed (long tool-call-timeout-ms))
-                         (do (future-cancel call-future) ::timeout)
-
-                         :else
-                         (do (Thread/sleep (long reinit-poll-interval-ms))
-                             (recur (+ elapsed (long reinit-poll-interval-ms))))))
-                     (deref call-future))
+                   (pmc/call-tool mcp-client name arguments call-opts)
                    (catch Exception e
-                     (future-cancel call-future)
                      (if (transient-transport-error? e)
                        (do (logger/warn logger-tag (format "Transient transport error, retrying tool call: %s" (.getMessage e)))
                            ::retry)
@@ -584,12 +564,6 @@
       (cond
         (= ::retry result)
         nil
-
-        (= ::timeout result)
-        (tool-call-error (format "MCP tool call timed out after %ds" (/ tool-call-timeout-ms 1000)))
-
-        (= ::connection-lost result)
-        (tool-call-error "MCP server connection lost during tool call")
 
         (::error-msg result)
         (tool-call-error (format "MCP server error: %s" (::error-msg result)))
@@ -604,8 +578,7 @@
 (defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments]
   (reinitialize-server! server-name mcp-client db* config metrics)
   (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
-    (let [new-needs-reinit?* (get-in @db* [:mcp-clients server-name :needs-reinit?*])]
-      (do-call-tool new-client name arguments new-needs-reinit?*))
+    (do-call-tool new-client name arguments)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
 (defn call-tool! [name arguments {:keys [db db* config metrics]}]
@@ -618,13 +591,13 @@
     (if (and needs-reinit?* @needs-reinit?* db* config metrics)
       ;; Already flagged (e.g. GET stream 5xx) — reinit before attempting the call
       (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
-      (let [result (do-call-tool mcp-client name arguments needs-reinit?*)]
+      (let [result (do-call-tool mcp-client name arguments)]
         (cond
           ;; nil = transient transport error, retry once
           (nil? result)
-          (do-call-tool mcp-client name arguments needs-reinit?*)
+          (do-call-tool mcp-client name arguments)
 
-          ;; Flagged during the call (e.g. POST 404) — reinit and retry
+          ;; Flagged during the call (e.g. GET stream 404/5xx) — reinit and retry
           (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
           (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
 

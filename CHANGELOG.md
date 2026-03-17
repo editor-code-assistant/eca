@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improve OAuth callback error page to show error code, description, and error URI from the authorization server response.
+- Bump plumcp to 0.2.0-beta4, simplify MCP tool call error handling now that HTTP 400/404/500 are returned as JSON-RPC errors.
 
 ## 0.115.0
 
