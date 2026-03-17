@@ -33,11 +33,13 @@
 
 (defn ^:private render-oauth-page
   "Render the OAuth HTML page with success or error state."
-  [{:keys [success? error-message]}]
+  [{:keys [success? error-code error-description error-uri]}]
   (selmer/render-file "webpages/oauth.html"
                       {:success success?
                        :error (not success?)
-                       :error-message (or error-message "Unknown error")
+                       :error-code (or error-code "unknown_error")
+                       :error-description error-description
+                       :error-uri error-uri
                        :logo-svg @logo-svg}))
 
 (defn ^:private url->base-url
@@ -97,7 +99,7 @@
      :challenge (-> verifier str->sha256 ->base64 ->base64url (string/replace "=" ""))}))
 
 (defn ^:private oauth-handler [request on-success on-error]
-  (let [{:keys [code error state]} (:params request)]
+  (let [{:keys [code error error_description error_uri state]} (:params request)]
     (if code
       (do
         (on-success {:code code
@@ -107,7 +109,9 @@
       (do
         (on-error error)
         (-> (response/response (render-oauth-page {:success? false
-                                                   :error-message error}))
+                                                   :error-code error
+                                                   :error-description error_description
+                                                   :error-uri error_uri}))
             (response/content-type "text/html"))))))
 
 (defn ^:private successful-json-body

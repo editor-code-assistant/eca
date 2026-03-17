@@ -27,7 +27,7 @@
             background: #fff;
             border-radius: 12px;
             box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-            max-width: 400px;
+            max-width: 480px;
             width: 90%;
         }
         
@@ -91,13 +91,47 @@
         .error-details {
             background: #fef2f2;
             border: 1px solid #fecaca;
-            border-radius: 6px;
-            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
             margin-bottom: 1.5rem;
+            text-align: left;
+        }
+        
+        .error-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #b91c1c;
+            margin-bottom: 0.25rem;
+        }
+        
+        .error-code {
             font-family: monospace;
-            font-size: 0.85rem;
+            font-size: 0.9rem;
+            font-weight: 600;
             color: #991b1b;
+            margin-bottom: 0.75rem;
             word-break: break-word;
+        }
+        
+        .error-description {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #7f1d1d;
+            word-break: break-word;
+        }
+        
+        .error-link {
+            display: inline-block;
+            margin-top: 0.75rem;
+            font-size: 0.8rem;
+            color: #b91c1c;
+            text-decoration: underline;
+        }
+        
+        .error-link:hover {
+            color: #7f1d1d;
         }
         
         .hint {
@@ -125,8 +159,17 @@
         {% if error %}
         <div class="status-icon">✕</div>
         <h2 class="error">Authentication Failed</h2>
-        <p class="message">Something went wrong during authentication.</p>
-        <div class="error-details">{{error-message}}</div>
+        <p class="message">The authorization server returned an error.</p>
+        <div class="error-details">
+            <div class="error-label">Error</div>
+            <div class="error-code">{{error-code}}</div>
+            {% if error-description %}
+            <div class="error-description">{{error-description}}</div>
+            {% endif %}
+            {% if error-uri %}
+            <a class="error-link" href="{{error-uri}}" target="_blank" rel="noopener noreferrer">More information →</a>
+            {% endif %}
+        </div>
         {% endif %}
         
         {% if success %}

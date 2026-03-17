@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve OAuth callback error page to show error code, description, and error URI from the authorization server response.
+
 ## 0.115.0
 
 - Improve native image size for smaller eca binaries
