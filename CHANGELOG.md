@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.115.2
+
 - Fix STDIO MCP server deadlock caused by list_changed notification handlers blocking the reader thread.
 - Consider Anthropic internal server error as a retriable error.
 - Improve MCP error logging to show error code, message, and data instead of null.
