@@ -42,14 +42,14 @@
 (defn get-property [property] (System/getProperty property))
 
 (def ^:private dangerous-commands-regexes
-  [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"
-   ".*\\|\\s*(tee|dd|xargs).*",
-   ".*\\b(sed|awk|perl)\\s+.*-i.*",
-   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
-   ".*git\\s+(add|commit|push).*",
-   ".*npm\\s+install.*",
-   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
+  [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!/tmp/\\S*($|\\s))(?!&\\d+($|\\s))(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
+   ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
+   ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
+   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
+   ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
+   ".*npm\\s+install.*",                                                                 ;; npm install
+   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!/tmp/\\S*($|\\s))(?!&\\d+($|\\s))(?!>)\\S+.*"])
 
 (def ^:private openai-variants
   {"none" {:reasoning {:effort "none"}}

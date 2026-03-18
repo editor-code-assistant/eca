@@ -324,6 +324,17 @@
         "date"
         "env"))
 
+    (testing "redirections to /tmp/ are not denied in plan mode"
+      (are [command] (not= :deny
+                           (f.tools/approval all-tools shell-tool
+                                             {"command" command} {} config "plan"))
+        "gh api repos/editor-code-assistant/eca-emacs/contents/eca-chat.el --jq '.content' 2>/dev/null | base64 -d 2>/dev/null > /tmp/eca-chat.el && wc -l /tmp/eca-chat.el"
+        "echo test > /tmp/output.txt"
+        "cat file.txt > /tmp/result.log"
+        "ls -la >> /tmp/listing.txt"
+        "some-cmd 2> /tmp/errors.log"
+        "bash -c 'echo test > /tmp/file.txt'"))
+
     (testing "same commands work fine in code agent mode (not denied)"
       (are [command] (not= :deny
                            (f.tools/approval all-tools shell-tool

@@ -6,6 +6,7 @@
 - Improve MCP error logging to show error code, message, and data instead of null.
 - Improve error handling when MCP promtps fail on server side.
 - Use rewrite-json to edit jsons without losing formatting.
+- Allow shell output redirections to `/tmp/` in plan/explorer agents instead of denying them.
 
 ## 0.115.1
 
