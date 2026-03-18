@@ -158,19 +158,20 @@
                                    (if (string? c)
                                      (string/trim c)
                                      (vec
-                                      (keep #(case (name (:type %))
+                                      (keep #(when-let [t (:type %)]
+                                               (case (name t)
 
-                                               "text"
-                                               (update % :text string/trim)
+                                                 "text"
+                                                 (update % :text string/trim)
 
-                                               "image"
-                                               (when supports-image?
-                                                 {:type "image"
-                                                  :source {:data (:base64 %)
-                                                           :media_type (:media-type %)
-                                                           :type "base64"}})
+                                                 "image"
+                                                 (when supports-image?
+                                                   {:type "image"
+                                                    :source {:data (:base64 %)
+                                                             :media_type (:media-type %)
+                                                             :type "base64"}})
 
-                                               %)
+                                                 %))
                                             c))))))))
         past-messages))
 

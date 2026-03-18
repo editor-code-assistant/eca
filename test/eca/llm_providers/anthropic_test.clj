@@ -190,6 +190,28 @@
                                                    :raw-content [{:type "web_search_result" :title "Test" :url "https://test.com"}]}}]
             true))))))
 
+(deftest normalize-messages-nil-type-resilience-test
+  (testing "content blocks with nil :type are filtered out"
+    (is (match?
+         [{:role "user"
+           :content [{:type :text :text "hello"}]}]
+         (#'llm-providers.anthropic/normalize-messages
+          [{:role "user"
+            :content [{:type :text :text "hello"}
+                      {:text "orphan without type"}
+                      nil]}]
+          true))))
+  (testing "message with keyword :type content works (additionalContext injection)"
+    (is (match?
+         [{:role "user"
+           :content [{:type :text :text "compact the chat"}
+                     {:type :text :text "<additionalContext from=\"test\">\ntoday is monday\n</additionalContext>"}]}]
+         (#'llm-providers.anthropic/normalize-messages
+          [{:role "user"
+            :content [{:type :text :text "compact the chat"}
+                      {:type :text :text "<additionalContext from=\"test\">\ntoday is monday\n</additionalContext>"}]}]
+          true)))))
+
 (deftest server-web-search-full-pipeline-test
   (testing "thinking + server web search + thinking + text normalizes to single assistant message"
     (let [input [{:role "user" :content "search for something"}

@@ -408,7 +408,9 @@
                                                         (and (seq additional-contexts) context-idx)
                                                         (reduce (fn [msgs {:keys [hook-name content]}]
                                                                   (update-in msgs [context-idx :content]
-                                                                             #(conj (vec %)
+                                                                             #(conj (if (string? %)
+                                                                                      [{:type :text :text %}]
+                                                                                      (vec %))
                                                                                     {:type :text
                                                                                      :text (lifecycle/wrap-additional-context hook-name content)})))
                                                                 rewritten

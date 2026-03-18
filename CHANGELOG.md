@@ -8,6 +8,7 @@
 - Improve error handling when MCP promtps fail on server side.
 - Use rewrite-json to edit jsons without losing formatting.
 - Allow shell output redirections to `/tmp/` in plan/explorer agents instead of denying them.
+- Fix crash when hook returns additionalContext and message has string content (e.g. `/compact` command).
 
 ## 0.115.1
 
