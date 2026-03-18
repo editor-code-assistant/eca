@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Consider Anthropic internal server error as a retriable error.
+- Improve MCP error logging to show error code, message, and data instead of null.
 
 ## 0.115.1
 

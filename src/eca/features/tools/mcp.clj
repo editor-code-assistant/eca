@@ -213,9 +213,21 @@
    :description (:description tool)
    :parameters (:inputSchema tool)})
 
+(defn ^:private format-jsonrpc-error
+  "Format a JSON-RPC error map into a readable string for logging."
+  [jsonrpc-error]
+  (let [code (:code jsonrpc-error)
+        message (:message jsonrpc-error)
+        data (:data jsonrpc-error)]
+    (cond-> ""
+      code (str "code=" code)
+      message (str (when code " ") "message=" message)
+      data (str " data=" (pr-str data))
+      (and (nil? code) (nil? message)) (str (pr-str jsonrpc-error)))))
+
 (defn ^:private on-list-error [kind]
   (fn [_id jsonrpc-error]
-    (logger/warn logger-tag (format "Could not list %s: %s" kind (:message jsonrpc-error)))
+    (logger/warn logger-tag (format "Could not list %s: %s" kind (format-jsonrpc-error jsonrpc-error)))
     []))
 
 (defn ^:private list-server-tools [client]
@@ -574,7 +586,7 @@
           call-opts {:timeout-millis tool-call-timeout-ms
                      :on-error (fn [_id jsonrpc-error]
                                  (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")]
-                                   (logger/warn logger-tag "Error calling tool:" msg)
+                                   (logger/warn logger-tag "Error calling tool:" (format-jsonrpc-error jsonrpc-error))
                                    (reset! error-msg* msg))
                                  nil)}
           result (try
@@ -647,7 +659,7 @@
                                        client)))
                              first)]
     (when-let [prompt (->> {:on-error (fn [_id jsonrpc-error]
-                                        (logger/warn logger-tag "Error getting prompt:" (:message jsonrpc-error)))}
+                                        (logger/warn logger-tag "Error getting prompt:" (format-jsonrpc-error jsonrpc-error)))}
                            (pmc/get-prompt mcp-client name arguments))]
       {:description (:description prompt)
        :messages (mapv (fn [each-message]
@@ -662,7 +674,7 @@
                                        client)))
                              first)]
     (when-let [resource (->> {:on-error (fn [_id jsonrpc-error]
-                                          (logger/warn logger-tag "Error reading resource:" (:message jsonrpc-error)))}
+                                          (logger/warn logger-tag "Error reading resource:" (format-jsonrpc-error jsonrpc-error)))}
                              (pmc/read-resource mcp-client uri))]
       {:contents (mapv ->resource-content (:contents resource))})))
 
