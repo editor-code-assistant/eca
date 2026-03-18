@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -588,7 +589,40 @@
              {"foo" 42 "bar" "yo"}))
         (is (match?
              @invoked?
-             [[{:role :user :content "test"}] :mcp-prompt test-chat-ctx]))))))
+             [[{:role :user :content "test"}] :mcp-prompt test-chat-ctx])))))
+
+  (testing "shows error message and finishes chat when get-prompt! returns error-message"
+    (let [test-chat-ctx {:db* (atom {})}
+          sent-content (atom nil)
+          finished-status (atom nil)]
+      (with-redefs [f.mcp/all-prompts (fn [_]
+                                        [{:name "failing-prompt" :arguments [{:name "arg1"}]}])
+                    f.prompt/get-prompt! (fn [_ _ _]
+                                           {:error-message "MCP error getting prompt: code=-32603 message=Invalid required argument: arg1"})
+                    lifecycle/send-content! (fn [_ctx _role content]
+                                              (reset! sent-content content))
+                    lifecycle/finish-chat-prompt! (fn [status _ctx]
+                                                    (reset! finished-status status))]
+        (#'f.chat/send-mcp-prompt! {:prompt "failing-prompt" :args ["val1"]} test-chat-ctx)
+        (is (= :text (:type @sent-content)))
+        (is (string/includes? (:text @sent-content) "MCP error getting prompt"))
+        (is (= :idle @finished-status)))))
+
+  (testing "shows error message and finishes chat when get-prompt! returns nil"
+    (let [test-chat-ctx {:db* (atom {})}
+          sent-content (atom nil)
+          finished-status (atom nil)]
+      (with-redefs [f.mcp/all-prompts (fn [_]
+                                        [{:name "nil-prompt" :arguments []}])
+                    f.prompt/get-prompt! (fn [_ _ _] nil)
+                    lifecycle/send-content! (fn [_ctx _role content]
+                                              (reset! sent-content content))
+                    lifecycle/finish-chat-prompt! (fn [status _ctx]
+                                                    (reset! finished-status status))]
+        (#'f.chat/send-mcp-prompt! {:prompt "nil-prompt" :args []} test-chat-ctx)
+        (is (= :text (:type @sent-content)))
+        (is (string/includes? (:text @sent-content) "No response from prompt"))
+        (is (= :idle @finished-status))))))
 
 (deftest message->decision-test
   (testing "plain prompt message"

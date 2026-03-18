@@ -669,12 +669,23 @@
   (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (f.mcp/all-prompts @db*)))
         args-vals (zipmap (map :name arguments) args)
         {:keys [messages error-message]} (f.prompt/get-prompt! prompt args-vals @db*)]
-    (if error-message
-      (lifecycle/send-content! chat-ctx
-                               :system
-                               {:type :text
-                                :text error-message})
-      (prompt-messages! messages :mcp-prompt chat-ctx))))
+    (cond
+      error-message
+      (do (lifecycle/send-content! chat-ctx
+                                   :system
+                                   {:type :text
+                                    :text error-message})
+          (lifecycle/finish-chat-prompt! :idle chat-ctx))
+
+      (seq messages)
+      (prompt-messages! messages :mcp-prompt chat-ctx)
+
+      :else
+      (do (lifecycle/send-content! chat-ctx
+                                   :system
+                                   {:type :text
+                                    :text (format "No response from prompt '%s'." prompt)})
+          (lifecycle/finish-chat-prompt! :idle chat-ctx)))))
 
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
   (try

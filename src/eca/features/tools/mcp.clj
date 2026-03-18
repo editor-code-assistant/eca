@@ -653,19 +653,25 @@
         (:mcp-clients db)))
 
 (defn get-prompt! [name arguments db]
-  (when-let [mcp-client (->> (vals (:mcp-clients db))
-                             (keep (fn [{:keys [client prompts]}]
-                                     (when (some #(= name (:name %)) prompts)
-                                       client)))
-                             first)]
-    (when-let [prompt (->> {:on-error (fn [_id jsonrpc-error]
-                                        (logger/warn logger-tag "Error getting prompt:" (format-jsonrpc-error jsonrpc-error)))}
-                           (pmc/get-prompt mcp-client name arguments))]
-      {:description (:description prompt)
-       :messages (mapv (fn [each-message]
-                         {:role (string/lower-case (:role each-message))
-                          :content [(->content (:content each-message))]})
-                       (:messages prompt))})))
+  (if-let [mcp-client (->> (vals (:mcp-clients db))
+                           (keep (fn [{:keys [client prompts]}]
+                                   (when (some #(= name (:name %)) prompts)
+                                     client)))
+                           first)]
+    (let [error* (atom nil)
+          prompt (->> {:on-error (fn [_id jsonrpc-error]
+                                   (logger/warn logger-tag "Error getting prompt:" (format-jsonrpc-error jsonrpc-error))
+                                   (reset! error* (format-jsonrpc-error jsonrpc-error)))}
+                      (pmc/get-prompt mcp-client name arguments))]
+      (if-let [error @error*]
+        {:error-message (str "MCP error getting prompt: " error)}
+        (when prompt
+          {:description (:description prompt)
+           :messages (mapv (fn [each-message]
+                             {:role (string/lower-case (:role each-message))
+                              :content [(->content (:content each-message))]})
+                           (:messages prompt))})))
+    {:error-message (format "Prompt '%s' not found in any connected MCP server" name)}))
 
 (defn get-resource! [uri db]
   (when-let [mcp-client (->> (vals (:mcp-clients db))

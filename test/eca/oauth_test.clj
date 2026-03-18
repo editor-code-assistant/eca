@@ -4,7 +4,6 @@
    [clojure.test :refer [deftest is testing]]
    [eca.oauth :as oauth]
    [hato.client :as http]
-   [matcher-combinators.test :refer [match?]]
    [ring.util.codec :as ring.util]))
 
 (deftest generate-pkce-test
@@ -33,7 +32,7 @@
                                   {:status 404}
                                   (make-auth-response
                                    "Bearer realm=\"test\", resource_metadata=\"https://example.com/prm\"")))
-                    http/get (fn [url opts]
+                    http/get (fn [url _opts]
                                (swap! get-urls conj url)
                                (cond
                                  (= url "https://example.com/prm")

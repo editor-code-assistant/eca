@@ -4,6 +4,7 @@
 
 - Consider Anthropic internal server error as a retriable error.
 - Improve MCP error logging to show error code, message, and data instead of null.
+- Improve error handling when MCP promtps fail on server side.
 
 ## 0.115.1
 
