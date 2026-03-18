@@ -17,6 +17,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.features.agents :as agents]
+   [rewrite-json.core :as rj]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -615,27 +616,27 @@
 
 (def ^:private config-schema-url "https://eca.dev/config.json")
 
-(defn update-global-config! [config]
-  (let [global-config-file (global-config-file)
-        current-config (normalize-fields normalization-rules (config-from-global-file))
-        new-config (deep-merge current-config
-                               (normalize-fields normalization-rules config))
-        new-config (assoc new-config "$schema" config-schema-url)
-        new-config-json (json/generate-string new-config {:pretty true})]
-    (io/make-parents global-config-file)
-    (spit global-config-file new-config-json)))
+(defn ^:private flatten-to-paths
+  "Recursively walks a nested map and returns a sequence of [path value] pairs,
+   where path is a vector of string keys and value is a leaf (non-map) value.
+   Mirrors deep-merge semantics: only the touched leaf paths are written."
+  ([m] (flatten-to-paths [] m))
+  ([prefix m]
+   (reduce-kv (fn [acc k v]
+                (let [path (conj prefix (if (keyword? k) (name k) (str k)))]
+                  (if (and (map? v) (seq v))
+                    (into acc (flatten-to-paths path v))
+                    (conj acc [path v]))))
+              []
+              m)))
 
-(defn update-local-config!
-  "Deep-merges `config` into the local `.eca/config.json` for `workspace-root-uri`."
-  [workspace-root-uri config]
-  (let [config-dir (io/file (shared/uri->filename workspace-root-uri) ".eca")
-        config-file (io/file config-dir "config.json")
-        current-config (when (.exists config-file)
-                         (normalize-fields normalization-rules
-                                           (safe-read-json-string (slurp config-file) (var *local-config-error*))))
-        new-config (deep-merge (or current-config {})
-                               (normalize-fields normalization-rules config))
-        new-config (assoc new-config "$schema" config-schema-url)
-        new-config-json (json/generate-string new-config {:pretty true})]
-    (io/make-parents config-file)
-    (spit config-file new-config-json)))
+(defn update-global-config! [config]
+  (let [file (global-config-file)
+        raw (if (.exists file) (slurp file) "{}")
+        root (rj/parse-string raw)
+        root (reduce (fn [r [path v]] (rj/assoc-in r path v))
+                     root
+                     (flatten-to-paths config))
+        root (rj/assoc-in root ["$schema"] config-schema-url)]
+    (io/make-parents file)
+    (spit file (rj/to-string root))))
