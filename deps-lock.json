@@ -983,6 +983,16 @@
       "hash": "sha256-Xe66kz8gwkNNCBozUpigMJuTl2+p1ZQc+QwEgldebZA="
     },
     {
+      "mvn-path": "dev/ericdallo/rewrite-json/0.1.1/rewrite-json-0.1.1.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-1XnFTWANPTA8jRfrz/gP7V3MMQ0ht4tJIBDCI5vuOb8="
+    },
+    {
+      "mvn-path": "dev/ericdallo/rewrite-json/0.1.1/rewrite-json-0.1.1.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-smGEfZ7nI45VkdHtuZVDmdoXvEXU3xcgK1Q5kGfJfYQ="
+    },
+    {
       "mvn-path": "expound/expound/0.9.0/expound-0.9.0.jar",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-1qNyYJkY4DUb+mqL1pPRi8GZ6Lp6r67BHola+uAY+Vw="

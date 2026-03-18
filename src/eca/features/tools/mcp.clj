@@ -137,6 +137,16 @@
                                       (logger/info logger-tag (format "[%s] %s" server-name msg)))})
        :needs-reinit?* nil})))
 
+(defn ^:private non-blocking-handler
+  "Wraps a notification handler so it runs on a separate thread.
+  Prevents STDIO transport deadlock where the reader thread blocks on a
+  synchronous fetch request inside a notification handler, making it
+  unable to read incoming responses."
+  [f]
+  (pcs/wrap-initialized-check
+   (fn [jsonrpc-notification]
+     (future (f jsonrpc-notification)))))
+
 (defn ^:private ->client [name transport init-timeout workspaces
                           {:keys [on-tools-change]}]
   (let [tools-consumer (fn [tools]
@@ -144,10 +154,6 @@
                                       (format "[%s] Tools list changed, received %d tools"
                                               name (count tools)))
                          (on-tools-change tools))
-        tools-nhandler (pcs/wrap-initialized-check
-                        (fn [jsonrpc-notification]
-                          (pcs/fetch-tools jsonrpc-notification
-                                           {:on-tools tools-consumer})))
         client (pmc/make-mcp-client
                 {:info (pes/make-info name "current")
                  :client-transport transport
@@ -155,10 +161,26 @@
                                                                  {:name (:name %)})
                                            workspaces)}
                  :notification-handlers
-                 {psd/method-notifications-tools-list_changed tools-nhandler
-                  psd/method-notifications-message (fn [params]
-                                                     (logger/info logger-tag
-                                                                  (format "[MCP-%s] %s" name (:data params))))}
+                 {psd/method-notifications-tools-list_changed
+                  (non-blocking-handler
+                   (fn [notification]
+                     (pcs/fetch-tools notification
+                                      {:on-tools tools-consumer})))
+
+                  psd/method-notifications-resources-list_changed
+                  (non-blocking-handler
+                   (fn [notification]
+                     (pcs/fetch-resources notification)))
+
+                  psd/method-notifications-prompts-list_changed
+                  (non-blocking-handler
+                   (fn [notification]
+                     (pcs/fetch-prompts notification)))
+
+                  psd/method-notifications-message
+                  (fn [params]
+                    (logger/info logger-tag
+                                 (format "[MCP-%s] %s" name (:data params))))}
                  :print-banner? false})]
     (pmc/initialize-and-notify! client
                                 {:timeout-millis (* 1000 init-timeout)})
