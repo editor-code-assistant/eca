@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix auto-compact race condition where stale messages were sent to model after compaction, causing context overflow in subagents. #357
+
 ## 0.115.3
 
 - Fix MCP server auth being invalidated when only URL query parameters change.

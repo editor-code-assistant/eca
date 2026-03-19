@@ -437,7 +437,6 @@
       (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
             _ (lifecycle/maybe-renew-auth-token chat-ctx)
             db @db*
-            past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
             all-tools (f.tools/all-tools chat-id agent @db* config)
@@ -480,7 +479,7 @@
                 :model-capabilities model-capabilities
                 :user-messages user-messages
                 :instructions  instructions
-                :past-messages  past-messages
+                :past-messages (get-in @db* [:chats chat-id :messages] [])
                 :config  config
                 :tools all-tools
                 :provider-auth provider-auth
