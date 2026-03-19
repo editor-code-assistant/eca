@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.115.4
+
 - Fix auto-compact race condition where stale messages were sent to model after compaction, causing context overflow in subagents. #357
 
 ## 0.115.3
