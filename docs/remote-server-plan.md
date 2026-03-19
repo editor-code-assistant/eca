@@ -1,6 +1,10 @@
-# Remote Web Control Server — Design Plan
+# Remote Web Control Server — Design & Implementation
 
 > GitHub Issue: [#333](https://github.com/editor-code-assistant/eca/issues/333)
+>
+> **Status: v1 implemented.** This document reflects the actual implementation. Sections
+> marked with 🔧 contain implementation notes that diverge from or extend the original
+> design.
 
 ## Overview
 
@@ -28,7 +32,7 @@ for each chat within a session.
 
 | Field      | Required | Default               | Description                                    |
 |------------|----------|-----------------------|------------------------------------------------|
-| `enabled`  | yes      | —                     | Enables the remote HTTP server                 |
+| `enabled`  | no       | `false`               | Enables the remote HTTP server                 |
 | `host`     | no       | auto-detected LAN IP  | Host used in the logged URL for `web.eca.dev` to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL (e.g. ngrok, tailscale). Not set → auto-detect via `InetAddress/getLocalHost`. |
 | `port`     | no       | random free port      | Port the HTTP server listens on                |
 | `password` | no       | auto-generated token  | Auth token; auto-generated and logged if unset |
@@ -62,6 +66,9 @@ avoids `Secure`/`SameSite` issues that break non-localhost connections (LAN IPs,
 The auth token is either user-configured (`password` in config) or auto-generated as a
 32-byte hex string via `java.security.SecureRandom` (64 characters). Stored in runtime
 state only (not persisted to disk).
+
+🔧 Token validation uses constant-time comparison (`MessageDigest/isEqual`) to prevent
+timing side-channel attacks.
 
 **No CSRF protection needed** — CSRF is a cookie-only attack vector. Bearer tokens in
 headers are not sent automatically by browsers.
@@ -208,8 +215,8 @@ Maps to `chat/selectedAgentChanged` notification handler.
 
 `GET /api/v1/events` — `Content-Type: text/event-stream`
 
-Optional `?chat=<id>` filter: when provided, `chat:*` events are filtered to only that
-chat. `session:*`, `config:*`, and `tool:*` events are always sent regardless of filter.
+🔧 The `?chat=<id>` filter is **not yet implemented** in v1 — all events are sent to all
+clients. Planned for a future iteration.
 
 ## SSE Events
 
@@ -292,9 +299,14 @@ params passed to `IMessenger.chat-content-received`, with keys camelCased. Examp
 
 - **Heartbeat:** Server sends `:` comment line every 15 seconds to detect dead clients.
 - **Backpressure:** Each SSE client gets a `core.async` channel with a dropping buffer
-  (buffer size: 256 events). Slow clients drop events rather than blocking the main
-  messenger path. Clients can recover by re-fetching chat state via REST.
+  (buffer size: 256 events). `broadcast!` uses `async/offer!` (non-blocking, drops if
+  full). Slow clients drop events rather than blocking the main messenger path. Clients
+  can recover by re-fetching chat state via REST.
 - **Stale cleanup:** Failed writes remove the client from the connection set.
+
+🔧 **Threading model:** Writer loops and heartbeat use `async/thread` (real threads with
+blocking `<!!`/`alts!!`), NOT `go-loop`, because SSE writes perform blocking I/O on the
+servlet `OutputStream`. Using `go-loop` would starve the shared core.async dispatch pool.
 
 ## CORS
 
@@ -341,7 +353,13 @@ No raw exceptions or stack traces are returned to the web client.
 
 Wraps the existing `ServerMessenger`, implements `IMessenger`. Every method:
 1. Delegates to the inner `ServerMessenger` (sends to editor via stdio).
-2. Broadcasts the event to all connected SSE clients (via `core.async` channels).
+2. Converts data to camelCase via `shared/map->camel-cased-map`.
+3. Broadcasts the event to all connected SSE clients (via `core.async` channels).
+
+🔧 The camelCase conversion is essential because `IMessenger` methods receive internal
+kebab-case Clojure maps. The JSON-RPC layer (stdio) handles its own key conversion, but
+SSE broadcasts serialize directly via Cheshire — without explicit conversion, SSE payloads
+would have kebab-case keys like `chat-id` instead of `chatId`.
 
 **Exceptions (inner-only, no broadcast):**
 - `editor-diagnostics` — web client cannot provide editor diagnostics.
@@ -390,104 +408,189 @@ that can observe and control chat but cannot fulfill editor-specific requests
 (`editor/getDiagnostics`). Both clients can send commands concurrently — for tool
 approvals, first response wins (promise `deliver` is idempotent).
 
-## Implementation Steps
+## Implementation Notes
 
-### Step 1 — Config schema
-Add `remote` section to `docs/config.json` with `enabled`, `host`, `port`, and `password`
-fields. Parse and validate in config loading.
+> The steps below reflect what was actually implemented.
 
-### Step 2 — SSE connection management (`eca.remote.sse`)
-- Atom holding set of SSE client connections.
-- Each client: Ring async response channel + `core.async` channel with dropping buffer.
-- `broadcast!` function: puts event on all client channels.
-- Writer loop per client: takes from channel, writes SSE-formatted string, removes client on error.
-- Heartbeat loop: writes `:` comment to all clients every 15 seconds.
+### Config schema
+Added `remote` section to `docs/config.json` with `enabled`, `host`, `port`, and
+`password` fields. Added `:remote {:enabled false}` to `initial-config*` in `config.clj`.
 
-### Step 3 — BroadcastMessenger (`eca.remote.messenger`)
-- Implements `IMessenger`.
-- Wraps inner `ServerMessenger`.
-- Delegates all methods to inner + broadcasts to SSE.
-- `editor-diagnostics` → inner only.
+🔧 Remote config is read via `config/read-file-configs` at startup (before `initialize`),
+so only global/env/custom-file configs are available — workspace-level `.eca/config.json`
+is not included. This is intentional: workspace folders aren't known until `initialize`.
 
-### Step 4 — Auth middleware (`eca.remote.auth`)
-- Ring middleware: reads `Authorization: Bearer <token>` header, validates against the
-  configured or auto-generated token.
-- Returns `401 Unauthorized` with error envelope if missing or invalid.
+### SSE connection management (`eca.remote.sse`)
+- Atom holding set of SSE client maps `{:ch :os :done-ch}`.
+- `add-client!` accepts optional `done-ch` — closed when writer loop terminates, allowing
+  callers to block on it for lifecycle management.
+- `broadcast!` uses `async/offer!` (non-blocking put, drops if full).
+- Writer loop per client: `async/thread` with blocking `<!!`, writes SSE-formatted string,
+  catches `IOException` only, closes `done-ch` in `finally`.
+- Heartbeat loop: `async/thread` with `alts!!`, writes `:` comment every 15 seconds.
+
+### BroadcastMessenger (`eca.remote.messenger`)
+- Implements `IMessenger`, wraps inner `ServerMessenger`.
+- Delegates all methods to inner, then converts data to camelCase and broadcasts to SSE.
+- `editor-diagnostics` and `rewrite-content-received` → inner only (no broadcast).
+
+### Auth middleware (`eca.remote.auth`)
+- Ring middleware with constant-time token comparison (`MessageDigest/isEqual`).
+- Returns `401` with error envelope if missing or invalid.
 - `/api/v1/health` and `GET /` are exempt from auth.
+- Token generation: 32-byte `SecureRandom` hex (64 chars).
 
-### Step 5 — CORS middleware (`eca.remote.middleware`)
-- Ring middleware adding CORS headers (`Authorization` in allowed headers).
-- Handles OPTIONS preflight requests.
-- No `Access-Control-Allow-Credentials` needed (Bearer auth, not cookies).
+### CORS middleware (`eca.remote.middleware`)
+- Ring middleware adding CORS headers for `https://web.eca.dev`.
+- Handles OPTIONS preflight → 204.
 
-### Step 6 — REST handlers (`eca.remote.handlers`)
-- Read endpoints: pull from `db*` directly.
-- Write endpoints: bridge to existing handler functions in `eca.features.chat`.
-- Consistent error envelope on all error paths.
-- `GET /` redirect to `web.eca.dev`.
+### REST handlers (`eca.remote.handlers`)
+- Read endpoints pull from `@db*` directly, write endpoints delegate to `eca.handlers`.
+- Shared `session-state` function used by both `GET /api/v1/session` and the
+  `session:connected` SSE event to avoid drift.
+- `GET /` redirect uses an atom (`host*`) so the URL includes the actual port even when
+  port 0 (auto-assigned) was configured.
+- SSE endpoint uses a `deftype SSEBody` implementing Ring's `StreamableResponseBody`
+  protocol — Jetty calls `write-body-to-stream` which registers the raw servlet
+  `OutputStream` as an SSE client and blocks on `done-ch` until disconnect.
 
-### Step 7 — Routes + HTTP server (`eca.remote.routes`, `eca.remote.server`)
-- Ring route table with `/api/v1/` prefix.
-- Middleware composition: CORS → Bearer auth → JSON parsing → routes.
-- Jetty lifecycle: start on configured port, stop on shutdown.
-- Graceful port conflict handling (catch `BindException`, log warning, continue without
-  remote server).
+### Routes + HTTP server (`eca.remote.routes`, `eca.remote.server`)
+- Custom path-segment router via `case` on vectors (no routing library).
+- Middleware composition: CORS → Bearer auth → routes (no JSON content-type middleware —
+  all responses set their own `Content-Type`).
+- `start!` accepts the shared `sse-connections*` atom from `eca.server` (same atom used
+  by `BroadcastMessenger`) to avoid the disconnected-atom bug.
+- Host resolved as `host+port*` atom, updated after Jetty binds and resolves the actual
+  port.
 
-### Step 8 — Integration into ECA startup/shutdown (`eca.server`)
-- `start-server!`: if remote enabled:
-  1. Create SSE connections atom.
-  2. Create `BroadcastMessenger` wrapping `ServerMessenger`, passing SSE connections atom
-     (constructor: `(->BroadcastMessenger inner-messenger sse-connections-atom)`).
-  3. Start Jetty on configured port, passing SSE connections atom and `components` to
-     route handlers.
-  4. Log clickable `web.eca.dev` URL to stderr.
-- `shutdown`: send `session:disconnecting` SSE event, wait up to 5 seconds for in-flight
-  responses, close SSE connections, stop Jetty. Running chat generations are not
-  interrupted — they continue on the stdio side.
+### Integration into ECA startup/shutdown (`eca.server`)
+- `start-server!`: reads remote config from file-based sources, creates shared
+  `sse-connections*` atom, creates `BroadcastMessenger` wrapping `ServerMessenger`,
+  starts Jetty via `remote.server/start!`, stores result in module-level
+  `remote-server*` atom.
+- `exit`: stops remote server (broadcast `session:disconnecting`, close all SSE, stop
+  Jetty with 5s timeout) before shutting down the JSON-RPC server.
 
-### Step 9 — CHANGELOG
-Add feature entry under Unreleased referencing #333.
+### Modified feature functions
+- `delete-chat` now accepts `messenger` and calls `messenger/chat-deleted`.
+- `clear-chat` now accepts `messenger` and calls `messenger/chat-cleared` (previously
+  only `rollback-chat` called `chat-cleared`).
+- `finish-chat-prompt!` calls `messenger/chat-status-changed` after status `swap!`.
+- `prompt-messages!` calls `messenger/chat-status-changed` when setting `:running`.
 
-### Step 10 — Tests
-- `eca.remote.sse-test` — heartbeat, backpressure, stale client cleanup.
-- `eca.remote.auth-test` — Bearer token validation, missing/invalid token rejection.
-- `eca.remote.handlers-test` — REST endpoints with mock `db*`.
-- `eca.remote.messenger-test` — BroadcastMessenger delegation + SSE broadcasting.
+### Tests
+- `eca.remote.sse-test` — connections, broadcast, backpressure, heartbeat, close-all.
+- `eca.remote.auth-test` — token generation, valid/invalid/missing, exempt paths.
+- `eca.remote.handlers-test` — health, root, session, chats CRUD, prompt validation.
+- `eca.remote.messenger-test` — delegation + camelCase SSE broadcast verification.
 
 ## File Summary
 
-### Create
+### Created
 
 | File | Purpose |
 |------|---------|
 | `src/eca/remote/server.clj`      | HTTP server lifecycle (start/stop Jetty) |
 | `src/eca/remote/routes.clj`      | Ring route table, middleware composition  |
-| `src/eca/remote/handlers.clj`    | REST API handlers                        |
+| `src/eca/remote/handlers.clj`    | REST API handlers + `SSEBody` deftype    |
 | `src/eca/remote/sse.clj`         | SSE connection management                |
-| `src/eca/remote/messenger.clj`   | BroadcastMessenger                       |
-| `src/eca/remote/auth.clj`        | Bearer token auth middleware              |
+| `src/eca/remote/messenger.clj`   | BroadcastMessenger with camelCase conversion |
+| `src/eca/remote/auth.clj`        | Bearer token auth middleware (constant-time) |
 | `src/eca/remote/middleware.clj`   | CORS middleware                          |
 | `test/eca/remote/sse_test.clj`         | SSE tests                          |
 | `test/eca/remote/auth_test.clj`        | Auth tests                         |
 | `test/eca/remote/handlers_test.clj`    | Handler tests                      |
 | `test/eca/remote/messenger_test.clj`   | BroadcastMessenger tests           |
 
-### Modify
+### Modified
 
 | File | Change |
 |------|--------|
-| `src/eca/messenger.clj`        | Add `chat-status-changed` and `chat-deleted` to `IMessenger` protocol |
-| `src/eca/server.clj`           | Implement new methods in `ServerMessenger` (no-op), start/stop remote server, wrap messenger |
-| `src/eca/features/chat.clj`    | Call `chat-status-changed` on status transitions                       |
-| `src/eca/features/chat/lifecycle.clj` | Call `chat-status-changed` in `finish-chat-prompt!`, call `chat-deleted` in `delete-chat` |
-| `docs/config.json`             | Add `remote` config schema                     |
+| `src/eca/messenger.clj`        | Added `chat-status-changed` and `chat-deleted` to `IMessenger` protocol |
+| `src/eca/server.clj`           | No-op implementations in `ServerMessenger`, BroadcastMessenger wrapping, remote server start/stop |
+| `src/eca/features/chat.clj`    | Call `chat-status-changed` on `:running` transition, `chat-deleted` in `delete-chat`, `chat-cleared` in `clear-chat`. Updated `delete-chat` and `clear-chat` signatures to accept `messenger` |
+| `src/eca/features/chat/lifecycle.clj` | Call `chat-status-changed` in `finish-chat-prompt!` |
+| `src/eca/handlers.clj`         | Updated `chat-delete` and `chat-clear` to pass `messenger` to feature functions |
+| `test/eca/test_helper.clj`     | Added `chat-status-changed` and `chat-deleted` to `TestMessenger` |
+| `src/eca/config.clj`           | Added `:remote {:enabled false}` to `initial-config*` |
+| `docs/config.json`             | Added `remote` config schema                     |
 | `CHANGELOG.md`                 | Feature entry under Unreleased                 |
 
 ## Future Improvements (out of scope for v1)
 
+- **SSE `?chat=<id>` filter** — specified in the API but not yet implemented; all events
+  go to all clients
 - Request logging middleware
 - Subagent chat filtering in list endpoint
 - Source tagging on SSE events (editor vs web origin)
 - SSE event batching for high-frequency streaming
 - Rate limiting on auth failures
 - Configurable CORS allowed origins
+- Route-level integration tests (current tests call handlers directly)
+- `GET /api/v1/chats/:id` message content filtering (messages can be very large)
+
+## Web Frontend Notes
+
+> Notes for implementing the `web.eca.dev` frontend.
+
+### Consuming SSE
+
+The SSE stream **must** be consumed via `fetch()` + `ReadableStream`, not `EventSource`,
+because `EventSource` does not support custom `Authorization` headers:
+
+```javascript
+const response = await fetch(`http://${host}/api/v1/events`, {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+// Parse SSE wire format: "event: <type>\ndata: <json>\n\n"
+```
+
+### Connection Lifecycle
+
+1. On connect, the first SSE event is `session:connected` with a full state dump
+   (chats, models, agents, MCP servers, workspace folders).
+2. The frontend should use this to bootstrap its state — no separate REST call needed.
+3. On disconnect, re-fetch state via `GET /api/v1/session` + `GET /api/v1/chats` to
+   recover any missed events, then reconnect to SSE.
+4. A heartbeat (`:` comment) arrives every 15 seconds — if no data for >30s, assume
+   disconnected and reconnect.
+
+### Chat Content Events
+
+`chat:content-received` events carry the same payloads as the editor JSON-RPC protocol.
+Key content types the frontend should handle:
+
+| `content.type`     | Description                         | Key fields                            |
+|--------------------|-------------------------------------|---------------------------------------|
+| `text`             | Streamed text chunk                 | `text`, `contentId`                   |
+| `progress`         | Status indicator                    | `state` (running/finished), `text`    |
+| `metadata`         | Chat metadata update                | `title`                               |
+| `usage`            | Token usage stats                   | `inputTokens`, `outputTokens`         |
+| `toolCallPrepare`  | Tool call starting                  | `name`, `id`, `argumentsText`         |
+| `toolCallRun`      | Tool call approved, about to run    | `name`, `id`, `arguments`             |
+| `toolCallRunning`  | Tool call executing                 | `name`, `id`                          |
+| `toolCalled`       | Tool call finished                  | `name`, `id`, `error`, `outputs`      |
+| `reasonStarted`    | Thinking/reasoning started          | `id`                                  |
+| `reasonText`       | Thinking text chunk                 | `id`, `text`                          |
+| `reasonFinished`   | Thinking finished                   | `id`, `totalTimeMs`                   |
+| `hookActionStarted`  | Hook action started               | `id`, `name`                          |
+| `hookActionFinished` | Hook action finished              | `id`, `name`, `status`, `output`      |
+
+### Model/Agent/Variant Changes
+
+`POST /api/v1/chats/:id/model`, `/agent`, `/variant` are **session-wide** operations
+despite the chat-scoped URL. They change the selected model/agent for new prompts across
+the entire session, matching the editor behavior. The chat-id in the URL is validated
+(404 if not found) but not used for scoping.
+
+### Tool Call Approval
+
+When a tool call requires approval, its status in the chat's `toolCalls` map will be
+`"waiting-approval"`. The frontend can show an approve/reject UI and call:
+- `POST /api/v1/chats/:id/approve/:tcid` — allow the tool call
+- `POST /api/v1/chats/:id/reject/:tcid` — deny the tool call
+
+First response wins — if the editor user approves before the web user (or vice versa),
+the second approval is a no-op (`promise deliver` is idempotent).
