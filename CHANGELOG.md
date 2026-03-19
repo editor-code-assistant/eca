@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix chat getting stuck when LLM streaming connection hangs or is cancelled.
+
 ## 0.115.4
 
 - Fix auto-compact race condition where stale messages were sent to model after compaction, causing context overflow in subagents. #357

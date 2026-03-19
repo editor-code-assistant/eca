@@ -163,7 +163,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth sync? subagent?]
+           past-messages tools provider-auth sync? subagent? cancelled?]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities) tools)
@@ -227,7 +227,8 @@
           :extra-headers extra-headers
           :api-url api-url
           :api-key api-key
-          :auth-type auth-type}
+          :auth-type auth-type
+          :cancelled? cancelled?}
          callbacks)
 
         (= "github-copilot" provider)
@@ -329,7 +330,8 @@
             :reasoning-history reasoning-history
             :http-client http-client
             :api-url api-url
-            :api-key api-key}
+            :api-key api-key
+            :cancelled? cancelled?}
            callbacks))
 
         :else
@@ -455,6 +457,7 @@
                 :user-messages user-messages
                 :variant variant
                 :subagent? subagent?
+                :cancelled? cancelled?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
                 :on-tools-called on-tools-called
