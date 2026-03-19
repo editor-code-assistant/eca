@@ -945,13 +945,14 @@
 
 (defn clear-chat
   "Clear specific aspects of a chat. Currently supports clearing :messages."
-  [{:keys [chat-id messages]} db* metrics]
+  [{:keys [chat-id messages]} db* messenger metrics]
   (when (get-in @db* [:chats chat-id])
     (swap! db* update-in [:chats chat-id]
            (fn [chat]
              (cond-> chat
                messages (-> (assoc :messages [])
                             (dissoc :tool-calls :last-api :usage :task)))))
+    (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/update-workspaces-cache! @db* metrics)))
 
 (defn rollback-chat

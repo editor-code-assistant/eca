@@ -1,6 +1,7 @@
 (ns eca.remote.server
   "HTTP server lifecycle for the remote web control server."
   (:require
+   [clojure.core.async :as async]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.remote.auth :as auth]
@@ -38,20 +39,22 @@
 
 (defn start!
   "Starts the remote HTTP server if enabled in config.
+   sse-connections* is the shared SSE connections atom (also used by BroadcastMessenger).
    Returns a map with :server :sse-connections* :heartbeat-stop-ch :token :host
    or nil if not enabled or port is in use."
-  [components]
+  [components sse-connections*]
   (let [db @(:db* components)
         config (config/all db)
         remote-config (:remote config)]
     (when (:enabled remote-config)
-      (let [sse-connections* (sse/create-connections)
-            token (or (:password remote-config) (auth/generate-token))
-            host (or (:host remote-config) (detect-host))
+      (let [token (or (:password remote-config) (auth/generate-token))
+            host-base (or (:host remote-config) (detect-host))
             port (resolve-port remote-config)
+            ;; Use atom so the handler sees host:port after Jetty resolves the actual port
+            host+port* (atom host-base)
             handler (routes/create-handler components
                                            {:token token
-                                            :host host
+                                            :host* host+port*
                                             :sse-connections* sse-connections*})]
         (try
           (let [jetty-server ^Server (jetty/run-jetty handler
@@ -59,9 +62,11 @@
                                                        :host "0.0.0.0"
                                                        :join? false})
                 actual-port (.getLocalPort ^NetworkConnector (first (.getConnectors jetty-server)))
+                host-with-port (str host-base ":" actual-port)
+                _ (reset! host+port* host-with-port)
                 heartbeat-ch (sse/start-heartbeat! sse-connections*)
                 connect-url (str "https://web.eca.dev?host="
-                                 host ":" actual-port
+                                 host-with-port
                                  "&token=" token)]
             (logger/info logger-tag (str "🌐 Remote server started on port " actual-port))
             (logger/info logger-tag (str "🔗 " connect-url))
@@ -69,7 +74,7 @@
              :sse-connections* sse-connections*
              :heartbeat-stop-ch heartbeat-ch
              :token token
-             :host (str host ":" actual-port)})
+             :host host-with-port})
           (catch BindException e
             (logger/warn logger-tag "Port" port "is already in use:" (.getMessage e)
                          "Remote server will not start.")
@@ -88,9 +93,7 @@
       (sse/broadcast! sse-connections* "session:disconnecting" {:reason "shutdown"}))
     ;; Stop heartbeat
     (when heartbeat-stop-ch
-      (clojure.core.async/close! heartbeat-stop-ch))
-    ;; Give in-flight responses a moment
-    (Thread/sleep 1000)
+      (async/close! heartbeat-stop-ch))
     ;; Close all SSE connections
     (when sse-connections*
       (sse/close-all! sse-connections*))

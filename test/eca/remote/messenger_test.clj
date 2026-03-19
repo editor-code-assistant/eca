@@ -14,26 +14,33 @@
         os (java.io.ByteArrayOutputStream.)
         _client (sse/add-client! sse-connections* os)]
 
-    (testing "chat-content-received delegates to inner and broadcasts"
+    (testing "chat-content-received delegates to inner and broadcasts camelCase"
       (let [data {:chat-id "c1" :role :assistant :content {:type :text :text "hi"}}]
         (eca.messenger/chat-content-received broadcast-messenger data)
         (Thread/sleep 100)
         (is (seq (:chat-content-received (h/messages))))
-        (is (.contains (.toString os "UTF-8") "chat:content-received"))))
+        (let [output (.toString os "UTF-8")]
+          (is (.contains output "chat:content-received"))
+          (is (.contains output "\"chatId\"") "SSE broadcast should use camelCase keys")
+          (is (not (.contains output "\"chat-id\"")) "SSE broadcast should not use kebab-case keys"))))
 
-    (testing "chat-status-changed delegates and broadcasts"
+    (testing "chat-status-changed delegates and broadcasts camelCase"
       (let [params {:chat-id "c1" :status :running}]
         (eca.messenger/chat-status-changed broadcast-messenger params)
         (Thread/sleep 100)
         (is (seq (:chat-status-changed (h/messages))))
-        (is (.contains (.toString os "UTF-8") "chat:status-changed"))))
+        (let [output (.toString os "UTF-8")]
+          (is (.contains output "chat:status-changed"))
+          (is (.contains output "\"chatId\"")))))
 
-    (testing "chat-deleted delegates and broadcasts"
+    (testing "chat-deleted delegates and broadcasts camelCase"
       (let [params {:chat-id "c1"}]
         (eca.messenger/chat-deleted broadcast-messenger params)
         (Thread/sleep 100)
         (is (seq (:chat-deleted (h/messages))))
-        (is (.contains (.toString os "UTF-8") "chat:deleted"))))
+        (let [output (.toString os "UTF-8")]
+          (is (.contains output "chat:deleted"))
+          (is (.contains output "\"chatId\"")))))
 
     (testing "editor-diagnostics delegates to inner only (no broadcast)"
       (let [os2 (java.io.ByteArrayOutputStream.)

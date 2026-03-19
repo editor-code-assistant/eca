@@ -173,6 +173,8 @@
   (let [db* (atom db/initial-db)
         metrics (->Metrics db*)
         stdio-messenger (->ServerMessenger server db*)
+        ;; Read remote config from file-based sources (global/env/custom).
+        ;; Workspace-level config is not available yet (initialize hasn't been called).
         remote-config (:remote (config/read-file-configs))
         sse-connections* (when (:enabled remote-config)
                            (atom #{}))
@@ -186,7 +188,7 @@
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
     (when sse-connections*
-      (when-let [rs (remote.server/start! components)]
+      (when-let [rs (remote.server/start! components sse-connections*)]
         (reset! remote-server* rs)))
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)

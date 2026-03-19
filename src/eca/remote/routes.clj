@@ -1,6 +1,7 @@
 (ns eca.remote.routes
   "Ring route table and middleware composition for the remote server."
   (:require
+   [cheshire.core :as json]
    [clojure.string :as string]
    [eca.remote.auth :as auth]
    [eca.remote.handlers :as handlers]
@@ -15,12 +16,12 @@
 
 (defn- match-route
   "Simple path-based router. Returns [handler-fn & args] or nil."
-  [components request {:keys [token host sse-connections*]}]
+  [components request {:keys [token host* sse-connections*]}]
   (let [method (:request-method request)
         segments (path-segments (:uri request))]
     (case segments
       [] (when (= :get method)
-           [handlers/handle-root components request {:host host :token token}])
+           [handlers/handle-root components request {:host @host* :token token}])
 
       ["api" "v1" "health"]
       (when (= :get method)
@@ -77,7 +78,7 @@
 (defn create-handler
   "Creates the Ring handler with middleware composition.
    components: the ECA components map {:db* :messenger :metrics :server}
-   opts: {:token :host :sse-connections*}"
+   opts: {:token :host* :sse-connections*}"
   [components opts]
   (let [token (:token opts)]
     (-> (fn [request]
@@ -88,9 +89,9 @@
                 (catch Exception e
                   {:status 500
                    :headers {"Content-Type" "application/json; charset=utf-8"}
-                   :body (str "{\"error\":{\"code\":\"internal_error\","
-                              "\"message\":\"" (.getMessage e) "\"}}")})))
+                   :body (json/generate-string
+                          {:error {:code "internal_error"
+                                   :message (or (.getMessage e) "Unknown error")}})})))
             (not-found-response)))
-        (middleware/wrap-json-content-type)
         (auth/wrap-bearer-auth token ["/" "/api/v1/health"])
         (middleware/wrap-cors))))

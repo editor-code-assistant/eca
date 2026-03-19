@@ -4,14 +4,16 @@
    the same feature functions used by JSON-RPC handlers."
   (:require
    [cheshire.core :as json]
+   [clojure.core.async :as async]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
    [eca.handlers :as handlers]
    [eca.messenger :as messenger]
    [eca.remote.sse :as sse]
-   [eca.shared :as shared])
+   [eca.shared :as shared]
+   [ring.core.protocols :as ring.protocols])
   (:import
-   [java.io InputStream PipedInputStream PipedOutputStream]))
+   [java.io InputStream]))
 
 (set! *warn-on-reflection* true)
 
@@ -44,6 +46,22 @@
 (defn- camel-keys [m]
   (shared/map->camel-cased-map m))
 
+;; --- Shared ---
+
+(defn- session-state
+  "Builds the session state map used for both GET /session and SSE session:connected."
+  [db config]
+  {:version (config/eca-version)
+   :protocolVersion "1.0"
+   :workspaceFolders (mapv #(shared/uri->filename (:uri %)) (:workspace-folders db))
+   :models (mapv (fn [[id _]] {:id id :name id :provider (first (shared/full-model->provider+model id))})
+                 (:models db))
+   :agents (mapv (fn [name] {:id name :name name :description (get-in config [:agent name :description])})
+                 (config/primary-agent-names config))
+   :mcpServers (mapv (fn [[name client-info]]
+                       {:name name :status (or (:status client-info) "unknown")})
+                     (:mcp-clients db))})
+
 ;; --- Health & Redirect ---
 
 (defn handle-root [_components _request {:keys [host token]}]
@@ -59,17 +77,7 @@
 (defn handle-session [{:keys [db*]} _request]
   (let [db @db*
         config (config/all db)]
-    (json-response
-     {:version (config/eca-version)
-      :protocolVersion "1.0"
-      :workspaceFolders (mapv #(shared/uri->filename (:uri %)) (:workspace-folders db))
-      :models (mapv (fn [[id _]] {:id id :name id :provider (first (shared/full-model->provider+model id))})
-                    (:models db))
-      :agents (mapv (fn [name] {:id name :name name :description (get-in config [:agent name :description])})
-                    (config/primary-agent-names config))
-      :mcpServers (mapv (fn [[name client]]
-                          {:name name :status (or (:status client) "unknown")})
-                        (:mcp-clients db))})))
+    (json-response (session-state db config))))
 
 ;; --- Chats ---
 
@@ -98,21 +106,20 @@
 
 ;; --- Chat Actions ---
 
-(defn handle-prompt [{:keys [db* messenger metrics] :as components} request chat-id]
+(defn handle-prompt [{:keys [db*] :as components} request chat-id]
   (let [body (parse-body request)]
     (if-not (:message body)
       (error-response 400 "invalid_request" "Missing required field: message")
       (let [config (config/all @db*)
-            params (shared/map->camel-cased-map
-                    (cond-> {:chat-id chat-id
-                             :message (:message body)}
-                      (:model body) (assoc :model (:model body))
-                      (:agent body) (assoc :agent (:agent body))
-                      (:variant body) (assoc :variant (:variant body))))
+            params (cond-> {:chat-id chat-id
+                            :message (:message body)}
+                     (:model body) (assoc :model (:model body))
+                     (:agent body) (assoc :agent (:agent body))
+                     (:variant body) (assoc :variant (:variant body)))
             result (handlers/chat-prompt (assoc components :config config) params)]
         (json-response (camel-keys result))))))
 
-(defn handle-stop [{:keys [db* messenger metrics] :as components} _request chat-id]
+(defn handle-stop [{:keys [db*] :as components} _request chat-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (if-not (identical? :running (get-in @db* [:chats chat-id :status]))
@@ -160,7 +167,6 @@
       (handlers/chat-clear
        (assoc components :config config)
        {:chat-id chat-id :messages true})
-      (messenger/chat-cleared (:messenger components) {:chat-id chat-id :messages true})
       (no-content))))
 
 (defn handle-delete-chat [{:keys [db*] :as components} _request chat-id]
@@ -202,55 +208,39 @@
     (let [body (parse-body request)]
       (if-not (:variant body)
         (error-response 400 "invalid_request" "Missing required field: variant")
-        (let [config (config/all @db*)]
+        (let [config (config/all @db*)
+              model (or (get-in @db* [:chats chat-id :model])
+                        (f.chat/default-model @db* config))]
           (handlers/chat-selected-model-changed
            (assoc components :config config)
-           {:model (get-in @db* [:chats chat-id :model])
+           {:model model
             :variant (:variant body)})
           (no-content))))))
 
 ;; --- SSE Events ---
 
-(defn handle-events [{:keys [db*]} _request {:keys [sse-connections*]}]
-  (let [pipe-out (PipedOutputStream.)
-        pipe-in (PipedInputStream. pipe-out)]
-    ;; Start the SSE writer on a separate thread
-    (future
+(deftype SSEBody [db* sse-connections*]
+  ring.protocols/StreamableResponseBody
+  (write-body-to-stream [_ _response os]
+    ;; Jetty calls this on its thread with the raw servlet output stream.
+    ;; We register it as an SSE client and block until the connection closes.
+    (let [done-ch (async/chan)
+          client (sse/add-client! sse-connections* os done-ch)]
       (try
-        (let [client (sse/add-client! sse-connections* pipe-out)
-              db @db*
+        (let [db @db*
               config (config/all db)
-              state-dump {:version (config/eca-version)
-                          :protocolVersion "1.0"
-                          :chats (->> (vals (:chats db))
-                                      (remove :subagent)
-                                      (mapv (fn [{:keys [id title status created-at]}]
-                                              {:id id
-                                               :title title
-                                               :status (or status :idle)
-                                               :createdAt created-at})))
-                          :models (mapv (fn [[id _]] {:id id :name id})
-                                        (:models db))
-                          :agents (mapv (fn [name] {:id name :name name})
-                                        (config/primary-agent-names config))
-                          :mcpServers (mapv (fn [[name client-info]]
-                                              {:name name :status (or (:status client-info) "unknown")})
-                                            (:mcp-clients db))
-                          :workspaceFolders (mapv #(shared/uri->filename (:uri %))
-                                                  (:workspace-folders db))}]
-          ;; Send initial state dump
-          (sse/broadcast! (atom #{client}) "session:connected" state-dump)
-          ;; Block to keep the connection open — writer loop handles events
-          (try
-            (while true
-              (Thread/sleep 60000))
-            (catch InterruptedException _e nil)
-            (catch Exception _e nil))
-          (sse/remove-client! sse-connections* client))
-        (catch Exception _e nil)))
-    {:status 200
-     :headers {"Content-Type" "text/event-stream"
-               "Cache-Control" "no-cache"
-               "Connection" "keep-alive"
-               "X-Accel-Buffering" "no"}
-     :body pipe-in}))
+              state-dump (session-state db config)]
+          (sse/broadcast! (atom #{client}) "session:connected" state-dump))
+        ;; Block this Jetty thread until the writer loop terminates
+        ;; (client disconnect, write error, or server shutdown)
+        (async/<!! done-ch)
+        (finally
+          (sse/remove-client! sse-connections* client))))))
+
+(defn handle-events [{:keys [db*]} _request {:keys [sse-connections*]}]
+  {:status 200
+   :headers {"Content-Type" "text/event-stream"
+             "Cache-Control" "no-cache"
+             "Connection" "keep-alive"
+             "X-Accel-Buffering" "no"}
+   :body (->SSEBody db* sse-connections*)})
