@@ -667,7 +667,6 @@
               (finally
                 (when (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status]))
                   (swap! db* assoc-in [:chats chat-id :status] :idle)
-                  (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
                   (db/update-workspaces-cache! @db* metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
