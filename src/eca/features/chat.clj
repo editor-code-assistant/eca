@@ -438,7 +438,6 @@
       (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
             _ (lifecycle/maybe-renew-auth-token chat-ctx)
             db @db*
-            past-messages (get-in db [:chats chat-id :messages] [])
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
             all-tools (f.tools/all-tools chat-id agent @db* config)
@@ -481,7 +480,7 @@
                 :model-capabilities model-capabilities
                 :user-messages user-messages
                 :instructions  instructions
-                :past-messages  past-messages
+                :past-messages (get-in @db* [:chats chat-id :messages] [])
                 :config  config
                 :tools all-tools
                 :provider-auth provider-auth
@@ -662,9 +661,15 @@
                                   (lifecycle/send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))})
                                   (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))})
               (catch Exception e
-                (logger/error e)
-                (lifecycle/send-content! chat-ctx :system {:type :text :text (str "Error: " (or (ex-message e) (.getName (class e))))})
-                (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))))
+                (when-not (:silent? (ex-data e))
+                  (logger/error e)
+                  (lifecycle/send-content! chat-ctx :system {:type :text :text (str "Error: " (or (ex-message e) (.getName (class e))))})
+                  (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))
+              (finally
+                (when (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status]))
+                  (swap! db* assoc-in [:chats chat-id :status] :idle)
+                  (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
+                  (db/update-workspaces-cache! @db* metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
