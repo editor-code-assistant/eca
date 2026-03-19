@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.115.5
+
 - Fix chat getting stuck when LLM streaming connection hangs or is cancelled.
 
 ## 0.115.4
