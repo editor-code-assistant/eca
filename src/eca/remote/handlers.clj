@@ -8,7 +8,6 @@
    [eca.config :as config]
    [eca.features.chat :as f.chat]
    [eca.handlers :as handlers]
-   [eca.messenger :as messenger]
    [eca.remote.sse :as sse]
    [eca.shared :as shared]
    [ring.core.protocols :as ring.protocols])
@@ -60,7 +59,16 @@
                  (config/primary-agent-names config))
    :mcpServers (mapv (fn [[name client-info]]
                        {:name name :status (or (:status client-info) "unknown")})
-                     (:mcp-clients db))})
+                     (:mcp-clients db))
+   :chats (->> (vals (:chats db))
+               (remove :subagent)
+               (mapv (fn [chat]
+                       (camel-keys
+                        {:id (:id chat)
+                         :title (:title chat)
+                         :status (or (:status chat) :idle)
+                         :created-at (:created-at chat)
+                         :messages (or (:messages chat) [])}))))})
 
 ;; --- Health & Redirect ---
 

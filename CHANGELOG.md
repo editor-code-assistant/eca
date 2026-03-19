@@ -2,8 +2,13 @@
 
 ## Unreleased
 
-- Fix MCP server auth being invalidated when only URL query parameters change.
 - Add remote web control server for browser-based chat observation and control via `web.eca.dev`. #333
+
+## 0.115.3
+
+- Fix MCP server auth being invalidated when only URL query parameters change.
+- Fix MCP HTTP transport using stale auth token instead of reading latest from state, and retry initialization with token refresh on 403/4xx errors.
+- Fix MCP initialize request sending server config name as client name instead of "ECA".
 
 ## 0.115.2
 
