@@ -50,25 +50,41 @@
 (defn- session-state
   "Builds the session state map used for both GET /session and SSE session:connected."
   [db config]
-  {:version (config/eca-version)
-   :protocolVersion "1.0"
-   :workspaceFolders (mapv #(shared/uri->filename (:uri %)) (:workspace-folders db))
-   :models (mapv (fn [[id _]] {:id id :name id :provider (first (shared/full-model->provider+model id))})
-                 (:models db))
-   :agents (mapv (fn [name] {:id name :name name :description (get-in config [:agent name :description])})
-                 (config/primary-agent-names config))
-   :mcpServers (mapv (fn [[name client-info]]
-                       {:name name :status (or (:status client-info) "unknown")})
-                     (:mcp-clients db))
-   :chats (->> (vals (:chats db))
-               (remove :subagent)
-               (mapv (fn [chat]
-                       (camel-keys
-                        {:id (:id chat)
-                         :title (:title chat)
-                         :status (or (:status chat) :idle)
-                         :created-at (:created-at chat)
-                         :messages (or (:messages chat) [])}))))})
+  (let [last-config (:last-config-notified db)
+        default-model (or (get-in last-config [:chat :select-model])
+                          (f.chat/default-model db config))
+        default-agent-name (or (get-in last-config [:chat :select-agent])
+                               (config/validate-agent-name
+                                (or (:defaultAgent (:chat config))
+                                    (:defaultAgent config))
+                                config))
+        variants (or (get-in last-config [:chat :variants]) [])
+        selected-variant (get-in last-config [:chat :select-variant])]
+    {:version (config/eca-version)
+     :protocolVersion "1.0"
+     :workspaceFolders (mapv #(shared/uri->filename (:uri %)) (:workspace-folders db))
+     :models (mapv (fn [[id _]] {:id id :name id :provider (first (shared/full-model->provider+model id))})
+                   (:models db))
+     :agents (mapv (fn [name] {:id name :name name :description (get-in config [:agent name :description])})
+                   (config/primary-agent-names config))
+     :mcpServers (mapv (fn [[name client-info]]
+                         {:name name :status (or (:status client-info) "unknown")})
+                       (:mcp-clients db))
+     :chats (->> (vals (:chats db))
+                 (remove :subagent)
+                 (mapv (fn [chat]
+                         (camel-keys
+                          {:id (:id chat)
+                           :title (:title chat)
+                           :status (or (:status chat) :idle)
+                           :created-at (:created-at chat)
+                           :messages (or (:messages chat) [])}))))
+     :welcomeMessage (or (:welcomeMessage (:chat config))
+                         (:welcomeMessage config))
+     :selectModel default-model
+     :selectAgent default-agent-name
+     :variants variants
+     :selectedVariant selected-variant}))
 
 ;; --- Health & Redirect ---
 
