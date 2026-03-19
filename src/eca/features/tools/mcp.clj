@@ -155,7 +155,7 @@
                                               name (count tools)))
                          (on-tools-change tools))
         client (pmc/make-mcp-client
-                {:info (pes/make-info name "current")
+                {:info (pes/make-info "ECA" (config/eca-version) "Editor Code Assistant")
                  :client-transport transport
                  :primitives {:roots (mapv #(pcap/make-root-item (:uri %)
                                                                  {:name (:name %)})
