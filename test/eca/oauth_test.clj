@@ -330,3 +330,35 @@
                                {:status 404}))]
       (let [info (oauth/oauth-info "https://example.com/mcp" nil)]
         (is (= oauth/eca-client-id (:client-id info)))))))
+
+(deftest url-without-query-test
+  (testing "strips query string"
+    (is (= "https://mcp.example.com/v1"
+           (oauth/url-without-query "https://mcp.example.com/v1?token=x&debug=true"))))
+
+  (testing "strips fragment"
+    (is (= "https://mcp.example.com/v1"
+           (oauth/url-without-query "https://mcp.example.com/v1#section"))))
+
+  (testing "strips both query and fragment"
+    (is (= "https://mcp.example.com/v1"
+           (oauth/url-without-query "https://mcp.example.com/v1?a=1#frag"))))
+
+  (testing "returns URL unchanged when no query or fragment"
+    (is (= "https://mcp.example.com/v1/mcp"
+           (oauth/url-without-query "https://mcp.example.com/v1/mcp"))))
+
+  (testing "preserves port"
+    (is (= "https://mcp.example.com:8443/v1"
+           (oauth/url-without-query "https://mcp.example.com:8443/v1?key=val"))))
+
+  (testing "different paths are distinct"
+    (is (not= (oauth/url-without-query "https://mcp.example.com/v1")
+              (oauth/url-without-query "https://mcp.example.com/v2"))))
+
+  (testing "different hosts are distinct"
+    (is (not= (oauth/url-without-query "https://a.example.com/v1")
+              (oauth/url-without-query "https://b.example.com/v1"))))
+
+  (testing "returns nil for nil input"
+    (is (nil? (oauth/url-without-query nil)))))

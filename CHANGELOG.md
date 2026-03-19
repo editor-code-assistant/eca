@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix MCP server auth being invalidated when only URL query parameters change.
+
 ## 0.115.2
 
 - Fix STDIO MCP server deadlock caused by list_changed notification handlers blocking the reader thread.

@@ -342,8 +342,9 @@
             ;; Skip OAuth entirely if Authorization header is configured
             has-static-auth? (some-> server-config :headers :Authorization some?)
             mcp-auth (get-in @db* [:mcp-auth name])
-            ;; Invalidate cached credentials when URL changed
-            mcp-auth (when (= url (:url mcp-auth)) mcp-auth)
+            ;; Invalidate cached credentials when base URL changed (ignore query params)
+            mcp-auth (when (= (oauth/url-without-query url)
+                              (oauth/url-without-query (:url mcp-auth))) mcp-auth)
             has-token? (some? (:access-token mcp-auth))
             token-expired? (token-expired? (:expires-at mcp-auth))
             ;; Try to refresh if token exists but is expired

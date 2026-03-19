@@ -51,6 +51,15 @@
          (when (pos? (.getPort uri))
            (str ":" (.getPort uri))))))
 
+(defn url-without-query
+  "Strip query string and fragment from a URL, preserving scheme, authority and path.
+   E.g., 'https://api.example.com/v1/mcp?token=x#frag' -> 'https://api.example.com/v1/mcp'
+   Returns nil for nil input."
+  [^String url]
+  (when url
+    (let [uri (java.net.URI. url)]
+      (str (.getScheme uri) "://" (.getAuthority uri) (.getPath uri)))))
+
 (defn get-free-port []
   (let [socket (java.net.ServerSocket. 0)
         port (.getLocalPort socket)]
