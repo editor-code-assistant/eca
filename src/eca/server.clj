@@ -9,6 +9,8 @@
    [eca.metrics :as metrics]
    [eca.nrepl :as nrepl]
    [eca.opentelemetry :as opentelemetry]
+   [eca.remote.messenger :as remote.messenger]
+   [eca.remote.server :as remote.server]
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
    [jsonrpc4clj.liveness-probe :as liveness-probe]
@@ -20,9 +22,13 @@
   [_level & args]
   (apply logger/info args))
 
+(def ^:private remote-server* (atom nil))
+
 (defn ^:private exit [server]
   (metrics/task
     :eca/exit
+    (when-let [rs @remote-server*]
+      (remote.server/stop! rs))
     (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
     (shutdown-agents)
     (System/exit 0)))
@@ -140,6 +146,8 @@
   (chat-cleared [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/cleared" params)))
+  (chat-status-changed [_this _params])
+  (chat-deleted [_this _params])
   (rewrite-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))
@@ -164,12 +172,22 @@
 (defn start-server! [server]
   (let [db* (atom db/initial-db)
         metrics (->Metrics db*)
+        stdio-messenger (->ServerMessenger server db*)
+        remote-config (:remote (config/read-file-configs))
+        sse-connections* (when (:enabled remote-config)
+                           (atom #{}))
+        messenger (if sse-connections*
+                    (remote.messenger/->BroadcastMessenger stdio-messenger sse-connections*)
+                    stdio-messenger)
         components {:db* db*
-                    :messenger (->ServerMessenger server db*)
+                    :messenger messenger
                     :metrics metrics
                     :server server}]
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
+    (when sse-connections*
+      (when-let [rs (remote.server/start! components)]
+        (reset! remote-server* rs)))
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)
     (jsonrpc.server/start server components)))

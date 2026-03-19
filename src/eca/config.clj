@@ -196,6 +196,7 @@
    :netrcFile nil
    :autoCompactPercentage 75
    :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
+   :remote {:enabled false}
    :env "prod"})
 
 (defn ^:private parse-dynamic-string-values

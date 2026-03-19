@@ -383,7 +383,7 @@
    Run preRequest hooks before any heavy lifting.
    Only :prompt-message supports rewrite, other only allow additionalContext append."
   [user-messages source-type
-   {:keys [db* config chat-id provider model full-model agent instructions metrics message] :as chat-ctx}]
+   {:keys [db* config chat-id provider model full-model agent instructions metrics message messenger] :as chat-ctx}]
   (when-not full-model
     (throw (ex-info llm-api/no-available-model-error-msg {})))
   (let [original-text (or message (-> user-messages first :content first :text))
@@ -432,6 +432,7 @@
         (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
+      (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (swap! db* assoc-in [:chats chat-id :prompt-id] prompt-id)
       (swap! db* assoc-in [:chats chat-id :model] full-model)
       (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
@@ -925,7 +926,7 @@
       (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect)))))
 
 (defn delete-chat
-  [{:keys [chat-id]} db* config metrics]
+  [{:keys [chat-id]} db* messenger config metrics]
   (when-let [chat (get-in @db* [:chats chat-id])]
     ;; Trigger chatEnd hook BEFORE deleting (chat still exists in cache)
     (f.hooks/trigger-if-matches! :chatEnd
@@ -938,6 +939,7 @@
                                  config))
   ;; Delete chat from memory
   (swap! db* update :chats dissoc chat-id)
+  (messenger/chat-deleted messenger {:chat-id chat-id})
   ;; Save updated cache (without this chat)
   (db/update-workspaces-cache! @db* metrics))
 

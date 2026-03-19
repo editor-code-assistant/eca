@@ -332,6 +332,41 @@
         ]
       }
     },
+    "remote": {
+      "type": "object",
+      "description": "Remote web control server configuration. When enabled, starts an embedded HTTP server allowing a web frontend (web.eca.dev) to observe and control chat sessions in real-time.",
+      "markdownDescription": "Remote web control server configuration. When enabled, starts an embedded HTTP server allowing a web frontend (`web.eca.dev`) to observe and control chat sessions in real-time.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enables the remote HTTP server.",
+          "markdownDescription": "Enables the remote HTTP server."
+        },
+        "host": {
+          "type": "string",
+          "description": "Host used in the logged URL for web.eca.dev to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via InetAddress/getLocalHost.",
+          "markdownDescription": "Host used in the logged URL for `web.eca.dev` to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via `InetAddress/getLocalHost`.",
+          "examples": [
+            "192.168.1.42",
+            "myserver.example.com"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "description": "Port the HTTP server listens on. When unset, a random free port is used.",
+          "markdownDescription": "Port the HTTP server listens on. When unset, a random free port is used.",
+          "examples": [
+            7888
+          ]
+        },
+        "password": {
+          "type": "string",
+          "description": "Auth token for Bearer authentication. When unset, a 32-byte hex token is auto-generated and logged to stderr.",
+          "markdownDescription": "Auth token for Bearer authentication. When unset, a 32-byte hex token is auto-generated and logged to stderr."
+        }
+      }
+    },
     "network": {
       "type": "object",
       "description": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",
