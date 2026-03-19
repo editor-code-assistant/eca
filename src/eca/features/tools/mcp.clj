@@ -61,7 +61,7 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
-(defn ^:private ->transport [server-name server-config workspaces db]
+(defn ^:private ->transport [server-name server-config workspaces db*]
   (if (:url server-config)
     ;; HTTP Streamable transport
     (let [needs-reinit?* (atom false)
@@ -75,7 +75,7 @@
                                            [(name k) (replace-env-vars (str v))]))
                                  config-headers))
                    (update :headers merge
-                           (when-let [access-token (get-in db [:mcp-auth server-name :access-token])]
+                           (when-let [access-token (get-in @db* [:mcp-auth server-name :access-token])]
                              {"Authorization" (str "Bearer " access-token)}))))
           hc (phc/make-http-client url (cond-> {:request-middleware rm}
                                          ssl-ctx (assoc :ssl-context ssl-ctx)))]
@@ -369,7 +369,7 @@
                                     (swap! db* assoc-in [:mcp-clients name :tools] tools)
                                     (on-server-updated (->server name server-config :running @db*))))]
             (loop [attempt 1]
-              (let [{:keys [transport needs-reinit?*]} (->transport name server-config workspaces db)
+              (let [{:keys [transport needs-reinit?*]} (->transport name server-config workspaces db*)
                     result (try
                              (let [client (->client name transport init-timeout workspaces
                                                     {:on-tools-change on-tools-change})
@@ -385,10 +385,16 @@
                                (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
                                (if (and needs-reinit?* @needs-reinit?*)
                                  (do (try (pp/stop-client-transport! transport false) (catch Exception _))
-                                     (logger/error logger-tag (format "MCP server '%s' transport error during initialization" name))
-                                     (swap! db* assoc-in [:mcp-clients name :status] :failed)
-                                     (on-server-updated (->server name server-config :failed @db*))
-                                     :failed)
+                                     (if (< attempt max-init-retries)
+                                       (do (logger/warn logger-tag
+                                             (format "MCP server '%s' transport error during initialization (attempt %d/%d), retrying"
+                                                     name attempt max-init-retries))
+                                           (try-refresh-token! name db* url metrics server-config)
+                                           :retry)
+                                       (do (logger/error logger-tag (format "MCP server '%s' transport error during initialization" name))
+                                           (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                                           (on-server-updated (->server name server-config :failed @db*))
+                                           :failed)))
                                  (do (swap! db* assoc-in [:mcp-clients name :status] :running)
                                      (on-server-updated (->server name server-config :running @db*))
                                      (logger/info logger-tag (format "Started MCP server %s" name))

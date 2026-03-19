@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix MCP server auth being invalidated when only URL query parameters change.
+- Fix MCP HTTP transport using stale auth token instead of reading latest from state, and retry initialization with token refresh on 403/4xx errors.
 
 ## 0.115.2
 
