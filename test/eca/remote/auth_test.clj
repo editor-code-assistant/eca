@@ -5,10 +5,10 @@
    [eca.remote.auth :as auth]))
 
 (deftest generate-token-test
-  (testing "generates a 64-character hex string"
+  (testing "generates a 5-character alphanumeric string"
     (let [token (auth/generate-token)]
-      (is (= 64 (count token)))
-      (is (re-matches #"[0-9a-f]{64}" token))))
+      (is (= 5 (count token)))
+      (is (re-matches #"[a-z0-9]{5}" token))))
 
   (testing "generates unique tokens"
     (let [tokens (repeatedly 10 auth/generate-token)]
