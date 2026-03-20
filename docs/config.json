@@ -354,10 +354,10 @@
         },
         "port": {
           "type": "integer",
-          "description": "Port the HTTP server listens on. When unset, a random free port is used.",
-          "markdownDescription": "Port the HTTP server listens on. When unset, a random free port is used.",
+          "description": "Port the HTTP server listens on. When unset, tries port 6666, then 6667, 6668, etc. up to 10 attempts.",
+          "markdownDescription": "Port the HTTP server listens on. When unset, tries port `6666`, then `6667`, `6668`, etc. up to 10 attempts.",
           "examples": [
-            7888
+            6666
           ]
         },
         "password": {
