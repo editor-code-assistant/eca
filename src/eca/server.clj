@@ -174,7 +174,7 @@
     (metrics/->NoopMetrics)))
 
 (defn start-server! [server]
-  (let [db* (atom db/initial-db)
+  (let [db* (atom (assoc db/initial-db :started-at (System/currentTimeMillis)))
         metrics (->Metrics db*)
         stdio-messenger (->ServerMessenger server db*)
         ;; Read remote config from file-based sources (global/env/custom).

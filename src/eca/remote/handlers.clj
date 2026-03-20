@@ -12,7 +12,8 @@
    [eca.shared :as shared]
    [ring.core.protocols :as ring.protocols])
   (:import
-   [java.io InputStream]))
+   [java.io InputStream]
+   [java.time Instant]))
 
 (set! *warn-on-reflection* true)
 
@@ -76,7 +77,9 @@
                            :title (:title chat)
                            :status (or (:status chat) :idle)
                            :created-at (:created-at chat)
-                           :messages (or (:messages chat) [])}))))
+                           :updated-at (:updated-at chat)}))))
+     :startedAt (when-let [ms (:started-at db)]
+                  (.toString (Instant/ofEpochMilli ^long ms)))
      :welcomeMessage (handlers/welcome-message db config)
      :selectModel default-model
      :selectAgent default-agent-name
@@ -100,11 +103,12 @@
 (defn handle-list-chats [{:keys [db*]} _request]
   (let [chats (->> (vals (:chats @db*))
                    (remove :subagent)
-                   (mapv (fn [{:keys [id title status created-at]}]
+                   (mapv (fn [{:keys [id title status created-at updated-at]}]
                            {:id id
                             :title title
                             :status (or status :idle)
-                            :createdAt created-at})))]
+                            :createdAt created-at
+                            :updatedAt updated-at})))]
     (json-response chats)))
 
 (defn handle-get-chat [{:keys [db*]} _request chat-id]
@@ -115,6 +119,7 @@
        :title (:title chat)
        :status (or (:status chat) :idle)
        :created-at (:created-at chat)
+       :updated-at (:updated-at chat)
        :messages (or (:messages chat) [])
        :tool-calls (or (:tool-calls chat) {})
        :task (:task chat)}))
