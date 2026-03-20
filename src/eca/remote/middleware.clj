@@ -36,13 +36,3 @@
          :body nil}
         (let [response (handler request)]
           (update response :headers merge headers))))))
-
-(defn wrap-json-content-type
-  "Ring middleware that sets default JSON content-type on responses
-   that don't already have one."
-  [handler]
-  (fn [request]
-    (let [response (handler request)]
-      (if (get-in response [:headers "Content-Type"])
-        response
-        (assoc-in response [:headers "Content-Type"] "application/json; charset=utf-8")))))

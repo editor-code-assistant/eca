@@ -1,6 +1,5 @@
 (ns eca.remote.sse-test
   (:require
-   [cheshire.core :as json]
    [clojure.core.async :as async]
    [clojure.test :refer [deftest is testing]]
    [eca.remote.sse :as sse])

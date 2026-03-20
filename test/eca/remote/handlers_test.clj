@@ -1,9 +1,8 @@
 (ns eca.remote.handlers-test
   (:require
    [cheshire.core :as json]
-   [clojure.test :refer [deftest is testing use-fixtures]]
+   [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.db :as db]
    [eca.remote.handlers :as handlers]
    [eca.test-helper :as h]))
 
