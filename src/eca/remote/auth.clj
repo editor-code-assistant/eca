@@ -7,13 +7,14 @@
 
 (set! *warn-on-reflection* true)
 
+(def ^:private alphanumeric "abcdefghijklmnopqrstuvwxyz0123456789")
+
 (defn generate-token
-  "Generates a cryptographically random 32-byte hex token (64 characters)."
+  "Generates a random 5-character alphanumeric password."
   []
   (let [random (SecureRandom.)
-        bytes (byte-array 32)]
-    (.nextBytes random bytes)
-    (apply str (map #(format "%02x" (bit-and % 0xff)) bytes))))
+        len (count alphanumeric)]
+    (apply str (repeatedly 5 #(nth alphanumeric (.nextInt random len))))))
 
 (def ^:private unauthorized-response
   {:status 401

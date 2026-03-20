@@ -81,7 +81,7 @@
                 heartbeat-ch (sse/start-heartbeat! sse-connections*)
                 connect-url (str "https://web.eca.dev?host="
                                  host-with-port
-                                 "&token=" token)]
+                                 "&pass=" token)]
             (logger/info logger-tag (str "🌐 Remote server started on port " actual-port))
             (logger/info logger-tag (str "🔗 " connect-url))
             {:server jetty-server

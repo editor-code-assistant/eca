@@ -87,9 +87,9 @@
      :trust (boolean (:trust db))
      :selectedVariant selected-variant}))
 
-(defn handle-root [_components _request {:keys [host token]}]
+(defn handle-root [_components _request {:keys [host password]}]
   {:status 302
-   :headers {"Location" (str "https://web.eca.dev?host=" host "&token=" token)}
+   :headers {"Location" (str "https://web.eca.dev?host=" host "&pass=" password)}
    :body nil})
 
 (defn handle-health [_components _request]

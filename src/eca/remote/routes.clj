@@ -21,7 +21,7 @@
         segments (path-segments (:uri request))]
     (case segments
       [] (when (= :get method)
-           [handlers/handle-root components request {:host @host* :token token}])
+           [handlers/handle-root components request {:host @host* :password token}])
 
       ["api" "v1" "health"]
       (when (= :get method)
