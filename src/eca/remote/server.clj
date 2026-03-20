@@ -18,7 +18,7 @@
 
 (def ^:private default-port
   "Base port for the remote server when no explicit port is configured."
-  6666)
+  7777)
 
 (def ^:private max-port-attempts
   "Number of sequential ports to try before giving up."
