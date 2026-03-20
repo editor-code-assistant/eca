@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add remote web control server for browser-based chat observation and control via `web.eca.dev`. #333
+- Show remote connect URL in welcome message when remote server is enabled.
 
 ## 0.115.5
 

@@ -16,7 +16,7 @@
 
 (set! *warn-on-reflection* true)
 
-(defn- parse-body [request]
+(defn ^:private parse-body [request]
   (when-let [body (:body request)]
     (try
       (json/parse-string
@@ -26,28 +26,26 @@
        true)
       (catch Exception _e nil))))
 
-(defn- json-response
+(defn ^:private json-response
   ([status body]
    {:status status
     :headers {"Content-Type" "application/json; charset=utf-8"}
     :body (json/generate-string body)})
   ([body] (json-response 200 body)))
 
-(defn- error-response [status code message]
+(defn ^:private error-response [status code message]
   (json-response status {:error {:code code :message message}}))
 
-(defn- no-content []
+(defn ^:private no-content []
   {:status 204 :headers {} :body nil})
 
-(defn- chat-or-404 [db* chat-id]
+(defn ^:private chat-or-404 [db* chat-id]
   (get-in @db* [:chats chat-id]))
 
-(defn- camel-keys [m]
+(defn ^:private camel-keys [m]
   (shared/map->camel-cased-map m))
 
-;; --- Shared ---
-
-(defn- session-state
+(defn ^:private session-state
   "Builds the session state map used for both GET /session and SSE session:connected."
   [db config]
   (let [last-config (:last-config-notified db)
@@ -79,14 +77,12 @@
                            :status (or (:status chat) :idle)
                            :created-at (:created-at chat)
                            :messages (or (:messages chat) [])}))))
-     :welcomeMessage (or (:welcomeMessage (:chat config))
-                         (:welcomeMessage config))
+     :welcomeMessage (handlers/welcome-message db config)
      :selectModel default-model
      :selectAgent default-agent-name
      :variants variants
+     :trust (boolean (:trust db))
      :selectedVariant selected-variant}))
-
-;; --- Health & Redirect ---
 
 (defn handle-root [_components _request {:keys [host token]}]
   {:status 302
@@ -96,14 +92,10 @@
 (defn handle-health [_components _request]
   (json-response {:status "ok" :version (config/eca-version)}))
 
-;; --- Session ---
-
 (defn handle-session [{:keys [db*]} _request]
   (let [db @db*
         config (config/all db)]
     (json-response (session-state db config))))
-
-;; --- Chats ---
 
 (defn handle-list-chats [{:keys [db*]} _request]
   (let [chats (->> (vals (:chats @db*))
@@ -128,8 +120,6 @@
        :task (:task chat)}))
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))))
 
-;; --- Chat Actions ---
-
 (defn handle-prompt [{:keys [db*] :as components} request chat-id]
   (let [body (parse-body request)]
     (if-not (:message body)
@@ -139,7 +129,8 @@
                             :message (:message body)}
                      (:model body) (assoc :model (:model body))
                      (:agent body) (assoc :agent (:agent body))
-                     (:variant body) (assoc :variant (:variant body)))
+                     (:variant body) (assoc :variant (:variant body))
+                     (:trust body) (assoc :trust (:trust body)))
             result (handlers/chat-prompt (assoc components :config config) params)]
         (json-response (camel-keys result))))))
 
@@ -241,7 +232,32 @@
             :variant (:variant body)})
           (no-content))))))
 
-;; --- SSE Events ---
+(defn handle-set-trust [{:keys [db*]} request {:keys [sse-connections*]}]
+  (let [body (parse-body request)
+        trust (boolean (:trust body))]
+    (swap! db* assoc :trust trust)
+    (sse/broadcast! sse-connections* "trust:updated" {:trust trust})
+    (json-response {:trust trust})))
+
+(defn handle-mcp-start [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)]
+    (handlers/mcp-start-server (assoc components :config config) {:name server-name})
+    (no-content)))
+
+(defn handle-mcp-stop [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)]
+    (handlers/mcp-stop-server (assoc components :config config) {:name server-name})
+    (no-content)))
+
+(defn handle-mcp-connect [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)]
+    (handlers/mcp-connect-server (assoc components :config config) {:name server-name})
+    (no-content)))
+
+(defn handle-mcp-logout [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)]
+    (handlers/mcp-logout-server (assoc components :config config) {:name server-name})
+    (no-content)))
 
 (deftype SSEBody [db* sse-connections*]
   ring.protocols/StreamableResponseBody

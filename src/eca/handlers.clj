@@ -42,6 +42,15 @@
     (when (and agent-variant variants (some #{agent-variant} variants))
       agent-variant)))
 
+(defn welcome-message
+  "Builds the welcome message from config, appending the remote URL when available."
+  [db config]
+  (let [base (or (:welcomeMessage (:chat config)) ;;legacy
+                 (:welcomeMessage config))]
+    (if-let [url (:remote-connect-url db)]
+      (str base "\n🌐 Remote: " url "\n")
+      base)))
+
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
@@ -54,8 +63,7 @@
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
-      {:chat-welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
-                                 (:welcomeMessage config))})))
+      {:chat-welcome-message (welcome-message @db* config)})))
 
 (defn initialized [{:keys [db* messenger config metrics]}]
   (metrics/task metrics :eca/initialized
@@ -81,8 +89,7 @@
                                                        :select-agent default-agent-name
                                                        :variants (or variants [])
                                                        :select-variant (select-variant default-agent-config variants)
-                                                       :welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
-                                                                            (:welcomeMessage config))
+                                                       :welcome-message (welcome-message @db* config)
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
                                                        :default-model default-model
                                                        :default-agent default-agent-name

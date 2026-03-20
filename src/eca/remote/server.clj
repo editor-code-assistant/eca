@@ -9,30 +9,44 @@
    [eca.remote.sse :as sse]
    [ring.adapter.jetty :as jetty])
   (:import
-   [java.net BindException InetAddress]
+   [java.net BindException Inet4Address InetAddress NetworkInterface]
    [org.eclipse.jetty.server NetworkConnector Server]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[REMOTE]")
 
-(defn- detect-host
-  "Auto-detects the LAN IP via InetAddress/getLocalHost.
-   Falls back to 127.0.0.1 if detection fails or returns loopback."
+(defn ^:private detect-lan-ip
+  "Enumerates network interfaces to find a site-local (private) IPv4 address.
+   Returns the IP string or nil when none is found."
   []
   (try
-    (let [addr (InetAddress/getLocalHost)
-          host (.getHostAddress addr)]
-      (if (.isLoopbackAddress addr)
-        (do (logger/warn logger-tag "Auto-detected loopback address. Consider setting remote.host in config.")
-            "127.0.0.1")
-        host))
-    (catch Exception e
-      (logger/warn logger-tag "Failed to detect LAN IP:" (.getMessage e)
-                   "Consider setting remote.host in config.")
-      "127.0.0.1")))
+    (->> (enumeration-seq (NetworkInterface/getNetworkInterfaces))
+         (filter (fn [^NetworkInterface ni]
+                   (and (.isUp ni)
+                        (not (.isLoopback ni)))))
+         (mapcat (fn [^NetworkInterface ni]
+                   (enumeration-seq (.getInetAddresses ni))))
+         (filter (fn [^InetAddress addr]
+                   (and (instance? Inet4Address addr)
+                        (.isSiteLocalAddress addr))))
+         (some (fn [^InetAddress addr] (.getHostAddress addr))))
+    (catch Exception _ nil)))
 
-(defn- resolve-port
+(defn ^:private detect-host
+  "Auto-detects the LAN IP by scanning network interfaces for a private IPv4 address.
+   Falls back to InetAddress/getLocalHost, then 127.0.0.1."
+  []
+  (or (detect-lan-ip)
+      (try
+        (let [addr (InetAddress/getLocalHost)
+              host (.getHostAddress addr)]
+          (when-not (.isLoopbackAddress addr) host))
+        (catch Exception _ nil))
+      (do (logger/warn logger-tag "Could not detect LAN IP. Consider setting remote.host in config.")
+          "127.0.0.1")))
+
+(defn ^:private resolve-port
   "Returns the configured port, or 0 for auto-assignment."
   [remote-config]
   (or (:port remote-config) 0))
@@ -74,7 +88,8 @@
              :sse-connections* sse-connections*
              :heartbeat-stop-ch heartbeat-ch
              :token token
-             :host host-with-port})
+             :host host-with-port
+             :connect-url connect-url})
           (catch BindException e
             (logger/warn logger-tag "Port" port "is already in use:" (.getMessage e)
                          "Remote server will not start.")

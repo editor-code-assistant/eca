@@ -146,8 +146,12 @@
   (chat-cleared [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/cleared" params)))
-  (chat-status-changed [_this _params])
-  (chat-deleted [_this _params])
+  (chat-status-changed [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/statusChanged" params)))
+  (chat-deleted [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/deleted" params)))
   (rewrite-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))
@@ -189,7 +193,8 @@
     (metrics/start! metrics)
     (when sse-connections*
       (when-let [rs (remote.server/start! components sse-connections*)]
-        (reset! remote-server* rs)))
+        (reset! remote-server* rs)
+        (swap! db* assoc :remote-connect-url (:connect-url rs))))
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)
     (jsonrpc.server/start server components)))
