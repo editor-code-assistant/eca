@@ -9,6 +9,7 @@
    [eca.remote.sse :as sse]
    [ring.adapter.jetty :as jetty])
   (:import
+   [java.io IOException]
    [java.net BindException Inet4Address InetAddress NetworkInterface]
    [org.eclipse.jetty.server NetworkConnector Server]))
 
@@ -56,12 +57,12 @@
 
 (defn ^:private try-start-jetty
   "Attempts to start Jetty on the given port. Returns the Server on success,
-   nil on BindException."
+   nil when the port is already in use (BindException or Jetty's wrapping IOException)."
   ^Server [handler port]
   (try
     (jetty/run-jetty handler {:port port :host "0.0.0.0" :join? false})
-    (catch BindException _
-      nil)))
+    (catch BindException _ nil)
+    (catch IOException _ nil)))
 
 (defn ^:private start-with-retry
   "Tries sequential ports starting from base-port up to max-port-attempts.
