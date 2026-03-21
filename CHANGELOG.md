@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when content was partially received.
+
 ## 0.115.5
 
 - Fix chat getting stuck when LLM streaming connection hangs or is cancelled.

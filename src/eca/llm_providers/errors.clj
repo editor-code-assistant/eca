@@ -121,7 +121,9 @@
      :unknown           — unclassified error"
   ([error-data] (classify-error error-data nil))
   ([{:keys [status exception] :as error-data} retry-rules]
-   (or (classify-by-custom-rules error-data retry-rules)
+   (or (when-let [pre-type (:error/type error-data)]
+         {:error/type pre-type})
+       (classify-by-custom-rules error-data retry-rules)
        (when status
          (classify-by-status-and-body error-data))
        (classify-by-message error-data)
@@ -135,7 +137,7 @@
   (= :context-overflow (:error/type (classify-error error-data))))
 
 (def ^:private retryable-error-types
-  #{:rate-limited :overloaded :retryable-custom})
+  #{:rate-limited :overloaded :retryable-custom :premature-stop})
 
 (defn retryable?
   "Returns true if the error is transient and the request can be retried
