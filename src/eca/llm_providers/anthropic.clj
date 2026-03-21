@@ -104,7 +104,8 @@
                        :body body-str}))
           (if on-stream
             (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
-                  (llm-util/start-stream-watchdog! body cancelled? {})]
+                  (llm-util/start-stream-watchdog! body cancelled? {})
+                  completed?* (atom false)]
               (try
                 (with-open [rdr (io/reader body)]
                   (doseq [[event data] (llm-util/event-data-seq rdr)]
@@ -112,7 +113,19 @@
                     (touch-fn)
                     (llm-util/log-response logger-tag rid event data)
                     (on-stream event data content-block* reason-id*)
-                    (set-reading-fn true)))
+                    (set-reading-fn true)
+                    (when (= "message_stop" event)
+                      (reset! completed?* true))))
+                (when-not (or @completed?* (cancelled?))
+                  (logger/warn logger-tag "Stream ended without message_stop, retrying")
+                  (on-error {:message "Stream ended without completion signal"
+                             :error/type :premature-stop}))
+                (catch clojure.lang.ExceptionInfo e
+                  (if (= :premature-stop (:error/type (ex-data e)))
+                    (do
+                      (logger/warn logger-tag "Stream ended with empty response, retrying")
+                      (on-error (merge {:message (ex-message e)} (ex-data e))))
+                    (throw e)))
                 (catch java.io.IOException e
                   (let [reason @reason*]
                     (cond
@@ -298,15 +311,20 @@
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)
         context-usage* (atom nil)
+        has-content?* (atom false)
+        has-stop-reason?* (atom false)
         on-stream-fn
         (when stream?
           (fn handle-stream [event data content-block* reason-id*]
             (case event
-              "message_start" (let [usage (-> data :message :usage)]
-                                (reset! context-usage*
-                                        {:input-tokens (or (:input_tokens usage) 0)
-                                         :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
-                                         :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)}))
+              "message_start" (do
+                                (reset! has-content?* false)
+                                (reset! has-stop-reason?* false)
+                                (let [usage (-> data :message :usage)]
+                                  (reset! context-usage*
+                                          {:input-tokens (or (:input_tokens usage) 0)
+                                           :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
+                                           :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)})))
               "content_block_start" (case (-> data :content_block :type)
                                       "thinking" (let [new-id (str (random-uuid))]
                                                    (reset! reason-id* new-id)
@@ -321,11 +339,13 @@
                                                                         :data (-> data :content_block :data)})
                                                             (swap! content-block* assoc (:index data) (:content_block data)))
                                       "tool_use" (do
+                                                   (reset! has-content?* true)
                                                    (on-prepare-tool-call {:full-name (-> data :content_block :name)
                                                                           :id (-> data :content_block :id)
                                                                           :arguments-text ""})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
                                       "server_tool_use" (let [content-block (:content_block data)]
+                                                          (reset! has-content?* true)
                                                           (swap! content-block* assoc (:index data) content-block)
                                                           (on-server-web-search {:status :started
                                                                                   :id (:id content-block)
@@ -342,8 +362,10 @@
                                                                                         :raw-content (:content content-block)}))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
-                                      "text_delta" (on-message-received {:type :text
-                                                                         :text (-> data :delta :text)})
+                                      "text_delta" (do
+                                                     (reset! has-content?* true)
+                                                     (on-message-received {:type :text
+                                                                           :text (-> data :delta :text)}))
                                       "input_json_delta" (let [text (-> data :delta :partial_json)
                                                                _ (swap! content-block* update-in [(:index data) :input-json] str text)
                                                                content-block (get @content-block* (:index data))]
@@ -376,6 +398,8 @@
                                                                                  :input (or input (:input content-block) {})}))
                                       nil))
               "message_delta" (do
+                                (when (-> data :delta :stop_reason)
+                                  (reset! has-stop-reason?* true))
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]
                                   (let [ctx @context-usage*]
@@ -414,13 +438,23 @@
                                                      :cancelled? cancelled?
                                                      :on-error on-error
                                                      :on-stream handle-stream}))))
-                                  "end_turn" (do
-                                               (reset! content-block* {})
-                                               (on-message-received {:type :finish
-                                                                     :finish-reason (-> data :delta :stop_reason)}))
+                                  "end_turn" (if @has-content?*
+                                               (do
+                                                 (reset! content-block* {})
+                                                 (on-message-received {:type :finish
+                                                                       :finish-reason (-> data :delta :stop_reason)}))
+                                               (throw (ex-info "Stream ended with empty response"
+                                                               {:error/type :premature-stop})))
                                   "max_tokens" (on-message-received {:type :limit-reached
                                                                      :tokens (:usage data)})
                                   nil))
+              "message_stop" (when-not @has-stop-reason?*
+                               (if @has-content?*
+                                 (on-message-received {:type :finish
+                                                       :finish-reason "end_turn"
+                                                       :premature? true})
+                                 (throw (ex-info "Stream ended without completion"
+                                                 {:error/type :premature-stop}))))
               "error" (on-error {:message (format "\nAnthropic error response: %s" (:error data))})
               nil)))]
     (base-request!

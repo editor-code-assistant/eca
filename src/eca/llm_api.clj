@@ -28,6 +28,7 @@
   #{"gpt-5.3-codex" "gpt-5.4"})
 
 (def ^:private default-max-retries 10)
+(def ^:private premature-stop-max-retries 3)
 (def ^:private default-base-delay-ms 2000)
 (def ^:private default-backoff-multiplier 2)
 (def ^:private max-delay-ms 60000)
@@ -377,20 +378,23 @@
         retry-rules (:retryRules provider-config)
         maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
-                             :as classified} (llm-providers.errors/classify-error error-data retry-rules)]
-                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom} error-type)
-                                 (< attempt default-max-retries)
+                             :as classified} (llm-providers.errors/classify-error error-data retry-rules)
+                            max-retries (if (= :premature-stop error-type)
+                                          premature-stop-max-retries
+                                          default-max-retries)]
+                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
+                                 (< attempt max-retries)
                                  (not (cancelled?)))
                           (let [delay-ms (retry-delay-ms attempt)]
                             (logger/info logger-tag
                                          (format "Retryable error (attempt %d/%d), retrying in %ds"
-                                                 (inc attempt) default-max-retries (quot delay-ms 1000))
+                                                 (inc attempt) max-retries (quot delay-ms 1000))
                                          {:error-type error-type
                                           :status (:status error-data)})
                             (when on-retry
                               (try
                                 (on-retry {:attempt (inc attempt)
-                                           :max-retries default-max-retries
+                                           :max-retries max-retries
                                            :delay-ms delay-ms
                                            :error-data error-data
                                            :classified classified})

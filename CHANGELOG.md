@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when content was partially received.
 - Add remote web control server for browser-based chat observation and control via `web.eca.dev`. #333
 
 ## 0.115.5

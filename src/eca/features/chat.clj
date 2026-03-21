@@ -497,6 +497,7 @@
                                              (case error-type
                                                :rate-limited "Rate limited"
                                                :overloaded "Provider overloaded"
+                                               :premature-stop "Empty response"
                                                "Transient error"))]
                               (lifecycle/send-content! chat-ctx :system
                                                        {:type :progress
@@ -526,9 +527,27 @@
                                                               :text (str "API limit reached. Tokens: "
                                                                          (json/generate-string (:tokens msg)))})
                                                             (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
-                                         :finish (do (add-to-history! {:role "assistant"
-                                                                       :content [{:type :text :text @received-msgs*}]})
-                                                     (lifecycle/finish-chat-prompt! :idle chat-ctx))))
+                                                                  :finish (do (add-to-history! {:role "assistant"
+                                                                                                :content [{:type :text :text @received-msgs*}]})
+                                                                              (if (and (:premature? msg)
+                                                                                       (not (:auto-continued? chat-ctx))
+                                                                                       (not (:on-finished-side-effect chat-ctx)))
+                                                                                (do
+                                                                                  (logger/info logger-tag "Premature stream stop detected, auto-continuing" {:chat-id chat-id})
+                                                                                  (lifecycle/send-content! chat-ctx :system
+                                                                                    {:type :text :text "Response was interrupted. Continuing..."})
+                                                                                  (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                                                                  (lifecycle/finish-chat-prompt! :idle
+                                                                                    (assoc chat-ctx :on-finished-side-effect
+                                                                                      (fn []
+                                                                                        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
+                                                                                        (prompt-messages!
+                                                                                          [{:role "user"
+                                                                                            :content [{:type :text
+                                                                                                       :text "Your previous response was interrupted mid-stream. Continue from where you left off."}]}]
+                                                                                          :auto-continue
+                                                                                          (assoc chat-ctx :auto-continued? true))))))
+                                                                                (lifecycle/finish-chat-prompt! :idle chat-ctx)))))
                 :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                         (lifecycle/assert-chat-not-stopped! chat-ctx)
                                         (let [all-tools (f.tools/all-tools chat-id agent @db* config)
