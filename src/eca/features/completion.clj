@@ -74,7 +74,7 @@
       (do
         (logger/error logger-tag "Error when requesting completion: %s" (:exception error))
         {:error {:type :warning
-                 :message (:message (.getMessage ^Exception (:exception error)))}})
+                 :message (.getMessage ^Exception (:exception error))}})
 
       (not output-text)
       {:error {:type :info
