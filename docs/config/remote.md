@@ -32,7 +32,11 @@ Minimal setup — just enable it and ECA handles the rest:
 }
 ```
 
-When the server starts, ECA logs the connection URL and auth token to stderr and welcome message.
+When the server starts, ECA logs the connection URL and auth token to stderr and welcome message. The URL is a deep-link that you can open directly in the browser:
+
+```
+https://web.eca.dev?host=192.168.1.42:7777&pass=a3f8b2c1...&protocol=https
+```
 
 ## Connection Methods
 
@@ -96,3 +100,11 @@ For users without Tailscale, you can run the web frontend locally in the LAN (us
     **Tailscale** solves both problems by providing valid HTTPS certificates for your machine within your private network.
 
     **LAN mode** sidesteps both problems by serving the frontend locally over HTTP — since both the page and ECA are on `localhost` over HTTP, no security policies are triggered.
+
+## Web UI
+
+The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).
+
+**Auto-discovery** — When you enter a host and click "Discover", the web UI scans ports `7777`–`7787` in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.
+
+**Multi-session** — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar, letting you switch between sessions.
