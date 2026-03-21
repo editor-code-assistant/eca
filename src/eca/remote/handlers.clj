@@ -87,10 +87,13 @@
      :trust (boolean (:trust db))
      :selectedVariant selected-variant}))
 
-(defn handle-root [_components _request {:keys [host password]}]
-  {:status 302
-   :headers {"Location" (str "https://web.eca.dev?host=" host "&pass=" password)}
-   :body nil})
+(defn handle-root [{:keys [db*]} _request {:keys [host password]}]
+  (let [url (if (:remote-private-host? @db*)
+              "https://eca.dev/config/remote"
+              (str "https://web.eca.dev?host=" host "&pass=" password))]
+    {:status 302
+     :headers {"Location" url}
+     :body nil}))
 
 (defn handle-health [_components _request]
   (json-response {:status "ok" :version (config/eca-version)}))

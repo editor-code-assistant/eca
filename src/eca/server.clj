@@ -194,7 +194,10 @@
     (when sse-connections*
       (when-let [rs (remote.server/start! components sse-connections*)]
         (reset! remote-server* rs)
-        (swap! db* assoc :remote-connect-url (:connect-url rs))))
+        (swap! db* assoc
+               :remote-connect-url (:connect-url rs)
+               :remote-host (:host rs)
+               :remote-private-host? (:private-host? rs))))
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)
     (jsonrpc.server/start server components)))

@@ -47,9 +47,12 @@
   [db config]
   (let [base (or (:welcomeMessage (:chat config)) ;;legacy
                  (:welcomeMessage config))]
-    (if-let [url (:remote-connect-url db)]
-      (str base "\n🌐 Remote: " url "\n")
-      base)))
+    (if (:remote-private-host? db)
+      (str base "\n🌐 Remote: `http://" (:remote-host db)
+           "` · [setup guide](https://eca.dev/config/remote)\n")
+      (if-let [url (:remote-connect-url db)]
+        (str base "\n🌐 Remote: " url "\n")
+        base))))
 
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize

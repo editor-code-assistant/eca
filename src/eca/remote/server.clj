@@ -55,6 +55,14 @@
       (do (logger/warn logger-tag "Could not detect LAN IP. Consider setting remote.host in config.")
           "127.0.0.1")))
 
+(defn ^:private private-ip?
+  "Returns true if the given IP string is a private/local address
+   (10.x.x.x, 172.16-31.x.x, 192.168.x.x, or 127.x.x.x)."
+  [^String ip]
+  (try
+    (.isSiteLocalAddress (InetAddress/getByName ip))
+    (catch Exception _ false)))
+
 (defn ^:private try-start-jetty
   "Attempts to start Jetty on the given port. Returns the Server on success,
    nil when the port is already in use (BindException or Jetty's wrapping IOException)."
@@ -114,16 +122,22 @@
             (let [host-with-port (str host-base ":" actual-port)
                   _ (reset! host+port* host-with-port)
                   heartbeat-ch (sse/start-heartbeat! sse-connections*)
-                  connect-url (str "https://web.eca.dev?host="
-                                   host-with-port
-                                   "&pass=" token)]
+                  private? (private-ip? host-base)
+                  connect-url (when-not private?
+                                (str "https://web.eca.dev?host="
+                                     host-with-port
+                                     "&pass=" token))]
               (logger/info logger-tag (str "🌐 Remote server started on port " actual-port))
-              (logger/info logger-tag (str "🔗 " connect-url))
+              (if connect-url
+                (logger/info logger-tag (str "🔗 " connect-url))
+                (do (logger/info logger-tag (str "🔗 http://" host-with-port))
+                    (logger/info logger-tag "📖 Private IP detected — see https://eca.dev/config/remote for connection options")))
               {:server jetty-server
                :sse-connections* sse-connections*
                :heartbeat-stop-ch heartbeat-ch
                :token token
                :host host-with-port
+               :private-host? private?
                :connect-url connect-url})
             nil)
           (catch Exception e

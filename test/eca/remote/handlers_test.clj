@@ -21,10 +21,17 @@
       (is (string? (:version body))))))
 
 (deftest handle-root-test
-  (testing "redirects to web.eca.dev"
-    (let [response (handlers/handle-root nil nil {:host "192.168.1.1:7888" :password "abc123"})]
+  (testing "redirects to web.eca.dev for public hosts"
+    (let [response (handlers/handle-root (components) nil {:host "100.64.0.1:7888" :password "abc123"})]
       (is (= 302 (:status response)))
-      (is (= "https://web.eca.dev?host=192.168.1.1:7888&pass=abc123"
+      (is (= "https://web.eca.dev?host=100.64.0.1:7888&pass=abc123"
+             (get-in response [:headers "Location"])))))
+
+  (testing "redirects to docs for private hosts"
+    (swap! (h/db*) assoc :remote-private-host? true)
+    (let [response (handlers/handle-root (components) nil {:host "192.168.1.1:7888" :password "abc123"})]
+      (is (= 302 (:status response)))
+      (is (= "https://eca.dev/config/remote"
              (get-in response [:headers "Location"]))))))
 
 (deftest handle-list-chats-test

@@ -3,30 +3,16 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:private allowed-origin "https://web.eca.dev")
-
-(defn- allowed-origin?
-  "Returns the origin if allowed, nil otherwise.
-   Allows web.eca.dev and localhost for development."
-  [origin]
-  (when origin
-    (cond
-      (= origin allowed-origin) origin
-      (re-matches #"http://localhost(:\d+)?" origin) origin
-      (re-matches #"http://127\.0\.0\.1(:\d+)?" origin) origin
-      :else nil)))
-
 (defn- cors-headers-for
   [request]
-  (let [origin (get-in request [:headers "origin"])
-        resolved (or (allowed-origin? origin) allowed-origin)]
-    {"Access-Control-Allow-Origin" resolved
+  (let [origin (get-in request [:headers "origin"])]
+    {"Access-Control-Allow-Origin" (or origin "*")
      "Access-Control-Allow-Methods" "GET, POST, DELETE, OPTIONS"
      "Access-Control-Allow-Headers" "Content-Type, Authorization"}))
 
 (defn wrap-cors
-  "Ring middleware adding CORS headers for web.eca.dev and localhost.
-   Handles OPTIONS preflight with 204."
+  "Ring middleware adding permissive CORS headers.
+   Reflects the request Origin (or * if absent). Handles OPTIONS preflight with 204."
   [handler]
   (fn [request]
     (let [headers (cors-headers-for request)]
