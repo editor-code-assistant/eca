@@ -26,6 +26,7 @@ nav:
     - Context Management: config/context-management.md
     - Plugins / Marketplace: config/plugins.md
     - Metrics: config/metrics.md
+    - Remote: config/remote.md
     - Network / Enterprise: config/network.md
     - User Examples: config/examples.md
   - Protocol: protocol.md
