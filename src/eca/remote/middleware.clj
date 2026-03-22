@@ -5,10 +5,12 @@
 
 (defn- cors-headers-for
   [request]
-  (let [origin (get-in request [:headers "origin"])]
-    {"Access-Control-Allow-Origin" (or origin "*")
-     "Access-Control-Allow-Methods" "GET, POST, DELETE, OPTIONS"
-     "Access-Control-Allow-Headers" "Content-Type, Authorization"}))
+  (let [origin (get-in request [:headers "origin"])
+        pna-request? (= "true" (get-in request [:headers "access-control-request-private-network"]))]
+    (cond-> {"Access-Control-Allow-Origin" (or origin "*")
+             "Access-Control-Allow-Methods" "GET, POST, DELETE, OPTIONS"
+             "Access-Control-Allow-Headers" "Content-Type, Authorization"}
+      pna-request? (assoc "Access-Control-Allow-Private-Network" "true"))))
 
 (defn wrap-cors
   "Ring middleware adding permissive CORS headers.
