@@ -28,6 +28,7 @@
               :delta {:stop_reason "end_turn"}
               :usage {:input_tokens 10
                       :output_tokens 20}})
+  (sse-send! ch "message_stop" {:type "message_stop"})
   (hk/close ch))
 
 (defn ^:private simple-text-1 [ch]
@@ -40,6 +41,7 @@
               :delta {:stop_reason "end_turn"}
               :usage {:input_tokens 10
                       :output_tokens 5}})
+  (sse-send! ch "message_stop" {:type "message_stop"})
   (hk/close ch))
 
 (defn ^:private simple-text-2 [ch]
@@ -64,6 +66,7 @@
               :delta {:stop_reason "end_turn"}
               :usage {:input_tokens 5
                       :output_tokens 15}})
+  (sse-send! ch "message_stop" {:type "message_stop"})
   (hk/close ch))
 
 ;; Reasoning cases
@@ -99,6 +102,7 @@
               :delta {:stop_reason "end_turn"}
               :usage {:input_tokens 5
                       :output_tokens 30}})
+  (sse-send! ch "message_stop" {:type "message_stop"})
   (hk/close ch))
 
 (defn ^:private reasoning-1 [ch]
@@ -133,6 +137,7 @@
               :delta {:stop_reason "end_turn"}
               :usage {:input_tokens 10
                       :output_tokens 20}})
+  (sse-send! ch "message_stop" {:type "message_stop"})
   (hk/close ch))
 
 (defn ^:private tool-calling-0 [ch body]
@@ -187,6 +192,7 @@
                     :delta {:stop_reason "tool_use"}
                     :usage {:input_tokens 5
                             :output_tokens 30}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch))
       ;; Second stage after tool results are provided back
       (do
@@ -203,6 +209,7 @@
                     :delta {:stop_reason "end_turn"}
                     :usage {:input_tokens 5
                             :output_tokens 30}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch)))))
 
 (defn ^:private mcp-tool-call-0 [ch body]
@@ -234,6 +241,7 @@
                     :delta {:stop_reason "tool_use"}
                     :usage {:input_tokens 10
                             :output_tokens 20}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch))
       ;; Second stage after tool results
       (do
@@ -246,6 +254,7 @@
                     :delta {:stop_reason "end_turn"}
                     :usage {:input_tokens 15
                             :output_tokens 10}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch)))))
 
 (defn ^:private chat-title-text-0 [ch]
