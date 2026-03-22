@@ -156,6 +156,32 @@
                                    :error (:error message-content)
                                    :id (:id message-content)
                                    :outputs (:contents (:output message-content))}}]
+    "server_tool_use" [{:role :assistant
+                        :content {:type :toolCallPrepare
+                                  :origin :server
+                                  :name (:name message-content)
+                                  :server :llm
+                                  :arguments-text ""
+                                  :id (:id message-content)}}]
+    "server_tool_result" (let [id (:tool-use-id message-content)]
+                           [{:role :assistant
+                             :content {:type :toolCallRun
+                                       :id id
+                                       :origin :server
+                                       :server :llm}}
+                            {:role :assistant
+                             :content {:type :toolCallRunning
+                                       :id id
+                                       :origin :server
+                                       :server :llm}}
+                            {:role :assistant
+                             :content {:type :toolCalled
+                                       :id id
+                                       :origin :server
+                                       :server :llm
+                                       :name "web_search"
+                                       :arguments {}
+                                       :error false}}])
     "reason" [{:role :assistant
                :content {:type :reasonStarted
                          :id (:id message-content)}}
