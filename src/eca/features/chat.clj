@@ -333,6 +333,13 @@
       {:type :prompt-message
        :message message})))
 
+(defn ^:private truncated-response?
+  "Returns true when the response text shows signs of being truncated mid-stream.
+   Checks for unclosed code fences (odd number of ``` markers at line start)."
+  [^String text]
+  (when-not (string/blank? text)
+    (odd? (count (re-seq #"(?m)^```" text)))))
+
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task."
   [{:keys [db* config chat-id agent] :as chat-ctx}
@@ -527,27 +534,32 @@
                                                               :text (str "API limit reached. Tokens: "
                                                                          (json/generate-string (:tokens msg)))})
                                                             (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
-                                                                  :finish (do (add-to-history! {:role "assistant"
-                                                                                                :content [{:type :text :text @received-msgs*}]})
-                                                                              (if (and (:premature? msg)
-                                                                                       (not (:auto-continued? chat-ctx))
-                                                                                       (not (:on-finished-side-effect chat-ctx)))
-                                                                                (do
-                                                                                  (logger/info logger-tag "Premature stream stop detected, auto-continuing" {:chat-id chat-id})
-                                                                                  (lifecycle/send-content! chat-ctx :system
-                                                                                    {:type :text :text "Response was interrupted. Continuing..."})
-                                                                                  (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
-                                                                                  (lifecycle/finish-chat-prompt! :idle
-                                                                                    (assoc chat-ctx :on-finished-side-effect
-                                                                                      (fn []
-                                                                                        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-                                                                                        (prompt-messages!
-                                                                                          [{:role "user"
-                                                                                            :content [{:type :text
-                                                                                                       :text "Your previous response was interrupted mid-stream. Continue from where you left off."}]}]
-                                                                                          :auto-continue
-                                                                                          (assoc chat-ctx :auto-continued? true))))))
-                                                                                (lifecycle/finish-chat-prompt! :idle chat-ctx)))))
+                                         :finish (let [response-text @received-msgs*]
+                                                  (add-to-history! {:role "assistant"
+                                                                    :content [{:type :text :text response-text}]})
+                                                  (if (and (or (:premature? msg)
+                                                               (truncated-response? response-text))
+                                                           (not (:auto-continued? chat-ctx))
+                                                           (not (:on-finished-side-effect chat-ctx)))
+                                                    (do
+                                                      (logger/info logger-tag "Truncated or premature response detected, auto-continuing"
+                                                                   {:chat-id chat-id
+                                                                    :premature? (:premature? msg)
+                                                                    :truncated? (truncated-response? response-text)})
+                                                      (lifecycle/send-content! chat-ctx :system
+                                                        {:type :text :text "Response was interrupted. Continuing..."})
+                                                      (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                                      (lifecycle/finish-chat-prompt! :idle
+                                                        (assoc chat-ctx :on-finished-side-effect
+                                                          (fn []
+                                                            (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
+                                                            (prompt-messages!
+                                                              [{:role "user"
+                                                                :content [{:type :text
+                                                                           :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                                              :auto-continue
+                                                              (assoc chat-ctx :auto-continued? true))))))
+                                                    (lifecycle/finish-chat-prompt! :idle chat-ctx)))))
                 :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                         (lifecycle/assert-chat-not-stopped! chat-ctx)
                                         (let [all-tools (f.tools/all-tools chat-id agent @db* config)
@@ -675,14 +687,44 @@
                                                             :text "Context window exceeded. Auto-compacting conversation..."})
                                   (prune-tool-results! db* chat-id {})
                                   (trigger-auto-compact! chat-ctx all-tools user-messages))
-                                (do
+                                (let [partial-text @received-msgs*
+                                      transient-error? (contains? #{:overloaded :premature-stop} error-type)
+                                      can-auto-continue? (and (or transient-error?
+                                                                  (string/includes? (or message "") "idle timeout"))
+                                                              (not (:auto-continued? chat-ctx))
+                                                              (not (:on-finished-side-effect chat-ctx))
+                                                              (not compacting?))]
                                   (when compacting?
                                     (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?))
-                                  (lifecycle/send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))})
-                                  (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))})
+                                  (when-not (string/blank? partial-text)
+                                    (add-to-history! {:role "assistant"
+                                                      :content [{:type :text :text partial-text}]}))
+                                  (if can-auto-continue?
+                                    (do
+                                      (logger/info logger-tag "Transient error during response, auto-continuing"
+                                                   {:chat-id chat-id :error-type error-type})
+                                      (lifecycle/send-content! chat-ctx :system
+                                        {:type :text :text (str (or message "Connection interrupted") ". Continuing...")})
+                                      (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                      (lifecycle/finish-chat-prompt! :idle
+                                        (assoc chat-ctx :on-finished-side-effect
+                                          (fn []
+                                            (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
+                                            (prompt-messages!
+                                              [{:role "user"
+                                                :content [{:type :text
+                                                           :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                              :auto-continue
+                                              (assoc chat-ctx :auto-continued? true))))))
+                                    (do
+                                      (lifecycle/send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))})
+                                      (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
                   (logger/error e)
+                  (when-not (string/blank? @received-msgs*)
+                    (add-to-history! {:role "assistant"
+                                      :content [{:type :text :text @received-msgs*}]}))
                   (lifecycle/send-content! chat-ctx :system {:type :text :text (str "Error: " (or (ex-message e) (.getName (class e))))})
                   (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))
               (finally
