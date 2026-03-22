@@ -124,7 +124,6 @@
        :created-at (:created-at chat)
        :updated-at (:updated-at chat)
        :messages (or (:messages chat) [])
-       :tool-calls (or (:tool-calls chat) {})
        :task (:task chat)}))
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))))
 
