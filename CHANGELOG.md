@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when content was partially received.
+- Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when response is truncated (e.g. unclosed code blocks).
 
 ## 0.115.5
 
