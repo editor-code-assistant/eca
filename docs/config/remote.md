@@ -40,11 +40,34 @@ https://web.eca.dev?host=192.168.1.42:7777&pass=a3f8b2c1...&protocol=https
 
 ## Connection Methods
 
-There are two ways to connect a web frontend to your ECA session. Which one to use depends on your network setup and whether you need HTTPS.
+There are three ways to connect the web frontend to your ECA session.
 
-### Tailscale / VPN (Recommended)
+### Direct (LAN / Private IP)
 
-The easiest approach. [Tailscale](https://tailscale.com)(free) creates a secure private network between your devices, and ECA can bind to your Tailscale interface so that `https://web.eca.dev` can reach it.
+The simplest approach — connect directly from `https://web.eca.dev` to your machine's private IP.
+
+1. Enable remote in your config:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "remote": {
+        "enabled": true,
+        "password": "something" // optioal - or ${env:MY_PASS}
+      }
+    }
+    ```
+
+2. Start ECA — it will log the connection URL or auth token with random pass.
+3. Open `https://web.eca.dev` and enter your machine's LAN IP (e.g. `192.168.1.42`) and password
+4. Chrome will show a **Local Network Access** permission prompt — click **Allow**
+
+!!! note "Firewall"
+    Make sure your firewall allows incoming TCP connections on ports `7777`–`7787` (the default ECA port range) from your LAN.
+    ECA start using `7777` and so one for each server running in your machine.
+
+### Tailscale / VPN
+
+For a seamless HTTPS-to-HTTPS connection with no browser prompts. [Tailscale](https://tailscale.com) (free) creates a secure private network between your devices with valid HTTPS certificates.
 
 1. Install Tailscale and enable [HTTPS certificates](https://tailscale.com/kb/1153/enabling-https)
 2. Set `host` to your machine's Tailscale domain name:
@@ -53,31 +76,33 @@ The easiest approach. [Tailscale](https://tailscale.com)(free) creates a secure 
     {
       "remote": {
         "enabled": true,
-        "host": "my-machine.tail1234.ts.net"
+        "password": "something-here",
+        "host": "my-machine.tail1234.ts.net" // optional - just to get url easily when starting
       }
     }
     ```
 
 3. Start ECA — it will log a connection URL
-4. Open `https://web.eca.dev` and paste the connection URL or manual inform host and pass
+4. Open `https://web.eca.dev` and paste the connection URL or manually enter host and password
 
-Because Tailscale provides valid HTTPS certificates for your machine, the browser can connect without any mixed-content issues.
+Because Tailscale provides valid HTTPS certificates for your machine, the browser connects without any mixed-content issues or permission prompts.
 
-### LAN
+### Local Docker
 
-For users without Tailscale, you can run the web frontend locally in the LAN (usually the same machine that is running the server). This keeps everything over plain HTTP, avoiding browser security restrictions entirely.
+If you prefer to keep everything over plain HTTP, you can run the web frontend locally. This avoids all browser security restrictions.
 
 1. Enable remote in your config:
 
     ```javascript title="~/.config/eca/config.json"
     {
       "remote": {
-        "enabled": true
+        "enabled": true,
+        "password": "something-here"
       }
     }
     ```
 
-2. Run the web frontend locally via Docker:
+2. Run the web frontend locally via Docker, usually in the same machine where server is running:
 
     ```bash
     docker run --pull=always -p 8080:80 ghcr.io/editor-code-assistant/eca-web
@@ -85,21 +110,6 @@ For users without Tailscale, you can run the web frontend locally in the LAN (us
 
 3. Start ECA — it will log the connection URL and auth token
 4. Open `http://localhost:8080` and paste the connection URL
-
-!!! tip
-    You can also set `host` to your machine's LAN IP (e.g. `192.168.1.42`) if you want to connect from another device on the same network.
-
-## Browser Security
-
-!!! warning "Why two methods?"
-    Modern browsers enforce strict security policies that affect how web pages connect to local services:
-
-    - **Mixed content blocking** — HTTPS pages (like `https://web.eca.dev`) cannot make requests to plain HTTP endpoints. Browsers silently block these connections.
-    - **Private Network Access** — Chrome additionally blocks requests from public websites to private/local IP addresses (e.g. `127.0.0.1`, `192.168.*`), even when the local server is running.
-
-    **Tailscale** solves both problems by providing valid HTTPS certificates for your machine within your private network.
-
-    **LAN mode** sidesteps both problems by serving the frontend locally over HTTP — since both the page and ECA are on `localhost` over HTTP, no security policies are triggered.
 
 ## Web UI
 
