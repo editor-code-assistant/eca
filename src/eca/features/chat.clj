@@ -573,7 +573,7 @@
                                                                     :premature? (:premature? msg)
                                                                     :truncated? (truncated-response? response-text)})
                                                       (lifecycle/send-content! chat-ctx :system
-                                                        {:type :text :text "Response was interrupted. Continuing..."})
+                                                        {:type :text :text "\n\nResponse was interrupted. Continuing..."})
                                                       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                                       (lifecycle/finish-chat-prompt! :idle
                                                         (assoc chat-ctx :on-finished-side-effect
@@ -730,7 +730,7 @@
                                       (logger/info logger-tag "Transient error during response, auto-continuing"
                                                    {:chat-id chat-id :error-type error-type})
                                       (lifecycle/send-content! chat-ctx :system
-                                        {:type :text :text (str (or message "Connection interrupted") ". Continuing...")})
+                                        {:type :text :text (str "\n\n" (or message "Connection interrupted") ". Continuing...")})
                                       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                       (lifecycle/finish-chat-prompt! :idle
                                         (assoc chat-ctx :on-finished-side-effect
@@ -743,7 +743,7 @@
                                               :auto-continue
                                               (assoc chat-ctx :auto-continued? true))))))
                                     (do
-                                      (lifecycle/send-content! chat-ctx :system {:type :text :text (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))})
+                                      (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))})
                                       (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
@@ -751,7 +751,7 @@
                   (when-not (string/blank? @received-msgs*)
                     (add-to-history! {:role "assistant"
                                       :content [{:type :text :text @received-msgs*}]}))
-                  (lifecycle/send-content! chat-ctx :system {:type :text :text (str "Error: " (or (ex-message e) (.getName (class e))))})
+                  (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
                   (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))
               (finally
                 (when (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status]))
