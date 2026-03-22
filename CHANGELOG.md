@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when response is truncated (e.g. unclosed code blocks).
+- Fix resume crash when conversation contained server-side tool use (e.g. web search).
 
 ## 0.115.5
 
