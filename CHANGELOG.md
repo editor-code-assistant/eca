@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `/remote` command to display connection URL, password and setup guide. Password is no longer shown in logs or welcome message.
+
 ## 0.116.4
 
 - Fix remote server failing to bind when other services (e.g. Tailscale) hold the same ports on different network interfaces, by falling back to `127.0.0.1` when `0.0.0.0` is unavailable.

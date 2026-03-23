@@ -70,19 +70,19 @@
                          {:name name :status (or (:status client-info) "unknown")})
                        (:mcp-clients db))
      :chats (let [editor-open (:chat-start-fired db)]
-                 (->> (vals (:chats db))
-                      (remove :subagent)
-                      (filter #(get editor-open (:id %)))
-                      (mapv (fn [chat]
-                              (camel-keys
-                               {:id (:id chat)
-                                :title (:title chat)
-                                :status (or (:status chat) :idle)
-                                :created-at (:created-at chat)
-                                :updated-at (:updated-at chat)})))))
+              (->> (vals (:chats db))
+                   (remove :subagent)
+                   (filter #(get editor-open (:id %)))
+                   (mapv (fn [chat]
+                           (camel-keys
+                            {:id (:id chat)
+                             :title (:title chat)
+                             :status (or (:status chat) :idle)
+                             :created-at (:created-at chat)
+                             :updated-at (:updated-at chat)})))))
      :startedAt (when-let [ms (:started-at db)]
                   (.toString (Instant/ofEpochMilli ^long ms)))
-     :welcomeMessage (handlers/welcome-message db config)
+     :welcomeMessage (handlers/welcome-message config)
      :selectModel default-model
      :selectAgent default-agent-name
      :variants variants

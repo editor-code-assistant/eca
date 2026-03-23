@@ -183,11 +183,11 @@
                               "- `/login` to authenticate with providers"
                               "- `/init` to create/update AGENTS.md"
                               "- `/doctor` or `/config` to troubleshoot"
+                              "- `/remote` for remote connection details"
                               ""
                               "Add more contexts in `@`"
                               ""
                               "Toggle **trust mode** to auto-accept all tool calls"
-                              ""
                               "")
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800

@@ -117,6 +117,10 @@
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
                        :arguments [{:name "chat-id"}]}
+                      {:name "remote"
+                       :type :native
+                       :description "Show remote server connection details."
+                       :arguments []}
                       {:name "config"
                        :type :native
                        :description "Show ECA config for troubleshooting."
@@ -397,6 +401,34 @@
                            user-prompt (second args)]
                        {:type :send-prompt
                         :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools agent db config)})
+      "remote" (let [connect-url (:remote-connect-url db)
+                     host (:remote-host db)
+                     token (:remote-token db)
+                     private? (:remote-private-host? db)
+                     text (cond
+                            (not connect-url)
+                            "Remote server is not enabled. Set `remote.enabled: true` in your ECA config to start it."
+
+                            private?
+                            (multi-str "## 🌐 Remote Server"
+                                       ""
+                                       (str "**Host:** `" host "`")
+                                       (str "**Password:** `" token "`")
+                                       (str "**URL:** " connect-url)
+                                       ""
+                                       "This is a private/LAN address. You need to configure your client to connect directly."
+                                       ""
+                                       "📖 [Setup guide](https://eca.dev/config/remote)")
+
+                            :else
+                            (multi-str "## 🌐 Remote Server"
+                                       ""
+                                       (str "**URL:** " connect-url)
+                                       (str "**Password:** `" token "`")
+                                       ""
+                                       "📖 [Setup guide](https://eca.dev/config/remote)"))]
+                 {:type :chat-messages
+                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "config" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages

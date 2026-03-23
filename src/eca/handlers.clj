@@ -43,16 +43,10 @@
       agent-variant)))
 
 (defn welcome-message
-  "Builds the welcome message from config, appending the remote URL when available."
-  [db config]
-  (let [base (or (:welcomeMessage (:chat config)) ;;legacy
-                 (:welcomeMessage config))]
-    (if (:remote-private-host? db)
-      (str base "\n🌐 Remote: `http://" (:remote-host db)
-           "` · [setup guide](https://eca.dev/config/remote)\n")
-      (if-let [url (:remote-connect-url db)]
-        (str base "\n🌐 Remote: " url "\n")
-        base))))
+  "Builds the welcome message from config, appending a remote hint when available."
+  [config]
+  (or (:welcomeMessage (:chat config)) ;;legacy
+      (:welcomeMessage config)))
 
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
@@ -66,7 +60,7 @@
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
-      {:chat-welcome-message (welcome-message @db* config)})))
+      {:chat-welcome-message (welcome-message config)})))
 
 (defn initialized [{:keys [db* messenger config metrics]}]
   (metrics/task metrics :eca/initialized
@@ -92,7 +86,7 @@
                                                        :select-agent default-agent-name
                                                        :variants (or variants [])
                                                        :select-variant (select-variant default-agent-config variants)
-                                                       :welcome-message (welcome-message @db* config)
+                                                       :welcome-message (welcome-message config)
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
                                                        :default-model default-model
                                                        :default-agent default-agent-name

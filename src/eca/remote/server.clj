@@ -177,8 +177,7 @@
                                   "(e.g. Tailscale) holds port " actual-port " on the external interface. "
                                   "Direct LAN connections to " host-base " will not work. "
                                   "Use a different port, stop the conflicting service, or connect via Tailscale.")))
-              (logger/info logger-tag (str "🌐 Remote server started on port " actual-port))
-              (logger/info logger-tag (str "🔗 " connect-url))
+              (logger/info logger-tag (str "🌐 Remote server started on port " actual-port " — use /remote for connection details"))
               {:server jetty-server
                :sse-connections* sse-connections*
                :heartbeat-stop-ch heartbeat-ch

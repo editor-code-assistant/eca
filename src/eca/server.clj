@@ -197,6 +197,7 @@
         (swap! db* assoc
                :remote-connect-url (:connect-url rs)
                :remote-host (:host rs)
+               :remote-token (:token rs)
                :remote-private-host? (:private-host? rs))))
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)
