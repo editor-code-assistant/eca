@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix stopping a prompt corruping other cases of chat.
+
 ## 0.116.1
 
 - Fix stopping a prompt corrupting chat history with empty content blocks, causing subsequent API errors.

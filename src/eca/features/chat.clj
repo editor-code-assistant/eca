@@ -560,11 +560,13 @@
                                                               :text (str "API limit reached. Tokens: "
                                                                          (json/generate-string (:tokens msg)))})
                                                             (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
-                                         :finish (let [response-text @received-msgs*]
+                                         :finish (let [response-text @received-msgs*
+                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
                                                   (when-not (string/blank? response-text)
                                                     (add-to-history! {:role "assistant"
                                                                       :content [{:type :text :text response-text}]}))
-                                                  (if (and (not (string/blank? response-text))
+                                                  (if (and (not stopping?)
+                                                           (not (string/blank? response-text))
                                                            (or (:premature? msg)
                                                                (truncated-response? response-text))
                                                            (not (:auto-continued? chat-ctx))
@@ -717,7 +719,9 @@
                                   (trigger-auto-compact! chat-ctx all-tools user-messages))
                                 (let [partial-text @received-msgs*
                                       transient-error? (contains? #{:overloaded :premature-stop} error-type)
-                                      can-auto-continue? (and (or transient-error?
+                                      stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
+                                      can-auto-continue? (and (not stopping?)
+                                                              (or transient-error?
                                                                   (string/includes? (or message "") "idle timeout"))
                                                               (not (:auto-continued? chat-ctx))
                                                               (not (:on-finished-side-effect chat-ctx))
