@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `/remote` command to display connection URL, password and setup guide. Password is no longer shown in logs or welcome message.
+- Improve server port binding for remote. 
 
 ## 0.116.4
 

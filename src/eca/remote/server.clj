@@ -25,21 +25,37 @@
   "Number of sequential ports to try before giving up."
   20)
 
+(def ^:private virtual-interface-re
+  "Matches network interface names that are typically virtual/software-defined.
+   These are deprioritized when detecting the LAN IP."
+  #"^(docker|br-|veth|vbox|virbr|tailscale|lo|tun|tap|wg|zt)")
+
+(defn ^:private interface-priority
+  "Returns a sort priority for a network interface (lower = preferred).
+   Real hardware interfaces (wifi, ethernet) are preferred over virtual ones."
+  ^long [^NetworkInterface ni]
+  (let [name (.getName ni)]
+    (if (re-find virtual-interface-re name) 1 0)))
+
 (defn ^:private detect-lan-ip
   "Enumerates network interfaces to find a site-local (private) IPv4 address.
+   Prefers real hardware interfaces (wifi, ethernet) over virtual ones (docker, vbox).
    Returns the IP string or nil when none is found."
   []
   (try
     (->> (enumeration-seq (NetworkInterface/getNetworkInterfaces))
          (filter (fn [^NetworkInterface ni]
                    (and (.isUp ni)
-                        (not (.isLoopback ni)))))
+                        (not (.isLoopback ni))
+                        (not (.isVirtual ni)))))
+         (sort-by interface-priority)
          (mapcat (fn [^NetworkInterface ni]
-                   (enumeration-seq (.getInetAddresses ni))))
-         (filter (fn [^InetAddress addr]
-                   (and (instance? Inet4Address addr)
-                        (.isSiteLocalAddress addr))))
-         (some (fn [^InetAddress addr] (.getHostAddress addr))))
+                   (->> (enumeration-seq (.getInetAddresses ni))
+                        (filter (fn [^InetAddress addr]
+                                  (and (instance? Inet4Address addr)
+                                       (.isSiteLocalAddress addr))))
+                        (map (fn [^InetAddress addr] (.getHostAddress addr))))))
+         first)
     (catch Exception _ nil)))
 
 (defn ^:private detect-host
