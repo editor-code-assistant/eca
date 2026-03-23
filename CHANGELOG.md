@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.116.3
+
 - Fix remote server failing to bind when other services (e.g. Tailscale) hold the same ports on different network interfaces, by falling back to `127.0.0.1` when `0.0.0.0` is unavailable.
 
 ## 0.116.2
