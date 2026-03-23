@@ -69,15 +69,17 @@
      :mcpServers (mapv (fn [[name client-info]]
                          {:name name :status (or (:status client-info) "unknown")})
                        (:mcp-clients db))
-     :chats (->> (vals (:chats db))
-                 (remove :subagent)
-                 (mapv (fn [chat]
-                         (camel-keys
-                          {:id (:id chat)
-                           :title (:title chat)
-                           :status (or (:status chat) :idle)
-                           :created-at (:created-at chat)
-                           :updated-at (:updated-at chat)}))))
+     :chats (let [editor-open (:chat-start-fired db)]
+                 (->> (vals (:chats db))
+                      (remove :subagent)
+                      (filter #(get editor-open (:id %)))
+                      (mapv (fn [chat]
+                              (camel-keys
+                               {:id (:id chat)
+                                :title (:title chat)
+                                :status (or (:status chat) :idle)
+                                :created-at (:created-at chat)
+                                :updated-at (:updated-at chat)})))))
      :startedAt (when-let [ms (:started-at db)]
                   (.toString (Instant/ofEpochMilli ^long ms)))
      :welcomeMessage (handlers/welcome-message db config)
@@ -104,8 +106,11 @@
     (json-response (session-state db config))))
 
 (defn handle-list-chats [{:keys [db*]} _request]
-  (let [chats (->> (vals (:chats @db*))
+  (let [db @db*
+        editor-open (:chat-start-fired db)
+        chats (->> (vals (:chats db))
                    (remove :subagent)
+                   (filter #(get editor-open (:id %)))
                    (mapv (fn [{:keys [id title status created-at updated-at]}]
                            {:id id
                             :title title
