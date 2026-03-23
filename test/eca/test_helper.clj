@@ -30,6 +30,8 @@
   messenger/IMessenger
   (chat-content-received [_ data] (swap! messages* update :chat-content-received (fnil conj []) data))
   (chat-cleared [_ params] (swap! messages* update :chat-clear (fnil conj []) params))
+  (chat-status-changed [_ params] (swap! messages* update :chat-status-changed (fnil conj []) params))
+  (chat-deleted [_ params] (swap! messages* update :chat-deleted (fnil conj []) params))
   (rewrite-content-received [_ data] (swap! messages* update :rewrite-content-received (fnil conj []) data))
   (config-updated [_ data] (swap! messages* update :config-updated (fnil conj []) data))
   (tool-server-updated [_ data] (swap! messages* update :tool-server-update (fnil conj []) data))

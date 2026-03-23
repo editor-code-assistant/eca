@@ -104,7 +104,7 @@
               :content {:type :progress :state :running :text "Waiting model"}
               :role :system}
              {:chat-id chat-id
-              :content {:type :text :text "Error from mocked API"}
+              :content {:type :text :text "\n\nError from mocked API"}
               :role :system}
              {:chat-id chat-id
               :content {:state :finished :type :progress}

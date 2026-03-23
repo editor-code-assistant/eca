@@ -67,10 +67,11 @@
           (name from)
           content))
 
-(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect prompt-id] :as chat-ctx}]
+(defn finish-chat-prompt! [status {:keys [message chat-id db* messenger metrics config on-finished-side-effect prompt-id] :as chat-ctx}]
   (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
     (when-not (get-in @db* [:chats chat-id :auto-compacting?])
       (swap! db* assoc-in [:chats chat-id :status] status)
+      (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
       (let [db @db*
             subagent? (some? (get-in db [:chats chat-id :subagent]))
             hook-type (if subagent? :subagentPostRequest :postRequest)
