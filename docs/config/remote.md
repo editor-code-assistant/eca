@@ -107,11 +107,11 @@ All connection methods support the same config options:
 {
   "remote": {
     "enabled": true,
-    // optional — useful for specifying custom dns like tailscale or your local ip
+    // optional — useful for specifying custom dns like tailscale or your local ip, just for logging purposes in stderr/welcome message
     "host": "192.168.1.42",
-    // optional — defaults to 7777 (auto-increments if busy)
-    "port": 7777,
-    // optional — a random pass is auto-generated when unset
+    // optional — defaults to 7777 (auto-increments until 7787 if busy)
+    "port": 9876,
+    // optional — a random pass is auto-generated when unset, you can use ${env:...}
     "password": "my-secret-token"
   }
 }
