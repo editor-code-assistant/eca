@@ -1259,7 +1259,7 @@ When enabled, ECA starts an embedded HTTP server that a web frontend can connect
 </ol>
 <div class="admonition note">
 <p class="admonition-title">Firewall</p>
-<p>Make sure your firewall allows incoming TCP connections on ports <code>7777</code>–<code>7787</code> (the default ECA port range) from your LAN.
+<p>Make sure your firewall allows incoming TCP connections on ports <code>7777</code>–<code>7796</code> (the default ECA port range) from your LAN.
 ECA starts using <code>7777</code> and increments for each server running on your machine.</p>
 </div>
 </div>
@@ -1278,11 +1278,16 @@ ECA starts using <code>7777</code> and increments for each server running on you
 <ol>
 <li>Install Tailscale and enable <a href="https://tailscale.com/kb/1153/enabling-https">HTTPS certificates</a></li>
 <li>
-<p>Expose the ECA port range via Tailscale serve so they are reachable over your tailnet:</p>
-<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--tcp<span class="w"> </span><span class="m">7777</span><span class="w"> </span>tcp://localhost:7777
-sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--tcp<span class="w"> </span><span class="m">7778</span><span class="w"> </span>tcp://localhost:7778
-<span class="c1"># ... repeat for as many ports as you need (7777–7787)</span>
+<p>Expose the ECA port range via Tailscale HTTPS serve so they are reachable over your tailnet:</p>
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7777</span><span class="w"> </span>http://localhost:7777
+sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7778</span><span class="w"> </span>http://localhost:7778
+<span class="c1"># ... repeat for as many ports as you need (7777–7796)</span>
 </code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Use <code>--https</code>, not <code>--tcp</code></p>
+<p><code>--tcp</code> creates a raw TCP proxy that browsers cannot connect to.
+<code>--https</code> creates a proper HTTPS reverse proxy with valid certificates, which is required for browser-based access from <code>web.eca.dev</code>.</p>
+</div>
 </li>
 <li>
 <p>Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:</p>
@@ -1330,7 +1335,7 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
 <span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">    </span><span class="c1">// optional — useful for specifying custom dns like tailscale or your local ip, just for logging purposes in stderr/welcome message</span>
 <span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;192.168.1.42&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — defaults to 7777 (auto-increments until 7787 if busy)</span>
+<span class="w">    </span><span class="c1">// optional — defaults to 7777 (auto-increments until 7796 if busy)</span>
 <span class="w">    </span><span class="s2">&quot;port&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">9876</span><span class="p">,</span>
 <span class="w">    </span><span class="c1">// optional — a random pass is auto-generated when unset, you can use ${env:...}</span>
 <span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-secret-token&quot;</span>
@@ -1339,7 +1344,7 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
 </code></pre></div>
 <h2 id="web-ui">Web UI<a class="headerlink" href="#web-ui" title="Permanent link">#</a></h2>
 <p>The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).</p>
-<p><strong>Auto-discovery</strong> — When you enter a host and click "Discover", the web UI scans ports <code>7777</code>–<code>7787</code> in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.</p>
+<p><strong>Auto-discovery</strong> — When you enter a host and click "Discover", the web UI scans ports <code>7777</code>–<code>7796</code> in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.</p>
 <p><strong>Multi-session</strong> — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar, letting you switch between sessions.</p>
 
 
@@ -1361,7 +1366,7 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 23, 2026 13:29:22 UTC">March 23, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 23, 2026 14:03:55 UTC">March 23, 2026</span>
   </span>
 
     
