@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.116.2
+
 - Fix stopping a prompt corruping other cases of chat.
 
 ## 0.116.1
