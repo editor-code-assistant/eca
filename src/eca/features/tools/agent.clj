@@ -5,7 +5,8 @@
    [eca.config :as config]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]))
+   [eca.messenger :as messenger]
+   [eca.shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -282,15 +283,15 @@
                                         :description "Clear description of what the agent should accomplish"}
                                 "activity" {:type "string"
                                             :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
-                                "model" (cond-> {:type "string"
-                                                 :description (str "Model to use for the subagent."
-                                                                   "Pick the closest match from the enum when the user asks for a model by informal name (e.g. \"sonnet\" → latest sonnet available)."
-                                                                   "Optional — defaults to the agent's configured model or the current conversation model.")}
-                                          (seq model-names) (assoc :enum model-names))
+                                "model" {:type "string"
+                                         :description (multi-str
+                                                       "If user specified a model to use."
+                                                       "DO NOT pass this arg if user didn't request it."
+                                                       "Known models: "
+                                                       model-names)}
                                 "variant" (cond-> {:type "string"
-                                                   :description (str "Variant (Usually reasoning related) for the subagent."
-                                                                     "Available variants are model-dependent; pick the closest match when the user asks informally (e.g. \"high reasoning\" → \"high\")."
-                                                                     "Optional — defaults to the agent's or model's configured variant.")}
+                                                   :description (str "Variant (Usually reasoning related) for the subagent, only pass if user specify."
+                                                                     "Available variants are model-dependent; pick the closest match when the user asks informally (e.g. \"high reasoning\" → \"high\").")}
                                             (seq variant-names) (assoc :enum variant-names))}
                    :required ["agent" "task" "activity"]}
       :handler #'spawn-agent
