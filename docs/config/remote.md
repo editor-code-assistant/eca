@@ -60,13 +60,21 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
     **Steps:**
 
     1. Install Tailscale and enable [HTTPS certificates](https://tailscale.com/kb/1153/enabling-https)
-    2. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
+    2. Expose the ECA port range via Tailscale serve so they are reachable over your tailnet:
+
+        ```bash
+        sudo tailscale serve --bg --tcp 7777 tcp://localhost:7777
+        sudo tailscale serve --bg --tcp 7778 tcp://localhost:7778
+        # ... repeat for as many ports as you need (7777–7787)
+        ```
+
+    3. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
 
         ```
         https://web.eca.dev?host=my-machine.tail1234.ts.net:7777&pass=a3f8b2c1...&protocol=https
         ```
 
-    3. Open `https://web.eca.dev` and paste the connection URL or manually enter host and password
+    4. Open `https://web.eca.dev` and paste the connection URL or manually enter host and password
 
     Because Tailscale provides valid HTTPS certificates for your machine, the browser connects without any mixed-content issues or permission prompts.
 
