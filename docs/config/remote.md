@@ -38,7 +38,7 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
     3. Chrome will show a **Local Network Access** permission prompt — click **Allow**
 
     !!! note "Firewall"
-        Make sure your firewall allows incoming TCP connections on ports `7777`–`7787` (the default ECA port range) from your LAN.
+        Make sure your firewall allows incoming TCP connections on ports `7777`–`7796` (the default ECA port range) from your LAN.
         ECA starts using `7777` and increments for each server running on your machine.
 
 === "Tailscale / VPN"
@@ -60,13 +60,17 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
     **Steps:**
 
     1. Install Tailscale and enable [HTTPS certificates](https://tailscale.com/kb/1153/enabling-https)
-    2. Expose the ECA port range via Tailscale serve so they are reachable over your tailnet:
+    2. Expose the ECA port range via Tailscale HTTPS serve so they are reachable over your tailnet:
 
         ```bash
-        sudo tailscale serve --bg --tcp 7777 tcp://localhost:7777
-        sudo tailscale serve --bg --tcp 7778 tcp://localhost:7778
-        # ... repeat for as many ports as you need (7777–7787)
+        sudo tailscale serve --bg --https 7777 http://localhost:7777
+        sudo tailscale serve --bg --https 7778 http://localhost:7778
+        # ... repeat for as many ports as you need (7777–7796)
         ```
+
+        !!! warning "Use `--https`, not `--tcp`"
+            `--tcp` creates a raw TCP proxy that browsers cannot connect to.
+            `--https` creates a proper HTTPS reverse proxy with valid certificates, which is required for browser-based access from `web.eca.dev`.
 
     3. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
 
@@ -117,7 +121,7 @@ All connection methods support the same config options:
     "enabled": true,
     // optional — useful for specifying custom dns like tailscale or your local ip, just for logging purposes in stderr/welcome message
     "host": "192.168.1.42",
-    // optional — defaults to 7777 (auto-increments until 7787 if busy)
+    // optional — defaults to 7777 (auto-increments until 7796 if busy)
     "port": 9876,
     // optional — a random pass is auto-generated when unset, you can use ${env:...}
     "password": "my-secret-token"
@@ -129,6 +133,6 @@ All connection methods support the same config options:
 
 The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).
 
-**Auto-discovery** — When you enter a host and click "Discover", the web UI scans ports `7777`–`7787` in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.
+**Auto-discovery** — When you enter a host and click "Discover", the web UI scans ports `7777`–`7796` in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.
 
 **Multi-session** — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar, letting you switch between sessions.

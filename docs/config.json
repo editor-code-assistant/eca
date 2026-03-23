@@ -354,8 +354,8 @@
         },
         "port": {
           "type": "integer",
-          "description": "Port the HTTP server listens on. When unset, tries port 7777, then 7778, 7779, etc. up to 10 attempts.",
-          "markdownDescription": "Port the HTTP server listens on. When unset, tries port `7777`, then `7778`, `7779`, etc. up to 10 attempts.",
+          "description": "Port the HTTP server listens on. When unset, tries port 7777, then 7778, 7779, etc. up to 20 attempts.",
+          "markdownDescription": "Port the HTTP server listens on. When unset, tries port `7777`, then `7778`, `7779`, etc. up to 20 attempts.",
           "examples": [
             7777
           ]

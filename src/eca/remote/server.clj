@@ -63,23 +63,35 @@
     (.isSiteLocalAddress (InetAddress/getByName ip))
     (catch Exception _ false)))
 
-(defn ^:private try-start-jetty
-  "Attempts to start Jetty on the given port. Returns the Server on success,
-   nil when the port is already in use (BindException or Jetty's wrapping IOException)."
+(def ^:private bind-hosts
+  "Ordered list of bind addresses to try per port.
+   0.0.0.0 gives full connectivity; 127.0.0.1 is the fallback when another
+   service (e.g. Tailscale) already holds the port on a specific interface."
+  ["0.0.0.0" "127.0.0.1"])
+
+(defn ^:private try-start-jetty-any-host
+  "Tries to start Jetty on the given port, attempting each bind address in
+   bind-hosts order. Returns the Server on success, nil if all fail."
   ^Server [handler port]
-  (try
-    (jetty/run-jetty handler {:port port :host "0.0.0.0" :join? false})
-    (catch BindException _ nil)
-    (catch IOException _ nil)))
+  (reduce (fn [_ bind-host]
+            (try
+              (let [server (jetty/run-jetty handler {:port port :host bind-host :join? false})]
+                (logger/debug logger-tag (str "Bound to " bind-host ":" port))
+                (reduced server))
+              (catch BindException _ nil)
+              (catch IOException _ nil)))
+          nil
+          bind-hosts))
 
 (defn ^:private start-with-retry
   "Tries sequential ports starting from base-port up to max-port-attempts.
+   For each port, tries all bind-hosts before moving to the next port.
    Returns [server actual-port] on success, nil if all attempts fail."
   [handler base-port]
   (loop [port base-port
          attempts 0]
     (when (< attempts max-port-attempts)
-      (if-let [server (try-start-jetty handler port)]
+      (if-let [server (try-start-jetty-any-host handler port)]
         [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server)))]
         (do (logger/debug logger-tag (str "Port " port " in use, trying " (inc port) "..."))
             (recur (inc port) (inc attempts)))))))
@@ -106,8 +118,8 @@
         (try
           (if-let [[^Server jetty-server actual-port]
                    (if user-port
-                     ;; User-specified port: single attempt, no retry
-                     (if-let [server (try-start-jetty handler user-port)]
+                     ;; User-specified port: single attempt, try all bind hosts
+                     (if-let [server (try-start-jetty-any-host handler user-port)]
                        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server)))]
                        (do (logger/warn logger-tag "Port" user-port "is already in use."
                                         "Remote server will not start.")
