@@ -28,6 +28,7 @@
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "resume" :arguments [{:name "chat-id"}]}
+                       {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}
                        {:name "repo-map-show" :arguments []}
@@ -47,6 +48,7 @@
                        {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
+                       {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "subagents" :arguments []}
                        {:name "plugins" :arguments []}]}
