@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix stopping a prompt corrupting chat history with empty content blocks, causing subsequent API errors.
+
 ## 0.116.0
 
 - Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when response is truncated (e.g. unclosed code blocks).

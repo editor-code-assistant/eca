@@ -561,9 +561,11 @@
                                                                          (json/generate-string (:tokens msg)))})
                                                             (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
                                          :finish (let [response-text @received-msgs*]
-                                                  (add-to-history! {:role "assistant"
-                                                                    :content [{:type :text :text response-text}]})
-                                                  (if (and (or (:premature? msg)
+                                                  (when-not (string/blank? response-text)
+                                                    (add-to-history! {:role "assistant"
+                                                                      :content [{:type :text :text response-text}]}))
+                                                  (if (and (not (string/blank? response-text))
+                                                           (or (:premature? msg)
                                                                (truncated-response? response-text))
                                                            (not (:auto-continued? chat-ctx))
                                                            (not (:on-finished-side-effect chat-ctx)))
