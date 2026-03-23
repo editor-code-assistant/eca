@@ -583,10 +583,7 @@
                    :properties {"agent" {:type "string"}
                                 "task" {:type "string"}
                                 "activity" {:type "string"}
-                                "model" {:type "string"
-                                         :enum ["anthropic/claude-opus-4-6"
-                                                "anthropic/claude-sonnet-4-6"
-                                                "openai/gpt-4.1"]}
+                                "model" {:type "string"}
                                 "variant" {:type "string"
                                            :enum ["high" "low" "max" "medium"]}}
                    :required ["agent" "task" "activity"]}

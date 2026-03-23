@@ -43,7 +43,8 @@
 
   (testing "returns chats excluding subagents"
     (swap! (h/db*) assoc :chats {"c1" {:id "c1" :title "Test" :status :idle :created-at 123}
-                                   "c2" {:id "c2" :title "Sub" :status :running :subagent true}})
+                                   "c2" {:id "c2" :title "Sub" :status :running :subagent true}}
+                                 :chat-start-fired #{"c1" "c2"})
     (let [response (handlers/handle-list-chats (components) nil)
           body (json/parse-string (:body response) true)]
       (is (= 1 (count body)))
