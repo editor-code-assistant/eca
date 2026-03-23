@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Configure ECA inline completion: AI-powered code suggestions as you type, with custom model and prompt settings.">
+        <meta name="description" content="Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN.">
       
       
       
-        <link rel="canonical" href="https://eca.dev/config/completion/">
+        <link rel="canonical" href="https://eca.dev/config/remote/">
       
       
-        <link rel="prev" href="../hooks/">
+        <link rel="prev" href="../metrics/">
       
       
-        <link rel="next" href="../rewrite/">
+        <link rel="next" href="../network/">
       
       
       <link rel="icon" href="../../images/logo.svg">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Completion - ECA - Editor Code Assistant</title>
+        <title>Remote - ECA - Editor Code Assistant</title>
       
     
     
@@ -78,9 +78,9 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Completion - ECA - Editor Code Assistant" />
-  <meta property="og:description" content="Configure ECA inline completion: AI-powered code suggestions as you type, with custom model and prompt settings." />
-  <meta property="og:url" content="https://eca.dev/config/completion/" />
+  <meta property="og:title" content="Remote - ECA - Editor Code Assistant" />
+  <meta property="og:description" content="Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN." />
+  <meta property="og:url" content="https://eca.dev/config/remote/" />
   <meta property="og:image" content="https://eca.dev/images/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -88,8 +88,8 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Completion - ECA - Editor Code Assistant" />
-  <meta name="twitter:description" content="Configure ECA inline completion: AI-powered code suggestions as you type, with custom model and prompt settings." />
+  <meta name="twitter:title" content="Remote - ECA - Editor Code Assistant" />
+  <meta name="twitter:description" content="Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN." />
   <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
   </head>
@@ -104,7 +104,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#completion" class="md-skip">
+        <a href="#remote" class="md-skip">
           Skip to content
         </a>
       
@@ -137,7 +137,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Completion
+              Remote
             
           </span>
         </div>
@@ -830,19 +830,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../completion/" class="md-nav__link">
         
   
   
@@ -853,7 +844,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -955,10 +945,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../remote/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Remote
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -969,6 +981,86 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connection Methods
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connection Methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#direct-lan-private-ip" class="md-nav__link">
+    <span class="md-ellipsis">
+      Direct (LAN / Private IP)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tailscale-vpn" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tailscale / VPN
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local Docker
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#web-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      Web UI
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1135,6 +1227,74 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connection Methods
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connection Methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#direct-lan-private-ip" class="md-nav__link">
+    <span class="md-ellipsis">
+      Direct (LAN / Private IP)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tailscale-vpn" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tailscale / VPN
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local Docker
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#web-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      Web UI
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1152,24 +1312,105 @@
   
 
 
-<h1 id="completion">Completion<a class="headerlink" href="#completion" title="Permanent link">#</a></h1>
-<p><img alt="" src="../../images/features/inline_completion.png" /></p>
-<p>You can configure which model and system prompt ECA will use during its inline completion:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:1"><input checked="checked" id="example" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="example">Example</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
+<h1 id="remote">Remote<a class="headerlink" href="#remote" title="Permanent link">#</a></h1>
+<p>ECA Remote lets you control and observe your ECA session from a web browser. When enabled, ECA starts an embedded HTTP server that a web frontend can connect to in real-time.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;completion&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;model&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;github-copilot/gpt-4.1&quot;</span>
-<span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;completion&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${file:/path/to/my-prompt.md}&quot;</span>
+<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">// optional — useful for specifying custom dns like tailscale or your local ip</span>
+<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;192.168.1.42&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">// optional — defaults to 7777 (auto-increments if busy)</span>
+<span class="w">    </span><span class="s2">&quot;port&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">7777</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">// optional — a random pass is auto-generated when unset</span>
+<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-secret-token&quot;</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
+<p>Minimal setup — just enable it and ECA handles the rest:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>When the server starts, ECA logs the connection URL and auth token to stderr and welcome message. The URL is a deep-link that you can open directly in the browser:</p>
+<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=192.168.1.42:7777&amp;pass=a3f8b2c1...&amp;protocol=https
+</code></pre></div>
+<h2 id="connection-methods">Connection Methods<a class="headerlink" href="#connection-methods" title="Permanent link">#</a></h2>
+<p>There are three ways to connect the web frontend to your ECA session.</p>
+<h3 id="direct-lan-private-ip">Direct (LAN / Private IP)<a class="headerlink" href="#direct-lan-private-ip" title="Permanent link">#</a></h3>
+<p>The simplest approach — connect directly from <code>https://web.eca.dev</code> to your machine's private IP.</p>
+<ol>
+<li>
+<p>Enable remote in your config:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something&quot;</span><span class="w"> </span><span class="c1">// optioal - or ${env:MY_PASS}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</li>
+<li>
+<p>Start ECA — it will log the connection URL or auth token with random pass.</p>
+</li>
+<li>Open <code>https://web.eca.dev</code> and enter your machine's LAN IP (e.g. <code>192.168.1.42</code>) and password</li>
+<li>Chrome will show a <strong>Local Network Access</strong> permission prompt — click <strong>Allow</strong></li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">Firewall</p>
+<p>Make sure your firewall allows incoming TCP connections on ports <code>7777</code>–<code>7787</code> (the default ECA port range) from your LAN.
+ECA start using <code>7777</code> and so one for each server running in your machine.</p>
 </div>
-</div>
-</div>
+<h3 id="tailscale-vpn">Tailscale / VPN<a class="headerlink" href="#tailscale-vpn" title="Permanent link">#</a></h3>
+<p>For a seamless HTTPS-to-HTTPS connection with no browser prompts. <a href="https://tailscale.com">Tailscale</a> (free) creates a secure private network between your devices with valid HTTPS certificates.</p>
+<ol>
+<li>Install Tailscale and enable <a href="https://tailscale.com/kb/1153/enabling-https">HTTPS certificates</a></li>
+<li>
+<p>Set <code>host</code> to your machine's Tailscale domain name:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something-here&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-machine.tail1234.ts.net&quot;</span><span class="w"> </span><span class="c1">// optional - just to get url easily when starting</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</li>
+<li>
+<p>Start ECA — it will log a connection URL</p>
+</li>
+<li>Open <code>https://web.eca.dev</code> and paste the connection URL or manually enter host and password</li>
+</ol>
+<p>Because Tailscale provides valid HTTPS certificates for your machine, the browser connects without any mixed-content issues or permission prompts.</p>
+<h3 id="local-docker">Local Docker<a class="headerlink" href="#local-docker" title="Permanent link">#</a></h3>
+<p>If you prefer to keep everything over plain HTTP, you can run the web frontend locally. This avoids all browser security restrictions.</p>
+<ol>
+<li>
+<p>Enable remote in your config:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something-here&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</li>
+<li>
+<p>Run the web frontend locally via Docker, usually in the same machine where server is running:</p>
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>--pull<span class="o">=</span>always<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:80<span class="w"> </span>ghcr.io/editor-code-assistant/eca-web
+</code></pre></div>
+</li>
+<li>
+<p>Start ECA — it will log the connection URL and auth token</p>
+</li>
+<li>Open <code>http://localhost:8080</code> and paste the connection URL</li>
+</ol>
+<h2 id="web-ui">Web UI<a class="headerlink" href="#web-ui" title="Permanent link">#</a></h2>
+<p>The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).</p>
+<p><strong>Auto-discovery</strong> — When you enter a host and click "Discover", the web UI scans ports <code>7777</code>–<code>7787</code> in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.</p>
+<p><strong>Multi-session</strong> — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar, letting you switch between sessions.</p>
 
 
 
@@ -1221,22 +1462,22 @@
   
   <nav class="md-footer__inner md-grid" aria-label="Footer" >
     
-    <a href="../hooks/" class="md-footer__link md-footer__link--prev">
+    <a href="../metrics/" class="md-footer__link md-footer__link--prev">
       <div class="md-footer__button md-icon">
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
       </div>
       <div class="md-footer__title">
         <span class="md-footer__direction">Previous</span>
-        <span class="md-ellipsis">Hooks</span>
+        <span class="md-ellipsis">Metrics</span>
       </div>
     </a>
     
     
-    <a href="../rewrite/" class="md-footer__link md-footer__link--next">
+    <a href="../network/" class="md-footer__link md-footer__link--next">
       <div class="md-footer__title">
         <span class="md-footer__direction">Next</span>
-        <span class="md-ellipsis">Rewrite</span>
+        <span class="md-ellipsis">Network / Enterprise</span>
       </div>
       <div class="md-footer__button md-icon">
         
