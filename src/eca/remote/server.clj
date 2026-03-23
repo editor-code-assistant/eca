@@ -11,7 +11,7 @@
   (:import
    [java.io IOException]
    [java.net BindException Inet4Address InetAddress NetworkInterface]
-   [org.eclipse.jetty.server NetworkConnector Server]))
+   [org.eclipse.jetty.server NetworkConnector Server ServerConnector]))
 
 (set! *warn-on-reflection* true)
 
@@ -63,36 +63,61 @@
     (.isSiteLocalAddress (InetAddress/getByName ip))
     (catch Exception _ false)))
 
-(def ^:private bind-hosts
-  "Ordered list of bind addresses to try per port.
-   0.0.0.0 gives full connectivity; 127.0.0.1 is the fallback when another
-   service (e.g. Tailscale) already holds the port on a specific interface."
-  ["0.0.0.0" "127.0.0.1"])
+(defn ^:private try-start-jetty
+  "Tries to start Jetty on the given port and host.
+   Returns the Server on success, nil on BindException/IOException."
+  ^Server [handler port host]
+  (try
+    (let [server (jetty/run-jetty handler {:port port :host host :join? false})]
+      (logger/debug logger-tag (str "Bound to " host ":" port))
+      server)
+    (catch BindException _ nil)
+    (catch IOException _ nil)))
+
+(defn ^:private add-connector!
+  "Adds a secondary ServerConnector to an existing Jetty server.
+   Returns true on success, false on bind failure."
+  [^Server server port host]
+  (try
+    (let [connector (doto (ServerConnector. server)
+                      (.setHost host)
+                      (.setPort port))]
+      (.addConnector server connector)
+      (.start connector)
+      (logger/debug logger-tag (str "Added connector " host ":" port))
+      true)
+    (catch BindException _ false)
+    (catch IOException _ false)))
 
 (defn ^:private try-start-jetty-any-host
-  "Tries to start Jetty on the given port, attempting each bind address in
-   bind-hosts order. Returns the Server on success, nil if all fail."
-  ^Server [handler port]
-  (reduce (fn [_ bind-host]
-            (try
-              (let [server (jetty/run-jetty handler {:port port :host bind-host :join? false})]
-                (logger/debug logger-tag (str "Bound to " bind-host ":" port))
-                (reduced server))
-              (catch BindException _ nil)
-              (catch IOException _ nil)))
-          nil
-          bind-hosts))
+  "Tries to start Jetty on the given port. Attempts 0.0.0.0 first for full
+   connectivity. When that fails (e.g. Tailscale holds the port on its virtual
+   interface), binds to 127.0.0.1 and adds the LAN IP as a secondary connector
+   so that both Tailscale proxy (which targets localhost) and Direct LAN work.
+   Returns [server bind-host] on success, nil if all fail."
+  [handler port lan-ip]
+  ;; 1. Try 0.0.0.0 — covers all interfaces in one binding
+  (if-let [server (try-start-jetty handler port "0.0.0.0")]
+    [server "0.0.0.0"]
+    ;; 2. 0.0.0.0 failed — bind localhost first (for Tailscale proxy), then
+    ;;    add the LAN IP as a secondary connector so Direct LAN also works.
+    (when-let [server (try-start-jetty handler port "127.0.0.1")]
+      (when lan-ip
+        (if (add-connector! server port lan-ip)
+          (logger/debug logger-tag (str "Also listening on " lan-ip ":" port " for Direct LAN"))
+          (logger/warn logger-tag (str "Could not bind to " lan-ip ":" port " — Direct LAN connections may not work"))))
+      [server (if lan-ip "127.0.0.1+lan" "127.0.0.1")])))
 
 (defn ^:private start-with-retry
   "Tries sequential ports starting from base-port up to max-port-attempts.
    For each port, tries all bind-hosts before moving to the next port.
-   Returns [server actual-port] on success, nil if all attempts fail."
-  [handler base-port]
+   Returns [server actual-port bind-host] on success, nil if all attempts fail."
+  [handler base-port lan-ip]
   (loop [port base-port
          attempts 0]
     (when (< attempts max-port-attempts)
-      (if-let [server (try-start-jetty-any-host handler port)]
-        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server)))]
+      (if-let [[server bind-host] (try-start-jetty-any-host handler port lan-ip)]
+        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bind-host]
         (do (logger/debug logger-tag (str "Port " port " in use, trying " (inc port) "..."))
             (recur (inc port) (inc attempts)))))))
 
@@ -108,6 +133,7 @@
     (when (:enabled remote-config)
       (let [token (or (:password remote-config) (auth/generate-token))
             host-base (or (:host remote-config) (detect-host))
+            lan-ip (detect-lan-ip)
             user-port (:port remote-config)
             ;; Use atom so the handler sees host:port after Jetty resolves the actual port
             host+port* (atom host-base)
@@ -116,16 +142,16 @@
                                             :host* host+port*
                                             :sse-connections* sse-connections*})]
         (try
-          (if-let [[^Server jetty-server actual-port]
+          (if-let [[^Server jetty-server actual-port bind-host]
                    (if user-port
                      ;; User-specified port: single attempt, try all bind hosts
-                     (if-let [server (try-start-jetty-any-host handler user-port)]
-                       [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server)))]
+                     (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip)]
+                       [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bh]
                        (do (logger/warn logger-tag "Port" user-port "is already in use."
                                         "Remote server will not start.")
                            nil))
                      ;; Default: try sequential ports starting from default-port
-                     (or (start-with-retry handler default-port)
+                     (or (start-with-retry handler default-port lan-ip)
                          (do (logger/warn logger-tag
                                           (str "Could not bind to ports " default-port "-"
                                                (+ default-port (dec max-port-attempts))
@@ -135,15 +161,24 @@
                   _ (reset! host+port* host-with-port)
                   heartbeat-ch (sse/start-heartbeat! sse-connections*)
                   private? (private-ip? host-base)
-                  connect-url (when-not private?
+                  localhost-only? (and (= bind-host "127.0.0.1") (not lan-ip))
+                  connect-url (if private?
                                 (str "https://web.eca.dev?host="
                                      host-with-port
-                                     "&pass=" token))]
+                                     "&pass=" token
+                                     "&protocol=http")
+                                (str "https://web.eca.dev?host="
+                                     host-with-port
+                                     "&pass=" token
+                                     "&protocol=https"))]
+              (when (and localhost-only? private? (not= host-base "127.0.0.1"))
+                (logger/warn logger-tag
+                             (str "⚠️  Bound to 127.0.0.1:" actual-port " (localhost only) because another service "
+                                  "(e.g. Tailscale) holds port " actual-port " on the external interface. "
+                                  "Direct LAN connections to " host-base " will not work. "
+                                  "Use a different port, stop the conflicting service, or connect via Tailscale.")))
               (logger/info logger-tag (str "🌐 Remote server started on port " actual-port))
-              (if connect-url
-                (logger/info logger-tag (str "🔗 " connect-url))
-                (do (logger/info logger-tag (str "🔗 http://" host-with-port))
-                    (logger/info logger-tag "📖 Private IP detected — see https://eca.dev/config/remote for connection options")))
+              (logger/info logger-tag (str "🔗 " connect-url))
               {:server jetty-server
                :sse-connections* sse-connections*
                :heartbeat-stop-ch heartbeat-ch

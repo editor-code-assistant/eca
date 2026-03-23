@@ -31,7 +31,7 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
     1. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
 
         ```
-        https://web.eca.dev?host=192.168.1.42:7777&pass=a3f8b2c1...&protocol=https
+        https://web.eca.dev?host=192.168.1.42:7777&pass=a3f8b2c1...&protocol=http
         ```
 
     2. Open `https://web.eca.dev` and enter your machine's LAN IP (e.g. `192.168.1.42`) and password
