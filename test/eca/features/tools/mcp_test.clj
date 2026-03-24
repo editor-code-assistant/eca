@@ -140,7 +140,7 @@
         (with-redefs [phc/make-http-client (fn [_url {:keys [request-middleware]}]
                                              (reset! captured-rm* request-middleware)
                                              :mock-http-client)
-                      phct/make-streamable-http-transport (fn [_hc & _opts] :mock-transport)]
+                      phct/make-streamable-http-transport (fn [_hc] :mock-transport)]
           (->transport "test-server" {:url "https://example.com/mcp"} [] db*)))
       (let [rm @captured-rm*]
         (is (some? rm) "middleware should have been captured")

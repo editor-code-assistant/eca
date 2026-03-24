@@ -577,7 +577,7 @@
                                                                     :premature? (:premature? msg)
                                                                     :truncated? (truncated-response? response-text)})
                                                       (lifecycle/send-content! chat-ctx :system
-                                                        {:type :text :text "\n\nResponse was interrupted. Continuing..."})
+                                                        {:type :progress :state :running :text "Response interrupted, continuing..."})
                                                       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                                       (lifecycle/finish-chat-prompt! :idle
                                                         (assoc chat-ctx :on-finished-side-effect
@@ -736,7 +736,7 @@
                                       (logger/info logger-tag "Transient error during response, auto-continuing"
                                                    {:chat-id chat-id :error-type error-type})
                                       (lifecycle/send-content! chat-ctx :system
-                                        {:type :text :text (str "\n\n" (or message "Connection interrupted") ". Continuing...")})
+                                        {:type :progress :state :running :text (str (or message "Connection interrupted") ", continuing...")})
                                       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                       (lifecycle/finish-chat-prompt! :idle
                                         (assoc chat-ctx :on-finished-side-effect
@@ -760,7 +760,8 @@
                   (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
                   (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))
               (finally
-                (when (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status]))
+                (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
+                           (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status])))
                   (swap! db* assoc-in [:chats chat-id :status] :idle)
                   (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
                   (db/update-workspaces-cache! @db* metrics))))))))))
@@ -1010,6 +1011,9 @@
 (defn prompt-stop
   [{:keys [chat-id]} db* messenger metrics]
   (when (identical? :running (get-in @db* [:chats chat-id :status]))
+    ;; Set :stopping immediately to prevent race with stream callbacks
+    ;; that check status via assert-chat-not-stopped! or cancelled?
+    (swap! db* assoc-in [:chats chat-id :status] :stopping)
     (let [chat-ctx {:chat-id chat-id
                     :db* db*
                     :metrics metrics

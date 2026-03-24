@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bump plumcp to 0.2.0-beta5.
+- Fix auto-continue clobbering new prompt status and losing the stop button.
+
 ## 0.116.5
 
 - Add `/remote` command to display connection URL, password and setup guide. Password is no longer shown in logs or welcome message.

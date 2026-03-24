@@ -89,7 +89,8 @@
                       :state :finished})
       (when-not (get-in @db* [:chats chat-id :created-at])
         (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
-    (when on-finished-side-effect
+    (when (and on-finished-side-effect
+               (not (identical? :stopping (get-in @db* [:chats chat-id :status]))))
       (on-finished-side-effect))
     (db/update-workspaces-cache! @db* metrics)))
 

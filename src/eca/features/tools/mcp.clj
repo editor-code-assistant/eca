@@ -82,42 +82,7 @@
       (when (string/includes? url "/sse")
         (logger/warn logger-tag (format "SSE transport is no longer supported for server '%s'. Using Streamable HTTP instead. Consider updating the URL." server-name)))
       (logger/info logger-tag (format "Creating HTTP transport for server '%s' at %s" server-name url))
-      {:transport (phct/make-streamable-http-transport
-                   hc
-                   :on-other-response (fn [response]
-                                        (let [status (long (:status response))
-                                              read-body (fn []
-                                                          (try
-                                                            (let [body* (atom nil)]
-                                                              (when-let [on-msg (:on-msg response)]
-                                                                (on-msg (fn [text] (reset! body* text))))
-                                                              (when-let [body @body*]
-                                                                (subs body 0 (min (count body) 1000))))
-                                                            (catch Exception _ nil)))]
-                                          (cond
-                                            (= 202 status) nil
-
-                                            (or (<= 400 status 499)
-                                                (<= 500 status))
-                                            (let [body (read-body)
-                                                  ;; 405 with body mentioning GET means server doesn't support
-                                                  ;; SSE streaming, which is fine — it still works via POST.
-                                                  sse-unsupported? (and (= 405 status)
-                                                                       body
-                                                                       (string/includes? body "GET"))]
-                                              (if sse-unsupported?
-                                                (logger/info logger-tag
-                                                  (format "MCP server '%s' does not support SSE streaming, continuing with POST only"
-                                                          server-name))
-                                                (do (logger/warn logger-tag
-                                                      (format "MCP server '%s' returned %d, re-initializing.%s"
-                                                              server-name status
-                                                              (if body (str " Response: " body) "")))
-                                                    (reset! needs-reinit?* true))))
-
-                                            :else
-                                            (logger/warn logger-tag (format "Unexpected HTTP response from MCP server '%s': %d"
-                                                                            server-name status))))))
+      {:transport (phct/make-streamable-http-transport hc)
        :needs-reinit?* needs-reinit?*})
 
     ;; STDIO transport
@@ -240,8 +205,10 @@
   [jsonrpc-error]
   (let [code (:code jsonrpc-error)
         message (:message jsonrpc-error)
-        data (:data jsonrpc-error)]
+        data (:data jsonrpc-error)
+        http-status (:plumcp.core/http-status jsonrpc-error)]
     (cond-> ""
+      http-status (str "http=" http-status " ")
       code (str "code=" code)
       message (str (when code " ") "message=" message)
       data (str " data=" (pr-str data))
@@ -590,7 +557,7 @@
         (:mcp-clients db)))
 
 (defn ^:private reinitialize-server!
-  "Re-initialize an MCP server after a transport error (HTTP 404/5xx).
+  "Re-initialize an MCP server after a transport error (HTTP 401/403/5xx).
    Stops the old transport without attempting disconnect (the session is already
    gone server-side), then runs a fresh initialize-server! cycle."
   [server-name old-client db* config metrics]
@@ -605,18 +572,30 @@
   {:error true
    :contents [{:type :text :text msg}]})
 
+(defn ^:private reinit-worthy-http-status?
+  "HTTP status codes that indicate the session/auth is broken and the server
+   connection should be re-initialized (e.g. expired token, server error)."
+  [status]
+  (or (= 401 (long status))
+      (= 403 (long status))
+      (<= 500 (long status))))
+
 (defn ^:private do-call-tool
   "Execute a tool call. Delegates timeout handling to plumcp via :timeout-millis.
-   HTTP 400/404/500 errors are returned as JSON-RPC error responses by plumcp,
-   so no polling loop is needed."
-  [mcp-client name arguments]
+   All non-200 HTTP errors are returned as JSON-RPC errors by plumcp with
+   :plumcp.core/http-status on the error map."
+  [mcp-client name arguments needs-reinit?*]
   (locking mcp-client
     (let [error-msg* (atom nil)
           call-opts {:timeout-millis tool-call-timeout-ms
                      :on-error (fn [_id jsonrpc-error]
                                  (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")]
                                    (logger/warn logger-tag "Error calling tool:" (format-jsonrpc-error jsonrpc-error))
-                                   (reset! error-msg* msg))
+                                   (reset! error-msg* msg)
+                                   (when-let [http-status (:plumcp.core/http-status jsonrpc-error)]
+                                     (when (and needs-reinit?* (reinit-worthy-http-status? http-status))
+                                       (logger/warn logger-tag (format "HTTP %d error, flagging for re-initialization" http-status))
+                                       (reset! needs-reinit?* true))))
                                  nil)}
           result (try
                    (pmc/call-tool mcp-client name arguments call-opts)
@@ -643,7 +622,7 @@
 (defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments]
   (reinitialize-server! server-name mcp-client db* config metrics)
   (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
-    (do-call-tool new-client name arguments)
+    (do-call-tool new-client name arguments nil)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
 (defn call-tool! [name arguments {:keys [db db* config metrics]}]
@@ -654,15 +633,15 @@
                           [sn client needs-reinit?*])))
                 first)]
     (if (and needs-reinit?* @needs-reinit?* db* config metrics)
-      ;; Already flagged (e.g. GET stream 5xx) — reinit before attempting the call
+      ;; Already flagged — reinit before attempting the call
       (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
-      (let [result (do-call-tool mcp-client name arguments)]
+      (let [result (do-call-tool mcp-client name arguments needs-reinit?*)]
         (cond
           ;; nil = transient transport error, retry once
           (nil? result)
-          (do-call-tool mcp-client name arguments)
+          (do-call-tool mcp-client name arguments needs-reinit?*)
 
-          ;; Flagged during the call (e.g. GET stream 404/5xx) — reinit and retry
+          ;; Flagged during the call (e.g. HTTP 401/403/5xx) — reinit and retry
           (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
           (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
 
