@@ -4,6 +4,7 @@
 
 - Bump plumcp to 0.2.0-beta5.
 - Fix auto-continue clobbering new prompt status and losing the stop button.
+- Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
 
 ## 0.116.5
 

@@ -30,12 +30,41 @@
    These are deprioritized when detecting the LAN IP."
   #"^(docker|br-|veth|vbox|virbr|tailscale|lo|tun|tap|wg|zt)")
 
+(def ^:private tunnel-interface-re
+  "Matches network interface name or display name for tunnel/VPN services that
+   may use port-based proxying (e.g. `tailscale serve`). On Windows, binding
+   0.0.0.0 on the same port would steal their TLS traffic.
+   Java on Windows returns names like 'iftype53_32768' for Tailscale with
+   display name 'Tailscale Tunnel', so both fields must be checked."
+  #"(?i)(tailscale|wireguard|zerotier)")
+
 (defn ^:private interface-priority
   "Returns a sort priority for a network interface (lower = preferred).
    Real hardware interfaces (wifi, ethernet) are preferred over virtual ones."
   ^long [^NetworkInterface ni]
   (let [name (.getName ni)]
     (if (re-find virtual-interface-re name) 1 0)))
+
+(def ^:private windows?
+  (-> (System/getProperty "os.name" "")
+      (.toLowerCase)
+      (.startsWith "windows")))
+
+(defn ^:private has-tunnel-interfaces?
+  "Returns true if any active tunnel/VPN network interface is detected.
+   On Windows, binding 0.0.0.0 on a port used by such services (e.g. Tailscale serve)
+   would capture their TLS traffic, causing handshake failures.
+   Checks both getName() and getDisplayName() because Java on Windows uses
+   opaque names like 'iftype53_32768' while the display name is 'Tailscale Tunnel'."
+  []
+  (try
+    (boolean
+     (some (fn [^NetworkInterface ni]
+             (and (.isUp ni)
+                  (or (re-find tunnel-interface-re (.getName ni))
+                      (re-find tunnel-interface-re (.getDisplayName ni)))))
+           (enumeration-seq (NetworkInterface/getNetworkInterfaces))))
+    (catch Exception _ false)))
 
 (defn ^:private detect-lan-ip
   "Enumerates network interfaces to find a site-local (private) IPv4 address.
@@ -105,24 +134,36 @@
     (catch BindException _ false)
     (catch IOException _ false)))
 
+(defn ^:private start-on-specific-interfaces
+  "Binds to 127.0.0.1 first (for localhost / reverse proxy access), then adds
+   the LAN IP as a secondary connector for Direct LAN access.
+   Returns [server bind-host] on success, nil if bind fails."
+  [handler port lan-ip]
+  (when-let [server (try-start-jetty handler port "127.0.0.1")]
+    (when lan-ip
+      (if (add-connector! server port lan-ip)
+        (logger/debug logger-tag (str "Also listening on " lan-ip ":" port " for Direct LAN"))
+        (logger/warn logger-tag (str "Could not bind to " lan-ip ":" port " — Direct LAN connections may not work"))))
+    [server (if lan-ip "127.0.0.1+lan" "127.0.0.1")]))
+
 (defn ^:private try-start-jetty-any-host
-  "Tries to start Jetty on the given port. Attempts 0.0.0.0 first for full
-   connectivity. When that fails (e.g. Tailscale holds the port on its virtual
-   interface), binds to 127.0.0.1 and adds the LAN IP as a secondary connector
-   so that both Tailscale proxy (which targets localhost) and Direct LAN work.
+  "Tries to start Jetty on the given port. On Windows with active tunnel
+   interfaces (Tailscale, WireGuard, etc.), skips the 0.0.0.0 wildcard bind
+   because Windows would capture traffic on the tunnel interface, preventing
+   services like `tailscale serve` from terminating TLS on the same port.
+   Otherwise attempts 0.0.0.0 first for full connectivity, falling back to
+   127.0.0.1 + LAN IP connector.
    Returns [server bind-host] on success, nil if all fail."
   [handler port lan-ip]
-  ;; 1. Try 0.0.0.0 — covers all interfaces in one binding
-  (if-let [server (try-start-jetty handler port "0.0.0.0")]
-    [server "0.0.0.0"]
-    ;; 2. 0.0.0.0 failed — bind localhost first (for Tailscale proxy), then
-    ;;    add the LAN IP as a secondary connector so Direct LAN also works.
-    (when-let [server (try-start-jetty handler port "127.0.0.1")]
-      (when lan-ip
-        (if (add-connector! server port lan-ip)
-          (logger/debug logger-tag (str "Also listening on " lan-ip ":" port " for Direct LAN"))
-          (logger/warn logger-tag (str "Could not bind to " lan-ip ":" port " — Direct LAN connections may not work"))))
-      [server (if lan-ip "127.0.0.1+lan" "127.0.0.1")])))
+  (if (and windows? (has-tunnel-interfaces?))
+    ;; On Windows with tunnel interfaces, bind only to specific interfaces
+    ;; to avoid stealing traffic from Tailscale/WireGuard virtual interfaces.
+    (do (logger/debug logger-tag "Tunnel interface detected on Windows, binding to specific interfaces only")
+        (start-on-specific-interfaces handler port lan-ip))
+    ;; Default: try 0.0.0.0 first, fall back to specific interfaces
+    (if-let [server (try-start-jetty handler port "0.0.0.0")]
+      [server "0.0.0.0"]
+      (start-on-specific-interfaces handler port lan-ip))))
 
 (defn ^:private start-with-retry
   "Tries sequential ports starting from base-port up to max-port-attempts.
