@@ -840,6 +840,19 @@
           "markdownDescription": "Configuration for the shell_command tool.",
           "additionalProperties": false,
           "properties": {
+            "path": {
+              "type": "string",
+              "description": "Custom shell executable path. Overrides the default platform shell (bash on Linux/macOS, powershell on Windows).",
+              "markdownDescription": "Custom shell executable path. Overrides the default platform shell (`bash` on Linux/macOS, `powershell` on Windows)."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Arguments passed to the shell before the script argument. E.g. [\"-l\", \"-c\"] for bash.",
+              "markdownDescription": "Arguments passed to the shell before the script argument. E.g. `[\"-l\", \"-c\"]` for bash."
+            },
             "summaryMaxLength": {
               "type": "integer",
               "description": "Maximum length of shell command summary.",
