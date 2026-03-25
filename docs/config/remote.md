@@ -7,6 +7,8 @@ description: "Configure ECA Remote: control your ECA session from a web browser.
 ECA Remote lets you control, approve, and observe your ECA session from a web browser.
 When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.eca.dev](https://web.eca.dev) connects to in real-time.
 
+![](../images/features/remote.png)
+
 ## Connection Methods
 
 === "LAN / Private IPs"
