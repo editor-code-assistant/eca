@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN.">
+        <meta name="description" content="Configure ECA Remote: control your ECA session from a web browser.">
       
       
       
@@ -79,7 +79,7 @@
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Remote - ECA - Editor Code Assistant" />
-  <meta property="og:description" content="Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN." />
+  <meta property="og:description" content="Configure ECA Remote: control your ECA session from a web browser." />
   <meta property="og:url" content="https://eca.dev/config/remote/" />
   <meta property="og:image" content="https://eca.dev/images/og-image.png" />
   <meta property="og:image:width" content="1200" />
@@ -89,7 +89,7 @@
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Remote - ECA - Editor Code Assistant" />
-  <meta name="twitter:description" content="Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN." />
+  <meta name="twitter:description" content="Configure ECA Remote: control your ECA session from a web browser." />
   <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
   </head>
@@ -1007,6 +1007,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#config-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Config Options
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#web-ui" class="md-nav__link">
     <span class="md-ellipsis">
       Web UI
@@ -1201,6 +1210,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#config-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Config Options
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#web-ui" class="md-nav__link">
     <span class="md-ellipsis">
       Web UI
@@ -1229,48 +1247,47 @@
 
 
 <h1 id="remote">Remote<a class="headerlink" href="#remote" title="Permanent link">#</a></h1>
-<p>ECA Remote lets you control, approve, observe your ECA session from a web browser. 
-When enabled, ECA starts an embedded HTTP server that a web frontend can connect to in real-time, from <a href="https://web.eca.dev">web.eca.dev</a> or a hosted eca-web.</p>
+<p>ECA Remote lets you control, approve, and observe your ECA session from a web browser.
+When enabled, ECA starts an embedded HTTPS server that the web frontend at <a href="https://web.eca.dev">web.eca.dev</a> connects to in real-time.</p>
 <h2 id="connection-methods">Connection Methods<a class="headerlink" href="#connection-methods" title="Permanent link">#</a></h2>
-<p>There are three ways to connect the web frontend to your ECA session. Pick the one that fits your setup.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="direct-lan--private-ip" name="__tabbed_1" type="radio" /><input id="tailscale--vpn" name="__tabbed_1" type="radio" /><input id="local-docker" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="direct-lan--private-ip">Direct (LAN / Private IP)</label><label for="tailscale--vpn">Tailscale / VPN</label><label for="local-docker">Local Docker</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="lan--private-ips" name="__tabbed_1" type="radio" /><input id="vpn--tailscale" name="__tabbed_1" type="radio" /><input id="local-docker" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="lan--private-ips">LAN / Private IPs</label><label for="vpn--tailscale">VPN / Tailscale</label><label for="local-docker">Local Docker</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>The simplest approach — connect directly from <code>https://web.eca.dev</code> to your machine's private IP - this only works if using a Chrome based browser as other browsers block https -&gt; http requests.</p>
+<p>The simplest approach — connect directly from <code>https://web.eca.dev</code> to your machine on the local network. Works in all browsers with no extra setup.</p>
 <p><strong>Config:</strong></p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something&quot;</span><span class="w"> </span><span class="c1">// optional - or ${env:MY_PASS}</span>
+<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something&quot;</span><span class="w"> </span><span class="c1">// optional — or ${env:MY_PASS}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <p><strong>Steps:</strong></p>
 <ol>
 <li>
-<p>Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:</p>
-<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=192.168.1.42:7777&amp;pass=a3f8b2c1...&amp;protocol=http
+<p>Start ECA — it logs a connection URL you can open directly:</p>
+<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=192-168-1-42.local.eca.dev:7777&amp;pass=a3f8b&amp;protocol=https
 </code></pre></div>
 </li>
 <li>
-<p>Open <code>https://web.eca.dev</code> and enter your machine's LAN IP (e.g. <code>192.168.1.42</code>) and password</p>
+<p>Or open <code>https://web.eca.dev</code>, enter your machine's LAN IP (e.g. <code>192.168.1.42</code>) and password — the web UI automatically resolves it to the secure <code>*.local.eca.dev</code> hostname.</p>
 </li>
-<li>Chrome will show a <strong>Local Network Access</strong> permission prompt — click <strong>Allow</strong></li>
 </ol>
+<p>ECA ships with a TLS certificate for <code>*.local.eca.dev</code>. On startup, the server detects your LAN IP and serves HTTPS using a hostname like <code>192-168-1-42.local.eca.dev</code>, which resolves back to your IP via <a href="https://sslip.io">sslip.io</a> DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.</p>
 <div class="admonition note">
 <p class="admonition-title">Firewall</p>
-<p>Make sure your firewall allows incoming TCP connections on ports <code>7777</code>–<code>7796</code> (the default ECA port range) from your LAN.
-ECA starts using <code>7777</code> and increments for each server running on your machine.</p>
+<p>Make sure your firewall allows incoming TCP on ports <code>7777</code>–<code>7796</code> from your LAN.
+ECA uses port <code>7777</code> by default and increments if busy.</p>
 </div>
 </div>
 <div class="tabbed-block">
-<p>For a seamless HTTPS-to-HTTPS connection with no browser prompts. <a href="https://tailscale.com">Tailscale</a> (free) creates a secure private network between your devices with valid HTTPS certificates.</p>
+<p>For connecting from outside your LAN. <a href="https://tailscale.com">Tailscale</a> (free) creates a secure private network between your devices with valid HTTPS certificates.</p>
 <p><strong>Config:</strong></p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something-here&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-machine.tail1234.ts.net&quot;</span><span class="w"> </span><span class="c1">// optional - just to get url easily when starting</span>
+<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-machine.tail1234.ts.net&quot;</span><span class="w"> </span><span class="c1">// optional — used in the connect URL</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -1278,7 +1295,7 @@ ECA starts using <code>7777</code> and increments for each server running on you
 <ol>
 <li>Install Tailscale and enable <a href="https://tailscale.com/kb/1153/enabling-https">HTTPS certificates</a></li>
 <li>
-<p>Expose the ECA port range via Tailscale HTTPS serve so they are reachable over your tailnet:</p>
+<p>Expose ECA's port via Tailscale HTTPS serve:</p>
 <div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7777</span><span class="w"> </span>http://localhost:7777
 sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7778</span><span class="w"> </span>http://localhost:7778
 <span class="c1"># ... repeat for as many ports as you need (7777–7796)</span>
@@ -1286,22 +1303,21 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
 <div class="admonition warning">
 <p class="admonition-title">Use <code>--https</code>, not <code>--tcp</code></p>
 <p><code>--tcp</code> creates a raw TCP proxy that browsers cannot connect to.
-<code>--https</code> creates a proper HTTPS reverse proxy with valid certificates, which is required for browser-based access from <code>web.eca.dev</code>.</p>
+<code>--https</code> creates a proper HTTPS reverse proxy with valid certificates.</p>
 </div>
 </li>
 <li>
-<p>Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:</p>
-<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=my-machine.tail1234.ts.net:7777&amp;pass=a3f8b2c1...&amp;protocol=https
+<p>Start ECA — it logs a connection URL you can open directly:</p>
+<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=my-machine.tail1234.ts.net:7777&amp;pass=a3f8b&amp;protocol=https
 </code></pre></div>
 </li>
 <li>
-<p>Open <code>https://web.eca.dev</code> and paste the connection URL or manually enter host and password</p>
+<p>Open <code>https://web.eca.dev</code> and enter your Tailscale hostname and password</p>
 </li>
 </ol>
-<p>Because Tailscale provides valid HTTPS certificates for your machine, the browser connects without any mixed-content issues or permission prompts.</p>
 </div>
 <div class="tabbed-block">
-<p>If you prefer to keep everything over plain HTTP, you can run the web frontend locally. This avoids all browser security restrictions.</p>
+<p>Run the web frontend locally over HTTP — useful for development or restricted environments.</p>
 <p><strong>Config:</strong></p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1313,39 +1329,34 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
 <p><strong>Steps:</strong></p>
 <ol>
 <li>
-<p>Run the web frontend locally via Docker, usually on the same machine where the server is running:</p>
+<p>Run the web frontend locally via Docker:</p>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>--pull<span class="o">=</span>always<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:80<span class="w"> </span>ghcr.io/editor-code-assistant/eca-web
 </code></pre></div>
 </li>
 <li>
-<p>Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:</p>
-<div class="highlight"><pre><span></span><code>http://localhost:8080?host=localhost:7777&amp;pass=a3f8b2c1...&amp;protocol=http
-</code></pre></div>
-</li>
-<li>
-<p>Open <code>http://localhost:8080</code> and paste the connection URL</p>
+<p>Open <code>http://localhost:8080</code> and connect to <code>localhost:7777</code></p>
 </li>
 </ol>
 </div>
 </div>
 </div>
-<p>All connection methods support the same config options:</p>
+<h2 id="config-options">Config Options<a class="headerlink" href="#config-options" title="Permanent link">#</a></h2>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — useful for specifying custom dns like tailscale or your local ip, just for logging purposes in stderr/welcome message</span>
-<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;192.168.1.42&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — defaults to 7777 (auto-increments until 7796 if busy)</span>
+<span class="w">    </span><span class="c1">// optional — override the hostname in the connect URL (e.g. Tailscale DNS)</span>
+<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-machine.tail1234.ts.net&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">// optional — defaults to 7777, auto-increments up to 7796 if busy</span>
 <span class="w">    </span><span class="s2">&quot;port&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">9876</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — a random pass is auto-generated when unset, you can use ${env:...}</span>
+<span class="w">    </span><span class="c1">// optional — auto-generated when unset, supports ${env:MY_PASS}</span>
 <span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-secret-token&quot;</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 <h2 id="web-ui">Web UI<a class="headerlink" href="#web-ui" title="Permanent link">#</a></h2>
 <p>The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).</p>
-<p><strong>Auto-discovery</strong> — When you enter a host and click "Discover", the web UI scans ports <code>7777</code>–<code>7796</code> in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.</p>
-<p><strong>Multi-session</strong> — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar, letting you switch between sessions.</p>
+<p><strong>Auto-discovery</strong> — When you enter a host and click "Discover &amp; Connect", the web UI scans ports <code>7777</code>–<code>7796</code> in parallel and finds all running ECA instances automatically.</p>
+<p><strong>Multi-session</strong> — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar.</p>
 
 
 
@@ -1366,7 +1377,7 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 25, 2026 16:42:33 UTC">March 25, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 25, 2026 18:23:13 UTC">March 25, 2026</span>
   </span>
 
     
