@@ -2,6 +2,8 @@
   "HTTP server lifecycle for the remote web control server."
   (:require
    [clojure.core.async :as async]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.remote.auth :as auth]
@@ -11,7 +13,13 @@
   (:import
    [java.io IOException]
    [java.net BindException Inet4Address InetAddress NetworkInterface]
-   [org.eclipse.jetty.server NetworkConnector Server ServerConnector]))
+   [java.security KeyFactory KeyStore]
+   [java.security.cert CertificateFactory]
+   [java.security.spec PKCS8EncodedKeySpec]
+   [java.util Base64]
+   [javax.net.ssl KeyManagerFactory SSLContext]
+   [org.eclipse.jetty.server NetworkConnector Server ServerConnector]
+   [org.eclipse.jetty.util.ssl SslContextFactory$Server]))
 
 (set! *warn-on-reflection* true)
 
@@ -79,28 +87,90 @@
     (.isSiteLocalAddress (InetAddress/getByName ip))
     (catch Exception _ false)))
 
+(def ^:private sslip-domain
+  "Domain suffix for sslip.io-style hostnames that resolve to the embedded IP."
+  "local.eca.dev")
+
+(defn ^:private build-server-ssl-context
+  "Loads the bundled TLS certificate chain and private key from classpath
+   resources and builds an SSLContext for the HTTPS server.
+   Returns nil if the resources are not found (TLS disabled)."
+  ^SSLContext []
+  (let [cert-url (io/resource "tls/local-eca-dev-fullchain.pem")
+        key-url (io/resource "tls/local-eca-dev-privkey.pem")]
+    (when (and cert-url key-url)
+      (try
+        (let [cf (CertificateFactory/getInstance "X.509")
+              certs (with-open [is (.openStream ^java.net.URL cert-url)]
+                      (into [] (.generateCertificates cf is)))
+              pem-text (slurp key-url)
+              b64 (->> (string/split-lines pem-text)
+                       (remove #(or (string/starts-with? % "-----BEGIN")
+                                    (string/starts-with? % "-----END")))
+                       (map string/trim)
+                       (remove string/blank?)
+                       (string/join))
+              key-bytes (.decode (Base64/getDecoder) ^String b64)
+              pk (or (try (.generatePrivate (KeyFactory/getInstance "RSA")
+                                           (PKCS8EncodedKeySpec. key-bytes))
+                         (catch Exception _ nil))
+                     (try (.generatePrivate (KeyFactory/getInstance "EC")
+                                           (PKCS8EncodedKeySpec. key-bytes))
+                         (catch Exception _ nil)))
+              ks (doto (KeyStore/getInstance (KeyStore/getDefaultType))
+                   (.load nil nil)
+                   (.setKeyEntry "server" pk (char-array 0)
+                                 (into-array java.security.cert.Certificate certs)))
+              kmf (doto (KeyManagerFactory/getInstance (KeyManagerFactory/getDefaultAlgorithm))
+                    (.init ks (char-array 0)))
+              ctx (doto (SSLContext/getInstance "TLS")
+                    (.init (.getKeyManagers kmf) nil nil))]
+          (logger/info logger-tag (str "TLS enabled with bundled *." sslip-domain " certificate"))
+          ctx)
+        (catch Exception e
+          (logger/warn logger-tag "Failed to load TLS certificates:" (.getMessage e))
+          nil)))))
+
+(defn ^:private ip->sslip-hostname
+  "Converts an IP address to an sslip.io-style hostname under local.eca.dev.
+   E.g. \"192.168.15.17\" → \"192-168-15-17.local.eca.dev\""
+  ^String [^String ip]
+  (str (string/replace ip "." "-") "." sslip-domain))
+
 (defn ^:private try-start-jetty
   "Tries to start Jetty on the given port and host.
+   When ssl-context is provided, starts HTTPS-only (no HTTP listener).
    Returns the Server on success, nil on BindException/IOException."
-  ^Server [handler port host]
+  ^Server [handler port host ^SSLContext ssl-context]
   (try
-    (let [server (jetty/run-jetty handler {:port port :host host :join? false})]
-      (logger/debug logger-tag (str "Bound to " host ":" port))
+    (let [opts (if ssl-context
+                 {:ssl? true :ssl-port port :http? false
+                  :ssl-context ssl-context :host host :join? false}
+                 {:port port :host host :join? false})
+          server (jetty/run-jetty handler opts)]
+      (logger/debug logger-tag (str "Bound to " host ":" port (when ssl-context " (HTTPS)")))
       server)
     (catch BindException _ nil)
     (catch IOException _ nil)))
 
 (defn ^:private add-connector!
   "Adds a secondary ServerConnector to an existing Jetty server.
+   When ssl-context is provided, creates an SSL-enabled connector.
    Returns true on success, false on bind failure."
-  [^Server server port host]
+  [^Server server port host ^SSLContext ssl-context]
   (try
-    (let [connector (doto (ServerConnector. server)
-                      (.setHost host)
-                      (.setPort port))]
+    (let [connector (if ssl-context
+                      (let [ssl-factory (doto (SslContextFactory$Server.)
+                                          (.setSslContext ssl-context))]
+                        (doto (ServerConnector. server ^SslContextFactory$Server ssl-factory)
+                          (.setHost ^String host)
+                          (.setPort (int port))))
+                      (doto (ServerConnector. server)
+                        (.setHost ^String host)
+                        (.setPort (int port))))]
       (.addConnector server connector)
       (.start connector)
-      (logger/debug logger-tag (str "Added connector " host ":" port))
+      (logger/debug logger-tag (str "Added connector " host ":" port (when ssl-context " (HTTPS)")))
       true)
     (catch BindException _ false)
     (catch IOException _ false)))
@@ -111,15 +181,15 @@
    interface), binds to 127.0.0.1 and adds the LAN IP as a secondary connector
    so that both Tailscale proxy (which targets localhost) and Direct LAN work.
    Returns [server bind-host] on success, nil if all fail."
-  [handler port lan-ip]
+  [handler port lan-ip ^SSLContext ssl-context]
   ;; 1. Try 0.0.0.0 — covers all interfaces in one binding
-  (if-let [server (try-start-jetty handler port "0.0.0.0")]
+  (if-let [server (try-start-jetty handler port "0.0.0.0" ssl-context)]
     [server "0.0.0.0"]
     ;; 2. 0.0.0.0 failed — bind localhost first (for Tailscale proxy), then
     ;;    add the LAN IP as a secondary connector so Direct LAN also works.
-    (when-let [server (try-start-jetty handler port "127.0.0.1")]
+    (when-let [server (try-start-jetty handler port "127.0.0.1" ssl-context)]
       (when lan-ip
-        (if (add-connector! server port lan-ip)
+        (if (add-connector! server port lan-ip ssl-context)
           (logger/debug logger-tag (str "Also listening on " lan-ip ":" port " for Direct LAN"))
           (logger/warn logger-tag (str "Could not bind to " lan-ip ":" port " — Direct LAN connections may not work"))))
       [server (if lan-ip "127.0.0.1+lan" "127.0.0.1")])))
@@ -128,11 +198,11 @@
   "Tries sequential ports starting from base-port up to max-port-attempts.
    For each port, tries all bind-hosts before moving to the next port.
    Returns [server actual-port bind-host] on success, nil if all attempts fail."
-  [handler base-port lan-ip]
+  [handler base-port lan-ip ssl-context]
   (loop [port base-port
          attempts 0]
     (when (< attempts max-port-attempts)
-      (if-let [[server bind-host] (try-start-jetty-any-host handler port lan-ip)]
+      (if-let [[server bind-host] (try-start-jetty-any-host handler port lan-ip ssl-context)]
         [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bind-host]
         (do (logger/debug logger-tag (str "Port " port " in use, trying " (inc port) "..."))
             (recur (inc port) (inc attempts)))))))
@@ -151,6 +221,7 @@
             host-base (or (:host remote-config) (detect-host))
             lan-ip (detect-lan-ip)
             user-port (:port remote-config)
+            ssl-context (build-server-ssl-context)
             ;; Use atom so the handler sees host:port after Jetty resolves the actual port
             host+port* (atom host-base)
             handler (routes/create-handler components
@@ -161,39 +232,40 @@
           (if-let [[^Server jetty-server actual-port bind-host]
                    (if user-port
                      ;; User-specified port: single attempt, try all bind hosts
-                     (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip)]
+                     (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip ssl-context)]
                        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bh]
                        (do (logger/warn logger-tag "Port" user-port "is already in use."
                                         "Remote server will not start.")
                            nil))
                      ;; Default: try sequential ports starting from default-port
-                     (or (start-with-retry handler default-port lan-ip)
+                     (or (start-with-retry handler default-port lan-ip ssl-context)
                          (do (logger/warn logger-tag
                                           (str "Could not bind to ports " default-port "-"
                                                (+ default-port (dec max-port-attempts))
                                                ". Remote server will not start."))
                              nil)))]
-            (let [host-with-port (str host-base ":" actual-port)
+            (let [private? (private-ip? host-base)
+                  display-host (if (and ssl-context private?)
+                                 (ip->sslip-hostname host-base)
+                                 host-base)
+                  host-with-port (str display-host ":" actual-port)
                   _ (reset! host+port* host-with-port)
                   heartbeat-ch (sse/start-heartbeat! sse-connections*)
-                  private? (private-ip? host-base)
                   localhost-only? (and (= bind-host "127.0.0.1") (not lan-ip))
-                  connect-url (if private?
-                                (str "https://web.eca.dev?host="
-                                     host-with-port
-                                     "&pass=" token
-                                     "&protocol=http")
-                                (str "https://web.eca.dev?host="
-                                     host-with-port
-                                     "&pass=" token
-                                     "&protocol=https"))]
+                  protocol (if ssl-context "https" (if private? "http" "https"))
+                  connect-url (str "https://web.eca.dev?host="
+                                   host-with-port
+                                   "&pass=" token
+                                   "&protocol=" protocol)]
               (when (and localhost-only? private? (not= host-base "127.0.0.1"))
                 (logger/warn logger-tag
                              (str "⚠️  Bound to 127.0.0.1:" actual-port " (localhost only) because another service "
                                   "(e.g. Tailscale) holds port " actual-port " on the external interface. "
                                   "Direct LAN connections to " host-base " will not work. "
                                   "Use a different port, stop the conflicting service, or connect via Tailscale.")))
-              (logger/info logger-tag (str "🌐 Remote server started on port " actual-port " — use /remote for connection details"))
+              (logger/info logger-tag (str "🌐 Remote server started on port " actual-port
+                                          (when ssl-context " (HTTPS)")
+                                          " — use /remote for connection details"))
               {:server jetty-server
                :sse-connections* sse-connections*
                :heartbeat-stop-ch heartbeat-ch

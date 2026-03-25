@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
+- Start remote server as https using built-in cert/private key. Fixes mixed content issues.
 
 ## 0.116.6
 
