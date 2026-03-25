@@ -4,6 +4,7 @@
 
 - Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
 - Start remote server as https using built-in cert/private key. Fixes mixed content issues.
+- Fix stopping a prompt during `web_search` leaving chat in unrecoverable state. #375
 
 ## 0.116.6
 
