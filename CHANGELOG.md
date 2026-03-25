@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
+
 ## 0.116.6
 
 - Bump plumcp to 0.2.0-beta5.

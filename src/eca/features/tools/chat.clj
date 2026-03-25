@@ -12,6 +12,9 @@
     ;; Save summary to replace chat history later
     (swap! db* assoc-in [:chats chat-id :last-summary] summary)
 
+    ;; Signal that compact is done so the LLM loop stops
+    (swap! db* assoc-in [:chats chat-id :compact-done?] true)
+
     (tools.util/single-text-content "Compacted successfully!")))
 
 (def definitions

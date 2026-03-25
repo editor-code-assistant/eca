@@ -608,10 +608,14 @@
                 :on-tools-called (tc/on-tools-called!
                                   (assoc chat-ctx :continue-fn
                                          (fn [tc-all-tools tc-user-messages]
-                                           (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                             (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                             {:tools tc-all-tools
-                                              :new-messages (get-in @db* [:chats chat-id :messages])})))
+                                           (if (get-in @db* [:chats chat-id :compact-done?])
+                                             (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
+                                                 (lifecycle/finish-chat-prompt! :idle chat-ctx)
+                                                 nil)
+                                             (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                               (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
+                                               {:tools tc-all-tools
+                                                :new-messages (get-in @db* [:chats chat-id :messages])}))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
