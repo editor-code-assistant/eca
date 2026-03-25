@@ -13,7 +13,7 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
 
 === "Direct (LAN / Private IP)"
 
-    The simplest approach — connect directly from `https://web.eca.dev` to your machine's private IP.
+    The simplest approach — connect directly from `https://web.eca.dev` to your machine's private IP - this only works if using a Chrome based browser as other browsers block https -> http requests.
 
     **Config:**
 
