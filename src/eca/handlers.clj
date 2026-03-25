@@ -62,7 +62,7 @@
 
       {:chat-welcome-message (welcome-message config)})))
 
-(defn initialized [{:keys [db* messenger config metrics]}]
+(defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
           (fn [config]
@@ -98,6 +98,8 @@
                                                      db*)))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
       (shared/future* config (sync-models-and-notify! config))))
+  (when (get-in config [:remote :enabled])
+    (start-remote-server! components))
   (future
     (Thread/sleep 1000) ;; wait chat window is open in some editors.
     (when-let [error (config/validation-error)]

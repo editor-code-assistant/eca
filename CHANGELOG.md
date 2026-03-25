@@ -6,6 +6,7 @@
 - Fix auto-continue clobbering new prompt status and losing the stop button.
 - Add configurable shell for `shell_command` tool via `toolCall.shellCommand.path` and `toolCall.shellCommand.args`. #370
 - Fix providers disappearing from `/login` after saving an API key. eca-emacs#196
+- Fix `remote.enabled` in project-local `.eca/config.json` being ignored when a global config also exists.
 
 ## 0.116.5
 
