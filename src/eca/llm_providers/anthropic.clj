@@ -608,7 +608,7 @@
   (if (string/starts-with? input "sk-")
     (do
       (config/update-global-config! {:providers {"anthropic" {:key input}}})
-      (swap! db* update :auth dissoc provider)
+      (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))
     (send-msg! (format "Invalid API key '%s'" input))))
