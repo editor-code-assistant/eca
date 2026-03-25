@@ -155,4 +155,4 @@
       (fs/copy f "docs" {:replace-existing true}))
     (fs/copy-tree "images" "docs/images" {:replace-existing true})
     (p/shell "docker login docker.pkg.github.com")
-    (p/shell (str "docker run --rm -it -p 8000:8000 -v " (fs/cwd) ":/docs ghcr.io/editor-code-assistant/docs-image/docs-image"))))
+    (p/shell (str "docker run --rm -it --network=host -v " (fs/cwd) ":/docs ghcr.io/editor-code-assistant/docs-image/docs-image"))))
