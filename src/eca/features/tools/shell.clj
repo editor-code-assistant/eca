@@ -19,29 +19,33 @@
   "Start a shell process, returning the process object for deref/management.
 
    Options:
-   - :cwd      Working directory (required)
-   - :script   Inline script string (mutually exclusive with :file)
-   - :file     Script file path (mutually exclusive with :script)
-   - :input    String to pass as stdin (optional)
+   - :cwd        Working directory (required)
+   - :script     Inline script string (mutually exclusive with :file)
+   - :file       Script file path (mutually exclusive with :script)
+   - :input      String to pass as stdin (optional)
+   - :shell-path Custom shell executable path (optional, overrides platform default)
+   - :shell-args Custom shell args placed before the script/file arg (optional)
 
    Returns: babashka.process process object (deref-able)"
-  [{:keys [cwd script file input]}]
+  [{:keys [cwd script file input shell-path shell-args]}]
   {:pre [(some? cwd)
          (or (some? script) (some? file))
          (not (and script file))]}
-  (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")
-        cmd (cond
-              (and win? file)
-              ["powershell.exe" "-ExecutionPolicy" "Bypass" "-File" file]
+  (let [cmd (if shell-path
+              (into (vec (cons shell-path shell-args)) [(or script file)])
+              (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")]
+                (cond
+                  (and win? file)
+                  ["powershell.exe" "-ExecutionPolicy" "Bypass" "-File" file]
 
-              (and win? script)
-              ["powershell.exe" "-NoProfile" "-Command" script]
+                  (and win? script)
+                  ["powershell.exe" "-NoProfile" "-Command" script]
 
-              file
-              ["bash" file]
+                  file
+                  ["bash" file]
 
-              :else
-              ["bash" "-c" script])]
+                  :else
+                  ["bash" "-c" script])))]
     (p/process (cond-> {:cmd cmd
                         :dir cwd
                         :out :string
@@ -49,10 +53,13 @@
                         :continue true}
                  input (assoc :in input)))))
 
-(defn ^:private shell-command [arguments {:keys [db tool-call-id call-state-fn state-transition-fn]}]
+(defn ^:private shell-command [arguments {:keys [db config tool-call-id call-state-fn state-transition-fn]}]
   (let [command-args (get arguments "command")
         user-work-dir (get arguments "working_directory")
-        timeout (min (or (get arguments "timeout") default-timeout) max-timeout)]
+        timeout (min (or (get arguments "timeout") default-timeout) max-timeout)
+        shell-config (get-in config [:toolCall :shellCommand])
+        shell-path (get shell-config :path)
+        shell-args (get shell-config :args)]
     (or (tools.util/invalid-arguments arguments [["working_directory" #(or (nil? %)
                                                                            (fs/exists? %)) "working directory $working_directory does not exist"]])
         (let [work-dir (or (some-> user-work-dir fs/canonicalize str)
@@ -64,8 +71,10 @@
               _ (logger/debug logger-tag "Running command:" command-args)
               result (try
                        (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                       (start-shell-process! {:cwd work-dir
-                                                              :script command-args}))]
+                                       (start-shell-process! (cond-> {:cwd work-dir
+                                                                      :script command-args}
+                                                               shell-path (assoc :shell-path shell-path)
+                                                               shell-args (assoc :shell-args shell-args))))]
                          (do
                            (state-transition-fn :resources-created {:resources {:process proc}})
                            (try (deref proc

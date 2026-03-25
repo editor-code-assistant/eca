@@ -177,28 +177,27 @@
   (let [db* (atom (assoc db/initial-db :started-at (System/currentTimeMillis)))
         metrics (->Metrics db*)
         stdio-messenger (->ServerMessenger server db*)
-        ;; Read remote config from file-based sources (global/env/custom).
-        ;; Workspace-level config is not available yet (initialize hasn't been called).
-        remote-config (:remote (config/read-file-configs))
-        sse-connections* (when (:enabled remote-config)
-                           (atom #{}))
-        messenger (if sse-connections*
-                    (remote.messenger/->BroadcastMessenger stdio-messenger sse-connections*)
-                    stdio-messenger)
+        ;; Always create SSE connections and BroadcastMessenger so the remote
+        ;; HTTP server can be started later (e.g. when local project config
+        ;; enables it after initialize). Broadcasting to an empty set is a no-op.
+        sse-connections* (atom #{})
+        messenger (remote.messenger/->BroadcastMessenger stdio-messenger sse-connections*)
+        start-remote-server!
+        (fn [components]
+          (when-let [rs (remote.server/start! components sse-connections*)]
+            (reset! remote-server* rs)
+            (swap! db* assoc
+                   :remote-connect-url (:connect-url rs)
+                   :remote-host (:host rs)
+                   :remote-token (:token rs)
+                   :remote-private-host? (:private-host? rs))))
         components {:db* db*
                     :messenger messenger
                     :metrics metrics
-                    :server server}]
+                    :server server
+                    :start-remote-server! start-remote-server!}]
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
-    (when sse-connections*
-      (when-let [rs (remote.server/start! components sse-connections*)]
-        (reset! remote-server* rs)
-        (swap! db* assoc
-               :remote-connect-url (:connect-url rs)
-               :remote-host (:host rs)
-               :remote-token (:token rs)
-               :remote-private-host? (:private-host? rs))))
     (monitor-server-logs (:log-ch server))
     (setup-dev-environment db* components)
     (jsonrpc.server/start server components)))

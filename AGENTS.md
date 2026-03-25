@@ -3,7 +3,7 @@ ECA Agent Guide (AGENTS.md)
 - Build (requires Clojure CLI + Babashka):
   - All-in-one debug CLI (JVM, nREPL): `bb debug-cli`
   - Production CLI (JVM): `bb prod-cli`  |  Production JAR: `bb prod-jar`
-  - Native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
+  - In production we use a native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
 - Test (Kaocha via `:test` alias):
   - Run all unit tests: `bb test`  (same as `clojure -M:test`)
   - Run a single unit test namespace: `clojure -M:test --focus eca.main-test`

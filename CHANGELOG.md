@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+## 0.117.0
+
+- Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
+- Start remote server as https using built-in cert/private key. Fixes mixed content issues.
+- Fix stopping a prompt during `web_search` leaving chat in unrecoverable state. #375
+
+## 0.116.6
+
 - Bump plumcp to 0.2.0-beta5.
 - Fix auto-continue clobbering new prompt status and losing the stop button.
+- Add configurable shell for `shell_command` tool via `toolCall.shellCommand.path` and `toolCall.shellCommand.args`. #370
+- Fix providers disappearing from `/login` after saving an API key. eca-emacs#196
+- Fix `remote.enabled` in project-local `.eca/config.json` being ignored when a global config also exists.
 - Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
 
 ## 0.116.5

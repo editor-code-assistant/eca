@@ -257,6 +257,27 @@
         (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch)))))
 
+(defn ^:private compact-0 [ch]
+  ;; LLM calls eca__compact_chat with a summary — no text or reasoning
+  (sse-send! ch "content_block_start"
+             {:type "content_block_start"
+              :index 0
+              :content_block {:type "tool_use"
+                              :id "compact-1"
+                              :name "eca__compact_chat"}})
+  (sse-send! ch "content_block_delta"
+             {:type "content_block_delta"
+              :index 0
+              :delta {:type "input_json_delta"
+                      :partial_json "{\"summary\":\"Test summary of the conversation\"}"}})
+  (sse-send! ch "message_delta"
+             {:type "message_delta"
+              :delta {:stop_reason "tool_use"}
+              :usage {:input_tokens 100
+                      :output_tokens 50}})
+  (sse-send! ch "message_stop" {:type "message_stop"})
+  (hk/close ch))
+
 (defn ^:private chat-title-text-0 [ch]
   (hk/send! ch
             (json/generate-string
@@ -286,4 +307,5 @@
                        :reasoning-0 (reasoning-0 ch)
                        :reasoning-1 (reasoning-1 ch)
                        :tool-calling-0 (tool-calling-0 ch body)
-                       :mcp-tool-call-0 (mcp-tool-call-0 ch body)))))})))
+                       :mcp-tool-call-0 (mcp-tool-call-0 ch body)
+                       :compact-0 (compact-0 ch)))))})))

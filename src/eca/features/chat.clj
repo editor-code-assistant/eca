@@ -478,6 +478,7 @@
             received-msgs* (atom "")
             reasonings* (atom {})
             server-tool-times* (atom {})
+            pending-server-tool-uses* (atom {})
             add-to-history! (fn [msg]
                               (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
             on-usage-updated (fn [usage]
@@ -608,10 +609,14 @@
                 :on-tools-called (tc/on-tools-called!
                                   (assoc chat-ctx :continue-fn
                                          (fn [tc-all-tools tc-user-messages]
-                                           (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                             (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                             {:tools tc-all-tools
-                                              :new-messages (get-in @db* [:chats chat-id :messages])})))
+                                           (if (get-in @db* [:chats chat-id :compact-done?])
+                                             (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
+                                                 (lifecycle/finish-chat-prompt! :idle chat-ctx)
+                                                 nil)
+                                             (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                               (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
+                                               {:tools tc-all-tools
+                                                :new-messages (get-in @db* [:chats chat-id :messages])}))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
@@ -673,10 +678,11 @@
                                                                                   :start-time (System/currentTimeMillis)
                                                                                   :summary summary
                                                                                   :progress-text "Searching the web"}))
-                                            :input-ready (add-to-history! {:role "server_tool_use"
-                                                                           :content {:id id
-                                                                                     :name name
-                                                                                     :input arguments}})
+                                            :input-ready (swap! pending-server-tool-uses* assoc id
+                                                                    {:role "server_tool_use"
+                                                                     :content {:id id
+                                                                               :name name
+                                                                               :input arguments}})
                                             :finished (let [start-time (get @server-tool-times* id)
                                                             total-time-ms (if start-time
                                                                             (- (System/currentTimeMillis) start-time)
@@ -686,6 +692,9 @@
                                                                               {:type :text
                                                                                :text (format "%s: %s" title url)})
                                                                             output))]
+                                                        (when-let [pending-tool-use (get @pending-server-tool-uses* id)]
+                                                          (add-to-history! pending-tool-use)
+                                                          (swap! pending-server-tool-uses* dissoc id))
                                                         (add-to-history! {:role "server_tool_result"
                                                                           :content {:tool-use-id id
                                                                                     :raw-content raw-content}})

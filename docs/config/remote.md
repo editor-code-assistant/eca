@@ -1,19 +1,19 @@
 ---
-description: "Configure ECA Remote: control your ECA session from a web browser via Tailscale or LAN."
+description: "Configure ECA Remote: control your ECA session from a web browser."
 ---
 
 # Remote
 
-ECA Remote lets you control, approve, observe your ECA session from a web browser. 
-When enabled, ECA starts an embedded HTTP server that a web frontend can connect to in real-time, from [web.eca.dev](https://web.eca.dev) or a hosted eca-web.
+ECA Remote lets you control, approve, and observe your ECA session from a web browser.
+When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.eca.dev](https://web.eca.dev) connects to in real-time.
+
+![](../images/features/remote.png)
 
 ## Connection Methods
 
-There are three ways to connect the web frontend to your ECA session. Pick the one that fits your setup.
+=== "LAN / Private IPs"
 
-=== "Direct (LAN / Private IP)"
-
-    The simplest approach — connect directly from `https://web.eca.dev` to your machine's private IP.
+    The simplest approach — connect directly from `https://web.eca.dev` to your machine on the local network. Works in all browsers with no extra setup.
 
     **Config:**
 
@@ -21,29 +21,30 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
     {
       "remote": {
         "enabled": true,
-        "password": "something" // optional - or ${env:MY_PASS}
+        "password": "something" // optional — or ${env:MY_PASS}
       }
     }
     ```
 
     **Steps:**
 
-    1. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
+    1. Start ECA — it logs a connection URL you can open directly:
 
         ```
-        https://web.eca.dev?host=192.168.1.42:7777&pass=a3f8b2c1...&protocol=http
+        https://web.eca.dev?host=192-168-1-42.local.eca.dev:7777&pass=a3f8b&protocol=https
         ```
 
-    2. Open `https://web.eca.dev` and enter your machine's LAN IP (e.g. `192.168.1.42`) and password
-    3. Chrome will show a **Local Network Access** permission prompt — click **Allow**
+    2. Or open `https://web.eca.dev`, enter your machine's LAN IP (e.g. `192.168.1.42`) and password — the web UI automatically resolves it to the secure `*.local.eca.dev` hostname.
+
+    ECA ships with a TLS certificate for `*.local.eca.dev`. On startup, the server detects your LAN IP and serves HTTPS using a hostname like `192-168-1-42.local.eca.dev`, which resolves back to your IP via [sslip.io](https://sslip.io) DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.
 
     !!! note "Firewall"
-        Make sure your firewall allows incoming TCP connections on ports `7777`–`7796` (the default ECA port range) from your LAN.
-        ECA starts using `7777` and increments for each server running on your machine.
+        Make sure your firewall allows incoming TCP on ports `7777`–`7796` from your LAN.
+        ECA uses port `7777` by default and increments if busy.
 
-=== "Tailscale / VPN"
+=== "VPN / Tailscale"
 
-    For a seamless HTTPS-to-HTTPS connection with no browser prompts. [Tailscale](https://tailscale.com) (free) creates a secure private network between your devices with valid HTTPS certificates.
+    For connecting from outside your LAN. [Tailscale](https://tailscale.com) (free) creates a secure private network between your devices with valid HTTPS certificates.
 
     **Config:**
 
@@ -52,7 +53,7 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
       "remote": {
         "enabled": true,
         "password": "something-here",
-        "host": "my-machine.tail1234.ts.net" // optional - just to get url easily when starting
+        "host": "my-machine.tail1234.ts.net" // optional — used in the connect URL
       }
     }
     ```
@@ -60,7 +61,7 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
     **Steps:**
 
     1. Install Tailscale and enable [HTTPS certificates](https://tailscale.com/kb/1153/enabling-https)
-    2. Expose the ECA port range via Tailscale HTTPS serve so they are reachable over your tailnet:
+    2. Expose ECA's port via Tailscale HTTPS serve:
 
         ```bash
         sudo tailscale serve --bg --https 7777 http://localhost:7777
@@ -70,21 +71,19 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
 
         !!! warning "Use `--https`, not `--tcp`"
             `--tcp` creates a raw TCP proxy that browsers cannot connect to.
-            `--https` creates a proper HTTPS reverse proxy with valid certificates, which is required for browser-based access from `web.eca.dev`.
+            `--https` creates a proper HTTPS reverse proxy with valid certificates.
 
-    3. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
+    3. Start ECA — it logs a connection URL you can open directly:
 
         ```
-        https://web.eca.dev?host=my-machine.tail1234.ts.net:7777&pass=a3f8b2c1...&protocol=https
+        https://web.eca.dev?host=my-machine.tail1234.ts.net:7777&pass=a3f8b&protocol=https
         ```
 
-    4. Open `https://web.eca.dev` and paste the connection URL or manually enter host and password
-
-    Because Tailscale provides valid HTTPS certificates for your machine, the browser connects without any mixed-content issues or permission prompts.
+    4. Open `https://web.eca.dev` and enter your Tailscale hostname and password
 
 === "Local Docker"
 
-    If you prefer to keep everything over plain HTTP, you can run the web frontend locally. This avoids all browser security restrictions.
+    Run the web frontend locally over HTTP — useful for development or restricted environments.
 
     **Config:**
 
@@ -99,31 +98,25 @@ There are three ways to connect the web frontend to your ECA session. Pick the o
 
     **Steps:**
 
-    1. Run the web frontend locally via Docker, usually on the same machine where the server is running:
+    1. Run the web frontend locally via Docker:
 
         ```bash
         docker run --pull=always -p 8080:80 ghcr.io/editor-code-assistant/eca-web
         ```
 
-    2. Start ECA — it will log the connection URL and auth token to stderr. The URL is a deep-link you can open directly:
+    2. Open `http://localhost:8080` and connect to `localhost:7777`
 
-        ```
-        http://localhost:8080?host=localhost:7777&pass=a3f8b2c1...&protocol=http
-        ```
-
-    3. Open `http://localhost:8080` and paste the connection URL
-
-All connection methods support the same config options:
+## Config Options
 
 ```javascript title="~/.config/eca/config.json"
 {
   "remote": {
     "enabled": true,
-    // optional — useful for specifying custom dns like tailscale or your local ip, just for logging purposes in stderr/welcome message
-    "host": "192.168.1.42",
-    // optional — defaults to 7777 (auto-increments until 7796 if busy)
+    // optional — override the hostname in the connect URL (e.g. Tailscale DNS)
+    "host": "my-machine.tail1234.ts.net",
+    // optional — defaults to 7777, auto-increments up to 7796 if busy
     "port": 9876,
-    // optional — a random pass is auto-generated when unset, you can use ${env:...}
+    // optional — auto-generated when unset, supports ${env:MY_PASS}
     "password": "my-secret-token"
   }
 }
@@ -133,6 +126,6 @@ All connection methods support the same config options:
 
 The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).
 
-**Auto-discovery** — When you enter a host and click "Discover", the web UI scans ports `7777`–`7796` in parallel and finds all running ECA instances automatically. This is the default port range ECA uses when auto-assigning ports.
+**Auto-discovery** — When you enter a host and click "Discover & Connect", the web UI scans ports `7777`–`7796` in parallel and finds all running ECA instances automatically.
 
-**Multi-session** — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar, letting you switch between sessions.
+**Multi-session** — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar.
