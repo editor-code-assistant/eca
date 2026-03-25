@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.116.6
+
 - Bump plumcp to 0.2.0-beta5.
 - Fix auto-continue clobbering new prompt status and losing the stop button.
 - Add configurable shell for `shell_command` tool via `toolCall.shellCommand.path` and `toolCall.shellCommand.args`. #370
