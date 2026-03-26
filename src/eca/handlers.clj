@@ -118,18 +118,19 @@
           (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
       (catch Exception e
         (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
+    (config/deliver-plugins-resolved!)
     (let [config (config/all @db*)]
+      ;; Trigger sessionStart with plugin-aware config
+      (shared/future* config
+        (f.hooks/trigger-if-matches! :sessionStart
+                                     (f.hooks/base-hook-data @db*)
+                                     {}
+                                     @db*
+                                     config))
       (f.tools/init-servers! db* messenger config metrics)))
   (future
     (cache/cleanup-tool-call-outputs!)
-    (db/cleanup-old-chats! db* metrics))
-  ;; Trigger sessionStart hook after initialization
-  (shared/future* config
-    (f.hooks/trigger-if-matches! :sessionStart
-                                 (f.hooks/base-hook-data @db*)
-                                 {}
-                                 @db*
-                                 config)))
+    (db/cleanup-old-chats! db* metrics)))
 
 (defn workspace-did-change-folders [{:keys [db*]} params]
   (let [{:keys [added removed]} (:event params)

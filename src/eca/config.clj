@@ -313,6 +313,19 @@
 
 (def plugin-components* (atom nil))
 
+(def ^:private plugins-resolved* (promise))
+
+(defn deliver-plugins-resolved!
+  "Signal that plugin resolution has finished (successfully or not)."
+  []
+  (deliver plugins-resolved* true))
+
+(defn await-plugins-resolved!
+  "Block until plugin resolution has finished. Returns true when resolved,
+   nil on timeout (30s)."
+  []
+  (deref plugins-resolved* 30000 nil))
+
 (defn ^:private deep-merge [& maps]
   (apply merge-with (fn [& args]
                       (if (every? #(or (map? %) (nil? %)) args)

@@ -840,7 +840,10 @@
         ;; Trigger chatStart hook as early as possible so its additionalContext
         ;; is visible in build-chat-instructions and /prompt-show.
         _ (when-not chat-start-fired?
-            (let [hook-results* (atom [])
+            ;; Wait for plugin resolution so plugin-defined hooks are available
+            (config/await-plugins-resolved!)
+            (let [config (config/all db0)
+                  hook-results* (atom [])
                   hook-ctx {:messenger messenger :chat-id chat-id}]
               (f.hooks/trigger-if-matches! :chatStart
                                            (merge (f.hooks/base-hook-data db0)

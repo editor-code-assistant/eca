@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
+- Fix plugin-defined hooks not firing for `chatStart` and `sessionStart` due to plugins resolving after hooks fired. #374
 
 ## 0.117.0
 
