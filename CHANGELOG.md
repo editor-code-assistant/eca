@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix ECA stop timing out.
+
 ## 0.118.0
 
 - Show the selected `variant` in `spawn_agent` subagent details and harden restrictions regarding the use of the optional model in sub-agent. #369

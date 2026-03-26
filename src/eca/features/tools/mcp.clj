@@ -423,7 +423,7 @@
               (register-init-thread! server-name t)
               (.start t))))))))
 
-(def ^:private disconnect-timeout-ms 5000)
+(def ^:private disconnect-timeout-ms 3000)
 
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
   (when-let [{:keys [client http-client]} (get-in @db* [:mcp-clients name])]
@@ -711,38 +711,35 @@
 (defn shutdown!
   "Shutdown MCP servers: interrupts in-flight init threads and disconnects
    running clients in parallel with a total 5s timeout.
-   HTTP clients are force-stopped immediately (skipping the slow DELETE handshake),
+   HTTP clients are force-stopped (skipping the slow DELETE handshake),
    while stdio clients go through graceful disconnect with a timeout fallback."
   [db*]
   ;; 1. Interrupt any servers still initializing so they unblock promptly
   (interrupt-init-threads!)
-  ;; 2. Disconnect running clients
+  ;; 2. Disconnect running clients in parallel via daemon threads
   (try
     (let [clients (vals (:mcp-clients @db*))
-          ;; HTTP clients: force-stop immediately (the DELETE in disconnect! always
-          ;; times out because the server is slow to respond, and we're shutting down anyway)
-          http-clients (filter :http-client clients)
-          ;; stdio clients: graceful disconnect with timeout
-          stdio-clients (remove :http-client clients)]
-      (doseq [{:keys [http-client]} http-clients]
-        (try (pp/stop! http-client) (catch Exception _)))
-      (when (seq stdio-clients)
-        (let [latch (java.util.concurrent.CountDownLatch. (count stdio-clients))
-              threads (doall
-                        (map (fn [{:keys [client]}]
-                               (doto (Thread.
-                                       (fn []
-                                         (try
-                                           (pmc/disconnect! client)
-                                           (catch Exception _)
-                                           (finally
-                                             (.countDown latch)))))
-                                 (.setDaemon true)
-                                 (.start)))
-                             stdio-clients))]
-          (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
-            (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
-            (doseq [{:keys [client]} stdio-clients]
-              (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _)))))))
+          latch (java.util.concurrent.CountDownLatch. (count clients))
+          threads (doall
+                    (map (fn [{:keys [client http-client]}]
+                           (doto (Thread.
+                                   (fn []
+                                     (try
+                                       (if http-client
+                                         ;; HTTP: force-stop (the DELETE in disconnect! always
+                                         ;; times out because the server is slow to respond)
+                                         (pp/stop! http-client)
+                                         ;; stdio: graceful disconnect
+                                         (pmc/disconnect! client))
+                                       (catch Exception _)
+                                       (finally
+                                         (.countDown latch)))))
+                             (.setDaemon true)
+                             (.start)))
+                         clients))]
+      (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+        (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
+        (doseq [^Thread t threads]
+          (.interrupt t))))
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))
