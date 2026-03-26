@@ -199,7 +199,8 @@
 (defn update-workspaces-cache! [db metrics]
   (-> (normalize-db-for-workspace-write db)
       (assoc :version version)
-      (upsert-cache! (transit-global-by-workspaces-db-file (:workspace-folders db)) metrics)))
+      (upsert-cache! (transit-global-by-workspaces-db-file (or (:initial-workspace-folders db)
+                                                               (:workspace-folders db))) metrics)))
 
 (defn update-global-cache! [db metrics]
   (-> (normalize-db-for-global-write db)

@@ -55,6 +55,7 @@
       (swap! db* assoc
              :client-info (:client-info params)
              :workspace-folders (:workspace-folders params)
+             :initial-workspace-folders (:workspace-folders params)
              :client-capabilities (:capabilities params))
       (metrics/set-extra-metrics! db*)
       (when-not (:pureConfig config)

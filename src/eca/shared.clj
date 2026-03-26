@@ -311,7 +311,8 @@
   "Returns the absolute path to the workspace-specific DB cache file as a string.
    Used by hooks to access the cached database."
   [db]
-  (str (cache/workspace-cache-file (:workspace-folders db) "db.transit.json" uri->filename)))
+  (str (cache/workspace-cache-file (or (:initial-workspace-folders db)
+                                       (:workspace-folders db)) "db.transit.json" uri->filename)))
 
 (defn compact-side-effect!
   "Performs side effects after chat compaction: replaces history with summary,
