@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
+
 ## 0.117.0
 
 - Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
