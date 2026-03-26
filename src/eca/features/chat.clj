@@ -1011,8 +1011,8 @@
         commands (f.commands/all-commands @db* config)
         commands (if (string/blank? query)
                    commands
-                   (filter #(or (string/includes? (string/lower-case (:name %)) query)
-                                (string/includes? (string/lower-case (:description %)) query))
+                   (filter #(or (some-> (:name %) string/lower-case (string/includes? query))
+                                (some-> (:description %) string/lower-case (string/includes? query)))
                            commands))]
     {:chat-id chat-id
      :commands commands}))
