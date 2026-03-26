@@ -343,6 +343,10 @@
     (is (match?
          nil
          (f.context/contexts-str-from-prompt "check /path/to/file" (h/db)))))
+  (testing "email address is not a context mention"
+    (is (match?
+         nil
+         (f.context/contexts-str-from-prompt "send email to user@example.com" (h/db)))))
   (testing "Context mention"
     (with-redefs [fs/readable? (constantly true)
                   llm-api/refine-file-context (constantly "Some content")]

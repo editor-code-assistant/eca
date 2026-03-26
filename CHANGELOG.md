@@ -6,6 +6,7 @@
 - Fix MCP OAuth browser not opening on Windows by using `cmd /c start` instead of `java.awt.Desktop`, which is unavailable in the native image.
 - Improve server shutdown speed for remote MCP servers.
 - Extract git/gh instructions from `shell_command` into a dedicated `git` tool with a condensed prompt, reducing per-turn token overhead.
+- Fix crash when `@` signs in prompts (e.g. email addresses) are misinterpreted as context mentions. #379
 
 ## 0.117.1
 
