@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
+
 ## 0.117.0
 
 - Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
@@ -15,7 +17,6 @@
 - Add configurable shell for `shell_command` tool via `toolCall.shellCommand.path` and `toolCall.shellCommand.args`. #370
 - Fix providers disappearing from `/login` after saving an API key. eca-emacs#196
 - Fix `remote.enabled` in project-local `.eca/config.json` being ignored when a global config also exists.
-- Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
 
 ## 0.116.5
 
