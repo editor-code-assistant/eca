@@ -45,5 +45,9 @@
     (messenger/showMessage inner msg)
     (sse/broadcast! sse-connections* "session:message" (->camel msg)))
 
+  (progress [_this params]
+    (messenger/progress inner params)
+    (sse/broadcast! sse-connections* "session:progress" (->camel params)))
+
   (editor-diagnostics [_this uri]
     (messenger/editor-diagnostics inner uri)))

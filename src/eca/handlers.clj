@@ -63,6 +63,12 @@
 
       {:chat-welcome-message (welcome-message config)})))
 
+(defn ^:private send-progress! [db* messenger params]
+  (when-not (:stopping @db*)
+    (try
+      (messenger/progress messenger params)
+      (catch Exception _))))
+
 (defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
@@ -98,40 +104,50 @@
                                                      messenger
                                                      db*)))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
-      (shared/future* config (sync-models-and-notify! config))))
-  (when (get-in config [:remote :enabled])
-    (start-remote-server! components))
-  (future
-    (Thread/sleep 1000) ;; wait chat window is open in some editors.
-    (when-let [error (config/validation-error)]
-      (messenger/chat-content-received
-       messenger
-       {:role "system"
-        :content {:type :text
-                  :text (format "\nFailed to parse '%s' config, check stderr logs, double check your config and restart\n"
-                                error)}}))
-    (config/listen-for-changes! db*))
-  (future
-    ;; Resolve plugins before MCP init so plugin-provided servers are included
-    (try
-      (let [plugins-config (:plugins config)]
-        (when (seq plugins-config)
-          (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
-      (catch Exception e
-        (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
-    (config/deliver-plugins-resolved!)
-    (let [config (config/all @db*)]
-      ;; Trigger sessionStart with plugin-aware config
       (shared/future* config
-        (f.hooks/trigger-if-matches! :sessionStart
-                                     (f.hooks/base-hook-data @db*)
-                                     {}
-                                     @db*
-                                     config))
-      (f.tools/init-servers! db* messenger config metrics)))
-  (future
-    (cache/cleanup-tool-call-outputs!)
-    (db/cleanup-old-chats! db* metrics)))
+        (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
+            (sync-models-and-notify! config)
+            (send-progress! db* messenger {:type "finish" :taskId "models" :title "Syncing models"}))))
+    (when (get-in config [:remote :enabled])
+      (send-progress! db* messenger {:type "start" :taskId "remote-server" :title "Starting remote server"})
+      (start-remote-server! components)
+      (send-progress! db* messenger {:type "finish" :taskId "remote-server" :title "Starting remote server"}))
+    (future
+      (Thread/sleep 1000) ;; wait chat window is open in some editors.
+      (when-let [error (config/validation-error)]
+        (messenger/chat-content-received
+         messenger
+         {:role "system"
+          :content {:type :text
+                    :text (format "\nFailed to parse '%s' config, check stderr logs, double check your config and restart\n"
+                                  error)}}))
+      (config/listen-for-changes! db*))
+    (future
+      (send-progress! db* messenger {:type "start" :taskId "plugins" :title "Resolving plugins"})
+      (try
+        (let [plugins-config (:plugins config)]
+          (when (seq plugins-config)
+            (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
+        (catch Exception e
+          (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
+      (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
+      (config/deliver-plugins-resolved!)
+      (let [config (config/all @db*)]
+      ;; Trigger sessionStart with plugin-aware config
+        (shared/future* config
+          (f.hooks/trigger-if-matches! :sessionStart
+                                       (f.hooks/base-hook-data @db*)
+                                       {}
+                                       @db*
+                                       config))
+        (send-progress! db* messenger {:type "start" :taskId "mcp-servers" :title "Initializing MCP servers"})
+        (f.tools/init-servers! db* messenger config metrics)
+        (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
+    (future
+      (send-progress! db* messenger {:type "start" :taskId "cleanup" :title "Cleaning up"})
+      (cache/cleanup-tool-call-outputs!)
+      (db/cleanup-old-chats! db* metrics)
+      (send-progress! db* messenger {:type "finish" :taskId "cleanup" :title "Cleaning up"}))))
 
 (defn workspace-did-change-folders [{:keys [db*]} params]
   (let [{:keys [added removed]} (:event params)
@@ -156,8 +172,8 @@
                                  config)
 
     ;; 3. Then shutdown
-    (f.mcp/shutdown! db*)
     (swap! db* assoc :stopping true)
+    (f.mcp/shutdown! db*)
     nil))
 
 (defn chat-prompt [{:keys [messenger db* config metrics]} params]

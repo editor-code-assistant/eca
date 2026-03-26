@@ -165,6 +165,9 @@
   (showMessage [_this msg]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "$/showMessage" msg)))
+  (progress [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "$/progress" params)))
   (editor-diagnostics [_this uri]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri)))))

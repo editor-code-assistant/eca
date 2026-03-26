@@ -2185,6 +2185,28 @@ _Response:_
 
 ## General features
 
+### progress (⬅️)
+
+A notification from the server reporting the progress of an initialization task. Each task
+sends a `start` notification when it begins and a `finish` notification when it completes (or fails).
+Clients can track all tasks to derive aggregate initialization progress.
+
+_Notification:_
+
+* method: `$/progress`
+* params: `ProgressParams` defined as follows:
+
+```typescript
+interface ProgressParams {
+  /** Whether this task is starting or finishing. */
+  type: "start" | "finish";
+  /** Stable identifier for the task (e.g. "models", "plugins", "mcp-servers"). */
+  taskId: string;
+  /** Human-readable label for the task. */
+  title: string;
+}
+```
+
 ### showMessage (⬅️)
 
 A notification from server telling client to present a message to user.
