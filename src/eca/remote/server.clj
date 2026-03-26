@@ -9,10 +9,15 @@
    [eca.remote.auth :as auth]
    [eca.remote.routes :as routes]
    [eca.remote.sse :as sse]
+   [eca.shared :as shared]
    [ring.adapter.jetty :as jetty])
   (:import
    [java.io IOException]
-   [java.net BindException Inet4Address InetAddress NetworkInterface]
+   [java.net
+    BindException
+    Inet4Address
+    InetAddress
+    NetworkInterface]
    [java.security KeyFactory KeyStore]
    [java.security.cert CertificateFactory]
    [java.security.spec PKCS8EncodedKeySpec]
@@ -52,11 +57,6 @@
   ^long [^NetworkInterface ni]
   (let [name (.getName ni)]
     (if (re-find virtual-interface-re name) 1 0)))
-
-(def ^:private windows?
-  (-> (System/getProperty "os.name" "")
-      (.toLowerCase)
-      (.startsWith "windows")))
 
 (defn ^:private has-tunnel-interfaces?
   "Returns true if any active tunnel/VPN network interface is detected.
@@ -141,11 +141,11 @@
                        (string/join))
               key-bytes (.decode (Base64/getDecoder) ^String b64)
               pk (or (try (.generatePrivate (KeyFactory/getInstance "RSA")
-                                           (PKCS8EncodedKeySpec. key-bytes))
-                         (catch Exception _ nil))
+                                            (PKCS8EncodedKeySpec. key-bytes))
+                          (catch Exception _ nil))
                      (try (.generatePrivate (KeyFactory/getInstance "EC")
-                                           (PKCS8EncodedKeySpec. key-bytes))
-                         (catch Exception _ nil)))
+                                            (PKCS8EncodedKeySpec. key-bytes))
+                          (catch Exception _ nil)))
               ks (doto (KeyStore/getInstance (KeyStore/getDefaultType))
                    (.load nil nil)
                    (.setKeyEntry "server" pk (char-array 0)
@@ -225,7 +225,7 @@
    127.0.0.1 + LAN IP connector.
    Returns [server bind-host] on success, nil if all fail."
   [handler port lan-ip ^SSLContext ssl-context]
-  (if (and windows? (has-tunnel-interfaces?))
+  (if (and shared/windows-os? (has-tunnel-interfaces?))
     ;; On Windows with tunnel interfaces, bind only to specific interfaces
     ;; to avoid stealing traffic from Tailscale/WireGuard virtual interfaces.
     (do (logger/debug logger-tag "Tunnel interface detected on Windows, binding to specific interfaces only")
@@ -305,8 +305,8 @@
                                   "Direct LAN connections to " host-base " will not work. "
                                   "Use a different port, stop the conflicting service, or connect via Tailscale.")))
               (logger/info logger-tag (str "🌐 Remote server started on port " actual-port
-                                          (when ssl-context " (HTTPS)")
-                                          " — use /remote for connection details"))
+                                           (when ssl-context " (HTTPS)")
+                                           " — use /remote for connection details"))
               {:server jetty-server
                :sse-connections* sse-connections*
                :heartbeat-stop-ch heartbeat-ch
