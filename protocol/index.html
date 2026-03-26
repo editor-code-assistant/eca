@@ -1438,6 +1438,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#progress" class="md-nav__link">
+    <span class="md-ellipsis">
+      progress (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#showmessage" class="md-nav__link">
     <span class="md-ellipsis">
       showMessage (⬅️)
@@ -1917,6 +1926,15 @@
   
     <nav class="md-nav" aria-label="General features">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#progress" class="md-nav__link">
+    <span class="md-ellipsis">
+      progress (⬅️)
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#showmessage" class="md-nav__link">
@@ -3977,6 +3995,24 @@ and restarting the server. The server will re-detect auth requirements and send
 <li>result: <code>{}</code></li>
 </ul>
 <h2 id="general-features">General features<a class="headerlink" href="#general-features" title="Permanent link">#</a></h2>
+<h3 id="progress">progress (⬅️)<a class="headerlink" href="#progress" title="Permanent link">#</a></h3>
+<p>A notification from the server reporting the progress of an initialization task. Each task
+sends a <code>start</code> notification when it begins and a <code>finish</code> notification when it completes (or fails).
+Clients can track all tasks to derive aggregate initialization progress.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>$/progress</code></li>
+<li>params: <code>ProgressParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ProgressParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="cm">/** Whether this task is starting or finishing. */</span>
+<span class="w">  </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;start&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;finish&quot;</span><span class="p">;</span>
+<span class="w">  </span><span class="cm">/** Stable identifier for the task (e.g. &quot;models&quot;, &quot;plugins&quot;, &quot;mcp-servers&quot;). */</span>
+<span class="w">  </span><span class="nx">taskId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">  </span><span class="cm">/** Human-readable label for the task. */</span>
+<span class="w">  </span><span class="nx">title</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="showmessage">showMessage (⬅️)<a class="headerlink" href="#showmessage" title="Permanent link">#</a></h3>
 <p>A notification from server telling client to present a message to user.</p>
 <p><em>Notification:</em> </p>
@@ -4006,7 +4042,7 @@ and restarting the server. The server will re-detect auth requirements and send
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 26, 2026 23:21:52 UTC">March 26, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 26, 2026 23:31:25 UTC">March 26, 2026</span>
   </span>
 
     
