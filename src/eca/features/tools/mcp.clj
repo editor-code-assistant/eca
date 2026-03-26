@@ -450,8 +450,9 @@
 (defn ^:private open-browser! [^String url]
   (try
     (if shared/windows-os?
-      (-> (ProcessBuilder. ["cmd" "/c" "start" "" url])
-          (.start))
+      (let [^java.util.List cmd ["cmd" "/c" "start" "" url]]
+        (-> (ProcessBuilder. cmd)
+            (.start)))
       (browse/browse-url url))
     (catch Exception e
       (logger/error logger-tag (str "Failed to open browser: " (.getMessage e))))))
