@@ -97,7 +97,7 @@
                    :disabledTools ["preview_file_change"]}
            "plan" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/plan_agent.md}"}
-                   :disabledTools ["edit_file" "write_file" "move_file"]
+                   :disabledTools ["edit_file" "write_file" "move_file" "git"]
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command"
                                                  {:argsMatchers {"command" ["pwd"
@@ -120,7 +120,7 @@
            "explorer" {:mode "subagent"
                        :description "${classpath:prompts/explorer_agent_description.md}"
                        :systemPrompt "${classpath:prompts/explorer_agent.md}"
-                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
+                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change" "git"]
                        :toolCall {:approval {:byDefault "ask"
                                              :allow {"eca__shell_command"
                                                      {:argsMatchers {"command" ["pwd"

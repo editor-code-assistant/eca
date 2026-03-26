@@ -9,6 +9,7 @@
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
    [eca.features.tools.filesystem :as f.tools.filesystem]
+   [eca.features.tools.git :as f.tools.git]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.mcp.clojure-mcp]
    [eca.features.tools.shell :as f.tools.shell]
@@ -153,6 +154,7 @@
    (merge {}
           f.tools.filesystem/definitions
           f.tools.shell/definitions
+          f.tools.git/definitions
           f.tools.editor/definitions
           f.tools.chat/definitions
           f.tools.skill/definitions
@@ -167,9 +169,10 @@
   "Filter tools for subagent execution.
 
    - Excludes spawn_agent to prevent nesting.
-   - Excludes task because task list state is currently chat-local; it should be managed by the parent agent."
+   - Excludes task because task list state is currently chat-local; it should be managed by the parent agent.
+   - Excludes git because subagents don't perform git operations."
   [tools]
-  (filterv #(not (contains? #{"spawn_agent" "task"} (:name %))) tools))
+  (filterv #(not (contains? #{"spawn_agent" "task" "git"} (:name %))) tools))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
