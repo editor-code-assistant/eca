@@ -1029,7 +1029,8 @@
     (let [chat-ctx {:chat-id chat-id
                     :db* db*
                     :metrics metrics
-                    :messenger messenger}]
+                    :messenger messenger
+                    :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
       (lifecycle/send-content! chat-ctx :system {:type :text
                                                   :text "\nPrompt stopped"})
 

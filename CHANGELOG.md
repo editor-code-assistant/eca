@@ -5,6 +5,7 @@
 - Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
 - Fix plugin-defined hooks not firing for `chatStart` and `sessionStart` due to plugins resolving after hooks fired. #374
 - Fix workspace cache resume when worktrees are dynamically added mid-session by using the initial workspace set for the cache key. #372
+- Fix exception when stopping while a subagent chat run.
 
 ## 0.117.0
 
