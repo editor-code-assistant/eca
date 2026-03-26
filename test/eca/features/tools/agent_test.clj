@@ -584,8 +584,7 @@
                                 "task" {:type "string"}
                                 "activity" {:type "string"}
                                 "model" {:type "string"}
-                                "variant" {:type "string"
-                                           :enum ["high" "low" "max" "medium"]}}
+                                "variant" {:type "string"}}
                    :required ["agent" "task" "activity"]}
                   (:parameters tool)))))
 

@@ -1087,6 +1087,11 @@ interface SubagentDetails {
     model: string;
 
     /**
+     * The variant this subagent is using, when one is explicitly selected.
+     */
+    variant?: string;
+
+    /**
      * The name of the agent being spawned.
      */
     agentName: string;

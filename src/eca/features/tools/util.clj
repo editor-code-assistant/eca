@@ -5,6 +5,7 @@
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
    [clojure.string :as string]
+   [clojure.string :as str]
    [eca.cache :as cache]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -202,3 +203,7 @@
             (assoc result :contents [{:type :text
                                       :text (str truncated notice)}]))
           result)))))
+
+(defn normalize-optional-string
+  [value]
+  (some-> value str/trim not-empty))
