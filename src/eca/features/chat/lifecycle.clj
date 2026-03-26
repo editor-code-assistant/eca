@@ -88,7 +88,8 @@
                      {:type :progress
                       :state :finished})
       (when-not (get-in @db* [:chats chat-id :created-at])
-        (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
+        (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis)))
+      (swap! db* assoc-in [:chats chat-id :prompt-finished?] true))
     (when (and on-finished-side-effect
                (not (identical? :stopping (get-in @db* [:chats chat-id :status]))))
       (on-finished-side-effect))

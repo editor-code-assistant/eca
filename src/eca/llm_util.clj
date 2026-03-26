@@ -88,7 +88,7 @@
   (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))
 
 (def ^:private default-stream-idle-timeout-ms 120000)
-(def ^:private default-stream-check-interval-ms 2000)
+(def ^:private default-stream-check-interval-ms 500)
 
 (defn start-stream-watchdog!
   "Starts a daemon thread that monitors a streaming connection.

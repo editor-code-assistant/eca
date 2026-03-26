@@ -465,6 +465,7 @@
         (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
+      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (swap! db* assoc-in [:chats chat-id :prompt-id] prompt-id)
@@ -772,7 +773,10 @@
                 (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
                            (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status])))
                   (swap! db* assoc-in [:chats chat-id :status] :idle)
-                  (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
+                  ;; Only notify client if finish-chat-prompt! hasn't already run,
+                  ;; otherwise the belated statusChanged causes duplicate finished handling.
+                  (when-not (get-in @db* [:chats chat-id :prompt-finished?])
+                    (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle}))
                   (db/update-workspaces-cache! @db* metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
@@ -1021,25 +1025,28 @@
      :commands commands}))
 
 (defn prompt-stop
-  [{:keys [chat-id]} db* messenger metrics]
-  (when (identical? :running (get-in @db* [:chats chat-id :status]))
-    ;; Set :stopping immediately to prevent race with stream callbacks
-    ;; that check status via assert-chat-not-stopped! or cancelled?
-    (swap! db* assoc-in [:chats chat-id :status] :stopping)
-    (let [chat-ctx {:chat-id chat-id
-                    :db* db*
-                    :metrics metrics
-                    :messenger messenger
-                    :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
-      (lifecycle/send-content! chat-ctx :system {:type :text
-                                                  :text "\nPrompt stopped"})
+  ([params db* messenger metrics]
+   (prompt-stop params db* messenger metrics {}))
+  ([{:keys [chat-id]} db* messenger metrics {:keys [silent?]}]
+   (when (identical? :running (get-in @db* [:chats chat-id :status]))
+     ;; Set :stopping immediately to prevent race with stream callbacks
+     ;; that check status via assert-chat-not-stopped! or cancelled?
+     (swap! db* assoc-in [:chats chat-id :status] :stopping)
+     (let [chat-ctx {:chat-id chat-id
+                     :db* db*
+                     :metrics metrics
+                     :messenger messenger
+                     :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
+       (when-not silent?
+         (lifecycle/send-content! chat-ctx :system {:type :text
+                                                    :text "\nPrompt stopped"}))
 
-      ;; Handle each active tool call
-      (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-        (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                  {:reason {:code :user-prompt-stop
-                                            :text "Tool call rejected because of user prompt stop"}}))
-      (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect)))))
+       ;; Handle each active tool call
+       (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+         (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
+                                   {:reason {:code :user-prompt-stop
+                                             :text "Tool call rejected because of user prompt stop"}}))
+       (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect))))))
 
 (defn delete-chat
   [{:keys [chat-id]} db* messenger config metrics]
