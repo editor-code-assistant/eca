@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Show the selected `variant` in `spawn_agent` subagent details and harden restrictions regarding the use of the optional model in sub-agent. #369
 
 - Fix MCP OAuth browser not opening on Windows by using `cmd /c start` instead of `java.awt.Desktop`, which is unavailable in the native image.
 
@@ -32,7 +33,7 @@
 ## 0.116.5
 
 - Add `/remote` command to display connection URL, password and setup guide. Password is no longer shown in logs or welcome message.
-- Improve server port binding for remote. 
+- Improve server port binding for remote.
 
 ## 0.116.4
 
@@ -160,7 +161,7 @@
 
 - Fix MCP OAuth client registration failing for servers that require Content-Type header
 - Prevent MCP servers from getting stuck at "starting" when OAuth or other initialization errors occur.
-- Fix GitHub Copilot premium request overconsumption: 
+- Fix GitHub Copilot premium request overconsumption:
   - Chat titles LLM request don't spend premium requests.
   - Subagents now use same premium request of primary agent.
   - gpt-5.3-codex and gpt-5.4 now spend way less premium requests.

@@ -55,7 +55,7 @@
 
 (defn ^:private send-step-progress!
   "Send a toolCallRunning notification with current step progress to the parent chat."
-  [messenger chat-id tool-call-id agent-name activity subagent-chat-id step max-steps model arguments]
+  [messenger chat-id tool-call-id agent-name activity subagent-chat-id step max-steps model variant arguments]
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id
@@ -67,12 +67,13 @@
               :origin "native"
               :summary (format "%s: %s" agent-name activity)
               :arguments arguments
-              :details {:type :subagent
-                        :subagent-chat-id subagent-chat-id
-                        :model model
-                        :agent-name agent-name
-                        :step step
-                        :max-steps max-steps}}}))
+              :details (cond-> {:type :subagent
+                                :subagent-chat-id subagent-chat-id
+                                :model model
+                                :agent-name agent-name
+                                :step step
+                                :max-steps max-steps}
+                         variant (assoc :variant variant))}}))
 
 (defn ^:private stop-subagent-chat!
   "Stop a running subagent chat silently (parent already shows 'Prompt stopped')."
@@ -150,7 +151,7 @@
         ;; Create subagent chat session using deterministic id based on tool-call-id
         subagent-chat-id (->subagent-chat-id tool-call-id)
 
-        user-model (get arguments "model")
+        user-model (tools.util/normalize-optional-string (get arguments "model"))
         _ (when user-model
             (let [available-models (:models db)]
               (when (and (seq available-models)
@@ -167,7 +168,7 @@
         ;; Variant validation: reject only when the resolved model has configured
         ;; variants and the user-specified one isn't among them. Models with no
         ;; configured variants accept any variant (the LLM API will reject if invalid).
-        user-variant (get arguments "variant")
+        user-variant (tools.util/normalize-optional-string (get arguments "variant"))
         _ (when user-variant
             (let [valid-variants (model-variant-names config subagent-model)]
               (when (and (seq valid-variants)
@@ -224,7 +225,7 @@
                 ;; Send step progress when step advances
                 (when (> current-step last-step)
                   (send-step-progress! messenger chat-id tool-call-id agent-name activity
-                                       subagent-chat-id current-step max-steps-limit subagent-model arguments))
+                                       subagent-chat-id current-step max-steps-limit subagent-model user-variant arguments))
                 (cond
                   ;; Parent chat stopped — propagate stop to subagent
                   (= :stopping (:status (call-state-fn)))
@@ -259,7 +260,7 @@
           (throw e))))))
 
 (defn ^:private build-description
-  "Build tool description with available agents listed."
+  "Build tool description with available agents and models listed."
   [config]
   (let [base-description (tools.util/read-tool-description "spawn_agent")
         agents (all-agents config)
@@ -280,19 +281,17 @@
                    :properties {"agent" {:type "string"
                                          :description "Name of the agent to spawn"}
                                 "task" {:type "string"
-                                        :description "Clear description of what the agent should accomplish"}
+                                        :description "The detailed instructions for the agent"}
                                 "activity" {:type "string"
                                             :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
                                 "model" {:type "string"
-                                         :description (multi-str
-                                                       "If user specified a model to use."
-                                                       "DO NOT pass this arg if user didn't request it."
-                                                       "Known models: "
-                                                       model-names)}
-                                "variant" (cond-> {:type "string"
-                                                   :description (str "Variant (Usually reasoning related) for the subagent, only pass if user specify."
-                                                                     "Available variants are model-dependent; pick the closest match when the user asks informally (e.g. \"high reasoning\" → \"high\").")}
-                                            (seq variant-names) (assoc :enum variant-names))}
+                                         :description (cond-> "Optional model override. Include this key ONLY when the user explicitly asked for a specific model. Otherwise omit the key entirely; never send an empty string."
+                                                        (and (seq model-names) (> (count model-names) 1))
+                                                        (multi-str "One of these models can be used if the user explicitely requests it: " model-names))}
+                                "variant" {:type        "string"
+                                           :description (cond-> "Optional variant override. Include this key ONLY when the user explicitly asked for a specific variant."
+                                                          (seq variant-names) (multi-str "One of these variants can be used if the user requests it: "
+                                                                                         variant-names))}}
                    :required ["agent" "task" "activity"]}
       :handler #'spawn-agent
       :summary-fn (fn [{:keys [args]}]
@@ -304,8 +303,8 @@
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
   (let [agent-name (get arguments "agent")
-        user-model (get arguments "model")
-        user-variant (get arguments "variant")
+        user-model (tools.util/normalize-optional-string (get arguments "model"))
+        user-variant (tools.util/normalize-optional-string (get arguments "variant"))
         subagent (when agent-name
                    (get-agent agent-name config))
         parent-model (get-in db [:chats chat-id :model])
