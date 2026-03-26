@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.118.0
+
 - Show the selected `variant` in `spawn_agent` subagent details and harden restrictions regarding the use of the optional model in sub-agent. #369
 - Fix MCP OAuth browser not opening on Windows by using `cmd /c start` instead of `java.awt.Desktop`, which is unavailable in the native image.
 - Improve server shutdown speed for remote MCP servers.
