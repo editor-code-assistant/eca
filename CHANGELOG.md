@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix MCP OAuth browser not opening on Windows by using `cmd /c start` instead of `java.awt.Desktop`, which is unavailable in the native image.
+
 ## 0.117.1
 
 - Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.

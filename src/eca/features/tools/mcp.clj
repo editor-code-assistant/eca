@@ -354,8 +354,8 @@
                                  (do (try (pp/stop-client-transport! transport false) (catch Exception _))
                                      (if (< attempt max-init-retries)
                                        (do (logger/warn logger-tag
-                                             (format "MCP server '%s' transport error during initialization (attempt %d/%d), retrying"
-                                                     name attempt max-init-retries))
+                                                        (format "MCP server '%s' transport error during initialization (attempt %d/%d), retrying"
+                                                                name attempt max-init-retries))
                                            (try-refresh-token! name db* url metrics server-config)
                                            :retry)
                                        (do (logger/error logger-tag (format "MCP server '%s' transport error during initialization" name))
@@ -441,6 +441,15 @@
       (logger/info logger-tag (format "Starting MCP server %s from manual request despite :disabled=true" name)))
     (initialize-server! name db* config metrics on-server-updated)))
 
+(defn ^:private open-browser! [^String url]
+  (try
+    (if shared/windows-os?
+      (-> (ProcessBuilder. ["cmd" "/c" "start" "" url])
+          (.start))
+      (browse/browse-url url))
+    (catch Exception e
+      (logger/error logger-tag (str "Failed to open browser: " (.getMessage e))))))
+
 (defn connect-server!
   "Initiate OAuth authorization for an MCP server that requires auth.
    Starts the local OAuth callback server and returns the authorization URL."
@@ -468,7 +477,7 @@
                       (logger/error logger-tag error)
                       (swap! db* assoc-in [:mcp-clients name :status] :failed)
                       (on-server-updated (->server name server-config :failed @db*)))})
-        (browse/browse-url authorization-endpoint)))))
+        (open-browser! authorization-endpoint)))))
 
 (defn ^:private restart-server!
   "Stop the server if running, then spawn a daemon thread to re-initialize it."
