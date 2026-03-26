@@ -70,6 +70,7 @@
           ssl-ctx network/*ssl-context*
           rm (fn [request]
                (-> request
+                   (assoc :timeout-millis 30000)
                    (update :headers merge
                            (into {} (map (fn [[k v]]
                                            [(name k) (replace-env-vars (str v))]))
@@ -77,12 +78,14 @@
                    (update :headers merge
                            (when-let [access-token (get-in @db* [:mcp-auth server-name :access-token])]
                              {"Authorization" (str "Bearer " access-token)}))))
-          hc (phc/make-http-client url (cond-> {:request-middleware rm}
+          hc (phc/make-http-client url (cond-> {:request-middleware rm
+                                                :timeout-millis 10000}
                                          ssl-ctx (assoc :ssl-context ssl-ctx)))]
       (when (string/includes? url "/sse")
         (logger/warn logger-tag (format "SSE transport is no longer supported for server '%s'. Using Streamable HTTP instead. Consider updating the URL." server-name)))
       (logger/info logger-tag (format "Creating HTTP transport for server '%s' at %s" server-name url))
       {:transport (phct/make-streamable-http-transport hc)
+       :http-client hc
        :needs-reinit?* needs-reinit?*})
 
     ;; STDIO transport
@@ -336,15 +339,16 @@
                                     (swap! db* assoc-in [:mcp-clients name :tools] tools)
                                     (on-server-updated (->server name server-config :running @db*))))]
             (loop [attempt 1]
-              (let [{:keys [transport needs-reinit?*]} (->transport name server-config workspaces db*)
+              (let [{:keys [transport http-client needs-reinit?*]} (->transport name server-config workspaces db*)
                     result (try
                              (let [client (->client name transport init-timeout workspaces
                                                     {:on-tools-change on-tools-change})
                                    init-result (pmc/get-initialize-result client)
                                    version (get-in init-result [:serverInfo :version])]
-                               (swap! db* assoc-in [:mcp-clients name] {:client client
-                                                                        :status :starting
-                                                                        :needs-reinit?* needs-reinit?*})
+                               (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
+                                                                                                :status :starting
+                                                                                                :needs-reinit?* needs-reinit?*}
+                                                                                http-client (assoc :http-client http-client)))
                                (swap! db* assoc-in [:mcp-clients name :version] version)
                                (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
                                (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client))
@@ -422,14 +426,16 @@
 (def ^:private disconnect-timeout-ms 5000)
 
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
-  (when-let [{:keys [client]} (get-in @db* [:mcp-clients name])]
+  (when-let [{:keys [client http-client]} (get-in @db* [:mcp-clients name])]
     (let [server-config (get-in config [:mcpServers name])]
       (swap! db* assoc-in [:mcp-clients name :status] :stopping)
       (on-server-updated (->server name server-config :stopping @db*))
       (let [f (future (try (pmc/disconnect! client) (catch Exception _ nil)))]
         (when-not (deref f disconnect-timeout-ms nil)
           (logger/warn logger-tag (format "Timeout disconnecting MCP server %s, forcing transport stop" name))
-          (try (pp/stop-client-transport! client false) (catch Exception _))))
+          (if http-client
+            (try (pp/stop! http-client) (catch Exception _))
+            (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _)))))
       (swap! db* assoc-in [:mcp-clients name :status] :stopped)
       (on-server-updated (->server name server-config :stopped @db*))
       (swap! db* update :mcp-clients dissoc name)
@@ -571,7 +577,7 @@
    gone server-side), then runs a fresh initialize-server! cycle."
   [server-name old-client db* config metrics]
   (logger/info logger-tag (format "Re-initializing MCP server '%s'" server-name))
-  (try (pp/stop-client-transport! old-client false) (catch Exception _))
+  (try (pp/stop-client-transport! (pcs/?transport old-client) false) (catch Exception _))
   (swap! db* update :mcp-clients dissoc server-name)
   (initialize-server! server-name db* config metrics (constantly nil)))
 
@@ -703,29 +709,39 @@
 
 (defn shutdown!
   "Shutdown MCP servers: interrupts in-flight init threads and disconnects
-   running clients in parallel with a total 5s timeout."
+   running clients in parallel with a total 5s timeout.
+   HTTP clients are force-stopped immediately (skipping the slow DELETE handshake),
+   while stdio clients go through graceful disconnect with a timeout fallback."
   [db*]
   ;; 1. Interrupt any servers still initializing so they unblock promptly
   (interrupt-init-threads!)
-  ;; 2. Disconnect running clients in parallel via daemon threads
+  ;; 2. Disconnect running clients
   (try
     (let [clients (vals (:mcp-clients @db*))
-          latch (java.util.concurrent.CountDownLatch. (count clients))
-          threads (doall
-                   (map (fn [{:keys [client]}]
-                          (doto (Thread.
-                                 (fn []
-                                   (try
-                                     (pmc/disconnect! client)
-                                     (catch Exception _)
-                                     (finally
-                                       (.countDown latch)))))
-                            (.setDaemon true)
-                            (.start)))
-                        clients))]
-      (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
-        (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
-        (doseq [^Thread t threads]
-          (.interrupt t))))
+          ;; HTTP clients: force-stop immediately (the DELETE in disconnect! always
+          ;; times out because the server is slow to respond, and we're shutting down anyway)
+          http-clients (filter :http-client clients)
+          ;; stdio clients: graceful disconnect with timeout
+          stdio-clients (remove :http-client clients)]
+      (doseq [{:keys [http-client]} http-clients]
+        (try (pp/stop! http-client) (catch Exception _)))
+      (when (seq stdio-clients)
+        (let [latch (java.util.concurrent.CountDownLatch. (count stdio-clients))
+              threads (doall
+                        (map (fn [{:keys [client]}]
+                               (doto (Thread.
+                                       (fn []
+                                         (try
+                                           (pmc/disconnect! client)
+                                           (catch Exception _)
+                                           (finally
+                                             (.countDown latch)))))
+                                 (.setDaemon true)
+                                 (.start)))
+                             stdio-clients))]
+          (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+            (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
+            (doseq [{:keys [client]} stdio-clients]
+              (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _)))))))
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))

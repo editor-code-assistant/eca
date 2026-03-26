@@ -27,9 +27,10 @@
 (defn ^:private exit [server]
   (metrics/task
     :eca/exit
-    (when-let [rs @remote-server*]
-      (remote.server/stop! rs))
-    (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
+    (let [remote-stop-f (when-let [rs @remote-server*]
+                          (future (remote.server/stop! rs)))]
+      (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
+      (some-> remote-stop-f deref))
     (shutdown-agents)
     (System/exit 0)))
 
