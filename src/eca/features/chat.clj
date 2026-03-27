@@ -525,6 +525,7 @@
                 :cancelled? (fn []
                               (let [chat (get-in @db* [:chats chat-id])]
                                 (or (identical? :stopping (:status chat))
+                                    (:prompt-finished? chat)
                                     (not= prompt-id (:prompt-id chat)))))
                 :on-retry (fn [{:keys [attempt max-retries delay-ms classified]}]
                             (let [{error-type :error/type error-label :error/label} classified
@@ -759,7 +760,8 @@
                                               :auto-continue
                                               (assoc chat-ctx :auto-continued? true))))))
                                     (do
-                                      (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))})
+                                      (when-not stopping?
+                                        (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))}))
                                       (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
@@ -1046,6 +1048,8 @@
          (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
                                    {:reason {:code :user-prompt-stop
                                              :text "Tool call rejected because of user prompt stop"}}))
+       ;; Clear compacting flags so finish-chat-prompt! isn't blocked
+       (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
        (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect))))))
 
 (defn delete-chat
