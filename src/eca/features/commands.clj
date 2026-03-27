@@ -401,6 +401,7 @@
                    :else
                    (let [chat (get chats selected-chat-id)]
                      (swap! db* assoc-in [:chats chat-id] chat)
+                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
                      (swap! db* update-in [:chats] #(dissoc % selected-chat-id))
                      (db/update-workspaces-cache! @db* metrics)
                      {:type :chat-messages
