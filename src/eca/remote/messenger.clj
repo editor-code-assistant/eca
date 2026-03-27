@@ -30,6 +30,10 @@
     (messenger/chat-deleted inner params)
     (sse/broadcast! sse-connections* "chat:deleted" (->camel params)))
 
+  (chat-opened [_this params]
+    (messenger/chat-opened inner params)
+    (sse/broadcast! sse-connections* "chat:opened" (->camel params)))
+
   (rewrite-content-received [_this data]
     (messenger/rewrite-content-received inner data))
 

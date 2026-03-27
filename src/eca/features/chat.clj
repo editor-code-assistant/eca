@@ -928,6 +928,10 @@
     (lifecycle/send-content! chat-ctx :user {:type :text
                                              :content-id (:user-content-id chat-ctx)
                                              :text (str message "\n")})
+    ;; Clear prompt-finished? so finish-chat-prompt! can properly terminate
+    ;; this prompt cycle. prompt-messages! already does this for regular
+    ;; prompts, but commands and mcp-prompts go through different paths.
+    (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
     (case (:type decision)
       :mcp-prompt (send-mcp-prompt! decision chat-ctx)
       :eca-command (handle-command! decision chat-ctx)

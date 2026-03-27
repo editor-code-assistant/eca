@@ -32,6 +32,7 @@
   (chat-cleared [_ params] (swap! messages* update :chat-clear (fnil conj []) params))
   (chat-status-changed [_ params] (swap! messages* update :chat-status-changed (fnil conj []) params))
   (chat-deleted [_ params] (swap! messages* update :chat-deleted (fnil conj []) params))
+  (chat-opened [_ params] (swap! messages* update :chat-opened (fnil conj []) params))
   (rewrite-content-received [_ data] (swap! messages* update :rewrite-content-received (fnil conj []) data))
   (config-updated [_ data] (swap! messages* update :config-updated (fnil conj []) data))
   (tool-server-updated [_ data] (swap! messages* update :tool-server-update (fnil conj []) data))

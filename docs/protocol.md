@@ -1511,6 +1511,31 @@ interface ChatClearedParams {
 }
 ```
 
+### Chat opened (⬅️)
+
+A server notification indicating a new chat was created server-side (e.g. via `/fork`).
+Clients should create a new chat entry in the UI. The chat messages will follow as `chat/contentReceived` notifications.
+
+_Notification:_
+
+* method: `chat/opened`
+* params: `ChatOpenedParams` defined as follows:
+
+```typescript
+interface ChatOpenedParams {
+
+    /**
+     * The new chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The title of the new chat.
+     */
+    title?: string;
+}
+```
+
 ### Chat delete (↩️)
 
 A client request to delete a existing chat, removing all previous messages and used tokens/costs from memory, good for reduce context or start a new clean chat.

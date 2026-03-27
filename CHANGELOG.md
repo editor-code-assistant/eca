@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `/fork` command to clone current chat into a new chat with the same history and settings, and `chat/opened` server notification.
+
 ## 0.118.1
 
 - Fix ECA stop timing out.

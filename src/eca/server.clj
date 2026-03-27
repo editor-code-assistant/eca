@@ -153,6 +153,9 @@
   (chat-deleted [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/deleted" params)))
+  (chat-opened [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/opened" params)))
   (rewrite-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))

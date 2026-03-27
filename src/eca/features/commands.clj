@@ -25,6 +25,12 @@
 
 (set! *warn-on-reflection* true)
 
+(defn ^:private fork-title [title]
+  (let [title (or title "Untitled")]
+    (if-let [[_ base n] (re-matches #"(.+?)\s*\((\d+)\)\s*$" title)]
+      (str base " (" (inc (parse-long n)) ")")
+      (str title " (2)"))))
+
 (defn ^:private normalize-command-name [f]
   (string/lower-case (fs/strip-ext (fs/file-name f))))
 
@@ -113,6 +119,10 @@
                        :type :native
                        :description "Summarize the chat so far cleaning previous chat history to reduce context."
                        :arguments [{:name "additional-input"}]}
+                      {:name "fork"
+                       :type :native
+                       :description "Fork current chat into a new chat with the same history and settings."
+                       :arguments []}
                       {:name "resume"
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
@@ -326,6 +336,28 @@
                                      metrics)
                 {:type :new-chat-status
                  :status :login})
+      "fork" (let [chat (get-in db [:chats chat-id])
+                    new-id (str (random-uuid))
+                    now (System/currentTimeMillis)
+                    new-title (fork-title (:title chat))
+                    new-chat {:id new-id
+                              :title new-title
+                              :status :idle
+                              :created-at now
+                              :updated-at now
+                              :model (:model chat)
+                              :last-api (:last-api chat)
+                              :messages (vec (:messages chat))
+                              :prompt-finished? true}]
+                (swap! db* assoc-in [:chats new-id] new-chat)
+                (db/update-workspaces-cache! @db* metrics)
+                (messenger/chat-opened messenger {:chat-id new-id :title new-title})
+                {:type :chat-messages
+                 :chats {new-id {:messages (:messages chat)
+                                 :title new-title}
+                         chat-id {:messages [{:role "system"
+                                              :content [{:type :text
+                                                         :text (str "Chat forked to: " new-title)}]}]}}})
       "resume" (let [chats (into {}
                                  (filter #(and (not= chat-id (first %))
                                                (not (:subagent (second %)))))

@@ -28,6 +28,7 @@
                        {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
+                       {:name "fork" :arguments []}
                        {:name "resume" :arguments [{:name "chat-id"}]}
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
