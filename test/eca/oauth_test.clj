@@ -262,6 +262,39 @@
           (is (some #(= "https://example.com/.well-known/openid-configuration" %) @get-urls)
               "should have tried OIDC last"))))))
 
+(deftest oauth-info-trailing-slash-auth-server-test
+  (testing "discovers auth server metadata when authorization_server URL has trailing slash"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 200 :body {:client_id "miro-client"}}
+                                (make-auth-response
+                                 "Bearer resource_metadata=\"https://mcp.miro.com/.well-known/oauth-protected-resource\"")))
+                  http/get (fn [url _]
+                             (cond
+                               (= url "https://mcp.miro.com/.well-known/oauth-protected-resource")
+                               (make-json-response 200
+                                                   {:resource "https://mcp.miro.com/"
+                                                    :authorization_servers ["https://mcp.miro.com/"]
+                                                    :scopes_supported ["boards:read" "boards:write"]})
+
+                               (= url "https://mcp.miro.com/.well-known/oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://mcp.miro.com/authorize"
+                                                    :token_endpoint "https://mcp.miro.com/token"
+                                                    :registration_endpoint "https://mcp.miro.com/register"})
+
+                               ;; The trailing-slash variant should NOT be hit
+                               (= url "https://mcp.miro.com/.well-known/oauth-authorization-server/")
+                               {:status 401}
+
+                               :else
+                               {:status 404}))]
+      (let [info (oauth/oauth-info "https://mcp.miro.com/")]
+        (is (some? info) "should discover OAuth info for trailing-slash auth server")
+        (is (= "https://mcp.miro.com/token" (:token-endpoint info)))
+        (is (string/includes? (:authorization-endpoint info) "mcp.miro.com/authorize"))))))
+
 (deftest oauth-info-returns-nil-when-no-auth-challenge-test
   (testing "returns nil when server does not return 401"
     (with-redefs [http/head (fn [_ _] {:status 200})

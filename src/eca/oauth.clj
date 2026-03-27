@@ -188,7 +188,8 @@
   [^String auth-server]
   (let [uri (java.net.URI. auth-server)
         base (str (.getScheme uri) "://" (.getAuthority uri))
-        path (.getPath uri)]
+        path (.getPath uri)
+        path (if (= "/" path) "" path)]
     (or (fetch-json (str base "/.well-known/oauth-authorization-server" path))
         (fetch-json (str base "/.well-known/openid-configuration")))))
 
