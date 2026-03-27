@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.118.1
+
 - Fix ECA stop timing out.
 - Add `$/progress` server notification for initialization progress reporting (models sync, plugins, MCP servers, remote server, cleanup).
 
