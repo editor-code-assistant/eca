@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.119.0
+
 - Add `/fork` command to clone current chat into a new chat with the same history and settings, and `chat/opened` server notification.
 - Fix `/resume` leaving the chat stuck after replaying messages because the resumed chat's `:prompt-finished?` flag blocked finalization.
 
