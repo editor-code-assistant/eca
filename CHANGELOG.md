@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.120.0
+
 - Add `mcp/disableServer` and `mcp/enableServer` notifications to toggle MCP servers from the client, persisting the `disabled` flag in config.json.
 
 ## 0.119.0
