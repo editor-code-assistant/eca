@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Update the compact prompt to read the active eca__task list after compacting.
+
 ## 0.120.0
 
 - Add `mcp/disableServer` and `mcp/enableServer` notifications to toggle MCP servers from the client, persisting the `disabled` flag in config.json.

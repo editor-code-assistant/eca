@@ -7,13 +7,14 @@ For technical or coding sessions, cover the following points:
   - Important progress made in the current session
   - Key decisions and architectural changes
   - Unfinished tasks and next steps
+    - If eca__task was used in the session and an unfinished list exists, instruct to **read** the eca_task list and resume work.
   - Technical details that need to be preserved
-  - Always save task lists if any.
 
 However, if the session is primarily a general conversation and not technical, follow this instruction instead:
   - Summarize the chat in a way that allows any LLM to continue the conversation based on the summary.
 
 Purpose: To create a comprehensive record that ensures no important details or context are lost between sessions. This process prioritizes thoroughness over brevity to retain all critical information..
+
 {{additionalUserInput}}
 
 ## Response
