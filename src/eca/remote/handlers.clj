@@ -271,6 +271,16 @@
     (handlers/mcp-logout-server (assoc components :config config) {:name server-name})
     (no-content)))
 
+(defn handle-mcp-disable [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)]
+    (handlers/mcp-disable-server (assoc components :config config) {:name server-name})
+    (no-content)))
+
+(defn handle-mcp-enable [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)]
+    (handlers/mcp-enable-server (assoc components :config config) {:name server-name})
+    (no-content)))
+
 (deftype SSEBody [db* sse-connections*]
   ring.protocols/StreamableResponseBody
   (write-body-to-stream [_ _response os]

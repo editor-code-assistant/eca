@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `mcp/disableServer` and `mcp/enableServer` notifications to toggle MCP servers from the client, persisting the `disabled` flag in config.json.
+
 ## 0.119.0
 
 - Add `/fork` command to clone current chat into a new chat with the same history and settings, and `chat/opened` server notification.

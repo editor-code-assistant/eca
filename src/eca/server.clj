@@ -96,6 +96,12 @@
 (defmethod jsonrpc.server/receive-notification "mcp/logoutServer" [_ components params]
   (handlers/mcp-logout-server (with-config components) params))
 
+(defmethod jsonrpc.server/receive-notification "mcp/disableServer" [_ components params]
+  (handlers/mcp-disable-server (with-config components) params))
+
+(defmethod jsonrpc.server/receive-notification "mcp/enableServer" [_ components params]
+  (handlers/mcp-enable-server (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "mcp/updateServer" [_ components params]
   (handlers/mcp-update-server (with-config components) params))
 

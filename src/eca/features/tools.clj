@@ -332,6 +332,22 @@
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 
+(defn disable-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/disable-server!
+     name
+     db*
+     config
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn enable-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/enable-server!
+     name
+     db*
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
 (defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
                                                     all-tools)))]

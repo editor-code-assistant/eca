@@ -20,7 +20,8 @@
    [plumcp.core.client.stdio-client-transport :as psct]
    [plumcp.core.protocol :as pp]
    [plumcp.core.schema.schema-defs :as psd]
-   [plumcp.core.support.http-client :as phc])
+   [plumcp.core.support.http-client :as phc]
+   [rewrite-json.core :as rj])
   (:import
    [java.io IOException]))
 
@@ -346,9 +347,9 @@
                                    init-result (pmc/get-initialize-result client)
                                    version (get-in init-result [:serverInfo :version])]
                                (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
-                                                                                                :status :starting
-                                                                                                :needs-reinit?* needs-reinit?*}
-                                                                                http-client (assoc :http-client http-client)))
+                                                                                :status :starting
+                                                                                :needs-reinit?* needs-reinit?*}
+                                                                         http-client (assoc :http-client http-client)))
                                (swap! db* assoc-in [:mcp-clients name :version] version)
                                (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
                                (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client))
@@ -565,6 +566,45 @@
     (let [fresh-config (config/all @db*)]
       (restart-server! server-name db* fresh-config metrics on-server-updated))))
 
+(defn ^:private update-config-file!
+  "Apply rewrite-json edits to a config file, preserving comments and formatting.
+   `edit-fn` receives a parsed rj root node and returns the modified root."
+  [^java.io.File config-file edit-fn]
+  (let [raw (if (.exists config-file) (slurp config-file) "{}")
+        root (edit-fn (rj/parse-string raw))]
+    (io/make-parents config-file)
+    (spit config-file (rj/to-string root))))
+
+(defn ^:private resolve-config-file [server-name db]
+  (let [{:keys [source workspace-root-uri]} (find-server-config-source server-name db)]
+    (if (= source :local)
+      (io/file (shared/uri->filename workspace-root-uri) ".eca" "config.json")
+      (config/global-config-file))))
+
+(defn disable-server!
+  "Disable an MCP server: persist disabled=true in config, stop if running, notify."
+  [server-name db* config {:keys [on-server-updated]}]
+  (let [db @db*
+        config-file (resolve-config-file server-name db)
+        server-config (get-in config [:mcpServers server-name])]
+    (update-config-file! config-file
+                         #(rj/assoc-in % ["mcpServers" server-name "disabled"] true))
+    (memoize/memo-clear! config/all)
+    (when (get-in db [:mcp-clients server-name :client])
+      (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+    (on-server-updated (->server server-name server-config :disabled @db*))))
+
+(defn enable-server!
+  "Enable an MCP server: remove disabled from config, start the server, notify."
+  [server-name db* metrics {:keys [on-server-updated]}]
+  (let [db @db*
+        config-file (resolve-config-file server-name db)]
+    (update-config-file! config-file
+                         #(rj/dissoc-in % ["mcpServers" server-name "disabled"]))
+    (memoize/memo-clear! config/all)
+    (let [fresh-config (config/all @db*)]
+      (start-server! server-name db* fresh-config metrics {:on-server-updated on-server-updated}))))
+
 (defn all-tools [db]
   (into []
         (mapcat (fn [[name {:keys [tools version]}]]
@@ -721,22 +761,22 @@
     (let [clients (vals (:mcp-clients @db*))
           latch (java.util.concurrent.CountDownLatch. (count clients))
           threads (doall
-                    (map (fn [{:keys [client http-client]}]
-                           (doto (Thread.
-                                   (fn []
-                                     (try
-                                       (if http-client
+                   (map (fn [{:keys [client http-client]}]
+                          (doto (Thread.
+                                 (fn []
+                                   (try
+                                     (if http-client
                                          ;; HTTP: force-stop (the DELETE in disconnect! always
                                          ;; times out because the server is slow to respond)
-                                         (pp/stop! http-client)
+                                       (pp/stop! http-client)
                                          ;; stdio: graceful disconnect
-                                         (pmc/disconnect! client))
-                                       (catch Exception _)
-                                       (finally
-                                         (.countDown latch)))))
-                             (.setDaemon true)
-                             (.start)))
-                         clients))]
+                                       (pmc/disconnect! client))
+                                     (catch Exception _)
+                                     (finally
+                                       (.countDown latch)))))
+                            (.setDaemon true)
+                            (.start)))
+                        clients))]
       (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
         (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
         (doseq [^Thread t threads]

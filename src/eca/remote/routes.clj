@@ -85,6 +85,8 @@
                   "stop"    [handlers/handle-mcp-stop components request server-name]
                   "connect" [handlers/handle-mcp-connect components request server-name]
                   "logout"  [handlers/handle-mcp-logout components request server-name]
+                  "disable" [handlers/handle-mcp-disable components request server-name]
+                  "enable"  [handlers/handle-mcp-enable components request server-name]
                   nil)))
 
             nil))))))

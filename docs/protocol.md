@@ -2174,6 +2174,44 @@ interface MCPLogoutServerParams {
 }
 ```
 
+### Disable MCP server (➡️)
+
+A client notification to disable an MCP server. Persists `disabled: true` in the config file,
+stops the server if running, and sends `tool/serverUpdated` with status `disabled`.
+
+_Notification:_
+
+* method: `mcp/disableServer`
+* params: `MCPDisableServerParams` defined as follows:
+
+```typescript
+interface MCPDisableServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+### Enable MCP server (➡️)
+
+A client notification to enable a disabled MCP server. Removes the `disabled` flag from the config file,
+starts the server, and sends `tool/serverUpdated` with the new status.
+
+_Notification:_
+
+* method: `mcp/enableServer`
+* params: `MCPEnableServerParams` defined as follows:
+
+```typescript
+interface MCPEnableServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
 ### Update MCP Server (↩️)
 
 Updates an MCP server's connection configuration (command/args or url), persists the change to the appropriate config file (local or global), and restarts the server.

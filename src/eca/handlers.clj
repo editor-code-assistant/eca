@@ -246,6 +246,14 @@
       (f.tools/update-server! server-name server-fields db* messenger config metrics)
       {})))
 
+(defn mcp-disable-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-disable-server
+    (f.tools/disable-server! (:name params) db* messenger config metrics)))
+
+(defn mcp-enable-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-enable-server
+    (f.tools/enable-server! (:name params) db* messenger config metrics)))
+
 (defn ^:private update-agent-model-and-variants!
   "Updates the selected model and variants based on agent configuration."
   [agent-config config messenger db*]
