@@ -1423,6 +1423,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#disable-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Disable MCP server (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Enable MCP server (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#update-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Update MCP Server (↩️)
@@ -1916,6 +1934,24 @@
   <a href="#logout-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Logout MCP server (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#disable-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Disable MCP server (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#enable-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Enable MCP server (➡️)
     </span>
   </a>
   
@@ -4003,6 +4039,36 @@ and restarting the server. The server will re-detect auth requirements and send
 <span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="disable-mcp-server">Disable MCP server (➡️)<a class="headerlink" href="#disable-mcp-server" title="Permanent link">#</a></h3>
+<p>A client notification to disable an MCP server. Persists <code>disabled: true</code> in the config file,
+stops the server if running, and sends <code>tool/serverUpdated</code> with status <code>disabled</code>.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>mcp/disableServer</code></li>
+<li>params: <code>MCPDisableServerParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPDisableServerParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The MCP server name.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="enable-mcp-server">Enable MCP server (➡️)<a class="headerlink" href="#enable-mcp-server" title="Permanent link">#</a></h3>
+<p>A client notification to enable a disabled MCP server. Removes the <code>disabled</code> flag from the config file,
+starts the server, and sends <code>tool/serverUpdated</code> with the new status.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>mcp/enableServer</code></li>
+<li>params: <code>MCPEnableServerParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPEnableServerParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The MCP server name.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="update-mcp-server">Update MCP Server (↩️)<a class="headerlink" href="#update-mcp-server" title="Permanent link">#</a></h3>
 <p>Updates an MCP server's connection configuration (command/args or url), persists the change to the appropriate config file (local or global), and restarts the server.</p>
 <p><em>Request:</em></p>
@@ -4081,7 +4147,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 27, 2026 13:41:26 UTC">March 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 27, 2026 15:55:43 UTC">March 27, 2026</span>
   </span>
 
     
