@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Add `providers/list`, `providers/login`, `providers/loginInput`, `providers/logout` requests and `providers/updated` notification for settings-based provider/model management.
-- Improve hardening of restrictions regarding the use of the optional model in sub-agent. #369
+- Improve explorer subagent prompt, remove role based approach.
 - Remove model/variant list from spawn_agent tool description so it doesn't use models when it is not asked to. #369
 
 ## 0.120.1
