@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.121.0
+
 - Add `providers/list`, `providers/login`, `providers/loginInput`, `providers/logout` requests and `providers/updated` notification for settings-based provider/model management.
 - Add LiteLLM, LM Studio, Mistral, and Moonshot as built-in providers with login support.
 - Fix Z-AI provider config using wrong API type and URL.
