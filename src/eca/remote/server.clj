@@ -174,7 +174,8 @@
   (try
     (let [opts (if ssl-context
                  {:ssl? true :ssl-port port :http? false
-                  :ssl-context ssl-context :host host :join? false}
+                  :ssl-context ssl-context :sni-host-check? false
+                  :host host :join? false}
                  {:port port :host host :join? false})
           server (jetty/run-jetty handler opts)]
       (logger/debug logger-tag (str "Bound to " host ":" port (when ssl-context " (HTTPS)")))
@@ -190,7 +191,8 @@
   (try
     (let [connector (if ssl-context
                       (let [ssl-factory (doto (SslContextFactory$Server.)
-                                          (.setSslContext ssl-context))]
+                                          (.setSslContext ssl-context)
+                                          (.setSniRequired false))]
                         (doto (ServerConnector. server ^SslContextFactory$Server ssl-factory)
                           (.setHost ^String host)
                           (.setPort (int port))))

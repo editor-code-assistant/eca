@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix remote connection for tailscale + docs.
+
 ## 0.121.0
 
 - Add `providers/list`, `providers/login`, `providers/loginInput`, `providers/logout` requests and `providers/updated` notification for settings-based provider/model management.

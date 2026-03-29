@@ -64,14 +64,20 @@ When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.
     2. Expose ECA's port via Tailscale HTTPS serve:
 
         ```bash
-        sudo tailscale serve --bg --https 7777 http://localhost:7777
-        sudo tailscale serve --bg --https 7778 http://localhost:7778
+        sudo tailscale serve --bg --https 7777 https+insecure://localhost:7777
+        sudo tailscale serve --bg --https 7778 https+insecure://localhost:7778
         # ... repeat for as many ports as you need (7777–7796)
         ```
 
         !!! warning "Use `--https`, not `--tcp`"
             `--tcp` creates a raw TCP proxy that browsers cannot connect to.
             `--https` creates a proper HTTPS reverse proxy with valid certificates.
+
+        !!! note "Why `https+insecure://`?"
+            ECA's built-in server runs HTTPS with a `*.local.eca.dev` certificate.
+            Tailscale Serve must connect to it over TLS (`https+insecure://`), not plain
+            HTTP. The `+insecure` flag tells Tailscale to skip certificate verification
+            since the local cert won't match your Tailscale hostname.
 
     3. Start ECA — it logs a connection URL you can open directly:
 
