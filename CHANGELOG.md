@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.121.1
+
 - Fix remote connection for tailscale + docs.
 
 ## 0.121.0
