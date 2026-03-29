@@ -1297,14 +1297,21 @@ ECA uses port <code>7777</code> by default and increments if busy.</p>
 <li>Install Tailscale and enable <a href="https://tailscale.com/kb/1153/enabling-https">HTTPS certificates</a></li>
 <li>
 <p>Expose ECA's port via Tailscale HTTPS serve:</p>
-<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7777</span><span class="w"> </span>http://localhost:7777
-sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7778</span><span class="w"> </span>http://localhost:7778
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7777</span><span class="w"> </span>https+insecure://localhost:7777
+sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7778</span><span class="w"> </span>https+insecure://localhost:7778
 <span class="c1"># ... repeat for as many ports as you need (7777–7796)</span>
 </code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">Use <code>--https</code>, not <code>--tcp</code></p>
 <p><code>--tcp</code> creates a raw TCP proxy that browsers cannot connect to.
 <code>--https</code> creates a proper HTTPS reverse proxy with valid certificates.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Why <code>https+insecure://</code>?</p>
+<p>ECA's built-in server runs HTTPS with a <code>*.local.eca.dev</code> certificate.
+Tailscale Serve must connect to it over TLS (<code>https+insecure://</code>), not plain
+HTTP. The <code>+insecure</code> flag tells Tailscale to skip certificate verification
+since the local cert won't match your Tailscale hostname.</p>
 </div>
 </li>
 <li>
@@ -1378,7 +1385,7 @@ sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 29, 2026 20:56:20 UTC">March 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 29, 2026 23:01:29 UTC">March 29, 2026</span>
   </span>
 
     
