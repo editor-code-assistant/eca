@@ -120,6 +120,10 @@
           "deepseek" {}
           "github-copilot" {}
           "google" {}
+          "litellm" {}
+          "lmstudio" {}
+          "mistral" {}
+          "moonshot" {}
           "openai" {}
           "openrouter" {}
           "z-ai" {}}

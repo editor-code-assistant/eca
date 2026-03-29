@@ -18,6 +18,10 @@
    "google" "Google"
    "azure" "Azure"
    "deepseek" "DeepSeek"
+   "litellm" "LiteLLM"
+   "lmstudio" "LM Studio"
+   "mistral" "Mistral"
+   "moonshot" "Moonshot"
    "openrouter" "OpenRouter"
    "z-ai" "Z-AI"
    "ollama" "Ollama"})
@@ -32,12 +36,24 @@
    "google"         [{:key "api-key" :label "Enter API key"}]
    "azure"          [{:key "api-key" :label "Enter API key, URL & models"}]
    "deepseek"       [{:key "api-key" :label "Enter API key & models"}]
+   "litellm"        [{:key "api-key" :label "Enter API key, URL & models"}]
+   "lmstudio"       [{:key "api-key" :label "Enter models"}]
+   "mistral"        [{:key "api-key" :label "Enter API key & models"}]
+   "moonshot"       [{:key "api-key" :label "Enter API key & models"}]
    "openrouter"     [{:key "api-key" :label "Enter API key & models"}]
    "z-ai"           [{:key "api-key" :label "Enter API key & models"}]})
 
 (def ^:private provider-login-fields
   {"google"     [{:key "api-key" :label "API Key" :type "secret"}]
    "deepseek"   [{:key "api-key" :label "API Key" :type "secret"}
+                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
+   "litellm"    [{:key "api-key" :label "API Key" :type "secret"}
+                 {:key "url"     :label "API URL (e.g. https://litellm.my-company.com)" :type "text"}
+                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
+   "lmstudio"   [{:key "models"  :label "Model names (comma-separated)" :type "text"}]
+   "mistral"    [{:key "api-key" :label "API Key" :type "secret"}
+                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
+   "moonshot"   [{:key "api-key" :label "API Key" :type "secret"}
                  {:key "models"  :label "Model names (comma-separated)" :type "text"}]
    "openrouter" [{:key "api-key" :label "API Key" :type "secret"}
                  {:key "models"  :label "Model names (comma-separated)" :type "text"}]
@@ -49,8 +65,14 @@
 
 (def ^:private provider-configs
   {"deepseek"   {:api "openai-chat" :url "https://api.deepseek.com"}
+   "litellm"    {:api "openai-responses"}
+   "lmstudio"   {:api "openai-chat" :url "http://localhost:1234"
+                 :completionUrlRelativePath "/v1/chat/completions"
+                 :httpClient {:version "http-1.1"}}
+   "mistral"    {:api "openai-chat" :url "https://api.mistral.ai/v1"}
+   "moonshot"   {:api "openai-chat" :url "https://api.kimi.com/coding/v1"}
    "openrouter" {:api "openai-chat" :url "https://openrouter.ai/api/v1"}
-   "z-ai"       {:api "openai-chat" :url "https://api.x.ai"}
+   "z-ai"       {:api "anthropic" :url "https://api.z.ai/api/anthropic"}
    "azure"      {:api "openai-chat"}})
 
 ;; --- Auth resolution ---
