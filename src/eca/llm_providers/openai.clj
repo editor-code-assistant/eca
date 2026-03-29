@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
@@ -384,6 +385,42 @@
       (throw (ex-info (format "OpenAI refresh token failed: %s" (pr-str body))
                       {:status status
                        :body body})))))
+
+;; --- Settings-based login (providers/login flow) ---
+
+(defmethod f.providers/start-login! ["openai" "pro"] [_ _ db* _config messenger metrics]
+  (let [local-server-port 1455
+        server-url (str "http://localhost:" local-server-port "/auth/callback")
+        {:keys [verifier url]} (oauth-url server-url)]
+    (oauth/start-oauth-server!
+     {:port local-server-port
+      :on-success (fn [{:keys [code]}]
+                    (try
+                      (let [{:keys [access-token refresh-token account-id expires-at]}
+                            (oauth-authorize server-url code verifier)]
+                        (swap! db* update-in [:auth "openai"] merge
+                               {:step :login/done
+                                :type :auth/oauth
+                                :mode :pro
+                                :refresh-token refresh-token
+                                :api-key access-token
+                                :account-id account-id
+                                :expires-at expires-at})
+                        (f.providers/sync-and-notify! "openai" db* messenger metrics))
+                      (catch Exception e
+                        (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
+                      (finally
+                        (future
+                          (Thread/sleep 2000)
+                          (oauth/stop-oauth-server! local-server-port)))))
+      :on-error (fn [error]
+                  (logger/error logger-tag "OAuth error:" error)
+                  (oauth/stop-oauth-server! local-server-port))})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser. ECA will finish the login automatically."}))
+
+;; --- Chat-based login (legacy /login command) ---
 
 (defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)

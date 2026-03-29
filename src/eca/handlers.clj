@@ -8,6 +8,7 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
+   [eca.features.providers :as f.providers]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -317,3 +318,21 @@
   (metrics/task metrics :eca/rewrite-prompt
     (handle-expected-errors
      (f.rewrite/prompt params db* config messenger metrics))))
+
+(defn providers-list [{:keys [db* config metrics]} _params]
+  (metrics/task metrics :eca/providers-list
+    (f.providers/providers-list db* config)))
+
+(defn providers-login [{:keys [db* config messenger metrics]} params]
+  (metrics/task metrics :eca/providers-login
+    (handle-expected-errors
+     (f.providers/provider-login (:provider params) (:method params) db* config messenger metrics))))
+
+(defn providers-login-input [{:keys [db* config messenger metrics]} params]
+  (metrics/task metrics :eca/providers-login-input
+    (handle-expected-errors
+     (f.providers/provider-login-input (:provider params) (:data params) db* config messenger metrics))))
+
+(defn providers-logout [{:keys [db* config messenger metrics]} params]
+  (metrics/task metrics :eca/providers-logout
+    (f.providers/provider-logout (:provider params) db* config messenger metrics)))

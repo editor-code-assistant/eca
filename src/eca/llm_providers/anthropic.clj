@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
@@ -551,6 +552,50 @@
       (throw (ex-info (format "Anthropic create API token failed: %s" (pr-str body))
                       {:status status
                        :body body})))))
+
+;; --- Settings-based login (providers/login flow) ---
+
+(defmethod f.providers/start-login! ["anthropic" "max"] [_ _ db* _config _messenger _metrics]
+  (let [{:keys [verifier url]} (oauth-url :max)]
+    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
+                                             :mode :max
+                                             :verifier verifier})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser, then paste the authorization code"
+     :fields [{:key "code" :label "Authorization code" :type "text"}]}))
+
+(defmethod f.providers/start-login! ["anthropic" "console"] [_ _ db* _config _messenger _metrics]
+  (let [{:keys [verifier url]} (oauth-url :console)]
+    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
+                                             :mode :console
+                                             :verifier verifier})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser, then paste the authorization code"
+     :fields [{:key "code" :label "Authorization code" :type "text"}]}))
+
+(defmethod f.providers/complete-oauth-code! "anthropic" [_ data db* messenger metrics]
+  (let [code (:code data)
+        {:keys [mode verifier]} (get-in @db* [:auth "anthropic"])]
+    (case mode
+      :console
+      (let [{:keys [access-token]} (oauth-authorize code verifier)
+            raw-key (create-api-key access-token)]
+        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
+                                                        :type :auth/token
+                                                        :api-key raw-key}))
+      :max
+      (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize code verifier)]
+        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
+                                                        :type :auth/oauth
+                                                        :refresh-token refresh-token
+                                                        :api-key access-token
+                                                        :expires-at expires-at})))
+    (f.providers/sync-and-notify! "anthropic" db* messenger metrics)
+    {:action "done"}))
+
+;; --- Chat-based login (legacy /login command) ---
 
 (defmethod f.login/login-step ["anthropic" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)

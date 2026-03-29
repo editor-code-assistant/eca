@@ -6,6 +6,7 @@
 
 - Update the compact prompt to read the active eca__task list after compacting.
 - Fix MCP OAuth discovery failing for servers whose authorization_server URL has a trailing slash (e.g. Miro) due to malformed well-known endpoint URL.
+- Add `providers/list`, `providers/login`, `providers/loginInput`, `providers/logout` requests and `providers/updated` notification for settings-based provider/model management.
 
 ## 0.120.0
 

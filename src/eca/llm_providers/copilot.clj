@@ -4,6 +4,8 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
+   [eca.logger :as logger]
    [eca.shared :refer [multi-str]]
    [hato.client :as http]))
 
@@ -66,6 +68,40 @@
       (throw (ex-info (format "Error on copilot login: %s" body)
                       {:status status
                        :body body})))))
+
+;; --- Settings-based login (providers/login flow) ---
+
+(defmethod f.providers/start-login! ["github-copilot" "device"] [_ _ db* _config messenger metrics]
+  (let [{:keys [user-code device-code url]} (oauth-url)]
+    (swap! db* assoc-in [:auth "github-copilot"] {:step :login/waiting-user-confirmation
+                                                   :device-code device-code})
+    (future
+      (loop [attempts 0]
+        (Thread/sleep 5000)
+        (when (and (< attempts 60)
+                   (= :login/waiting-user-confirmation
+                      (get-in @db* [:auth "github-copilot" :step])))
+          (let [result (try
+                         (let [access-token (oauth-access-token device-code)
+                               {:keys [api-key expires-at]} (oauth-renew-token access-token)]
+                           (swap! db* update-in [:auth "github-copilot"] merge
+                                  {:step :login/done
+                                   :access-token access-token
+                                   :api-key api-key
+                                   :expires-at expires-at})
+                           (f.providers/sync-and-notify! "github-copilot" db* messenger metrics)
+                           :done)
+                         (catch Exception e
+                           (logger/debug "[COPILOT]" "Device poll attempt" attempts ":" (ex-message e))
+                           :retry))]
+            (when (= :retry result)
+              (recur (inc attempts)))))))
+    {:action "device-code"
+     :url url
+     :code user-code
+     :message "Enter this code at the URL above. Make sure Copilot is enabled at https://github.com/settings/copilot/features"}))
+
+;; --- Chat-based login (legacy /login command) ---
 
 (defmethod f.login/login-step ["github-copilot" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (let [{:keys [user-code device-code url]} (oauth-url)]

@@ -2246,6 +2246,213 @@ _Response:_
 
 * result: `{}`
 
+## Provider Management
+
+### List Providers (↩️)
+
+Returns all known providers with their current authentication status and available models.
+
+_Request:_
+
+* method: `providers/list`
+* params: `{}`
+
+_Response:_
+
+* result: `ProvidersListResult` defined as follows:
+
+```typescript
+interface ProvidersListResult {
+    providers: ProviderStatus[];
+}
+
+interface ProviderStatus {
+    /** Provider identifier (e.g. "anthropic", "openai"). */
+    id: string;
+    /** Human-readable label (e.g. "GitHub Copilot"). */
+    label?: string;
+    /** Whether this provider exists in the resolved config. */
+    configured: boolean;
+    /** Current authentication state. */
+    auth: ProviderAuth;
+    /** Login methods available for this provider, if any. */
+    login?: { methods: LoginMethod[] };
+    /** Models currently available for this provider. */
+    models: ProviderModel[];
+    /** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */
+    settings?: Record<string, any>;
+}
+
+interface ProviderAuth {
+    /** Authentication status. */
+    status: 'authenticated' | 'expiring' | 'expired' | 'unauthenticated' | 'local' | 'not-running';
+    /** Authentication type. */
+    type?: 'oauth' | 'api-key';
+    /** How the credential was resolved. */
+    source?: 'config' | 'login' | 'env';
+    /** Login mode used (e.g. "max", "console", "manual", "pro"). */
+    mode?: string;
+    /** Token expiry as epoch seconds. */
+    expiresAt?: number;
+    /** Environment variable name when source is "env". */
+    envVar?: string;
+}
+
+interface LoginMethod {
+    /** Method identifier (e.g. "max", "pro", "api-key", "device"). */
+    key: string;
+    /** Human-readable label. */
+    label: string;
+}
+
+interface ProviderModel {
+    /** Model name without provider prefix. */
+    id: string;
+    /** Model capabilities. */
+    capabilities: {
+        reason: boolean;
+        vision: boolean;
+        tools: boolean;
+        webSearch: boolean;
+    };
+    /** Token costs per 1M tokens. */
+    cost?: { input: number; output: number };
+    /** Model-level config key-vals (modelName, extraPayload, extraHeaders, reasoningHistory, variants). */
+    settings?: Record<string, any>;
+}
+```
+
+### Login Provider (↩️)
+
+Initiates a login flow for a provider. Two-round-trip design: calling without a method returns
+available methods to choose from; calling with a method starts the authentication flow and
+returns an action descriptor telling the client what to render.
+
+_Request:_
+
+* method: `providers/login`
+* params: `ProvidersLoginParams` defined as follows:
+
+```typescript
+interface ProvidersLoginParams {
+    /** The provider to log in to (e.g. "anthropic"). */
+    provider: string;
+    /** The login method to use. Omit on first call to get available methods. */
+    method?: string;
+}
+```
+
+_Response:_
+
+* result: One of the following action descriptors:
+
+```typescript
+/** Multiple methods available — client should present choice and re-call with method. */
+interface ChooseMethodAction {
+    action: 'choose-method';
+    methods: LoginMethod[];
+}
+
+/** Browser-based OAuth — client opens URL, optionally collects a code. */
+interface AuthorizeAction {
+    action: 'authorize';
+    /** The OAuth authorization URL to open in the browser. */
+    url: string;
+    /** Instructional message for the user. */
+    message: string;
+    /**
+     * Fields to collect after browser auth (e.g. authorization code).
+     * If absent, the server handles the callback automatically and
+     * completion is signaled via providers/updated notification.
+     */
+    fields?: InputField[];
+}
+
+/** GitHub device flow — client shows code for user to enter at URL. */
+interface DeviceCodeAction {
+    action: 'device-code';
+    /** The verification URL. */
+    url: string;
+    /** The user code to enter. */
+    code: string;
+    /** Instructional message for the user. */
+    message: string;
+}
+
+/** Collect input fields (API key, URL, models). */
+interface InputAction {
+    action: 'input';
+    fields: InputField[];
+}
+
+/** Login completed immediately. */
+interface DoneAction {
+    action: 'done';
+}
+
+interface InputField {
+    /** Field identifier. */
+    key: string;
+    /** Human-readable label. */
+    label: string;
+    /** Field type: "secret" for passwords/keys, "text" for regular input. */
+    type: 'secret' | 'text';
+}
+```
+
+### Login Provider Input (↩️)
+
+Submits collected input data (API key, authorization code, URL, models) to complete a login flow.
+
+_Request:_
+
+* method: `providers/loginInput`
+* params: `ProvidersLoginInputParams` defined as follows:
+
+```typescript
+interface ProvidersLoginInputParams {
+    /** The provider being logged in to. */
+    provider: string;
+    /** The collected input data. Keys match the field keys from the action descriptor. */
+    data: Record<string, string>;
+}
+```
+
+_Response:_
+
+* result: `{ action: 'done' }`
+
+### Logout Provider (↩️)
+
+Clears authentication for a provider and re-syncs available models.
+
+_Request:_
+
+* method: `providers/logout`
+* params: `ProvidersLogoutParams` defined as follows:
+
+```typescript
+interface ProvidersLogoutParams {
+    /** The provider to log out of. */
+    provider: string;
+}
+```
+
+_Response:_
+
+* result: `{}`
+
+### Provider Updated (⬅️)
+
+A server notification sent when a provider's authentication state or available models change.
+Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+status (same shape as items in `providers/list` response).
+
+_Notification:_
+
+* method: `providers/updated`
+* params: `ProviderStatus` (see `providers/list` response above)
+
 ## General features
 
 ### progress (⬅️)

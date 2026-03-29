@@ -115,6 +115,18 @@
 (defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
   (handlers/chat-selected-model-changed (with-config components) params))
 
+(defmethod jsonrpc.server/receive-request "providers/list" [_ components params]
+  (handlers/providers-list (with-config components) params))
+
+(defmethod jsonrpc.server/receive-request "providers/login" [_ components params]
+  (handlers/providers-login (with-config components) params))
+
+(defmethod jsonrpc.server/receive-request "providers/loginInput" [_ components params]
+  (handlers/providers-login-input (with-config components) params))
+
+(defmethod jsonrpc.server/receive-request "providers/logout" [_ components params]
+  (handlers/providers-logout (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
   (handlers/completion-inline (with-config components) params))
 
@@ -171,6 +183,9 @@
   (tool-server-updated [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "tool/serverUpdated" params)))
+  (provider-updated [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "providers/updated" params)))
   (showMessage [_this msg]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "$/showMessage" msg)))
