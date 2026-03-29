@@ -1455,6 +1455,66 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#provider-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Provider Management
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#list-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      List Providers (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#login-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      Login Provider (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#login-provider-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      Login Provider Input (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logout-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      Logout Provider (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      Provider Updated (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#general-features" class="md-nav__link">
     <span class="md-ellipsis">
       General features
@@ -1961,6 +2021,66 @@
   <a href="#update-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Update MCP Server (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      Provider Management
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#list-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      List Providers (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#login-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      Login Provider (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#login-provider-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      Login Provider Input (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logout-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      Logout Provider (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      Provider Updated (⬅️)
     </span>
   </a>
   
@@ -4099,6 +4219,192 @@ starts the server, and sends <code>tool/serverUpdated</code> with the new status
 <ul>
 <li>result: <code>{}</code></li>
 </ul>
+<h2 id="provider-management">Provider Management<a class="headerlink" href="#provider-management" title="Permanent link">#</a></h2>
+<h3 id="list-providers">List Providers (↩️)<a class="headerlink" href="#list-providers" title="Permanent link">#</a></h3>
+<p>Returns all known providers with their current authentication status and available models.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>providers/list</code></li>
+<li>params: <code>{}</code></li>
+</ul>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>ProvidersListResult</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ProvidersListResult</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">providers</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderStatus</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ProviderStatus</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Provider identifier (e.g. &quot;anthropic&quot;, &quot;openai&quot;). */</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Human-readable label (e.g. &quot;GitHub Copilot&quot;). */</span>
+<span class="w">    </span><span class="nx">label?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Whether this provider exists in the resolved config. */</span>
+<span class="w">    </span><span class="nx">configured</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Current authentication state. */</span>
+<span class="w">    </span><span class="nx">auth</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderAuth</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Login methods available for this provider, if any. */</span>
+<span class="w">    </span><span class="nx">login</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">methods</span><span class="o">:</span><span class="w"> </span><span class="kt">LoginMethod</span><span class="p">[]</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="cm">/** Models currently available for this provider. */</span>
+<span class="w">    </span><span class="nx">models</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderModel</span><span class="p">[];</span>
+<span class="w">    </span><span class="cm">/** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */</span>
+<span class="w">    </span><span class="nx">settings?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">any</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ProviderAuth</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Authentication status. */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;authenticated&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;expiring&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;expired&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;unauthenticated&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;local&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;not-running&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Authentication type. */</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">?:</span><span class="w"> </span><span class="s1">&#39;oauth&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;api-key&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** How the credential was resolved. */</span>
+<span class="w">    </span><span class="nx">source</span><span class="o">?:</span><span class="w"> </span><span class="s1">&#39;config&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;login&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;env&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Login mode used (e.g. &quot;max&quot;, &quot;console&quot;, &quot;manual&quot;, &quot;pro&quot;). */</span>
+<span class="w">    </span><span class="nx">mode?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Token expiry as epoch seconds. */</span>
+<span class="w">    </span><span class="nx">expiresAt?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Environment variable name when source is &quot;env&quot;. */</span>
+<span class="w">    </span><span class="nx">envVar?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">LoginMethod</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Method identifier (e.g. &quot;max&quot;, &quot;pro&quot;, &quot;api-key&quot;, &quot;device&quot;). */</span>
+<span class="w">    </span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Human-readable label. */</span>
+<span class="w">    </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ProviderModel</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Model name without provider prefix. */</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Model capabilities. */</span>
+<span class="w">    </span><span class="nx">capabilities</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">reason</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">vision</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">tools</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">webSearch</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="cm">/** Token costs per 1M tokens. */</span>
+<span class="w">    </span><span class="nx">cost</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">input</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="nx">output</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="p">};</span>
+<span class="w">    </span><span class="cm">/** Model-level config key-vals (modelName, extraPayload, extraHeaders, reasoningHistory, variants). */</span>
+<span class="w">    </span><span class="nx">settings?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">any</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="login-provider">Login Provider (↩️)<a class="headerlink" href="#login-provider" title="Permanent link">#</a></h3>
+<p>Initiates a login flow for a provider. Two-round-trip design: calling without a method returns
+available methods to choose from; calling with a method starts the authentication flow and
+returns an action descriptor telling the client what to render.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>providers/login</code></li>
+<li>params: <code>ProvidersLoginParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ProvidersLoginParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The provider to log in to (e.g. &quot;anthropic&quot;). */</span>
+<span class="w">    </span><span class="nx">provider</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** The login method to use. Omit on first call to get available methods. */</span>
+<span class="w">    </span><span class="nx">method?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: One of the following action descriptors:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="cm">/** Multiple methods available — client should present choice and re-call with method. */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChooseMethodAction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;choose-method&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">methods</span><span class="o">:</span><span class="w"> </span><span class="kt">LoginMethod</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="cm">/** Browser-based OAuth — client opens URL, optionally collects a code. */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">AuthorizeAction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;authorize&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** The OAuth authorization URL to open in the browser. */</span>
+<span class="w">    </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Instructional message for the user. */</span>
+<span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Fields to collect after browser auth (e.g. authorization code).</span>
+<span class="cm">     * If absent, the server handles the callback automatically and</span>
+<span class="cm">     * completion is signaled via providers/updated notification.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">fields?</span><span class="o">:</span><span class="w"> </span><span class="kt">InputField</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="cm">/** GitHub device flow — client shows code for user to enter at URL. */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">DeviceCodeAction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;device-code&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** The verification URL. */</span>
+<span class="w">    </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** The user code to enter. */</span>
+<span class="w">    </span><span class="nx">code</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Instructional message for the user. */</span>
+<span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/** Collect input fields (API key, URL, models). */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">InputAction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;input&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">fields</span><span class="o">:</span><span class="w"> </span><span class="kt">InputField</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="cm">/** Login completed immediately. */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">DoneAction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;done&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">InputField</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Field identifier. */</span>
+<span class="w">    </span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Human-readable label. */</span>
+<span class="w">    </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Field type: &quot;secret&quot; for passwords/keys, &quot;text&quot; for regular input. */</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;secret&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;text&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="login-provider-input">Login Provider Input (↩️)<a class="headerlink" href="#login-provider-input" title="Permanent link">#</a></h3>
+<p>Submits collected input data (API key, authorization code, URL, models) to complete a login flow.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>providers/loginInput</code></li>
+<li>params: <code>ProvidersLoginInputParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ProvidersLoginInputParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The provider being logged in to. */</span>
+<span class="w">    </span><span class="nx">provider</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** The collected input data. Keys match the field keys from the action descriptor. */</span>
+<span class="w">    </span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>{ action: 'done' }</code></li>
+</ul>
+<h3 id="logout-provider">Logout Provider (↩️)<a class="headerlink" href="#logout-provider" title="Permanent link">#</a></h3>
+<p>Clears authentication for a provider and re-syncs available models.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>providers/logout</code></li>
+<li>params: <code>ProvidersLogoutParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ProvidersLogoutParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The provider to log out of. */</span>
+<span class="w">    </span><span class="nx">provider</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>{}</code></li>
+</ul>
+<h3 id="provider-updated">Provider Updated (⬅️)<a class="headerlink" href="#provider-updated" title="Permanent link">#</a></h3>
+<p>A server notification sent when a provider's authentication state or available models change.
+Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+status (same shape as items in <code>providers/list</code> response).</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>providers/updated</code></li>
+<li>params: <code>ProviderStatus</code> (see <code>providers/list</code> response above)</li>
+</ul>
 <h2 id="general-features">General features<a class="headerlink" href="#general-features" title="Permanent link">#</a></h2>
 <h3 id="progress">progress (⬅️)<a class="headerlink" href="#progress" title="Permanent link">#</a></h3>
 <p>A notification from the server reporting the progress of an initialization task. Each task
@@ -4147,7 +4453,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 29, 2026 18:06:04 UTC">March 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 29, 2026 18:26:21 UTC">March 29, 2026</span>
   </span>
 
     
