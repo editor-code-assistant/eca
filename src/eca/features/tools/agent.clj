@@ -5,8 +5,7 @@
    [eca.config :as config]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]
-   [eca.shared :refer [multi-str]]))
+   [eca.messenger :as messenger]))
 
 (set! *warn-on-reflection* true)
 
@@ -273,32 +272,26 @@
 
 (defn definitions
   [config db]
-  (let [model-names (available-model-names db)
-        variant-names (available-variant-names config db)]
-    {"spawn_agent"
-     {:description (build-description config)
-      :parameters {:type "object"
-                   :properties {"agent" {:type "string"
-                                         :description "Name of the agent to spawn"}
-                                "task" {:type "string"
-                                        :description "The detailed instructions for the agent"}
-                                "activity" {:type "string"
-                                            :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
-                                "model" {:type "string"
-                                         :description (cond-> "Optional model override. Include this key ONLY when the user explicitly asked for a specific model. Otherwise omit the key entirely; never send an empty string."
-                                                        (and (seq model-names) (> (count model-names) 1))
-                                                        (multi-str "One of these models can be used if the user explicitely requests it: " model-names))}
-                                "variant" {:type        "string"
-                                           :description (cond-> "Optional variant override. Include this key ONLY when the user explicitly asked for a specific variant."
-                                                          (seq variant-names) (multi-str "One of these variants can be used if the user requests it: "
-                                                                                         variant-names))}}
-                   :required ["agent" "task" "activity"]}
-      :handler #'spawn-agent
-      :summary-fn (fn [{:keys [args]}]
-                    (if-let [agent-name (get args "agent")]
-                      (let [activity (get args "activity" "working")]
-                        (format "%s: %s" agent-name activity))
-                      "Spawning agent"))}}))
+  {"spawn_agent"
+   {:description (build-description config)
+    :parameters  {:type       "object"
+                  :properties {"agent"    {:type        "string"
+                                           :description "Name of the agent to spawn"}
+                               "task"     {:type        "string"
+                                           :description "The detailed instructions for the agent"}
+                               "activity" {:type        "string"
+                                           :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
+                               "model"    {:type        "string"
+                                           :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
+                               "variant"  {:type        "string"
+                                           :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
+                  :required   ["agent" "task" "activity"]}
+    :handler     #'spawn-agent
+    :summary-fn  (fn [{:keys [args]}]
+                   (if-let [agent-name (get args "agent")]
+                     (let [activity (get args "activity" "working")]
+                       (format "%s: %s" agent-name activity))
+                     "Spawning agent"))}})
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
