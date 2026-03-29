@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.prompt :as f.prompt]
@@ -21,7 +22,8 @@
                       llm-api/sync-prompt! (constantly nil)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/all-tools (:all-tools-mock mocks)
-                      f.tools/approval (constantly :allow)]
+                      f.tools/approval (constantly :allow)
+                      config/await-plugins-resolved! (constantly true)]
           (h/config! {:env "test"})
           (swap! (h/db*) update :models
                  (fn [models]
