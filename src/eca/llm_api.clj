@@ -233,7 +233,8 @@
           :api-url api-url
           :api-key api-key
           :auth-type auth-type
-          :cancelled? cancelled?}
+          :cancelled? cancelled?
+          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
 
         (= "github-copilot" provider)

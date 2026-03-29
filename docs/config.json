@@ -139,6 +139,12 @@
       "markdownDescription": "Timeout in seconds for LSP operations.",
       "default": 30
     },
+    "streamIdleTimeoutSeconds": {
+      "type": "integer",
+      "description": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
+      "markdownDescription": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
+      "default": 120
+    },
     "mcpServers": {
       "type": "object",
       "description": "MCP (Model Context Protocol) server configurations.",

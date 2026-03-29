@@ -7,6 +7,7 @@
 - Fix Z-AI provider config using wrong API type and URL.
 - Improve explorer subagent prompt, remove role based approach.
 - Remove model/variant list from spawn_agent tool description so it doesn't use models when it is not asked to. #369
+- Add `streamIdleTimeoutSeconds` config option to make the LLM stream idle timeout configurable (default: 120s).
 
 ## 0.120.1
 

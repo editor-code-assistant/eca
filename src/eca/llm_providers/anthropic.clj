@@ -69,7 +69,7 @@
                       :max_uses 10
                       :cache_control {:type "ephemeral"}})))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled?]}]
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path messages-path))
         reason-id* (atom (str (random-uuid)))
         oauth? (= :auth/oauth auth-type)
@@ -105,7 +105,9 @@
                        :body body-str}))
           (if on-stream
             (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
-                  (llm-util/start-stream-watchdog! body cancelled? {})
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))
                   completed?* (atom false)]
               (try
                 (with-open [rdr (io/reader body)]
@@ -134,7 +136,8 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message "Stream idle timeout: no data received for 2 minutes"
+                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
+                                                  (or stream-idle-timeout-seconds 120))
                                  :exception e})
 
                       :else
@@ -291,7 +294,8 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload extra-headers supports-image? http-client cancelled?]}
+           tools web-search extra-payload extra-headers supports-image? http-client cancelled?
+           stream-idle-timeout-seconds]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
@@ -438,7 +442,8 @@
                                                      :content-block* (atom nil)
                                                      :cancelled? cancelled?
                                                      :on-error on-error
-                                                     :on-stream handle-stream}))))
+                                                     :on-stream handle-stream
+                                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds}))))
                                   "end_turn" (if @has-content?*
                                                (do
                                                  (reset! content-block* {})
@@ -470,7 +475,8 @@
       :content-block* (atom nil)
       :cancelled? cancelled?
       :on-error on-error
-      :on-stream on-stream-fn})))
+      :on-stream on-stream-fn
+      :stream-idle-timeout-seconds stream-idle-timeout-seconds})))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
 

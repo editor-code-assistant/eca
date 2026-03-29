@@ -175,6 +175,7 @@
                                                                             :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
+   :streamIdleTimeoutSeconds 120
    :mcpServers {}
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
