@@ -8,6 +8,6 @@ Agent Limits: Sub-agents cannot spawn other agents (no nesting) and have access 
 Strict rules for arguments:
 - 'task': Provide a highly detailed prompt. Explicitly state whether it should write/edit code or just research, how to verify its work, and exactly what specific information it must return to you.
 - 'activity': Must be a concise 3-4 word label for the UI (e.g., "exploring codebase", "refactoring module").
-- 'model' & 'variant': - Only include these keys if the user explicitly requests a specific model or variant. Otherwise, the agent defaults to its default configuration.
-  - If the user did not ask for a model, OMIT the `model` key entirely. Never send an empty string.
-  - If the user did not ask for a variant, OMIT the `variant` key entirely. Never send an empty string.
+- 'model' & 'variant': - NEVER include these arguments if the user hasn't explicitly requested a specific model or variant. Otherwise, the agent defaults to its default configuration.
+  - If the user did not ask for a model, OMIT the `model` entirely. Never send an empty string.
+  - If the user did not ask for a variant, OMIT the `variant` entirely. Never send an empty string.

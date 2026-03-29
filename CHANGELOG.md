@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `providers/list`, `providers/login`, `providers/loginInput`, `providers/logout` requests and `providers/updated` notification for settings-based provider/model management.
+- Improve hardening of restrictions regarding the use of the optional model in sub-agent. #369
 
 ## 0.120.1
 
