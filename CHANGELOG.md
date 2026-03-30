@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `/resume` getting stuck when resumed chat had stale compaction flags.
+
 ## 0.122.0
 
 - Improve summary of filesystem and shell functions making cleaner.
