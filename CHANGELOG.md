@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Improve summary of filesystem and shell functions making cleaner.
+- Fix `move_file` not working for renaming.
+
 ## 0.121.1
 
 - Fix remote connection for tailscale + docs.

@@ -139,9 +139,9 @@
     (if-let [command (some-> (get args "command")
                              (strip-workspace-cd-prefix workspace-folders))]
       (if (> (count command) max-length)
-        (format "Running '%s...'" (subs command 0 max-length))
-        (format "Running '%s'" command))
-      "Running shell command")))
+        (format "$ %s..." (subs command 0 max-length))
+        (format "$ %s" command))
+      "Preparing shell command")))
 
 (def definitions
   {"shell_command"
