@@ -219,27 +219,27 @@
                                             :id (m/pred string?)
                                             :name "directory_tree"
                                             :argumentsText ""
-                                            :summary "Listing file tree"})
+                                            :summary "Listing tree"})
         (match-content chat-id "assistant" {:type "toolCallRun"
                                             :origin "native"
                                             :id (m/pred string?)
                                             :name "directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
                                             :manualApproval false
-                                            :summary "Listing file tree"})
+                                            :summary "Listing tree: resources"})
         (match-content chat-id "assistant" {:type "toolCallRunning"
                                             :origin "native"
                                             :id (m/pred string?)
                                             :name "directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
-                                            :summary "Listing file tree"})
+                                            :summary "Listing tree: resources"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
         (match-content chat-id "assistant" {:type "toolCalled"
                                             :origin "native"
                                             :id (m/pred string?)
                                             :name "directory_tree"
                                             :arguments {:path (h/project-path->canon-path "resources")}
-                                            :summary "Listing file tree"
+                                            :summary "Listing tree: resources"
                                             :totalTimeMs (m/pred number?)
                                             :error false
                                             :outputs [{:type "text" :text (str (h/project-path->canon-path "resources") "\n"
@@ -257,7 +257,7 @@
                                                           :function {:id (m/pred string?)
                                                                      :name "eca__directory_tree"
                                                                      :arguments {:path (h/project-path->canon-path "resources")}
-                                                                     :summary "Listing file tree"
+                                                                     :summary "Listing tree: resources"
                                                                      :origin "native"}}]}
                          {:role "tool" :content (str (h/project-path->canon-path "resources") "\n"
                                                      " file1.md\n"
