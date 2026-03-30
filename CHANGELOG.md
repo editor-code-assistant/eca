@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.122.0
+
 - Improve summary of filesystem and shell functions making cleaner.
 - Fix `move_file` not working for renaming.
 - Support parameterized skills via slash commands with `$ARGS`/`$ARGUMENTS`/`$1`/`$2` substitution, e.g. `/review-pr URL`. #384
