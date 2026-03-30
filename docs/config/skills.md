@@ -75,4 +75,28 @@ Check the examples:
     }
     ```
 
+## Parameterized skills
+
+Skills can receive arguments when invoked as slash commands, using the same variable substitution as [custom commands](./commands.md): `$ARGS`, `$ARGUMENTS`, and positional `$1`, `$2`, etc.
+
+When arguments are provided, ECA substitutes them directly into the skill body instead of asking the LLM to load the skill via `eca__skill`.
+
+```markdown title="~/.config/eca/skills/review-pr/SKILL.md"
+---
+name: review-pr
+description: Review a pull request given its URL
+---
+
+Review the following pull request: $ARGS
+Focus on code quality, correctness, and test coverage.
+```
+
+Then invoke it with:
+
+```
+/review-pr https://github.com/org/repo/pull/123
+```
+
+ECA will substitute `$ARGS` with the URL and send the full skill body as the prompt.
+
 You can have more directories and contents like `scripts/`, `references/`, `assets/` for a skill making it really powerful, check [the spec](https://agentskills.io/specification#optional-directories) for more details.

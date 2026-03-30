@@ -7,7 +7,11 @@ description: "Configure ECA commands: built-in slash commands like /init and /co
 ![](../images/features/commands.png)
 
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
-Prompts can use variables like `$ARGUMENTS`, `$ARG1`, `ARG2`, to replace in the prompt during command call.
+Prompts can use variables like `$ARGUMENTS`, `$1`, `$2`, to replace in the prompt during command call.
+
+!!! tip "Skills support arguments too"
+
+    [Skills](./skills.md#parameterized-skills) also support the same variable substitution when invoked as slash commands, e.g. `/review-pr URL`.
 
 You can configure in multiple different ways:
 
@@ -16,7 +20,7 @@ You can configure in multiple different ways:
     A `.eca/commands` folder from the workspace root containing `.md` files with the custom prompt.
 
     ```markdown title=".eca/commands/check-performance.md"
-    Check for performance issues in $ARG1 and optimize if needed.
+    Check for performance issues in $1 and optimize if needed.
     ```
 
     ECA will make available a `/check-performance` command after creating that file.
@@ -26,7 +30,7 @@ You can configure in multiple different ways:
     A `$XDG_CONFIG_HOME/eca/commands` or `~/.config/eca/commands` folder containing `.md` files with the custom command prompt.
 
     ```markdown title="~/.config/eca/commands/check-performance.md"
-    Check for performance issues in $ARG1 and optimize if needed.
+    Check for performance issues in $1 and optimize if needed.
     ```
 
     ECA will make available a `/check-performance` command after creating that file.

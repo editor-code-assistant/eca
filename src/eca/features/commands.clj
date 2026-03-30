@@ -180,17 +180,22 @@
             skills-cmds
             custom-cmds)))
 
+(defn ^:private substitute-args [content args]
+  (let [args-joined (string/join " " args)
+        content-with-args (-> content
+                              (string/replace "$ARGS" args-joined)
+                              (string/replace "$ARGUMENTS" args-joined))]
+    (reduce (fn [c [i arg]]
+              (-> c
+                  (string/replace (str "$ARG" (inc i)) arg)
+                  (string/replace (str "$" (inc i)) arg)))
+            content-with-args
+            (map-indexed vector args))))
+
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))
                                                   custom-cmds)))]
-    (let [args-joined (string/join " " args)
-          content-with-args (-> raw-content
-                                (string/replace "$ARGS" args-joined)
-                                (string/replace "$ARGUMENTS" args-joined))]
-      (reduce (fn [content [i arg]]
-                (string/replace content (str "$ARG" (inc i)) arg))
-              content-with-args
-              (map-indexed vector args)))))
+    (substitute-args raw-content args)))
 
 (defn ^:private format-tool-permissions [{:keys [toolCall]}]
   (when-let [approval (:approval toolCall)]
@@ -530,6 +535,8 @@
          :prompt custom-command-prompt}
         (if-let [skill (first (filter #(= command (:name %)) skills))]
           {:type :send-prompt
-           :prompt (str "Load skill: " (:name skill))}
+           :prompt (if (seq args)
+                    (substitute-args (:body skill) args)
+                    (str "Load skill: " (:name skill)))}
           {:type :text
            :text (str "Unknown command: " command)})))))
