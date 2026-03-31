@@ -12,6 +12,7 @@
    [ring.util.response :as response]
    [selmer.parser :as selmer])
   (:import
+   [java.io File]
    [java.nio.charset StandardCharsets]
    [java.security MessageDigest SecureRandom]
    [java.util Base64]
@@ -195,14 +196,24 @@
 
 (defn oauth-info
   "Perform OAuth discovery for the given MCP server URL.
-   Optional `configured-client-id` skips dynamic client registration when provided."
-  ([^String url] (oauth-info url nil))
-  ([^String url configured-client-id]
+   Optional `configured-client-id` skips dynamic client registration when provided.
+   Optional `configured-client-secret` enables confidential OAuth (e.g. Slack MCP).
+   Optional `configured-oauth-port` uses a fixed port for the OAuth callback (required
+   by providers like Slack that mandate pre-registered redirect URIs)."
+  ([^String url] (oauth-info url nil nil))
+  ([^String url configured-client-id] (oauth-info url configured-client-id nil))
+  ([^String url configured-client-id configured-client-secret]
+   (oauth-info url configured-client-id configured-client-secret nil))
+  ([^String url configured-client-id configured-client-secret configured-oauth-port]
    (let [base-url (url->base-url url)
          auth-response (probe-auth url)]
      (when-let [headers (:headers auth-response)]
-       (let [callback-port (get-free-port)
-             redirect-uri (format "http://localhost:%s/auth/callback" callback-port)
+       (let [ssl? (some? configured-oauth-port)
+             callback-port (if configured-oauth-port
+                             (int configured-oauth-port)
+                             (get-free-port))
+             scheme (if ssl? "https" "http")
+             redirect-uri (format "%s://localhost:%s/auth/callback" scheme callback-port)
              www-authenticate (some-> (get headers "www-authenticate") parse-www-authenticate)
              ;; Step 1: Discover resource/auth metadata (PRM per RFC 9728, then legacy fallback)
              first-meta (discover-resource-metadata www-authenticate base-url)
@@ -219,7 +230,10 @@
                  ;; Skip DCR when a client-id is pre-configured
                  new-client-id (when-not configured-client-id
                                  (when-let [reg-endpoint (:registration_endpoint meta)]
-                                   (let [res (http/post
+                                   (let [auth-method (if configured-client-secret
+                                                       "client_secret_post"
+                                                       "none")
+                                         res (http/post
                                               reg-endpoint
                                               {:timeout 10000
                                                :as :json
@@ -227,7 +241,7 @@
                                                :headers {"Content-Type" "application/json"}
                                                :body (json/generate-string
                                                       {:redirect_uris [redirect-uri]
-                                                       :token_endpoint_auth_method "none"
+                                                       :token_endpoint_auth_method auth-method
                                                        :grant_types ["authorization_code" "refresh_token"]
                                                        :response_types ["code"]
                                                        :client_name "ECA (Editor Code Assistant)"
@@ -251,44 +265,74 @@
                                        :redirect_uri redirect-uri
                                        :resource url}
                                 scope (assoc :scope scope)))]
-            {:callback-port callback-port
-             :token-endpoint (or (:token_endpoint meta)
-                                 (str auth-server "/access_token"))
-             :verifier verifier
-             :client-id client-id
-             :redirect-uri redirect-uri
-             :resource url
-             :authorization-endpoint (str base-auth-endpoint "?" query-params)})))))))
+            (cond-> {:callback-port callback-port
+                     :token-endpoint (or (:token_endpoint meta)
+                                         (str auth-server "/access_token"))
+                     :verifier verifier
+                     :client-id client-id
+                     :redirect-uri redirect-uri
+                     :resource url
+                     :authorization-endpoint (str base-auth-endpoint "?" query-params)}
+              ssl? (assoc :ssl? true)
+              configured-client-secret (assoc :client-secret configured-client-secret)))))))))
 
 (comment
   (oauth-info "https://mcp.atlassian.com/v1/sse")
   (oauth-info "https://mcp.miro.com/")
   (oauth-info "https://api.githubcopilot.com/mcp/"))
 
+(defn ^:private extract-keystore-to-temp
+  "Extract the bundled localhost PKCS12 keystore to a temp file.
+   Returns the absolute path to the temp file."
+  ^String []
+  (let [res (io/resource "tls/localhost.p12")]
+    (when-not res
+      (throw (ex-info "Bundled localhost keystore not found on classpath"
+                      {:resource "tls/localhost.p12"})))
+    (let [temp-file (File/createTempFile "eca-oauth-" ".p12")]
+      (.deleteOnExit temp-file)
+      (with-open [in (io/input-stream res)]
+        (io/copy in temp-file))
+      (.getAbsolutePath temp-file))))
+
 (defn start-oauth-server!
-  "Start local server on port to handle OAuth redirect"
-  [{:keys [on-error on-success port]}]
+  "Start local server on port to handle OAuth redirect.
+   When :ssl? is true, starts HTTPS using the bundled localhost certificate."
+  [{:keys [on-error on-success port ssl?]}]
   (when-not (get @oauth-server-by-port* port)
-    (let [handler (-> oauth-handler
-                      wrap-keyword-params
-                      wrap-params)
-          server (jetty/run-jetty
-                  (fn [request]
-                    (if (= "/auth/callback" (:uri request))
-                      (handler request on-success on-error)
-                      (-> (response/response "404 Not Found")
-                          (response/status 404))))
-                  {:port (or port (get-free-port))
-                   :join? false})]
-      (swap! oauth-server-by-port* assoc port server)
-      (logger/info logger-tag (str "OAuth server started on http://localhost:" port))
-      {:server server
-       :port port})))
+    (try
+      (let [handler (-> oauth-handler
+                        wrap-keyword-params
+                        wrap-params)
+            request-handler (fn [request]
+                              (if (= "/auth/callback" (:uri request))
+                                (handler request on-success on-error)
+                                (-> (response/response "404 Not Found")
+                                    (response/status 404))))
+            jetty-opts (if ssl?
+                         {:ssl? true
+                          :ssl-port (or port (get-free-port))
+                          :http? false
+                          :keystore (extract-keystore-to-temp)
+                          :key-password "ecalocal"
+                          :keystore-type "PKCS12"
+                          :join? false}
+                         {:port (or port (get-free-port))
+                          :join? false})
+            server (jetty/run-jetty request-handler jetty-opts)
+            scheme (if ssl? "https" "http")]
+        (swap! oauth-server-by-port* assoc port server)
+        (logger/info logger-tag (str "OAuth server started on " scheme "://localhost:" port))
+        {:server server
+         :port port})
+      (catch java.net.BindException _
+        (logger/error logger-tag (format "Port %d is already in use — is another ECA instance running?" port))
+        nil))))
 
 (defn stop-oauth-server!
   "Stop the local OAuth server"
   [port]
-  (when-let [^Server server (get oauth-server-by-port* port)]
+  (when-let [^Server server (get @oauth-server-by-port* port)]
     (.stop server)
     (swap! oauth-server-by-port* dissoc port)
     (logger/info logger-tag "OAuth server stopped")))
@@ -317,7 +361,7 @@
      ;; Fallback to raw error
      {:raw_error body-str})))
 
-(defn authorize-token! [{:keys [token-endpoint verifier client-id redirect-uri resource]} code]
+(defn authorize-token! [{:keys [token-endpoint verifier client-id client-secret redirect-uri resource]} code]
   (let [{:keys [status body]} (http/post
                                token-endpoint
                                {:headers {"Content-Type" "application/x-www-form-urlencoded"
@@ -328,6 +372,7 @@
                                                 :code code
                                                 :code_verifier verifier
                                                 :redirect_uri redirect-uri}
+                                         client-secret (assoc :client_secret client-secret)
                                          resource (assoc :resource resource)))
                                 :throw-exceptions? false
                                 :as :stream})
@@ -367,7 +412,7 @@
 (defn refresh-token!
   "Refresh an OAuth access token using a refresh token.
    Returns {:access-token :refresh-token :expires-at} on success, nil if refresh fails."
-  [token-endpoint client-id refresh-token & {:keys [resource]}]
+  [token-endpoint client-id refresh-token & {:keys [client-secret resource]}]
   (try
     (let [{:keys [status body]} (http/post
                                  token-endpoint
@@ -377,6 +422,7 @@
                                          (cond-> {:grant_type "refresh_token"
                                                   :client_id client-id
                                                   :refresh_token refresh-token}
+                                           client-secret (assoc :client_secret client-secret)
                                            resource (assoc :resource resource)))
                                   :throw-exceptions? false
                                   :as :stream})

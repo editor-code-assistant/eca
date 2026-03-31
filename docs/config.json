@@ -1000,8 +1000,20 @@
         },
         "clientId": {
           "type": "string",
-          "description": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks). When set, dynamic client registration is skipped.",
-          "markdownDescription": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks). When set, dynamic client registration is skipped."
+          "description": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, dynamic client registration is skipped.",
+          "markdownDescription": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, dynamic client registration is skipped."
+        },
+        "clientSecret": {
+          "type": "string",
+          "description": "OAuth client secret for servers that require confidential OAuth (e.g. Slack MCP). Used together with clientId for token exchange.",
+          "markdownDescription": "OAuth client secret for servers that require confidential OAuth (e.g. Slack MCP). Used together with `clientId` for token exchange."
+        },
+        "oauthPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Fixed port for the OAuth callback server. Required by providers like Slack that mandate pre-registered redirect URIs. When set, the callback uses HTTPS with a bundled localhost certificate. Register https://localhost:<port>/auth/callback as the redirect URI in your OAuth app.",
+          "markdownDescription": "Fixed port for the OAuth callback server. Required by providers like Slack that mandate pre-registered redirect URIs. When set, the callback uses HTTPS with a bundled localhost certificate. Register `https://localhost:<port>/auth/callback` as the redirect URI in your OAuth app."
         }
       },
       "additionalProperties": false

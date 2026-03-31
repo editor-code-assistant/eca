@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix `/resume` getting stuck when resumed chat had stale compaction flags.
+- Add `clientSecret` and `oauthPort` support for MCP servers requiring confidential OAuth with HTTPS pre-registered redirect URIs (e.g. Slack MCP).
 
 ## 0.122.0
 

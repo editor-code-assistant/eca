@@ -262,16 +262,20 @@
 (defn ^:private try-refresh-token!
   "Attempt to refresh an MCP server's OAuth token.
    Returns true if refresh succeeded, false otherwise."
-  [name db* url metrics {:keys [clientId]}]
+  [name db* url metrics {:keys [clientId clientSecret oauthPort]}]
   (let [mcp-auth (get-in @db* [:mcp-auth name])
         {:keys [refresh-token]} mcp-auth]
     (when refresh-token
       (logger/info logger-tag (format "Attempting to refresh token for MCP server '%s'" name))
-      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url) clientId)]
+      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url)
+                                              (some-> clientId replace-env-vars)
+                                              (some-> clientSecret replace-env-vars)
+                                              oauthPort)]
         (when-let [new-tokens (oauth/refresh-token!
                                (:token-endpoint oauth-info)
                                (:client-id oauth-info)
                                refresh-token
+                               :client-secret (:client-secret oauth-info)
                                :resource (:resource oauth-info))]
           (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
           (swap! db* assoc-in [:mcp-auth name]
@@ -327,7 +331,9 @@
                                   (and token-expired? (not refresh-succeeded?))))
             oauth-info (when (and url needs-oauth?)
                          (oauth/oauth-info (replace-env-vars url)
-                                           (:clientId server-config)))]
+                                           (some-> (:clientId server-config) replace-env-vars)
+                                           (some-> (:clientSecret server-config) replace-env-vars)
+                                           (:oauthPort server-config)))]
         (if oauth-info
           (initialize-mcp-oauth oauth-info
                                 name
@@ -465,11 +471,12 @@
   (let [server-config (get-in config [:mcpServers name])
         {:keys [oauth-info]} (get-in @db* [:mcp-clients name])]
     (when (and server-config oauth-info)
-      (let [{:keys [authorization-endpoint callback-port]} oauth-info]
+      (let [{:keys [authorization-endpoint callback-port ssl?]} oauth-info]
         (swap! db* assoc-in [:mcp-clients name :status] :starting)
         (on-server-updated (->server name server-config :starting @db*))
         (oauth/start-oauth-server!
          {:port callback-port
+          :ssl? ssl?
           :on-success (fn [{:keys [code]}]
                         (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
                           (swap! db* assoc-in [:mcp-auth name] {:type :auth/oauth

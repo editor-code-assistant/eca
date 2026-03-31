@@ -62,6 +62,37 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+=== "Confidential OAuth (e.g. Slack)"
+
+    Some providers (e.g. Slack MCP) require confidential OAuth with both a
+    `clientId` and `clientSecret`, and require HTTPS pre-registered redirect URIs.
+
+    Setup steps:
+
+    1. Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps)
+    2. Enable MCP under *Features > Agents & AI Apps*
+    3. Under *OAuth & Permissions > Redirect URLs*, add
+       `https://localhost:19284/auth/callback`
+    4. Add the user scopes you need (e.g. `search:read.public`, `channels:history`)
+    5. Copy the credentials from *Settings > Basic Information > App Credentials*
+
+    When `oauthPort` is set, ECA uses a bundled localhost certificate to serve
+    HTTPS on the callback. On first authorization, your browser will show a
+    certificate warning — click *Advanced → Proceed* to complete the flow.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "slack": {
+          "url": "https://mcp.slack.com/mcp",
+          "clientId": "<your-slack-app-client-id>",
+          "clientSecret": "<your-slack-app-client-secret>",
+          "oauthPort": 19284
+        }
+      }
+    }
+    ```
+
 === "Static auth header"
 
     For servers that accept a static token (e.g. a personal access token),
