@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Bump plumcp to 0.2.0-beta6.
+- Fix MCP server start/stop blocking the protocol thread, causing ECA to become unresponsive.
+- Dispatch request and notification handlers off the protocol thread to prevent blocking.
 
 ## 0.122.1
 

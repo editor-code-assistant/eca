@@ -50,6 +50,18 @@
     (.interrupt thread))
   (reset! init-threads* {}))
 
+(defmacro ^:private with-init-thread
+  "Registers the current thread in `init-threads*` for the given server name,
+  executes body, and deregisters in a finally block. Allows `stop-server!` and
+  `shutdown!` to interrupt in-progress initializations."
+  [server-name & body]
+  `(let [name# ~server-name]
+     (register-init-thread! name# (Thread/currentThread))
+     (try
+       ~@body
+       (finally
+         (deregister-init-thread! name#)))))
+
 (def ^:private env-var-regex
   #"\$(\w+)|\$\{([^}]+)\}")
 
@@ -421,18 +433,19 @@
             (on-server-updated (->server server-name server-config :disabled db))
             (let [t (Thread.
                      (fn []
-                       (try
-                         (initialize-server! server-name db* config metrics on-server-updated)
-                         (finally
-                           (deregister-init-thread! server-name)))))]
+                       (with-init-thread server-name
+                         (initialize-server! server-name db* config metrics on-server-updated))))]
               (.setName t (str "mcp-init-" server-name))
               (.setDaemon t true)
-              (register-init-thread! server-name t)
               (.start t))))))))
 
 (def ^:private disconnect-timeout-ms 3000)
 
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
+  (when-let [^Thread init-thread (get @init-threads* name)]
+    (logger/info logger-tag (format "Interrupting in-progress init thread for server '%s'" name))
+    (.interrupt init-thread)
+    (deregister-init-thread! name))
   (when-let [{:keys [client http-client]} (get-in @db* [:mcp-clients name])]
     (let [server-config (get-in config [:mcpServers name])]
       (swap! db* assoc-in [:mcp-clients name :status] :stopping)
@@ -440,9 +453,12 @@
       (let [f (future (try (pmc/disconnect! client) (catch Exception _ nil)))]
         (when-not (deref f disconnect-timeout-ms nil)
           (logger/warn logger-tag (format "Timeout disconnecting MCP server %s, forcing transport stop" name))
-          (if http-client
-            (try (pp/stop! http-client) (catch Exception _))
-            (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _)))))
+          ;; Fire-and-forget: pp/stop! can block indefinitely on HttpClient.close()
+          ;; awaiting internal thread termination, so we must not block the caller.
+          (future
+            (if http-client
+              (try (pp/stop! http-client) (catch Exception _))
+              (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _))))))
       (swap! db* assoc-in [:mcp-clients name :status] :stopped)
       (on-server-updated (->server name server-config :stopped @db*))
       (swap! db* update :mcp-clients dissoc name)
@@ -452,7 +468,8 @@
   (when-let [server-config (get-in config [:mcpServers name])]
     (when (get server-config :disabled false)
       (logger/info logger-tag (format "Starting MCP server %s from manual request despite :disabled=true" name)))
-    (initialize-server! name db* config metrics on-server-updated)))
+    (with-init-thread name
+      (initialize-server! name db* config metrics on-server-updated))))
 
 (defn ^:private open-browser! [^String url]
   (try
@@ -495,20 +512,12 @@
         (open-browser! authorization-endpoint)))))
 
 (defn ^:private restart-server!
-  "Stop the server if running, then spawn a daemon thread to re-initialize it."
+  "Stop the server if running, then re-initialize it on the current thread."
   [name db* config metrics on-server-updated]
   (when (get-in @db* [:mcp-clients name :client])
     (stop-server! name db* config {:on-server-updated on-server-updated}))
-  (let [t (Thread.
-           (fn []
-             (try
-               (initialize-server! name db* config metrics on-server-updated)
-               (finally
-                 (deregister-init-thread! name)))))]
-    (.setName t (str "mcp-init-" name))
-    (.setDaemon t true)
-    (register-init-thread! name t)
-    (.start t)))
+  (with-init-thread name
+    (initialize-server! name db* config metrics on-server-updated)))
 
 (defn logout-server!
   "Logout from an MCP server by clearing stored OAuth credentials and restarting it."

@@ -14,7 +14,8 @@
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
    [jsonrpc4clj.liveness-probe :as liveness-probe]
-   [jsonrpc4clj.server :as jsonrpc.server]))
+   [jsonrpc4clj.server :as jsonrpc.server]
+   [promesa.core :as p]))
 
 (set! *warn-on-reflection* true)
 
@@ -37,13 +38,31 @@
 (defn ^:private with-config [components]
   (assoc components :config (config/all @(:db* components))))
 
+(defmacro ^:private eventually
+  "Dispatches handler body to a background thread, returning a promise.
+  Releases the protocol thread immediately. jsonrpc4clj resolves the promise
+  and sends the JSON-RPC response when the work completes."
+  [& body]
+  `(p/thread ~@body))
+
+(defmacro ^:private async-notify
+  "Dispatches notification handler body to a background thread.
+  Releases the protocol thread immediately. Exceptions are logged since
+  notification handlers have no response channel."
+  [& body]
+  `(p/thread
+     (try
+       ~@body
+       (catch Throwable e#
+         (logger/error e# "[server] Error in async notification handler")))))
+
 (defmethod jsonrpc.server/receive-request "initialize" [_ {:keys [server] :as components} params]
   (when-let [parent-process-id (:process-id params)]
     (liveness-probe/start! parent-process-id log-wrapper-fn #(exit server)))
   (handlers/initialize components params))
 
 (defmethod jsonrpc.server/receive-notification "initialized" [_ components _params]
-  (handlers/initialized (with-config components)))
+  (async-notify (handlers/initialized (with-config components))))
 
 (defmethod jsonrpc.server/receive-request "shutdown" [_ components _params]
   (handlers/shutdown (with-config components)))
@@ -52,19 +71,19 @@
   (exit server))
 
 (defmethod jsonrpc.server/receive-notification "workspace/didChangeWorkspaceFolders" [_ components params]
-  (handlers/workspace-did-change-folders (with-config components) params))
+  (async-notify (handlers/workspace-did-change-folders (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
-  (handlers/chat-prompt (with-config components) params))
+  (eventually (handlers/chat-prompt (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/queryContext" [_ components params]
-  (handlers/chat-query-context (with-config components) params))
+  (eventually (handlers/chat-query-context (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/queryFiles" [_ components params]
-  (handlers/chat-query-files (with-config components) params))
+  (eventually (handlers/chat-query-files (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/queryCommands" [_ components params]
-  (handlers/chat-query-commands (with-config components) params))
+  (eventually (handlers/chat-query-commands (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "chat/toolCallApprove" [_ components params]
   (handlers/chat-tool-call-approve (with-config components) params))
@@ -76,62 +95,62 @@
   (handlers/chat-prompt-stop (with-config components) params))
 
 (defmethod jsonrpc.server/receive-request "chat/delete" [_ components params]
-  (handlers/chat-delete (with-config components) params))
+  (eventually (handlers/chat-delete (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/clear" [_ components params]
-  (handlers/chat-clear (with-config components) params))
+  (eventually (handlers/chat-clear (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/rollback" [_ components params]
-  (handlers/chat-rollback (with-config components) params))
+  (eventually (handlers/chat-rollback (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
-  (handlers/mcp-stop-server (with-config components) params))
+  (async-notify (handlers/mcp-stop-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/startServer" [_ components params]
-  (handlers/mcp-start-server (with-config components) params))
+  (async-notify (handlers/mcp-start-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/connectServer" [_ components params]
-  (handlers/mcp-connect-server (with-config components) params))
+  (async-notify (handlers/mcp-connect-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/logoutServer" [_ components params]
-  (handlers/mcp-logout-server (with-config components) params))
+  (async-notify (handlers/mcp-logout-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/disableServer" [_ components params]
-  (handlers/mcp-disable-server (with-config components) params))
+  (async-notify (handlers/mcp-disable-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/enableServer" [_ components params]
-  (handlers/mcp-enable-server (with-config components) params))
+  (async-notify (handlers/mcp-enable-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "mcp/updateServer" [_ components params]
-  (handlers/mcp-update-server (with-config components) params))
+  (eventually (handlers/mcp-update-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "chat/selectedAgentChanged" [_ components params]
-  (handlers/chat-selected-agent-changed (with-config components) params))
+  (async-notify (handlers/chat-selected-agent-changed (with-config components) params)))
 
 ;; Legacy: backward compat for clients using old method name
 (defmethod jsonrpc.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
-  (handlers/chat-selected-agent-changed (with-config components) params))
+  (async-notify (handlers/chat-selected-agent-changed (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
-  (handlers/chat-selected-model-changed (with-config components) params))
+  (async-notify (handlers/chat-selected-model-changed (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "providers/list" [_ components params]
-  (handlers/providers-list (with-config components) params))
+  (eventually (handlers/providers-list (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "providers/login" [_ components params]
-  (handlers/providers-login (with-config components) params))
+  (eventually (handlers/providers-login (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "providers/loginInput" [_ components params]
-  (handlers/providers-login-input (with-config components) params))
+  (eventually (handlers/providers-login-input (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "providers/logout" [_ components params]
-  (handlers/providers-logout (with-config components) params))
+  (eventually (handlers/providers-logout (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
-  (handlers/completion-inline (with-config components) params))
+  (eventually (handlers/completion-inline (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "rewrite/prompt" [_ components params]
-  (handlers/rewrite-prompt (with-config components) params))
+  (eventually (handlers/rewrite-prompt (with-config components) params)))
 
 (defn ^:private monitor-server-logs [log-ch]
   ;; NOTE: if this were moved to `initialize`, after timbre has been configured,
