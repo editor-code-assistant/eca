@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bump plumcp to 0.2.0-beta6.
+
 ## 0.122.1
 
 - Fix `/resume` getting stuck when resumed chat had stale compaction flags.
