@@ -6,6 +6,7 @@
 - Fix MCP server start/stop blocking the protocol thread, causing ECA to become unresponsive.
 - Dispatch request and notification handlers off the protocol thread to prevent blocking.
 - Fix false positves rejection on plan agent.
+- Add `chat/promptSteer` notification for injecting user messages into a running prompt at the next LLM turn boundary. [#386](https://github.com/editor-code-assistant/eca/issues/386)
 
 ## 0.122.1
 

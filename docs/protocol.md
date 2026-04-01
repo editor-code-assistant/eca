@@ -1417,6 +1417,31 @@ interface ChatPromptStopParams {
 }
 ```
 
+### Chat steer prompt (➡️)
+
+A client notification to steer the current running prompt by injecting a user message
+at the next LLM loop turn boundary (e.g. after tool calls complete).
+If the prompt finishes before the steer is consumed, the client should send it as a regular prompt.
+
+_Notification:_
+
+* method: `chat/promptSteer`
+* params: `ChatPromptSteerParams` defined as follows:
+
+```typescript
+interface ChatPromptSteerParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The user message to inject at the next LLM turn boundary.
+     */
+    message: string;
+}
+```
+
 ### Chat rollback (↩️)
 
 A client request to rollback chat messages to before a specific user sent message using `contentId`.

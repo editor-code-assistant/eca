@@ -73,6 +73,7 @@
       (when-not (get-in @db* [:chats chat-id :auto-compacting?])
         (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
         (swap! db* assoc-in [:chats chat-id :status] status)
+        (swap! db* update-in [:chats chat-id] dissoc :steer-message)
         (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
         (let [db @db*
               subagent? (some? (get-in db [:chats chat-id :subagent]))

@@ -410,6 +410,27 @@
                (= :anthropic last-api)))
       (throw (ex-info "Incompatible past messages in chat.\nAnthropic models are only compatible with other Anthropic models, switch models or start a new chat." {})))))
 
+(defn ^:private consume-steer-message!
+  "Reads and clears any pending steer message for the chat in a single swap.
+   If present, adds it as a user message to history and notifies the client."
+  [chat-id db* chat-ctx add-to-history!]
+  (let [steer-msg* (volatile! nil)]
+    (swap! db* (fn [db]
+                 (if-let [msg (get-in db [:chats chat-id :steer-message])]
+                   (do (vreset! steer-msg* msg)
+                       (update-in db [:chats chat-id] dissoc :steer-message))
+                   db)))
+    (when-let [steer-msg @steer-msg*]
+      (let [content-id (str (random-uuid))
+            user-message {:role "user"
+                          :content [{:type :text :text steer-msg}]
+                          :content-id content-id}]
+        (add-to-history! user-message)
+        (lifecycle/send-content! chat-ctx :user
+          {:type :text
+           :content-id content-id
+           :text (str steer-msg "\n")})))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -617,8 +638,10 @@
                                                  nil)
                                              (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
                                                (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                               {:tools tc-all-tools
-                                                :new-messages (get-in @db* [:chats chat-id :messages])}))))
+                                               (do
+                                                 (consume-steer-message! chat-id db* chat-ctx add-to-history!)
+                                                 {:tools tc-all-tools
+                                                  :new-messages (get-in @db* [:chats chat-id :messages])})))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
@@ -1029,6 +1052,15 @@
                            commands))]
     {:chat-id chat-id
      :commands commands}))
+
+(defn prompt-steer
+  [{:keys [chat-id message]} db*]
+  (when (and (string? message)
+             (not (string/blank? message))
+             (identical? :running (get-in @db* [:chats chat-id :status])))
+    (logger/info logger-tag "Steer message received" {:chat-id chat-id})
+    (swap! db* update-in [:chats chat-id :steer-message]
+           (fn [existing] (if existing (str existing "\n" message) message)))))
 
 (defn prompt-stop
   ([params db* messenger metrics]
