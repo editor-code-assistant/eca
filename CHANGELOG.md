@@ -5,6 +5,7 @@
 - Bump plumcp to 0.2.0-beta6.
 - Fix MCP server start/stop blocking the protocol thread, causing ECA to become unresponsive.
 - Dispatch request and notification handlers off the protocol thread to prevent blocking.
+- Fix false positves rejection on plan agent.
 
 ## 0.122.1
 

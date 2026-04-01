@@ -322,7 +322,10 @@
         "head -10 file.txt"
         "pwd"
         "date"
-        "env"))
+        "env"
+        "cd /tmp && jar xf /home/user/.m2/repository/lib/lib-1.0.jar src/foo.cljc 2>&1; echo \"---DONE---\""
+        "some-cmd 2>&1; echo done"
+        "some-cmd 2>/dev/null; echo done"))
 
     (testing "redirections to /tmp/ are not denied in plan mode"
       (are [command] (not= :deny

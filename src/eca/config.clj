@@ -42,14 +42,14 @@
 (defn get-property [property] (System/getProperty property))
 
 (def ^:private dangerous-commands-regexes
-  [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!/tmp/\\S*($|\\s))(?!&\\d+($|\\s))(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
+  [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
    ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
    ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
    ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
    ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
    ".*npm\\s+install.*",                                                                 ;; npm install
    ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
-   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!/tmp/\\S*($|\\s))(?!&\\d+($|\\s))(?!>)\\S+.*"])
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*"])
 
 (def ^:private openai-variants
   {"none" {:reasoning {:effort "none"}}
