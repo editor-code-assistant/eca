@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Wait for pending MCP tool list refresh before reading tools after tool execution, fixing race where dynamically loaded tools were not immediately available.
+
 ## 0.123.1
 
 - Fix OAuth HTTPS server crash in native image by building SSLContext in-memory instead of relying on ring-jetty's keystore path reflection.

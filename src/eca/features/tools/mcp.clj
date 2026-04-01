@@ -129,7 +129,7 @@
      (future (f jsonrpc-notification)))))
 
 (defn ^:private ->client [name transport init-timeout workspaces
-                          {:keys [on-tools-change]}]
+                          {:keys [on-tools-change pending-tools-refresh*]}]
   (let [tools-consumer (fn [tools]
                          (logger/info logger-tag
                                       (format "[%s] Tools list changed, received %d tools"
@@ -142,11 +142,26 @@
                                                                  {:name (:name %)})
                                            workspaces)}
                  :notification-handlers
-                 {psd/method-notifications-tools-list_changed
-                  (non-blocking-handler
-                   (fn [notification]
-                     (pcs/fetch-tools notification
-                                      {:on-tools tools-consumer})))
+                 {;; Uses custom wrapping instead of non-blocking-handler to coordinate
+                  ;; a promise that await-pending-tools-refresh can block on.
+                  psd/method-notifications-tools-list_changed
+                  (pcs/wrap-initialized-check
+                   (fn [jsonrpc-notification]
+                     (let [p (promise)]
+                       (when pending-tools-refresh*
+                         (reset! pending-tools-refresh* p))
+                       (future
+                         (try
+                           (pcs/fetch-tools jsonrpc-notification
+                                            {:on-tools tools-consumer})
+                           (catch Exception e
+                             (logger/error logger-tag
+                                           (format "[%s] Failed to refresh tools after list_changed: %s"
+                                                   name (.getMessage ^Throwable e))))
+                           (finally
+                             (when pending-tools-refresh*
+                               (compare-and-set! pending-tools-refresh* p nil))
+                             (deliver p true)))))))
 
                   psd/method-notifications-resources-list_changed
                   (non-blocking-handler
@@ -353,6 +368,7 @@
                                 server-config
                                 {:on-server-updated on-server-updated})
           (let [init-timeout (:mcpTimeoutSeconds config)
+                pending-tools-refresh* (atom nil)
                 on-tools-change (fn [tools]
                                   (let [tools (mapv tool->internal tools)]
                                     (swap! db* assoc-in [:mcp-clients name :tools] tools)
@@ -361,12 +377,14 @@
               (let [{:keys [transport http-client needs-reinit?*]} (->transport name server-config workspaces db*)
                     result (try
                              (let [client (->client name transport init-timeout workspaces
-                                                    {:on-tools-change on-tools-change})
+                                                    {:on-tools-change on-tools-change
+                                                     :pending-tools-refresh* pending-tools-refresh*})
                                    init-result (pmc/get-initialize-result client)
                                    version (get-in init-result [:serverInfo :version])]
                                (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
                                                                                 :status :starting
-                                                                                :needs-reinit?* needs-reinit?*}
+                                                                                :needs-reinit?* needs-reinit?*
+                                                                                :pending-tools-refresh* pending-tools-refresh*}
                                                                          http-client (assoc :http-client http-client)))
                                (swap! db* assoc-in [:mcp-clients name :version] version)
                                (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
@@ -627,6 +645,21 @@
                   (map #(assoc % :server {:name name
                                           :version version}) tools)))
         (:mcp-clients db)))
+
+(defn await-pending-tools-refresh
+  "Waits for any pending tool list refreshes to complete, with a timeout.
+   Call before reading tools from db* to ensure dynamically loaded tools
+   are available after a tools/list_changed notification.
+   The pending-tools-refresh* atoms are set by the tools/list_changed
+   notification handler and cleared when the refresh completes.
+   Uses a shared deadline so multiple pending servers don't multiply the wait."
+  [db timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (doseq [[_ {:keys [pending-tools-refresh*]}] (:mcp-clients db)]
+      (when-let [p (and pending-tools-refresh* @pending-tools-refresh*)]
+        (let [remaining (- deadline (System/currentTimeMillis))]
+          (when (pos? remaining)
+            (deref p remaining nil)))))))
 
 (defn ^:private reinitialize-server!
   "Re-initialize an MCP server after a transport error (HTTP 401/403/5xx).

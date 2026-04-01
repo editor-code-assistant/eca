@@ -4,6 +4,7 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.mcp :as f.tools.mcp]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :refer [assoc-some]]))
@@ -798,6 +799,7 @@
                                                     :ex-data (ex-data t)
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
+            (f.tools.mcp/await-pending-tools-refresh @db* 5000)
             (let [all-tools (f.tools/all-tools chat-id agent @db* config)]
               (if-let [rejection-info @rejected-tool-call-info*]
                 (let [reason-code
