@@ -184,4 +184,14 @@
       (is (= (format "$ cd %s && clojure -M:test" (h/file-path "/project/foo"))
              (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " && clojure -M:test")}
                           :config config
-                          :db nil}))))))
+                          :db nil}))))
+    (testing "trims newlines in command"
+      (is (= "$ echo hello && echo world"
+             (summary-fn {:args {"command" "echo hello\n&& echo world"}
+                          :config config
+                          :db db}))))
+    (testing "trims leading and trailing whitespace"
+      (is (= "$ echo hello"
+             (summary-fn {:args {"command" "\n echo hello \n"}
+                          :config config
+                          :db db}))))))

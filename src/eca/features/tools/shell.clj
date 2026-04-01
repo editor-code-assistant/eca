@@ -137,7 +137,9 @@
   (let [max-length (get-in config [:toolCall :shellCommand :summaryMaxLength])
         workspace-folders (:workspace-folders db)]
     (if-let [command (some-> (get args "command")
-                             (strip-workspace-cd-prefix workspace-folders))]
+                             (strip-workspace-cd-prefix workspace-folders)
+                             (string/replace #"\n" " ")
+                             string/trim)]
       (if (> (count command) max-length)
         (format "$ %s..." (subs command 0 max-length))
         (format "$ %s" command))
