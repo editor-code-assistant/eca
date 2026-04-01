@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.123.2
+
 - Wait for pending MCP tool list refresh before reading tools after tool execution, fixing race where dynamically loaded tools were not immediately available.
 
 ## 0.123.1
