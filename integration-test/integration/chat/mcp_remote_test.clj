@@ -38,7 +38,7 @@
   (testing "MCP remote server running with tools"
     (is (match? {:type "mcp"
                  :name "testMcp"
-                 :tools (m/embeds [{:name "echo"} {:name "add"}])}
+                 :tools (m/embeds [{:name "echo"} {:name "add"} {:name "add-tool"}])}
                 (eca/client-awaits-server-notification :tool/serverUpdated))))
 
   (testing "MCP mock received initialize request"
@@ -181,3 +181,101 @@
             "System prompt should contain MCP server instruction block")
         (is (string/includes? system-text "This is a test MCP server for integration testing.")
             "System prompt should contain the MCP server's instructions text")))))
+
+(deftest mcp-remote-tool-list-changed-via-tool-call
+  (init-with-mcp-remote!)
+
+  ;; Wait for MCP server to be fully ready with initial tools
+  (eca/client-awaits-server-notification :tool/serverUpdated) ;; native
+  (eca/client-awaits-server-notification :tool/serverUpdated) ;; mcp starting
+  (is (match? {:type "mcp"
+               :name "testMcp"
+               :tools (m/embeds [{:name "echo"} {:name "add"} {:name "add-tool"}])}
+              (eca/client-awaits-server-notification :tool/serverUpdated))) ;; mcp running
+
+  (testing "Calling add-tool triggers list_changed and ECA refreshes tools"
+    (mcp-mock/reset-requests!)
+    (llm.mocks/set-case! :mcp-add-tool-0)
+
+    (let [resp (eca/request! (fixture/chat-prompt-request
+                              {:model "anthropic/claude-sonnet-4-6"
+                               :message "Add the multiply tool"}))
+          chat-id (:chatId resp)]
+
+      (is (match? {:chatId string?
+                   :model "anthropic/claude-sonnet-4-6"
+                   :status "prompting"}
+                  resp))
+
+      ;; User message
+      (match-content chat-id "user" {:type "text" :text "Add the multiply tool\n"})
+
+      ;; Title + progress
+      (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
+
+      ;; Assistant text before tool use
+      (match-content chat-id "assistant" {:type "text" :text "I will add the multiply tool"})
+
+      ;; Tool call prepare/run
+      (match-content chat-id "assistant" {:type "toolCallPrepare"
+                                          :origin "mcp"
+                                          :name "add-tool"
+                                          :id "mcp-add-tool-1"})
+      (match-content chat-id "assistant" {:type "toolCallPrepare"
+                                          :origin "mcp"
+                                          :name "add-tool"
+                                          :id "mcp-add-tool-1"})
+
+      ;; Usage from first LLM turn
+      (match-content chat-id "system" {:type "usage"})
+
+      (match-content chat-id "assistant" {:type "toolCallRun"
+                                          :origin "mcp"
+                                          :name "add-tool"
+                                          :id "mcp-add-tool-1"
+                                          :arguments {:name "multiply"}
+                                          :manualApproval false})
+      (match-content chat-id "assistant" {:type "toolCallRunning"
+                                          :origin "mcp"
+                                          :name "add-tool"
+                                          :id "mcp-add-tool-1"
+                                          :arguments {:name "multiply"}})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
+
+      ;; Tool result
+      (match-content chat-id "assistant" {:type "toolCalled"
+                                          :origin "mcp"
+                                          :name "add-tool"
+                                          :id "mcp-add-tool-1"
+                                          :arguments {:name "multiply"}
+                                          :error nil
+                                          :outputs [{:type "text"
+                                                     :text "Tool 'multiply' registered successfully"}]})
+
+      ;; Second LLM turn: final response
+      (match-content chat-id "assistant" {:type "text" :text "Tool added successfully"})
+      (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "progress" :state "finished"})
+
+      (testing "MCP mock received add-tool call"
+        (let [call-reqs (mcp-mock/get-requests-by-method "tools/call")]
+          (is (= 1 (count call-reqs)))
+          (is (match? {:method "tools/call"
+                       :params {:name "add-tool"
+                                :arguments {:name "multiply"}}}
+                      (first call-reqs)))))
+
+      (testing "ECA re-fetched tools after list_changed notification"
+        (let [tools-reqs (mcp-mock/get-requests-by-method "tools/list")]
+          (is (<= 1 (count tools-reqs))
+              "Expected at least one tools/list request after the notification")))
+
+      (testing "ECA propagated updated tool list to client"
+        (is (match? {:type "mcp"
+                     :name "testMcp"
+                     :tools (m/embeds [{:name "echo"} {:name "add"}
+                                       {:name "add-tool"} {:name "multiply"}])}
+                    (eca/client-awaits-server-notification :tool/serverUpdated))
+            "ECA should include the new 'multiply' tool after list_changed notification")))))

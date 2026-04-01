@@ -21,6 +21,8 @@
 
 (defonce ^:private requests* (atom []))
 
+(defonce ^:private sse-channels* (atom #{}))
+
 (def ^:private default-tools
   [{:name "echo"
     :description "Echoes back the message"
@@ -32,7 +34,12 @@
     :inputSchema {:type "object"
                   :properties {:a {:type "number" :description "First number"}
                                :b {:type "number" :description "Second number"}}
-                  :required ["a" "b"]}}])
+                  :required ["a" "b"]}}
+   {:name "add-tool"
+    :description "Dynamically registers a new tool on this server"
+    :inputSchema {:type "object"
+                  :properties {:name {:type "string" :description "Name of the tool to add"}}
+                  :required ["name"]}}])
 
 (def ^:private default-instructions
   "This is a test MCP server for integration testing.")
@@ -65,6 +72,20 @@
   (reset! config* {:tools default-tools
                    :instructions default-instructions}))
 
+(defn ^:private send-sse-event!
+  "Send a JSON-RPC message as an SSE event through the given channel."
+  [ch jsonrpc-message]
+  (let [data (json/generate-string jsonrpc-message)]
+    (hk/send! ch (str "event: message\ndata: " data "\n\n") false)))
+
+(defn notify-tools-changed!
+  "Push a notifications/tools/list_changed event to all connected SSE clients.
+   Call set-config! first to update the tool list before triggering this."
+  []
+  (let [msg {:jsonrpc "2.0" :method "notifications/tools/list_changed"}]
+    (doseq [ch @sse-channels*]
+      (send-sse-event! ch msg))))
+
 (defn ^:private handle-initialize [body]
   (let [sid (str (UUID/randomUUID))]
     (reset! session-id* sid)
@@ -75,8 +96,8 @@
             {:jsonrpc "2.0"
              :id (:id body)
              :result {:protocolVersion "2025-03-26"
-                      :capabilities {:tools {:listChanged false}
-                                     :prompts {:listChanged false}}
+                      :capabilities {:tools {:listChanged true}
+                                     :prompts {:listChanged true}}
                       :serverInfo {:name "test-mcp-mock" :version "1.0.0"}
                       :instructions (:instructions @config*)}})}))
 
@@ -95,12 +116,31 @@
   {:content [{:type "text" :text (str (+ (double (:a arguments))
                                          (double (:b arguments))))}]})
 
+(def ^:private dynamic-tool-registry
+  {"multiply" {:name "multiply"
+               :description "Multiplies two numbers"
+               :inputSchema {:type "object"
+                             :properties {:a {:type "number" :description "First number"}
+                                          :b {:type "number" :description "Second number"}}
+                             :required ["a" "b"]}}})
+
+(defn ^:private call-add-tool [arguments]
+  (let [tool-name (:name arguments)]
+    (if-let [tool-def (get dynamic-tool-registry tool-name)]
+      (do
+        (swap! config* update :tools conj tool-def)
+        (notify-tools-changed!)
+        {:content [{:type "text" :text (str "Tool '" tool-name "' registered successfully")}]})
+      {:content [{:type "text" :text (str "Unknown tool template: " tool-name)}]
+       :isError true})))
+
 (defn ^:private handle-tool-call [body]
   (let [tool-name (get-in body [:params :name])
         arguments (get-in body [:params :arguments])
         result (case tool-name
                  "echo" (call-echo arguments)
                  "add" (call-add arguments)
+                 "add-tool" (call-add-tool arguments)
                  {:content [{:type "text" :text (str "Unknown tool: " tool-name)}]
                   :isError true})]
     {:status 200
@@ -144,8 +184,9 @@
                :error {:code -32601 :message (str "Method not found: " method)}})})))
 
 (defn ^:private handle-get
-  "Handle GET requests for SSE stream. Opens a channel and keeps it alive
-   for the plumcp client's background SSE connection."
+  "Handle GET requests for SSE stream. Opens a channel, tracks it for
+   server-initiated notifications, and keeps it alive for the plumcp
+   client's background SSE connection."
   [req]
   (hk/as-channel
    req
@@ -154,7 +195,10 @@
                              :headers {"Content-Type" "text/event-stream"
                                        "Cache-Control" "no-cache"
                                        "Connection" "keep-alive"}}
-                         false))}))
+                         false)
+               (swap! sse-channels* conj ch))
+    :on-close (fn [ch _status]
+                (swap! sse-channels* disj ch))}))
 
 (defn ^:private app [req]
   (let [{:keys [request-method]} req]
@@ -169,6 +213,7 @@
     (println "Starting MCP mock server on port" port "...")
     (reset! session-id* nil)
     (reset! requests* [])
+    (reset! sse-channels* #{})
     (reset! server* (hk/run-server app {:port port})))
   :started)
 
@@ -178,5 +223,6 @@
     (reset! server* nil)
     (reset! session-id* nil)
     (reset! requests* [])
+    (reset! sse-channels* #{})
     (reset-config!)
     :stopped))
