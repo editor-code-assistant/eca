@@ -12,10 +12,10 @@
    [ring.util.response :as response]
    [selmer.parser :as selmer])
   (:import
-   [java.io File]
    [java.nio.charset StandardCharsets]
-   [java.security MessageDigest SecureRandom]
+   [java.security KeyStore MessageDigest SecureRandom]
    [java.util Base64]
+   [javax.net.ssl KeyManagerFactory SSLContext]
    [org.eclipse.jetty.server Server]))
 
 (set! *warn-on-reflection* true)
@@ -281,19 +281,23 @@
   (oauth-info "https://mcp.miro.com/")
   (oauth-info "https://api.githubcopilot.com/mcp/"))
 
-(defn ^:private extract-keystore-to-temp
-  "Extract the bundled localhost PKCS12 keystore to a temp file.
-   Returns the absolute path to the temp file."
-  ^String []
+(defn ^:private build-ssl-context
+  "Loads the bundled localhost PKCS12 keystore from classpath and builds
+   an SSLContext. Avoids file I/O and bypasses ring-jetty's SSL config
+   path (which uses Jetty reflection that fails in native images)."
+  ^SSLContext []
   (let [res (io/resource "tls/localhost.p12")]
     (when-not res
       (throw (ex-info "Bundled localhost keystore not found on classpath"
                       {:resource "tls/localhost.p12"})))
-    (let [temp-file (File/createTempFile "eca-oauth-" ".p12")]
-      (.deleteOnExit temp-file)
-      (with-open [in (io/input-stream res)]
-        (io/copy in temp-file))
-      (.getAbsolutePath temp-file))))
+    (let [password (.toCharArray "ecalocal")
+          ks (doto (KeyStore/getInstance "PKCS12")
+               (.load (io/input-stream res) password))
+          kmf (doto (KeyManagerFactory/getInstance (KeyManagerFactory/getDefaultAlgorithm))
+                (.init ks password))
+          ctx (doto (SSLContext/getInstance "TLS")
+                (.init (.getKeyManagers kmf) nil nil))]
+      ctx)))
 
 (defn start-oauth-server!
   "Start local server on port to handle OAuth redirect.
@@ -313,9 +317,7 @@
                          {:ssl? true
                           :ssl-port (or port (get-free-port))
                           :http? false
-                          :keystore (extract-keystore-to-temp)
-                          :key-password "ecalocal"
-                          :keystore-type "PKCS12"
+                          :ssl-context (build-ssl-context)
                           :join? false}
                          {:port (or port (get-free-port))
                           :join? false})

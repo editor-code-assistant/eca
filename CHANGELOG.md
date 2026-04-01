@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix OAuth HTTPS server crash in native image by building SSLContext in-memory instead of relying on ring-jetty's keystore path reflection.
+
 ## 0.123.0
 
 - Bump plumcp to 0.2.0-beta6.
