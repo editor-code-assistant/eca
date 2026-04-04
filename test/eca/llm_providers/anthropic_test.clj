@@ -356,3 +356,28 @@
          (#'llm-providers.anthropic/add-cache-to-last-message
           [{:role "user" :content "Hey"}
            {:role "user" :content "Ho"}])))))
+
+(deftest add-cache-to-last-tool-test
+  (let [add-cache #'llm-providers.anthropic/add-cache-to-last-tool]
+    (testing "empty tools returns empty"
+      (is (match? [] (add-cache [])))
+      (is (match? nil (add-cache nil))))
+
+    (testing "adds cache_control to the last tool"
+      (is (match?
+           [{:name "tool1" :description "first"}
+            {:name "tool2" :description "second" :cache_control {:type "ephemeral"}}]
+           (add-cache [{:name "tool1" :description "first"}
+                       {:name "tool2" :description "second"}]))))
+
+    (testing "single tool gets cache_control"
+      (is (match?
+           [{:name "tool1" :cache_control {:type "ephemeral"}}]
+           (add-cache [{:name "tool1"}]))))
+
+    (testing "web_search tool as last gets cache_control"
+      (is (match?
+           [{:name "tool1"}
+            {:type "web_search_20250305" :name "web_search" :cache_control {:type "ephemeral"}}]
+           (add-cache [{:name "tool1"}
+                       {:type "web_search_20250305" :name "web_search"}]))))))

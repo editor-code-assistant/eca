@@ -126,8 +126,17 @@
        "</mcp-server-instructions>"
        ""))))
 
-(defn build-chat-instructions [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
-  (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)]
+(def ^:private volatile-context-types
+  "Context types that change between turns and belong in the dynamic prompt block."
+  #{:cursor :mcpResource})
+
+(defn build-static-instructions
+  "Builds the stable portion of the system prompt: agent prompt, rules, skills,
+   stable contexts, and additional system info. Stable within a session — callers
+   should cache the result in [:chats chat-id :prompt-cache :static]."
+  [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
+  (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)
+        stable-contexts (remove #(volatile-context-types (:type %)) refined-contexts)]
     (multi-str
      (selmer/render (eca-chat-prompt agent-name config) selmer-ctx)
      (when (seq rules)
@@ -152,13 +161,42 @@
          skills)
         "</skills>"
         ""])
-     (when (seq refined-contexts)
+     (when (seq stable-contexts)
        ["## Contexts"
         ""
-        (contexts-str refined-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
-     (mcp-instructions-section db)
+        (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
      ""
      (selmer/render (load-builtin-prompt "additional_system_info.md") selmer-ctx))))
+
+(defn build-dynamic-instructions
+  "Builds the volatile portion of the system prompt: cursor/MCP resource contexts
+   and MCP server instructions. Recomputed every turn. Returns nil when empty."
+  [refined-contexts db]
+  (let [volatile-contexts (filter #(volatile-context-types (:type %)) refined-contexts)
+        result (multi-str
+                (when (seq volatile-contexts)
+                  (contexts-str volatile-contexts nil nil))
+                (mcp-instructions-section db))]
+    (when-not (string/blank? result) result)))
+
+(defn build-chat-instructions
+  "Returns {:static \"...\" :dynamic \"...\"}.
+   Static content (agent prompt, rules, skills, stable contexts) is stable within a session.
+   Dynamic content (cursor, MCP resources, MCP instructions) is recomputed every turn.
+   Callers should cache :static in [:chats chat-id :prompt-cache :static] for
+   Anthropic API cache prefix stability across turns."
+  [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
+  {:static (build-static-instructions refined-contexts rules skills repo-map*
+                                      agent-name config chat-id all-tools db)
+   :dynamic (build-dynamic-instructions refined-contexts db)})
+
+(defn instructions->str
+  "Flattens a {:static :dynamic} instructions map into a single string.
+   Used by non-Anthropic providers that don't support split system prompt blocks."
+  [{:keys [static dynamic]}]
+  (if dynamic
+    (multi-str static dynamic)
+    static))
 
 (defn build-rewrite-instructions [text path full-text range all-tools config db]
   (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)

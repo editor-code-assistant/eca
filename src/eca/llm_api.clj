@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.prompt :as f.prompt]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.azure]
    [eca.llm-providers.copilot]
@@ -185,6 +186,8 @@
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
+        ;; Flatten {:static :dynamic} instructions map into a single string for non-Anthropic providers
+        flat-instructions (if (map? instructions) (f.prompt/instructions->str instructions) instructions)
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -199,7 +202,7 @@
         (= "openai" provider)
         (handler
          {:model real-model
-          :instructions instructions
+          :instructions flat-instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
@@ -248,7 +251,7 @@
                                         "copilot-integration-id" "vscode-chat"}
                                        extra-headers))
               base-opts {:model real-model
-                         :instructions instructions
+                         :instructions flat-instructions
                          :user-messages user-messages
                          :max-output-tokens max-output-tokens
                          :reason? reason?
@@ -278,7 +281,7 @@
         (= "google" provider)
         (handler
          {:model real-model
-          :instructions instructions
+          :instructions flat-instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
@@ -303,7 +306,7 @@
           :reason? (:reason? model-capabilities)
           :supports-image? supports-image?
           :model real-model
-          :instructions instructions
+          :instructions flat-instructions
           :user-messages user-messages
           :past-messages past-messages
           :tools tools
@@ -320,7 +323,7 @@
               http-client (:httpClient provider-config)]
           (handler
            {:model real-model
-            :instructions instructions
+            :instructions flat-instructions
             :user-messages user-messages
             :max-output-tokens max-output-tokens
             :web-search web-search

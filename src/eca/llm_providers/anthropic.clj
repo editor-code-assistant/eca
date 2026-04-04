@@ -66,8 +66,17 @@
             :name (:full-name tool)}) tools)
     web-search (conj {:type "web_search_20250305"
                       :name "web_search"
-                      :max_uses 10
-                      :cache_control {:type "ephemeral"}})))
+                      :max_uses 10})))
+
+(defn ^:private add-cache-to-last-tool
+  "Adds cache_control to the last tool in the tools array, ensuring
+   the full tools list is part of the cached prefix."
+  [tools]
+  (if (seq tools)
+    (shared/update-last
+     (vec tools)
+     (fn [tool] (assoc tool :cache_control {:type "ephemeral"})))
+    tools))
 
 (defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path messages-path))
@@ -303,15 +312,21 @@
                      merge-adjacent-assistants
                      merge-adjacent-tool-results)
         stream? (boolean callbacks)
+        {:keys [static dynamic]} (if (map? instructions)
+                                    instructions
+                                    {:static instructions :dynamic nil})
+        system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
+                               {:type "text" :text static :cache_control {:type "ephemeral"}}]
+                        (not (string/blank? dynamic))
+                        (conj {:type "text" :text dynamic :cache_control {:type "ephemeral"}}))
         body (merge
               (assoc-some
                {:model model
                 :messages (add-cache-to-last-message messages)
                 :max_tokens (or max-output-tokens 32000)
                 :stream stream?
-                :tools (->tools tools web-search)
-                :system [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
-                         {:type "text" :text instructions :cache_control {:type "ephemeral"}}]}
+                :tools (add-cache-to-last-tool (->tools tools web-search))
+                :system system-blocks}
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)

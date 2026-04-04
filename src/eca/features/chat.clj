@@ -923,15 +923,15 @@
                           (f.context/agents-file-contexts db)
                           (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
-        instructions (f.prompt/build-chat-instructions refined-contexts
-                                                       rules
-                                                       skills
-                                                       repo-map*
-                                                       agent
-                                                       config
-                                                       chat-id
-                                                       all-tools
-                                                       db)
+        cached-static (get-in db [:chats chat-id :prompt-cache :static])
+        instructions (if cached-static
+                       {:static cached-static
+                        :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)}
+                       (let [result (f.prompt/build-chat-instructions
+                                     refined-contexts rules skills repo-map*
+                                     agent config chat-id all-tools db)]
+                         (swap! db* assoc-in [:chats chat-id :prompt-cache :static] (:static result))
+                         result))
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
         expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)
