@@ -136,7 +136,7 @@ interface InitializeParams {
      * process is not alive then the server should exit (see exit notification)
      * its process.
      */
-     processId: integer | null;
+     processId?: integer | null;
      
      /**
      * Information about the client
