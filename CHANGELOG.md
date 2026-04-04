@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix exceptions on openai responses models when creating tasks.
+- Fix potential infinite auto-compact loop when context overflow persists after compaction. #391
 
 ## 0.123.2
 

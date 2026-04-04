@@ -197,6 +197,44 @@
                 :role :system}]}
              (h/messages)))))))
 
+(deftest context-overflow-auto-compact-guard-test
+  (testing "context overflow after auto-compact reports error instead of looping"
+    (h/reset-components!)
+    (let [api-call-count* (atom 0)
+          auto-compact-count* (atom 0)]
+      (with-redefs-fn
+        {#'f.chat/trigger-auto-compact!
+         (fn [chat-ctx _all-tools user-messages]
+           (swap! auto-compact-count* inc)
+           (#'f.chat/prompt-messages!
+            user-messages
+            :auto-compact
+            (assoc chat-ctx :auto-compacted? true)))}
+        (fn []
+          (let [{:keys [chat-id]}
+                (prompt!
+                 {:message "Do something"}
+                 {:all-tools-mock (constantly [])
+                  :api-mock
+                  (fn [{:keys [on-error]}]
+                    (swap! api-call-count* inc)
+                    (on-error {:error/type :context-overflow
+                               :message "token limit exceeded"}))})]
+            (is (= 1 @auto-compact-count*)
+                "auto-compact should trigger exactly once, not loop")
+            (is (= 2 @api-call-count*)
+                "LLM should be called exactly twice: initial prompt and resume after compact")
+            (is (match?
+                 {:chat-content-received
+                  (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text "Context window exceeded. Auto-compacting conversation..."}}
+                             {:role :system
+                              :content {:type :text
+                                        :text "\n\ntoken limit exceeded"}}])}
+                 (h/messages))
+                "Should show auto-compact attempt and then the final error")))))))
+
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
    :content {:id id

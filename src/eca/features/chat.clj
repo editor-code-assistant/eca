@@ -391,7 +391,7 @@
                                     :text "Continue with the task. The previous user request was:"}]}]
                        user-messages)
                :auto-compact
-               chat-ctx))))
+               (assoc chat-ctx :auto-compacted? true)))))
     nil))
 
 (defn ^:private assert-compatible-apis-between-models!
@@ -527,7 +527,8 @@
                   (when (= :idle (get-in @db* [:chats chat-id :status]))
                     (db/update-workspaces-cache! @db* metrics)))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
-        (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
+        (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                 (not (:auto-compacted? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
           (future* config
             (try
@@ -636,7 +637,8 @@
                                              (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
                                                  (lifecycle/finish-chat-prompt! :idle chat-ctx)
                                                  nil)
-                                             (if (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                             (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                                      (not (:auto-compacted? chat-ctx)))
                                                (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
                                                (do
                                                  (consume-steer-message! chat-id db* chat-ctx add-to-history!)
@@ -742,7 +744,8 @@
                                   compacting? (or (get-in db [:chats chat-id :compacting?])
                                                   (get-in db [:chats chat-id :auto-compacting?]))]
                               (if (and (= :context-overflow error-type)
-                                       (not compacting?))
+                                       (not compacting?)
+                                       (not (:auto-compacted? chat-ctx)))
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
                                                {:chat-id chat-id})
