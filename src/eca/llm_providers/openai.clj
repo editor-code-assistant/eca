@@ -188,7 +188,7 @@
               (on-message-received {:type :text
                                     :text (:delta data)})
               ;; tools
-              "response.function_call_arguments.delta" (let [call (get @tool-call-by-item-id* (:item_id data))]
+              "response.function_call_arguments.delta" (when-let [call (get @tool-call-by-item-id* (:item_id data))]
                                                          (on-prepare-tool-call {:id (:id call)
                                                                                 :full-name (:full-name call)
                                                                                 :arguments-text (:delta data)}))

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix exceptions on openai responses models when creating tasks.
+
 ## 0.123.2
 
 - Wait for pending MCP tool list refresh before reading tools after tool execution, fixing race where dynamically loaded tools were not immediately available.
