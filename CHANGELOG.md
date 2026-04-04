@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.123.3
+
 - Fix exceptions on openai responses models when creating tasks.
 - Fix potential infinite auto-compact loop when context overflow persists after compaction. #391
 - Improve Anthropic prompt caching: split system prompt into static/dynamic blocks, add cache markers to the tools array, and memoize static instructions per chat.
