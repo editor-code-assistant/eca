@@ -203,4 +203,38 @@
   (testing "returns nil when base is blank"
     (is (nil? (shared/join-api-url "   " "/chat/completions")))))
 
+(deftest messages-after-last-compact-marker-test
+  (testing "returns all messages when no compact_marker exists"
+    (let [messages [{:role "user" :content [{:type :text :text "hello"}]}
+                    {:role "assistant" :content [{:type :text :text "hi"}]}]]
+      (is (= messages (shared/messages-after-last-compact-marker messages)))))
+
+  (testing "returns messages after the last compact_marker"
+    (let [messages [{:role "user" :content [{:type :text :text "old msg"}]}
+                    {:role "compact_marker" :content {:auto? false}}
+                    {:role "user" :content [{:type :text :text "summary"}]}
+                    {:role "assistant" :content [{:type :text :text "response"}]}]]
+      (is (= [{:role "user" :content [{:type :text :text "summary"}]}
+              {:role "assistant" :content [{:type :text :text "response"}]}]
+             (shared/messages-after-last-compact-marker messages)))))
+
+  (testing "handles multiple compact_markers, returns after last one"
+    (let [messages [{:role "user" :content [{:type :text :text "old"}]}
+                    {:role "compact_marker" :content {:auto? false}}
+                    {:role "user" :content [{:type :text :text "summary 1"}]}
+                    {:role "compact_marker" :content {:auto? true}}
+                    {:role "user" :content [{:type :text :text "summary 2"}]}
+                    {:role "assistant" :content [{:type :text :text "latest"}]}]]
+      (is (= [{:role "user" :content [{:type :text :text "summary 2"}]}
+              {:role "assistant" :content [{:type :text :text "latest"}]}]
+             (shared/messages-after-last-compact-marker messages)))))
+
+  (testing "returns empty when compact_marker is last message"
+    (let [messages [{:role "user" :content [{:type :text :text "old"}]}
+                    {:role "compact_marker" :content {:auto? false}}]]
+      (is (= [] (shared/messages-after-last-compact-marker messages)))))
+
+  (testing "handles empty messages"
+    (is (= [] (shared/messages-after-last-compact-marker [])))))
+
 

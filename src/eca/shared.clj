@@ -314,17 +314,37 @@
   (str (cache/workspace-cache-file (or (:initial-workspace-folders db)
                                        (:workspace-folders db)) "db.transit.json" uri->filename)))
 
+(defn messages-after-last-compact-marker
+  "Returns messages after the last compact_marker, or all messages if none exists.
+   Scans from the end for efficiency since markers are typically near the tail."
+  [messages]
+  (let [messages (vec messages)
+        n (count messages)
+        last-idx (loop [i (dec n)]
+                   (cond
+                     (neg? i) -1
+                     (= "compact_marker" (:role (messages i))) i
+                     :else (recur (dec i))))]
+    (if (neg? last-idx)
+      messages
+      (subvec messages (inc last-idx)))))
+
 (defn compact-side-effect!
-  "Performs side effects after chat compaction: replaces history with summary,
-   zeros token usage, and notifies the user."
+  "Performs side effects after chat compaction: appends a compact_marker tombstone
+   and summary to history, zeros token usage, and notifies the user."
   [{:keys [chat-id full-model db* messenger]} auto-compact?]
-  ;; Replace chat history with summary
+  ;; Append compact marker tombstone + summary to preserve full history
   (swap! db* (fn [db]
-               (assoc-in db [:chats chat-id :messages]
-                         [{:role "user"
-                           :content [{:type :text
-                                      :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                 (get-in db [:chats chat-id :last-summary]))}]}])))
+               (let [summary (get-in db [:chats chat-id :last-summary])
+                     messages (get-in db [:chats chat-id :messages] [])]
+                 (assoc-in db [:chats chat-id :messages]
+                           (conj messages
+                                 {:role "compact_marker"
+                                  :content {:auto? (boolean auto-compact?)}}
+                                 {:role "user"
+                                  :content [{:type :text
+                                             :text (str "The conversation was compacted/summarized, consider this summary:\n"
+                                                        summary)}]})))))
 
   ;; Zero chat usage
   (swap! db* update-in [:chats chat-id] dissoc :usage)

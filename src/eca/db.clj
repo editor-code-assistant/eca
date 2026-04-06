@@ -57,7 +57,7 @@
                         :status (or :idle :running :stopping :login)
                         :created-at :number
                         :login-provider :string
-                        :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason")
+                        :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason" "compact_marker" "server_tool_use" "server_tool_result")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
                                     :content-id :string}]
                         :task {:next-id :number

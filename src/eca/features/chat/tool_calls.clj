@@ -7,7 +7,7 @@
    [eca.features.tools.mcp :as f.tools.mcp]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [assoc-some]]))
+   [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
 
@@ -814,7 +814,8 @@
                                                                      :text (or hook-stop-reason "Tool rejected by hook")})
                           (lifecycle/finish-chat-prompt! :idle chat-ctx) nil)
                       {:tools all-tools
-                       :new-messages (get-in @db* [:chats chat-id :messages])})
+                       :new-messages (shared/messages-after-last-compact-marker
+                                      (get-in @db* [:chats chat-id :messages]))})
                     (if (get-in @db* [:chats chat-id :subagent])
                       ;; Subagent: user can't provide rejection input directly, so continue
                       ;; the LLM loop with a rejection message letting the subagent adapt
@@ -822,7 +823,8 @@
                                             :content [{:type :text
                                                        :text "I rejected one or more tool calls. The tool call was not allowed. Try a different approach to complete the task."}]})
                           {:tools all-tools
-                           :new-messages (get-in @db* [:chats chat-id :messages])})
+                           :new-messages (shared/messages-after-last-compact-marker
+                                          (get-in @db* [:chats chat-id :messages]))})
                       (do (lifecycle/send-content! chat-ctx :system {:type :text
                                                                      :text "Tell ECA what to do differently for the rejected tool(s)"})
                           (add-to-history! {:role "user"
@@ -835,4 +837,5 @@
                   (if-let [continue-fn (:continue-fn chat-ctx)]
                     (continue-fn all-tools user-messages)
                     {:tools all-tools
-                     :new-messages (get-in @db* [:chats chat-id :messages])}))))))))))
+                     :new-messages (shared/messages-after-last-compact-marker
+                                    (get-in @db* [:chats chat-id :messages]))}))))))))))

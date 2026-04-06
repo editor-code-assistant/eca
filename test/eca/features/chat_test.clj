@@ -296,7 +296,26 @@
 
   (testing "handles empty message history"
     (let [db* (atom {:chats {"c1" {:messages []}}})]
-      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {}))))))
+      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {})))))
+
+  (testing "stops at compact_marker boundary, does not prune pre-compaction messages"
+    (let [large-text (apply str (repeat 100000 "x"))
+          messages [(make-tool-call-msg "old")
+                    (make-tool-output-msg "old" large-text)
+                    {:role "compact_marker" :content {:auto? false}}
+                    {:role "user" :content [{:type :text :text "summary"}]}
+                    (make-tool-call-msg "new")
+                    (make-tool-output-msg "new" large-text)]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
+      (is (pos? freed))
+      (let [pruned (get-in @db* [:chats "c1" :messages])]
+        ;; Pre-compaction tool output should be untouched
+        (is (= large-text
+               (get-in (nth pruned 1) [:content :output :contents 0 :text])))
+        ;; Post-compaction tool output should be cleared
+        (is (= "[content cleared to reduce context size]"
+               (get-in (nth pruned 5) [:content :output :contents 0 :text])))))))
 
 (deftest contexts-in-prompt-test
   (testing "When prompt contains @file we add a user message"

@@ -79,6 +79,10 @@
             (let [msg (nth messages i)
                   role (:role msg)]
               (cond
+                (= "compact_marker" role)
+                {:pruned-messages result
+                 :freed-tokens freed-tokens}
+
                 (= "tool_call_output" role)
                 (let [text (tool-output-text msg)
                       tokens (estimate-tokens text)]
@@ -192,7 +196,12 @@
               {:role :assistant
                :content {:type :reasonFinished
                          :id (:id message-content)
-                         :total-time-ms (:total-time-ms message-content)}}]))
+                         :total-time-ms (:total-time-ms message-content)}}]
+    "compact_marker" [{:role :system
+                       :content {:type :text
+                                 :text (if (:auto? message-content)
+                                         "── Chat auto-compacted ──"
+                                         "── Chat compacted ──")}}]))
 
 (defn ^:private send-chat-contents! [messages chat-ctx]
   (doseq [message messages]
@@ -444,7 +453,8 @@
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
         user-messages (if run-hooks?
-                        (let [past-messages (get-in @db* [:chats chat-id :messages] [])
+                        (let [past-messages (shared/messages-after-last-compact-marker
+                                             (get-in @db* [:chats chat-id :messages] []))
                               {:keys [final-prompt additional-contexts stop?]}
                               (run-pre-request-hooks! (assoc chat-ctx :message original-text
                                                              :all-messages (into past-messages user-messages)))]
@@ -538,7 +548,8 @@
                 :model-capabilities model-capabilities
                 :user-messages user-messages
                 :instructions  instructions
-                :past-messages (get-in @db* [:chats chat-id :messages] [])
+                :past-messages (shared/messages-after-last-compact-marker
+                                (get-in @db* [:chats chat-id :messages] []))
                 :config  config
                 :tools all-tools
                 :provider-auth provider-auth
@@ -643,7 +654,8 @@
                                                (do
                                                  (consume-steer-message! chat-id db* chat-ctx add-to-history!)
                                                  {:tools tc-all-tools
-                                                  :new-messages (get-in @db* [:chats chat-id :messages])})))))
+                                                  :new-messages (shared/messages-after-last-compact-marker
+                                                                  (get-in @db* [:chats chat-id :messages]))})))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
