@@ -211,22 +211,23 @@
       (assoc :version version)
       (upsert-cache! (transit-global-db-file) metrics)))
 
-(def ^:private seven-days-ms (* 7 24 60 60 1000))
-
 (defn cleanup-old-chats!
-  "Deletes chats older than 7 days from the db and flushes the workspace cache."
-  [db* metrics]
-  (let [cutoff (- (System/currentTimeMillis) seven-days-ms)
-        removed (atom 0)]
-    (swap! db* update :chats
-           (fn [chats]
-             (into {}
-                   (filter (fn [[_id chat]]
-                             (let [created-at (:created-at chat)]
-                               (if (and created-at (< created-at cutoff))
-                                 (do (swap! removed inc) false)
-                                 true))))
-                   chats)))
-    (when (pos? @removed)
-      (logger/info logger-tag (str "Cleaned up " @removed " chat(s) older than 7 days"))
-      (update-workspaces-cache! @db* metrics))))
+  "Deletes chats older than retention-days from the db and flushes the workspace cache.
+   When retention-days is non-positive, cleanup is disabled."
+  [db* metrics retention-days]
+  (when (pos? retention-days)
+    (let [retention-ms (* retention-days 24 60 60 1000)
+          cutoff (- (System/currentTimeMillis) retention-ms)
+          removed (atom 0)]
+      (swap! db* update :chats
+             (fn [chats]
+               (into {}
+                     (filter (fn [[_id chat]]
+                               (let [created-at (:created-at chat)]
+                                 (if (and created-at (< created-at cutoff))
+                                   (do (swap! removed inc) false)
+                                   true))))
+                     chats)))
+      (when (pos? @removed)
+        (logger/info logger-tag (str "Cleaned up " @removed " chat(s) older than " retention-days " days"))
+        (update-workspaces-cache! @db* metrics)))))

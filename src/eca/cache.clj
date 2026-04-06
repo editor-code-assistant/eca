@@ -100,23 +100,24 @@
     (spit file text)
     (str (.getAbsolutePath file))))
 
-(def ^:private seven-days-ms (* 7 24 60 60 1000))
-
 (defn cleanup-tool-call-outputs!
-  "Deletes tool call output cache files older than 7 days.
+  "Deletes tool call output cache files older than retention-days.
+   When retention-days is non-positive, cleanup is disabled.
    Runs silently, logging warnings on errors."
-  []
-  (try
-    (let [dir (tool-call-outputs-dir)]
-      (when (fs/exists? dir)
-        (let [now (System/currentTimeMillis)
-              files (fs/list-dir dir)]
-          (doseq [f files]
-            (try
-              (let [last-modified (.lastModified ^File (fs/file f))]
-                (when (> (- now last-modified) seven-days-ms)
-                  (fs/delete f)))
-              (catch Exception e
-                (logger/warn logger-tag "Failed to delete old tool call output file:" (str f) (.getMessage ^Exception e))))))))
-    (catch Exception e
-      (logger/warn logger-tag "Failed to cleanup tool call outputs directory:" (.getMessage ^Exception e)))))
+  [retention-days]
+  (when (pos? retention-days)
+    (try
+      (let [dir (tool-call-outputs-dir)
+            retention-ms (* retention-days 24 60 60 1000)]
+        (when (fs/exists? dir)
+          (let [now (System/currentTimeMillis)
+                files (fs/list-dir dir)]
+            (doseq [f files]
+              (try
+                (let [last-modified (.lastModified ^File (fs/file f))]
+                  (when (> (- now last-modified) retention-ms)
+                    (fs/delete f)))
+                (catch Exception e
+                  (logger/warn logger-tag "Failed to delete old tool call output file:" (str f) (.getMessage ^Exception e))))))))
+      (catch Exception e
+        (logger/warn logger-tag "Failed to cleanup tool call outputs directory:" (.getMessage ^Exception e))))))

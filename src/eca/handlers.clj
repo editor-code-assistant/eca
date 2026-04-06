@@ -146,8 +146,9 @@
         (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
     (future
       (send-progress! db* messenger {:type "start" :taskId "cleanup" :title "Cleaning up"})
-      (cache/cleanup-tool-call-outputs!)
-      (db/cleanup-old-chats! db* metrics)
+      (let [retention-days (get config :chatRetentionDays 14)]
+        (cache/cleanup-tool-call-outputs! retention-days)
+        (db/cleanup-old-chats! db* metrics retention-days))
       (send-progress! db* messenger {:type "finish" :taskId "cleanup" :title "Cleaning up"}))))
 
 (defn workspace-did-change-folders [{:keys [db*]} params]

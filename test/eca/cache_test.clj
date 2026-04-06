@@ -16,7 +16,7 @@
          (fs/delete-tree tmp-dir#)))))
 
 (deftest cleanup-tool-call-outputs-test
-  (testing "deletes files older than 7 days and keeps recent files"
+  (testing "deletes files older than retention period and keeps recent files"
     (with-temp-cache-dir
       (let [dir (cache/tool-call-outputs-dir)
             old-file (java.io.File. (str dir "/old-call.txt"))
@@ -25,17 +25,30 @@
         (fs/create-dirs dir)
         (spit old-file "old output")
         (spit recent-file "recent output")
-        ;; Set old file to 8 days ago
-        (.setLastModified old-file (- (System/currentTimeMillis) (* 8 24 60 60 1000)))
+        ;; Set old file to 15 days ago
+        (.setLastModified old-file (- (System/currentTimeMillis) (* 15 24 60 60 1000)))
 
-        (cache/cleanup-tool-call-outputs!)
+        (cache/cleanup-tool-call-outputs! 14)
 
         (is (not (fs/exists? old-file)) "Old file should be deleted")
         (is (fs/exists? recent-file) "Recent file should be kept"))))
 
   (testing "does not throw when directory does not exist"
     (with-temp-cache-dir
-      (is (nil? (cache/cleanup-tool-call-outputs!))))))
+      (is (nil? (cache/cleanup-tool-call-outputs! 14))))))
+
+(deftest cleanup-tool-call-outputs-disabled-test
+  (testing "does not delete any files when retention-days is 0"
+    (with-temp-cache-dir
+      (let [dir (cache/tool-call-outputs-dir)
+            old-file (java.io.File. (str dir "/old-call.txt"))]
+        (fs/create-dirs dir)
+        (spit old-file "old output")
+        (.setLastModified old-file (- (System/currentTimeMillis) (* 15 24 60 60 1000)))
+
+        (cache/cleanup-tool-call-outputs! 0)
+
+        (is (fs/exists? old-file) "Old file should be kept when cleanup is disabled")))))
 
 (deftest save-tool-call-output-test
   (testing "saves text to a file and returns path"

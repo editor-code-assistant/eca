@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `chatRetentionDays` config to control chat and cache cleanup retention period, default changed from 7 to 14 days. Set to 0 to disable cleanup. #393
+
 ## 0.123.3
 
 - Fix exceptions on openai responses models when creating tasks.
