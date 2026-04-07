@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix OpenAI Responses API tool calls not executing when streaming response returns empty output, and fix spurious retries caused by stale tool-call state with Copilot encrypted IDs. #398
+
 ## 0.124.1
 
 - Add `cacheRetention` provider config for Anthropic to support 1-hour prompt cache TTL. Set to `"long"` for sessions with pauses longer than 5 minutes.
