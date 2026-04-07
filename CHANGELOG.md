@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `cacheRetention` provider config for Anthropic to support 1-hour prompt cache TTL. Set to `"long"` for sessions with pauses longer than 5 minutes.
+
 ## 0.124.0
 
 - Add `chatRetentionDays` config to control chat and cache cleanup retention period, default changed from 7 to 14 days. Set to 0 to disable cleanup. #393

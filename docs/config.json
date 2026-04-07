@@ -559,6 +559,13 @@
           "additionalProperties": {
             "$ref": "#/definitions/model"
           }
+        },
+        "cacheRetention": {
+          "type": "string",
+          "description": "Prompt cache retention for Anthropic. 'short' uses 5-min TTL (default), 'long' uses 1-hour TTL at higher write cost. Only applies when hitting the direct Anthropic API.",
+          "markdownDescription": "Prompt cache retention for Anthropic. `short` uses 5-min TTL (default), `long` uses 1-hour TTL at higher write cost. Only applies when hitting the direct Anthropic API.",
+          "enum": ["short", "long"],
+          "default": "short"
         }
       },
       "additionalProperties": false

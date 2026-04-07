@@ -84,6 +84,7 @@ Schema:
 | `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
 | `models <model> modelName`        | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
 | `models <model> reasoningHistory` | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
+| `cacheRetention`                  | string  | Prompt cache retention for Anthropic: `"short"` (5-min, default) or `"long"` (1-hour, higher write cost). Only applies to direct Anthropic API. | No       |
 | `fetchModels`                     | boolean | Enable/disable automatic model loading from `models.dev` (enabled by default when `api` is set)              | No       |
 
 _* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
@@ -279,7 +280,19 @@ When a retry rule matches, the chat shows a progress message like:
     5. Paste and send the code and done!
     
     Warning: Using your Claude Pro/Max subscription in ECA is not officially supported by [Anthropic](https://anthropic.com) and ECA are not responsible for any actions on your account.
-    
+
+    **Cache retention:** By default, Anthropic prompt cache uses a 5-minute TTL. If your sessions have frequent pauses longer than 5 minutes, you can set `"cacheRetention": "long"` on the provider config to use a 1-hour TTL. This costs 2× base input price for cache writes (vs 1.25× for 5-min) but avoids full re-write costs after pauses. Only applies when using the direct Anthropic API (not proxies).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "anthropic": {
+          "cacheRetention": "long"
+        }
+      }
+    }
+    ```
+
 === "Azure OpenAI"
 
     1. Login via the chat command `/login`.

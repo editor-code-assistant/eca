@@ -68,14 +68,24 @@
                       :name "web_search"
                       :max_uses 10})))
 
+(defn ^:private cache-control-value
+  "Returns the cache_control map based on cache retention config and API URL.
+   Only applies 1-hour TTL when hitting the direct Anthropic API."
+  [api-url cache-retention]
+  (if (and (= "long" cache-retention)
+           (or (nil? api-url)
+               (string/includes? api-url "api.anthropic.com")))
+    {:type "ephemeral" :ttl "1h"}
+    {:type "ephemeral"}))
+
 (defn ^:private add-cache-to-last-tool
   "Adds cache_control to the last tool in the tools array, ensuring
    the full tools list is part of the cached prefix."
-  [tools]
+  [tools cache-control]
   (if (seq tools)
     (shared/update-last
      (vec tools)
-     (fn [tool] (assoc tool :cache_control {:type "ephemeral"})))
+     (fn [tool] (assoc tool :cache_control cache-control)))
     tools))
 
 (defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
@@ -288,7 +298,7 @@
    []
    messages))
 
-(defn ^:private add-cache-to-last-message [messages]
+(defn ^:private add-cache-to-last-message [messages cache-control]
   ;; TODO add cache_control to last non thinking message
   (shared/update-last
    (vec messages)
@@ -297,14 +307,14 @@
        (if (string? content)
          (assoc-in message [:content] [{:type :text
                                         :text content
-                                        :cache_control {:type "ephemeral"}}])
-         (assoc-in message [:content (dec (count content)) :cache_control] {:type "ephemeral"}))))))
+                                        :cache_control cache-control}])
+         (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
 
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search extra-payload extra-headers supports-image? http-client cancelled?
-           stream-idle-timeout-seconds]}
+           stream-idle-timeout-seconds cache-retention]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
@@ -312,20 +322,21 @@
                      merge-adjacent-assistants
                      merge-adjacent-tool-results)
         stream? (boolean callbacks)
+        cache-control (cache-control-value api-url cache-retention)
         {:keys [static dynamic]} (if (map? instructions)
                                     instructions
                                     {:static instructions :dynamic nil})
         system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
-                               {:type "text" :text static :cache_control {:type "ephemeral"}}]
+                               {:type "text" :text static :cache_control cache-control}]
                         (not (string/blank? dynamic))
-                        (conj {:type "text" :text dynamic :cache_control {:type "ephemeral"}}))
+                        (conj {:type "text" :text dynamic :cache_control cache-control}))
         body (merge
               (assoc-some
                {:model model
-                :messages (add-cache-to-last-message messages)
+                :messages (add-cache-to-last-message messages cache-control)
                 :max_tokens (or max-output-tokens 32000)
                 :stream stream?
-                :tools (add-cache-to-last-tool (->tools tools web-search))
+                :tools (add-cache-to-last-tool (->tools tools web-search) cache-control)
                 :system system-blocks}
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
@@ -441,7 +452,7 @@
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
                                                                     merge-adjacent-tool-results
-                                                                    add-cache-to-last-message)]
+                                                                    (add-cache-to-last-message cache-control))]
                                                    (reset! content-block* {})
                                                    (base-request!
                                                     {:rid (llm-util/gen-rid)

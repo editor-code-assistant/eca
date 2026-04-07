@@ -330,35 +330,58 @@
                        {:type "tool_result" :tool_use_id "c2" :content "content-b\n"}]}]
            result)))))
 
+(deftest cache-control-value-test
+  (let [cache-control #'llm-providers.anthropic/cache-control-value]
+    (testing "default 5-min TTL when no cache-retention set"
+      (is (= {:type "ephemeral"} (cache-control "https://api.anthropic.com" nil)))
+      (is (= {:type "ephemeral"} (cache-control nil nil))))
+    (testing "default 5-min TTL for short retention"
+      (is (= {:type "ephemeral"} (cache-control "https://api.anthropic.com" "short"))))
+    (testing "1-hour TTL for long retention on direct Anthropic API"
+      (is (= {:type "ephemeral" :ttl "1h"} (cache-control "https://api.anthropic.com" "long")))
+      (is (= {:type "ephemeral" :ttl "1h"} (cache-control "https://api.anthropic.com/v1" "long"))))
+    (testing "1-hour TTL when api-url is nil (default direct API)"
+      (is (= {:type "ephemeral" :ttl "1h"} (cache-control nil "long"))))
+    (testing "falls back to 5-min when using a proxy"
+      (is (= {:type "ephemeral"} (cache-control "https://my-proxy.example.com" "long"))))))
+
 (deftest add-cache-to-last-message-test
-  (is (match?
-       []
-       (#'llm-providers.anthropic/add-cache-to-last-message [])))
-  (testing "when message content is a vector"
+  (let [default-cache {:type "ephemeral"}]
     (is (match?
-         [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral"}}]}]
-         (#'llm-providers.anthropic/add-cache-to-last-message
-          [{:role "user" :content [{:type :text :text "Hey"}]}])))
-    (is (match?
-         [{:role "user" :content [{:type :text :text "Hey"}]}
-          {:role "user" :content [{:type :text :text "Ho" :cache_control {:type "ephemeral"}}]}]
-         (#'llm-providers.anthropic/add-cache-to-last-message
-          [{:role "user" :content [{:type :text :text "Hey"}]}
-           {:role "user" :content [{:type :text :text "Ho"}]}]))))
-  (testing "when message content is string"
-    (is (match?
-         [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral"}}]}]
-         (#'llm-providers.anthropic/add-cache-to-last-message
-          [{:role "user" :content "Hey"}])))
-    (is (match?
-         [{:role "user" :content "Hey"}
-          {:role "user" :content [{:type :text :text "Ho" :cache_control {:type "ephemeral"}}]}]
-         (#'llm-providers.anthropic/add-cache-to-last-message
-          [{:role "user" :content "Hey"}
-           {:role "user" :content "Ho"}])))))
+         []
+         (#'llm-providers.anthropic/add-cache-to-last-message [] default-cache)))
+    (testing "when message content is a vector"
+      (is (match?
+           [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral"}}]}]
+           (#'llm-providers.anthropic/add-cache-to-last-message
+            [{:role "user" :content [{:type :text :text "Hey"}]}] default-cache)))
+      (is (match?
+           [{:role "user" :content [{:type :text :text "Hey"}]}
+            {:role "user" :content [{:type :text :text "Ho" :cache_control {:type "ephemeral"}}]}]
+           (#'llm-providers.anthropic/add-cache-to-last-message
+            [{:role "user" :content [{:type :text :text "Hey"}]}
+             {:role "user" :content [{:type :text :text "Ho"}]}] default-cache))))
+    (testing "when message content is string"
+      (is (match?
+           [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral"}}]}]
+           (#'llm-providers.anthropic/add-cache-to-last-message
+            [{:role "user" :content "Hey"}] default-cache)))
+      (is (match?
+           [{:role "user" :content "Hey"}
+            {:role "user" :content [{:type :text :text "Ho" :cache_control {:type "ephemeral"}}]}]
+           (#'llm-providers.anthropic/add-cache-to-last-message
+            [{:role "user" :content "Hey"}
+             {:role "user" :content "Ho"}] default-cache))))
+    (testing "with 1-hour TTL"
+      (let [long-cache {:type "ephemeral" :ttl "1h"}]
+        (is (match?
+             [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral" :ttl "1h"}}]}]
+             (#'llm-providers.anthropic/add-cache-to-last-message
+              [{:role "user" :content [{:type :text :text "Hey"}]}] long-cache)))))))
 
 (deftest add-cache-to-last-tool-test
-  (let [add-cache #'llm-providers.anthropic/add-cache-to-last-tool]
+  (let [default-cache {:type "ephemeral"}
+        add-cache (fn [tools] (#'llm-providers.anthropic/add-cache-to-last-tool tools default-cache))]
     (testing "empty tools returns empty"
       (is (match? [] (add-cache [])))
       (is (match? nil (add-cache nil))))
