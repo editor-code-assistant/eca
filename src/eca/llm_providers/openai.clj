@@ -199,6 +199,8 @@
                                 (on-reason {:status :finished
                                             :id (-> data :item :id)
                                             :external-id (-> data :item :encrypted_content)}))
+                "function_call" (swap! tool-call-by-item-id* update (-> data :item :id)
+                                       assoc :arguments (-> data :item :arguments))
                 "web_search_call" (on-server-web-search {:status :finished
                                                          :id (-> data :item :id)
                                                          :output nil})
@@ -246,20 +248,27 @@
               ;; done
               "response.completed"
               (let [response (:response data)
-                    tool-calls (keep (fn [{:keys [id call_id name arguments] :as output}]
-                                       (when (= "function_call" (:type output))
-                                         ;; Fallback case when the tool call was not prepared before when
-                                         ;; some models/apis respond only with response.completed (skipping streaming).
-                                         (when-not (get @tool-call-by-item-id* id)
-                                           (swap! tool-call-by-item-id* assoc id {:full-name name :id call_id})
-                                           (on-prepare-tool-call {:id call_id
-                                                                  :full-name name
-                                                                  :arguments-text arguments}))
-                                         {:id call_id
-                                          :item-id id
-                                          :full-name name
-                                          :arguments (json/parse-string arguments)}))
-                                     (:output response))]
+                    tool-calls (or (seq (keep (fn [{:keys [id call_id name arguments] :as output}]
+                                                (when (= "function_call" (:type output))
+                                                  (when-not (get @tool-call-by-item-id* id)
+                                                    (swap! tool-call-by-item-id* assoc id {:full-name name :id call_id})
+                                                    (on-prepare-tool-call {:id call_id
+                                                                           :full-name name
+                                                                           :arguments-text arguments}))
+                                                  {:id call_id
+                                                   :item-id id
+                                                   :full-name name
+                                                   :arguments (json/parse-string arguments)}))
+                                              (:output response)))
+                                   ;; Fallback: some models stream tool calls via events
+                                   ;; but return empty :output in response.completed
+                                   (seq (keep (fn [[item-id {:keys [full-name id arguments]}]]
+                                                (when arguments
+                                                  {:id id
+                                                   :item-id item-id
+                                                   :full-name full-name
+                                                   :arguments (json/parse-string arguments)}))
+                                              @tool-call-by-item-id*)))]
                 (on-usage-updated (let [input-cache-read-tokens (-> response :usage :input_tokens_details :cached_tokens)]
                                     {:input-tokens (if input-cache-read-tokens
                                                      (- (-> response :usage :input_tokens) input-cache-read-tokens)
