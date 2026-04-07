@@ -277,8 +277,7 @@
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
                   (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
-                    (doseq [tool-call tool-calls]
-                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call)))
+                    (reset! tool-call-by-item-id* {})
                     (base-responses-request!
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
