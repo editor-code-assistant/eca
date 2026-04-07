@@ -277,6 +277,8 @@
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
                   (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
+                    (doseq [tool-call tool-calls]
+                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call)))
                     (base-responses-request!
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
@@ -290,9 +292,7 @@
                       :extra-headers extra-headers
                       :auth-type auth-type
                       :on-error on-error
-                      :on-stream handle-stream})
-                    (doseq [tool-call tool-calls]
-                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call))))
+                      :on-stream handle-stream}))
                   (on-message-received {:type :finish
                                         :finish-reason (-> data :response :status)})))
 
