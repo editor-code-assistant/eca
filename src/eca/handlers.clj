@@ -226,6 +226,18 @@
   (metrics/task metrics :eca/chat-rollback
     (f.chat/rollback-chat params db* messenger)))
 
+(defn chat-add-flag [{:keys [db* metrics messenger]} params]
+  (metrics/task metrics :eca/chat-add-flag
+    (f.chat/add-flag params db* messenger metrics)))
+
+(defn chat-remove-flag [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-remove-flag
+    (f.chat/remove-flag params db* metrics)))
+
+(defn chat-fork [{:keys [db* metrics messenger]} params]
+  (metrics/task metrics :eca/chat-fork
+    (f.chat/fork-chat params db* messenger metrics)))
+
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server
     (f.tools/stop-server! (:name params) db* messenger config metrics)))

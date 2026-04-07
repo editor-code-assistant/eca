@@ -106,6 +106,15 @@
 (defmethod jsonrpc.server/receive-request "chat/rollback" [_ components params]
   (eventually (handlers/chat-rollback (with-config components) params)))
 
+(defmethod jsonrpc.server/receive-request "chat/addFlag" [_ components params]
+  (eventually (handlers/chat-add-flag (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/removeFlag" [_ components params]
+  (eventually (handlers/chat-remove-flag (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/fork" [_ components params]
+  (eventually (handlers/chat-fork (with-config components) params)))
+
 (defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
   (async-notify (handlers/mcp-stop-server (with-config components) params)))
 

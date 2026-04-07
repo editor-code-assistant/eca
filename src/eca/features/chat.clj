@@ -201,7 +201,11 @@
                        :content {:type :text
                                  :text (if (:auto? message-content)
                                          "── Chat auto-compacted ──"
-                                         "── Chat compacted ──")}}]))
+                                         "── Chat compacted ──")}}]
+    "flag" [{:role :system
+             :content {:type :flag
+                       :text (:text message-content)
+                       :contentId content-id}}]))
 
 (defn ^:private send-chat-contents! [messages chat-ctx]
   (doseq [message messages]
@@ -1168,4 +1172,81 @@
        {:chat-id chat-id
         :db* db*
         :messenger messenger}))
+    {}))
+
+(defn ^:private find-last-message-idx
+  "Find the last message index matching content-id by checking both
+   :content-id (user messages) and [:content :id] (tool calls, etc)."
+  [messages content-id]
+  (loop [i (dec (count messages))]
+    (cond
+      (neg? i) nil
+      (let [msg (messages i)]
+        (or (= content-id (:content-id msg))
+            (= content-id (get-in msg [:content :id])))) i
+      :else (recur (dec i)))))
+
+(defn add-flag
+  "Add a named flag after the message identified by content-id.
+   Searches both :content-id and [:content :id] to support placement
+   after any message type (user, tool call, reason, etc).
+   Clears and replays the chat to render the flag at the correct position."
+  [{:keys [chat-id content-id text]} db* messenger metrics]
+  (let [messages (vec (get-in @db* [:chats chat-id :messages]))
+        insert-idx (find-last-message-idx messages content-id)]
+    (when insert-idx
+      (let [flag-id (str (random-uuid))
+            flag-msg {:role "flag" :content {:text text} :content-id flag-id}
+            insert-after (inc insert-idx)
+            new-messages (into (subvec messages 0 insert-after)
+                               (cons flag-msg (subvec messages insert-after)))]
+        (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+        (db/update-workspaces-cache! @db* metrics)
+        (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
+        (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))
+    {}))
+
+(defn remove-flag
+  "Remove a flag message identified by content-id from the chat."
+  [{:keys [chat-id content-id]} db* metrics]
+  (when-let [messages (get-in @db* [:chats chat-id :messages])]
+    (let [new-messages (vec (remove #(and (= "flag" (:role %))
+                                          (= content-id (:content-id %)))
+                                    messages))]
+      (when (not= (count new-messages) (count messages))
+        (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+        (db/update-workspaces-cache! @db* metrics))))
+  {})
+
+(defn fork-chat
+  "Fork the chat creating a new chat with messages up to and including
+   the message identified by content-id."
+  [{:keys [chat-id content-id]} db* messenger metrics]
+  (let [chat (get-in @db* [:chats chat-id])
+        messages (vec (:messages chat))
+        target-idx (find-last-message-idx messages content-id)]
+    (when target-idx
+      (let [new-id (str (random-uuid))
+            now (System/currentTimeMillis)
+            new-title (f.commands/fork-title (:title chat))
+            kept-messages (subvec messages 0 (inc target-idx))
+            new-chat {:id new-id
+                      :title new-title
+                      :status :idle
+                      :created-at now
+                      :updated-at now
+                      :model (:model chat)
+                      :last-api (:last-api chat)
+                      :messages kept-messages
+                      :prompt-finished? true}]
+        (swap! db* assoc-in [:chats new-id] new-chat)
+        (db/update-workspaces-cache! @db* metrics)
+        (messenger/chat-opened messenger {:chat-id new-id :title new-title})
+        (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
+        (lifecycle/send-content! {:messenger messenger :chat-id new-id}
+                                 :system
+                                 (assoc-some {:type :metadata} :title new-title))
+        (lifecycle/send-content! {:messenger messenger :chat-id chat-id}
+                                 :system
+                                 {:type :text :text (str "Chat forked to: " new-title)})))
     {}))

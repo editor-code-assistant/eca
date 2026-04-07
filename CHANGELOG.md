@@ -4,6 +4,7 @@
 
 - Add `chatRetentionDays` config to control chat and cache cleanup retention period, default changed from 7 to 14 days. Set to 0 to disable cleanup. #393
 - Preserve full chat history across compactions using tombstone markers instead of replacing messages. #394
+- Add message flags — named checkpoints for resuming and forking chats. #395
 
 ## 0.123.3
 

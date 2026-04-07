@@ -25,7 +25,7 @@
 
 (set! *warn-on-reflection* true)
 
-(defn ^:private fork-title [title]
+(defn fork-title [title]
   (let [title (or title "Untitled")]
     (if-let [[_ base n] (re-matches #"(.+?)\s*\((\d+)\)\s*$" title)]
       (str base " (" (inc (parse-long n)) ")")
@@ -389,12 +389,18 @@
                                       (fn [s chat-id]
                                         (let [chat (get chats chat-id)
                                               msgs-count (count (filter #(= "user" (:role %))
-                                                                        (:messages chat)))]
+                                                                        (:messages chat)))
+                                              flags (->> (:messages chat)
+                                                         (filter #(= "flag" (:role %)))
+                                                         (map #(get-in % [:content :text])))]
                                           (if (> msgs-count 0)
-                                            (str s (format "%s - %s - %s\n"
+                                            (str s (format "%s - %s - %s%s\n"
                                                            (inc (.indexOf ^PersistentVector chats-ids chat-id))
                                                            (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
-                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))))
+                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))
+                                                           (if (seq flags)
+                                                             (str " 🚩 " (string/join ", " flags))
+                                                             "")))
                                             s)))
                                       ""
                                       chats-ids)

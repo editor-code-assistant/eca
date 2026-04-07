@@ -316,6 +316,7 @@
 
 (defn messages-after-last-compact-marker
   "Returns messages after the last compact_marker, or all messages if none exists.
+   Filters out flag messages which are UI-only markers not meant for the LLM.
    Scans from the end for efficiency since markers are typically near the tail."
   [messages]
   (let [messages (vec messages)
@@ -324,10 +325,11 @@
                    (cond
                      (neg? i) -1
                      (= "compact_marker" (:role (messages i))) i
-                     :else (recur (dec i))))]
-    (if (neg? last-idx)
-      messages
-      (subvec messages (inc last-idx)))))
+                     :else (recur (dec i))))
+        result (if (neg? last-idx)
+                 messages
+                 (subvec messages (inc last-idx)))]
+    (vec (remove #(= "flag" (:role %)) result))))
 
 (defn compact-side-effect!
   "Performs side effects after chat compaction: appends a compact_marker tombstone

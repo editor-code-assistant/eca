@@ -589,7 +589,8 @@ type ChatContent =
     | ChatToolCallRunningContent
     | ChatToolCalledContent
     | ChatToolCallRejectedContent
-    | ChatMetadataContent;
+    | ChatMetadataContent
+    | ChatFlagContent;
     
 /**
  * Simple text message from the LLM
@@ -1192,6 +1193,25 @@ interface ChatMetadataContent {
     title: string;
 }
 
+/**
+ * A named checkpoint flag in the chat history.
+ * Flags act as bookmarks that survive across sessions
+ * and are discoverable via timeline.
+ */
+interface ChatFlagContent {
+    type: 'flag';
+
+    /**
+     * The flag display text.
+     */
+    text: string;
+
+    /**
+     * Unique identifier for this flag.
+     */
+    contentId: string;
+}
+
 ```
 
 ### Chat approve tool call (➡️)
@@ -1510,6 +1530,107 @@ _Response:_
 
 ```typescript
 interface ChatClearResponse {}
+```
+
+### Chat add flag (➡️)
+
+A client request to add a named flag (checkpoint) to the chat history.
+The flag is inserted after the message identified by the given `contentId`.
+The `contentId` matches against both message-level `contentId` (user messages) and
+content `id` fields (tool calls, reasons, etc), allowing placement between any message types.
+Flags are persisted as messages and propagate automatically with fork and resume.
+
+_Request:_
+
+* method: `chat/addFlag`
+* params: `ChatAddFlagParams` defined as follows:
+
+```typescript
+interface ChatAddFlagParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The id of the message after which the flag is inserted.
+     * Matches against message contentId or content.id fields.
+     */
+    contentId: string;
+
+    /**
+     * The flag display text.
+     */
+    text: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatAddFlagResponse {}
+```
+
+### Chat remove flag (➡️)
+
+A client request to remove a flag from the chat history.
+The client is responsible for removing the flag from the UI after a successful response.
+
+_Request:_
+
+* method: `chat/removeFlag`
+* params: `ChatRemoveFlagParams` defined as follows:
+
+```typescript
+interface ChatRemoveFlagParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The content id of the flag to remove.
+     */
+    contentId: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatRemoveFlagResponse {}
+```
+
+### Chat fork (➡️)
+
+A client request to fork the chat into a new chat with messages up to and including
+the message identified by the given `contentId`. The server creates the new chat,
+sends a `chat/opened` notification with the new chat, then streams the kept messages
+via `chat/contentReceived`. A system message is also sent to the original chat.
+
+_Request:_
+
+* method: `chat/fork`
+* params: `ChatForkParams` defined as follows:
+
+```typescript
+interface ChatForkParams {
+    /**
+     * The chat session identifier of the source chat.
+     */
+    chatId: string;
+
+    /**
+     * The content id of the message up to which to fork (inclusive).
+     */
+    contentId: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatForkResponse {}
 ```
 
 ### Chat cleared (⬅️)
