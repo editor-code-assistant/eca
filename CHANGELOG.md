@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.124.1
+
 - Add `cacheRetention` provider config for Anthropic to support 1-hour prompt cache TTL. Set to `"long"` for sessions with pauses longer than 5 minutes.
 
 ## 0.124.0
