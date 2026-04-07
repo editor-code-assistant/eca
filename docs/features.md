@@ -162,6 +162,12 @@ Hooks are actions that can run before or after an specific event, useful to noti
 
 For more details, check [hooks configuration](./config/hooks.md).
 
+### Flags on messages
+
+![](./images/features/chat-flag.png)
+
+You can add flags in between messages so you can fork from there in the future, flags are saved by chat.
+
 ## Rewrite
 
 Rewrite allows user to select part of the text and ask ECA to rewrite it.
