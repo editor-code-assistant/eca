@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.124.2
+
 - Fix OpenAI Responses API tool calls not executing when streaming response returns empty output, and fix spurious retries caused by stale tool-call state with Copilot encrypted IDs. #398
 
 ## 0.124.1
