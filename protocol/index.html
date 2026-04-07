@@ -1282,6 +1282,33 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-add-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat add flag (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-remove-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat remove flag (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-fork" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat fork (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-cleared" class="md-nav__link">
     <span class="md-ellipsis">
       Chat cleared (⬅️)
@@ -1862,6 +1889,33 @@
   <a href="#chat-clear" class="md-nav__link">
     <span class="md-ellipsis">
       Chat clear (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-add-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat add flag (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-remove-flag" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat remove flag (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-fork" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat fork (➡️)
     </span>
   </a>
   
@@ -2714,7 +2768,8 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCallRunningContent</span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCalledContent</span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatToolCallRejectedContent</span>
-<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatMetadataContent</span><span class="p">;</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatMetadataContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatFlagContent</span><span class="p">;</span>
 
 <span class="cm">/**</span>
 <span class="cm"> * Simple text message from the LLM</span>
@@ -3316,6 +3371,25 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">title</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * A named checkpoint flag in the chat history.</span>
+<span class="cm"> * Flags act as bookmarks that survive across sessions</span>
+<span class="cm"> * and are discoverable via timeline.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatFlagContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;flag&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The flag display text.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Unique identifier for this flag.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
 </code></pre></div>
 <h3 id="chat-approve-tool-call">Chat approve tool call (➡️)<a class="headerlink" href="#chat-approve-tool-call" title="Permanent link">#</a></h3>
 <p>A client notification for server to approve a waiting tool call.
@@ -3583,6 +3657,86 @@ After response, clients should clear only the relevant parts of the chat UI.</p>
 </code></pre></div>
 <p><em>Response:</em></p>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatClearResponse</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
+<h3 id="chat-add-flag">Chat add flag (➡️)<a class="headerlink" href="#chat-add-flag" title="Permanent link">#</a></h3>
+<p>A client request to add a named flag (checkpoint) to the chat history.
+The flag is inserted after the message identified by the given <code>contentId</code>.
+The <code>contentId</code> matches against both message-level <code>contentId</code> (user messages) and
+content <code>id</code> fields (tool calls, reasons, etc), allowing placement between any message types.
+Flags are persisted as messages and propagate automatically with fork and resume.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/addFlag</code></li>
+<li>params: <code>ChatAddFlagParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatAddFlagParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The id of the message after which the flag is inserted.</span>
+<span class="cm">     * Matches against message contentId or content.id fields.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The flag display text.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatAddFlagResponse</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
+<h3 id="chat-remove-flag">Chat remove flag (➡️)<a class="headerlink" href="#chat-remove-flag" title="Permanent link">#</a></h3>
+<p>A client request to remove a flag from the chat history.
+The client is responsible for removing the flag from the UI after a successful response.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/removeFlag</code></li>
+<li>params: <code>ChatRemoveFlagParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatRemoveFlagParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The content id of the flag to remove.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatRemoveFlagResponse</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
+<h3 id="chat-fork">Chat fork (➡️)<a class="headerlink" href="#chat-fork" title="Permanent link">#</a></h3>
+<p>A client request to fork the chat into a new chat with messages up to and including
+the message identified by the given <code>contentId</code>. The server creates the new chat,
+sends a <code>chat/opened</code> notification with the new chat, then streams the kept messages
+via <code>chat/contentReceived</code>. A system message is also sent to the original chat.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/fork</code></li>
+<li>params: <code>ChatForkParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatForkParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier of the source chat.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The content id of the message up to which to fork (inclusive).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatForkResponse</span><span class="w"> </span><span class="p">{}</span>
 </code></pre></div>
 <h3 id="chat-cleared">Chat cleared (⬅️)<a class="headerlink" href="#chat-cleared" title="Permanent link">#</a></h3>
 <p>A server notification to clear a chat UI, currently supporting removing only messages of the chat.</p>
@@ -4492,7 +4646,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 7, 2026 11:41:57 UTC">April 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 7, 2026 11:45:04 UTC">April 7, 2026</span>
   </span>
 
     
