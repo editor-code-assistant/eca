@@ -244,6 +244,16 @@
             :variant (:variant body)})
           (no-content))))))
 
+(defn handle-update-chat [{:keys [db*] :as components} request chat-id]
+  (if-not (chat-or-404 db* chat-id)
+    (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
+    (let [body (parse-body request)
+          config (config/all @db*)]
+      (handlers/chat-update
+       (assoc components :config config)
+       {:chat-id chat-id :title (:title body)})
+      (no-content))))
+
 (defn handle-set-trust [{:keys [db*]} request {:keys [sse-connections*]}]
   (let [body (parse-body request)
         trust (boolean (:trust body))]
