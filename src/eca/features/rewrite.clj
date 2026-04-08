@@ -54,10 +54,13 @@
           :config config
           :user-messages [{:role "user" :content [{:type :text :text prompt}]}]
           :past-messages []
-          :provider-auth provider-auth
-          :db* db*
-          :messenger messenger
-          :metrics metrics
+          :provider-auth-fn (fn []
+                              (f.login/maybe-renew-auth-token!
+                               {:provider provider
+                                :on-error (fn [error-msg]
+                                            (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
+                               ctx)
+                              (get-in @db* [:auth provider]))
           :on-first-response-received (fn [& _]
                                         (send-content! ctx {:type :started}))
           :on-reason (fn [{:keys [status]}]

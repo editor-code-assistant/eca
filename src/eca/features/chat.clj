@@ -556,10 +556,7 @@
                                 (get-in @db* [:chats chat-id :messages] []))
                 :config  config
                 :tools all-tools
-                :provider-auth provider-auth
-                :db* db*
-                :messenger messenger
-                :metrics metrics
+                :provider-auth-fn (lifecycle/silent-provider-auth-fn chat-ctx)
                 :variant (:variant chat-ctx)
                 :subagent? (some? (get-in @db* [:chats chat-id :subagent]))
                 :cancelled? (fn []
