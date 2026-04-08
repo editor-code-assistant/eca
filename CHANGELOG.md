@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix `/resume` broken for OpenAI chats: handle nil reasoning text during replay, preserve prompt-id after chat replacement, and clear UI before replaying messages. #400
+- Add GitHub Enterprise support for Copilot authentication via `auth.url` and `auth.clientId` provider config. #402
 
 ## 0.124.2
 

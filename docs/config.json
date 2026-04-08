@@ -498,6 +498,26 @@
           "description": "Whether this provider requires authentication.",
           "markdownDescription": "Whether this provider requires authentication."
         },
+        "auth": {
+          "type": "object",
+          "description": "Authentication endpoint overrides for providers that use OAuth device flow. Used when the provider's identity server differs from the default (e.g. enterprise or self-hosted instances).",
+          "markdownDescription": "Authentication endpoint overrides for providers that use OAuth device flow. Used when the provider's identity server differs from the default (e.g. enterprise or self-hosted instances).",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Base URL of the identity provider. OAuth device-flow endpoints are derived from this URL.",
+              "markdownDescription": "Base URL of the identity provider. OAuth device-flow endpoints are derived from this URL.",
+              "format": "uri",
+              "examples": ["https://github.mycompany.com"]
+            },
+            "clientId": {
+              "type": "string",
+              "description": "OAuth client ID to use for the device-flow. Defaults to the provider's public client ID when omitted.",
+              "markdownDescription": "OAuth client ID to use for the device-flow. Defaults to the provider's public client ID when omitted."
+            }
+          }
+        },
         "completionUrlRelativePath": {
           "type": "string",
           "description": "Custom relative URL path for completion requests.",
