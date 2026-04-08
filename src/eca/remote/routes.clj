@@ -66,6 +66,7 @@
                         "model"   [handlers/handle-change-model components request chat-id]
                         "agent"   [handlers/handle-change-agent components request chat-id]
                         "variant" [handlers/handle-change-variant components request chat-id]
+                        "update"  [handlers/handle-update-chat components request chat-id]
                         nil)))
                 6 (let [action (nth segments 4)
                         tcid (nth segments 5)]

@@ -238,6 +238,10 @@
   (metrics/task metrics :eca/chat-fork
     (f.chat/fork-chat params db* messenger metrics)))
 
+(defn chat-update [{:keys [db* messenger metrics]} params]
+  (metrics/task metrics :eca/chat-update
+    (f.chat/update-chat params db* messenger metrics)))
+
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server
     (f.tools/stop-server! (:name params) db* messenger config metrics)))

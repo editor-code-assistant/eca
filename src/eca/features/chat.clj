@@ -1142,6 +1142,19 @@
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/update-workspaces-cache! @db* metrics)))
 
+(defn update-chat
+  "Update chat metadata like title.
+   Broadcasts the change to all connected clients."
+  [{:keys [chat-id title]} db* messenger metrics]
+  (when (and (get-in @db* [:chats chat-id])
+             title)
+    (swap! db* assoc-in [:chats chat-id :title] title)
+    (messenger/chat-content-received messenger
+                                     {:chat-id chat-id
+                                      :role    "system"
+                                      :content {:type :metadata :title title}})
+    (db/update-workspaces-cache! @db* metrics)))
+
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."
