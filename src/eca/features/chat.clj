@@ -1153,7 +1153,8 @@
                                      {:chat-id chat-id
                                       :role    "system"
                                       :content {:type :metadata :title title}})
-    (db/update-workspaces-cache! @db* metrics)))
+    (db/update-workspaces-cache! @db* metrics))
+  {})
 
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.

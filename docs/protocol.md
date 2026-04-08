@@ -1707,12 +1707,12 @@ _Response:_
 interface ChatDeleteResponse {}
 ```
 
-### Chat update (➡️)
+### Chat update (↩️)
 
-A client notification to update chat metadata like title.
-Server will broadcast the change to all connected clients via `chat/contentReceived` with metadata content.
+A client request to update chat metadata like title.
+Server will persist the change, broadcast to all connected clients via `chat/contentReceived` with metadata content, and return an empty response.
 
-_Notification:_
+_Request:_
 
 * method: `chat/update`
 * params: `ChatUpdateParams` defined as follows:
@@ -1729,6 +1729,12 @@ interface ChatUpdateParams {
      */
     title?: string;
 }
+```
+
+_Response:_
+
+```typescript
+interface ChatUpdateResponse {}
 ```
 
 ### Chat selected agent changed (➡️)
