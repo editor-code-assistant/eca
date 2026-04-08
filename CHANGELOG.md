@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Renew GitHub Copilot auth token before each LLM API request attempt to prevent 401 token expired errors during long agentic workflows.
+
 ## 0.124.2
 
 - Fix OpenAI Responses API tool calls not executing when streaming response returns empty output, and fix spurious retries caused by stale tool-call state with Copilot encrypted IDs. #398

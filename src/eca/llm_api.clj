@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.azure]
@@ -352,7 +353,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth variant cancelled? on-retry subagent?]
+           past-messages tools provider-auth db* messenger metrics variant cancelled? on-retry subagent?]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -419,10 +420,22 @@
         extra-payload (extra-payload-considering-variant model-config variant api-handler (:reason? model-capabilities))
         stream? (if (not (nil? (:stream extra-payload)))
                   (:stream extra-payload)
-                  true)]
+                  true)
+        renew-token! (fn []
+                       (when db*
+                         (f.login/maybe-renew-auth-token!
+                          {:provider provider
+                           :on-error (fn [error-msg]
+                                       (logger/error logger-tag "Token renewal failed:" error-msg))}
+                          {:db* db* :config config :messenger messenger :metrics metrics})))
+        current-provider-auth (fn []
+                                (if db*
+                                  (get-in @db* [:auth provider])
+                                  provider-auth))]
     (if (not stream?)
       (let [sync-prompt-with-retry*
             (fn sync-prompt-with-retry [attempt]
+              (renew-token!)
               (loop [result (prompt!
                              {:sync? true
                               :provider provider
@@ -430,7 +443,7 @@
                               :model-capabilities model-capabilities
                               :instructions instructions
                               :tools tools
-                              :provider-auth provider-auth
+                              :provider-auth (current-provider-auth)
                               :past-messages past-messages
                               :user-messages user-messages
                               :variant variant
@@ -458,6 +471,7 @@
         (sync-prompt-with-retry* 0))
       (let [async-prompt-with-retry*
             (fn async-prompt-with-retry [attempt]
+              (renew-token!)
               (prompt!
                {:sync? false
                 :provider provider
@@ -465,7 +479,7 @@
                 :model-capabilities model-capabilities
                 :instructions instructions
                 :tools tools
-                :provider-auth provider-auth
+                :provider-auth (current-provider-auth)
                 :past-messages past-messages
                 :user-messages user-messages
                 :variant variant

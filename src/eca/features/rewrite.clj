@@ -55,6 +55,9 @@
           :user-messages [{:role "user" :content [{:type :text :text prompt}]}]
           :past-messages []
           :provider-auth provider-auth
+          :db* db*
+          :messenger messenger
+          :metrics metrics
           :on-first-response-received (fn [& _]
                                         (send-content! ctx {:type :started}))
           :on-reason (fn [{:keys [status]}]
