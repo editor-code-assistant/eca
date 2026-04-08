@@ -454,3 +454,88 @@
            :on-message-received identity})))
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
+
+(deftest sync-provider-auth-fn-initial-request-test
+  (testing "provider-auth-fn is invoked before the initial sync attempt and its result is passed to prompt!"
+    (let [auth-fn-call-count* (atom 0)
+          captured-auth* (atom nil)
+          fresh-auth {:api-key "fresh-token"}]
+      (with-redefs [eca.llm-api/prompt! (fn [opts]
+                                          (reset! captured-auth* (:provider-auth opts))
+                                          {:output-text "done"
+                                           :usage {:input-tokens 1 :output-tokens 1}})
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (-> (make-prompt-opts {:stream false :on-message-received identity})
+             (dissoc :provider-auth)
+             (assoc :provider-auth-fn (fn [] (swap! auth-fn-call-count* inc) fresh-auth)))))
+      (is (= 1 @auth-fn-call-count*))
+      (is (= fresh-auth @captured-auth*)))))
+
+(deftest sync-provider-auth-fn-called-per-retry-test
+  (testing "provider-auth-fn is invoked again on each sync retry attempt"
+    (let [attempt* (atom 0)
+          auth-fn-call-count* (atom 0)
+          captured-auths* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [opts]
+                                          (let [n (swap! attempt* inc)]
+                                            (swap! captured-auths* conj (:provider-auth opts))
+                                            (if (= 1 n)
+                                              {:error {:status 429
+                                                       :body "Rate limited"
+                                                       :message "LLM response status: 429"}}
+                                              {:output-text "ok"
+                                               :usage {:input-tokens 1 :output-tokens 1}})))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (-> (make-prompt-opts {:stream false :on-message-received identity})
+             (dissoc :provider-auth)
+             (assoc :provider-auth-fn (fn []
+                                        (let [n (swap! auth-fn-call-count* inc)]
+                                          {:api-key (str "token-" n)}))))))
+      (is (= 2 @attempt*))
+      (is (= 2 @auth-fn-call-count*))
+      (is (= [{:api-key "token-1"} {:api-key "token-2"}] @captured-auths*)))))
+
+(deftest async-provider-auth-fn-initial-request-test
+  (testing "provider-auth-fn is invoked before the initial async attempt and its result is passed to prompt!"
+    (let [auth-fn-call-count* (atom 0)
+          captured-auth* (atom nil)
+          fresh-auth {:api-key "fresh-token"}]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received] :as opts}]
+                                          (reset! captured-auth* (:provider-auth opts))
+                                          (on-message-received {:type :text :text "hi"})
+                                          (on-message-received {:type :finish :finish-reason "stop"}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (-> (make-prompt-opts {:on-message-received identity})
+             (dissoc :provider-auth)
+             (assoc :provider-auth-fn (fn [] (swap! auth-fn-call-count* inc) fresh-auth)))))
+      (is (= 1 @auth-fn-call-count*))
+      (is (= fresh-auth @captured-auth*)))))
+
+(deftest async-provider-auth-fn-called-per-retry-test
+  (testing "provider-auth-fn is invoked again on each async retry attempt"
+    (let [attempt* (atom 0)
+          auth-fn-call-count* (atom 0)
+          captured-auths* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error] :as opts}]
+                                          (let [n (swap! attempt* inc)]
+                                            (swap! captured-auths* conj (:provider-auth opts))
+                                            (if (= 1 n)
+                                              (on-error {:status 503
+                                                         :body "Overloaded"
+                                                         :message "LLM response status: 503"})
+                                              (do
+                                                (on-message-received {:type :text :text "ok"})
+                                                (on-message-received {:type :finish :finish-reason "stop"})))))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (-> (make-prompt-opts {:on-message-received identity})
+             (dissoc :provider-auth)
+             (assoc :provider-auth-fn (fn []
+                                        (let [n (swap! auth-fn-call-count* inc)]
+                                          {:api-key (str "token-" n)}))))))
+      (is (= 2 @attempt*))
+      (is (= 2 @auth-fn-call-count*))
+      (is (= [{:api-key "token-1"} {:api-key "token-2"}] @captured-auths*)))))
