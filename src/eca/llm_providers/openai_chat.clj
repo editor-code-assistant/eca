@@ -500,7 +500,7 @@
                                                      k))
                                        tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
-                                  (when-let [{:keys [new-messages tools]} (on-tools-called tools-to-call)]
+                                  (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tools-to-call)]
                                     (let [pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
@@ -516,7 +516,7 @@
                                         :extra-headers extra-headers
                                         :http-client http-client
                                         :api-url api-url
-                                        :api-key api-key
+                                        :api-key (or fresh-api-key api-key)
                                         :url-relative-path url-relative-path
                                         :on-error wrapped-on-error
                                         :on-stream (when stream? (fn [event data] (handle-response event data tool-calls*)))}))))

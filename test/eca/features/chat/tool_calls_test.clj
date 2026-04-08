@@ -1,6 +1,7 @@
 (ns eca.features.chat.tool-calls-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
@@ -276,3 +277,58 @@
                        :hook-rejected? false
                        :arguments-modified? true}
                       plan)))))))
+
+(deftest on-tools-called!-returns-provider-auth-test
+  (testing "returns refreshed provider auth in result after token is renewed during tool execution"
+    ;; Regression test for: auth captured in LLM provider closure at prompt start.
+    ;; When a token expires mid-stream, maybe-renew-auth-token updates db*,
+    ;; and on-tools-called! must return the refreshed auth so provider-specific
+    ;; continuation metadata (not just the api key) can be reused.
+    (h/reset-components!)
+    (let [chat-id   "test-chat"
+          provider  "github-copilot"
+          renewed-provider-auth {:api-key "fresh-token-xyz"
+                                 :expires-at 9999999999}
+          db*       (h/db*)
+          _         (swap! db* #(-> %
+                                    (assoc-in [:auth provider :api-key] "stale-token-abc")
+                                    (assoc-in [:chats chat-id :status] :running)
+                                    (assoc-in [:chats chat-id :messages] [])
+                                    (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)))
+          ;; Pre-set tool call to :preparing state, as it would be after on-prepare-tool-call
+          ;; fires during the streaming phase before on-tools-called! is invoked.
+          chat-ctx  {:db*       db*
+                     :config    (h/config)
+                     :chat-id   chat-id
+                     :provider  provider
+                     :agent     :default
+                     :messenger (h/messenger)
+                     :metrics   (h/metrics)}
+          received-msgs* (atom "")
+          add-to-history! (fn [msg]
+                            (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id           "call-1"
+                       :full-name    "eca__test_tool"
+                       :arguments    {}
+                       :arguments-text "{}"}]
+          all-tools  [{:name      "test_tool"
+                       :full-name "eca__test_tool"
+                       :origin    :eca
+                       :server    {:name "eca"}}]
+          expected-provider-auth (merge {:api-key "stale-token-abc"} renewed-provider-auth)]
+      (with-redefs [f.tools/all-tools                       (constantly all-tools)
+                    f.tools/approval                        (constantly :allow)
+                    f.hooks/trigger-if-matches!             (fn [_ _ _ _ _] nil)
+                    f.tools/call-tool!                      (fn [& _] {:contents [{:text "result" :type :text}]})
+                    f.tools/tool-call-details-before-invocation (constantly nil)
+                    f.tools/tool-call-details-after-invocation  (constantly nil)
+                    f.tools/tool-call-summary               (constantly "Test tool")
+                    lifecycle/maybe-renew-auth-token
+                    (fn [ctx]
+                      (swap! (:db* ctx) update-in [:auth provider] merge renewed-provider-auth))]
+        (let [result ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
+          (is (= (:api-key expected-provider-auth) (:fresh-api-key result))
+              "fresh-api-key must be returned so the provider can use it in the recursive streaming call")
+          (is (= expected-provider-auth
+                 (:provider-auth result))
+              "provider-auth must be returned so providers can reuse refreshed auth metadata"))))))

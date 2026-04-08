@@ -748,8 +748,8 @@
                                                                      :details details
                                                                      :summary summary
                                                                      :progress-text (if (= name "spawn_agent")
-                                                                         "Waiting subagent"
-                                                                         "Calling tool")})))
+                                                                                      "Waiting subagent"
+                                                                                      "Calling tool")})))
                         (let [tool-call-state (get-tool-call-state @db* chat-id id)
                               {:keys [code text]} (:decision-reason tool-call-state)
                               effective-hook-continue (when hook-rejected? hook-continue)
@@ -834,8 +834,15 @@
                           nil))))
                 (do
                   (lifecycle/maybe-renew-auth-token chat-ctx)
-                  (if-let [continue-fn (:continue-fn chat-ctx)]
-                    (continue-fn all-tools user-messages)
-                    {:tools all-tools
-                     :new-messages (shared/messages-after-last-compact-marker
-                                    (get-in @db* [:chats chat-id :messages]))}))))))))))
+                  (let [provider-auth (get-in @db* [:auth (:provider chat-ctx)])
+                        [_ fresh-api-key] (llm-util/provider-api-key (:provider chat-ctx)
+                                                                     provider-auth
+                                                                     config)
+                        result (if-let [continue-fn (:continue-fn chat-ctx)]
+                                 (continue-fn all-tools user-messages)
+                                 {:tools all-tools
+                                  :new-messages (get-in @db* [:chats chat-id :messages])})]
+                    (when result
+                      (assoc result
+                             :fresh-api-key fresh-api-key
+                             :provider-auth provider-auth))))))))))))

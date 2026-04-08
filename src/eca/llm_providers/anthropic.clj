@@ -446,7 +446,7 @@
                                                                     :full-name (:name content-block)
                                                                     :arguments (json/parse-string (:input-json content-block))}))
                                                                (vals @content-block*))]
-                                               (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
+                                               (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
                                                  (let [messages (-> new-messages
                                                                     group-parallel-tool-calls
                                                                     (normalize-messages supports-image?)
@@ -460,7 +460,7 @@
                                                                   :messages messages
                                                                   :tools (->tools tools web-search))
                                                      :api-url api-url
-                                                     :api-key api-key
+                                                     :api-key (or fresh-api-key api-key)
                                                      :http-client http-client
                                                      :extra-headers extra-headers
                                                      :auth-type auth-type
@@ -698,4 +698,4 @@
                                                  :refresh-token refresh-token
                                                  :api-key access-token
                                                  :expires-at expires-at})
-    (f.login/login-done! ctx :silent? true)))
+    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
