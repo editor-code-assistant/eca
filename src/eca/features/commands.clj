@@ -413,9 +413,11 @@
                    (let [chat (get chats selected-chat-id)]
                      (swap! db* assoc-in [:chats chat-id] chat)
                      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting?)
+                     (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
                      (swap! db* update-in [:chats] #(dissoc % selected-chat-id))
                      (db/update-workspaces-cache! @db* metrics)
                      {:type :chat-messages
+                      :clear-before? true
                       :chats {chat-id {:title (:title chat)
                                        :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
                                                          (:messages chat))}}})))

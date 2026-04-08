@@ -186,17 +186,19 @@
                                        :name "web_search"
                                        :arguments {}
                                        :error false}}])
-    "reason" [{:role :assistant
-               :content {:type :reasonStarted
-                         :id (:id message-content)}}
-              {:role :assistant
-               :content {:type :reasonText
-                         :id (:id message-content)
-                         :text (:text message-content)}}
-              {:role :assistant
-               :content {:type :reasonFinished
-                         :id (:id message-content)
-                         :total-time-ms (:total-time-ms message-content)}}]
+    "reason" (cond-> [{:role :assistant
+                       :content {:type :reasonStarted
+                                 :id (:id message-content)}}]
+               (:text message-content)
+               (conj {:role :assistant
+                      :content {:type :reasonText
+                                :id (:id message-content)
+                                :text (:text message-content)}})
+               true
+               (conj {:role :assistant
+                      :content {:type :reasonFinished
+                                :id (:id message-content)
+                                :total-time-ms (:total-time-ms message-content)}}))
     "compact_marker" [{:role :system
                        :content {:type :text
                                  :text (if (:auto? message-content)
@@ -852,6 +854,9 @@
     (let [{:keys [type on-finished-side-effect] :as result} (f.commands/handle-command! command args chat-ctx)]
       (case type
         :chat-messages (do
+                         (when (:clear-before? result)
+                           (messenger/chat-cleared (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :messages true})
+                           (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :status :running}))
                          (doseq [[chat-id {:keys [messages title]}] (:chats result)]
                            (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
                              (send-chat-contents! messages new-chat-ctx)
