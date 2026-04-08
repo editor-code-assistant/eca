@@ -154,10 +154,14 @@
     (swap! (h/db*) assoc :models {"google/gemini-dev" {:reason? true}})
     (let [renew-called* (atom nil)
           api-opts* (atom nil)
+          auth-result* (atom nil)
           resp
           (with-redefs [llm-api/sync-or-async-prompt!
                         (fn [opts]
                           (reset! api-opts* opts)
+                          ;; Invoke provider-auth-fn to verify renewal is triggered and auth is returned
+                          (when-let [auth-fn (:provider-auth-fn opts)]
+                            (reset! auth-result* (auth-fn)))
                           ((:on-first-response-received opts) {:type :text})
                           ((:on-message-received opts) {:type :finish}))
                         f.prompt/build-rewrite-instructions (constantly "INSTR")
@@ -174,4 +178,4 @@
       (is (= "google" @renew-called*))
       (is (= "google" (:provider @api-opts*)))
       (is (= "gemini-dev" (:model @api-opts*)))
-      (is (= {:token "abc"} (:provider-auth @api-opts*))))))
+      (is (= {:token "abc"} @auth-result*)))))

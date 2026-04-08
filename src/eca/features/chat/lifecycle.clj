@@ -110,6 +110,19 @@
                 (throw (ex-info "Auth token renew failed" {})))}
    chat-ctx))
 
+(defn silent-provider-auth-fn
+  "Returns a 0-arity fn that silently renews provider auth if expired and returns the current auth.
+   Errors are logged but do not throw, so ongoing requests are not interrupted.
+   Use as :provider-auth-fn in sync-or-async-prompt! for proactive token refresh."
+  [{:keys [provider db* config messenger metrics]}]
+  (fn []
+    (f.login/maybe-renew-auth-token!
+     {:provider provider
+      :on-error (fn [error-msg]
+                  (logger/warn logger-tag "Token renewal failed:" error-msg))}
+     {:db* db* :config config :messenger messenger :metrics metrics})
+    (get-in @db* [:auth provider])))
+
 (defn assert-chat-not-stopped! [{:keys [chat-id db* prompt-id] :as chat-ctx}]
   (let [chat (get-in @db* [:chats chat-id])
         superseded? (and prompt-id (not= prompt-id (:prompt-id chat)))
