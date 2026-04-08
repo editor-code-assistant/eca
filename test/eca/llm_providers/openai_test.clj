@@ -113,6 +113,55 @@
           (is (> (:expires-at result) now-seconds)
               "expires-at should be computed relative to current time"))))))
 
+(deftest create-response-refreshes-account-id-after-tool-call-test
+  (testing "uses refreshed provider auth metadata after a long-running tool call"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [api-key account-id on-stream] :as _opts}]
+                      (swap! requests* conj {:api-key api-key
+                                             :account-id account-id})
+                      (when (= 1 (count @requests*))
+                        (on-stream "response.completed"
+                                   {:response {:output [{:type "function_call"
+                                                         :id "item-1"
+                                                         :call_id "call-1"
+                                                         :name "eca__spawn_agent"
+                                                         :arguments "{}"}]
+                                               :usage {:input_tokens 1
+                                                       :output_tokens 1}}}))
+                      :ok)]
+        (llm-providers.openai/create-response!
+         {:model "gpt-test"
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :instructions "ins"
+          :reason? false
+          :supports-image? false
+          :api-key "stale-token"
+          :api-url "http://localhost:1"
+          :past-messages []
+          :tools [{:full-name "eca__spawn_agent" :description "spawn" :parameters {:type "object"}}]
+          :web-search false
+          :extra-payload {}
+          :extra-headers nil
+          :auth-type :auth/oauth
+          :account-id "old-account"}
+         {:on-message-received (fn [_])
+          :on-error (fn [e] (throw (ex-info "err" e)))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_]
+                             {:new-messages []
+                              :tools []
+                              :fresh-api-key "fresh-token"
+                              :provider-auth {:account-id "new-account"}})
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])
+          :on-server-web-search (fn [_])})
+        (is (= [{:api-key "stale-token"
+                 :account-id "old-account"}
+                {:api-key "fresh-token"
+                 :account-id "new-account"}]
+               @requests*))))))
+
 (deftest ->normalize-messages-test
   (testing "no previous history"
     (is (match?

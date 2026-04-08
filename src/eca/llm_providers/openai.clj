@@ -276,8 +276,9 @@
                                      :output-tokens (-> response :usage :output_tokens)
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
-                  (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
-                    (reset! tool-call-by-item-id* {})
+                  (when-let [{:keys [new-messages tools fresh-api-key provider-auth]} (on-tools-called tool-calls)]
+                    (doseq [tool-call tool-calls]
+                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call)))
                     (base-responses-request!
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
@@ -285,8 +286,8 @@
                                    :tools (->tools tools web-search codex?))
                       :api-url api-url
                       :url-relative-path url-relative-path
-                      :api-key api-key
-                      :account-id account-id
+                      :api-key (or fresh-api-key api-key)
+                      :account-id (or (:account-id provider-auth) account-id)
                       :http-client http-client
                       :extra-headers extra-headers
                       :auth-type auth-type
@@ -490,4 +491,4 @@
                                                  :api-key access-token
                                                  :account-id new-account-id
                                                  :expires-at expires-at})
-    (f.login/login-done! ctx :silent? true)))
+    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
