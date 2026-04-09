@@ -81,4 +81,12 @@
                               "job_id" {:type "string"
                                         :description "The background job ID (e.g. \"job-1\"). Required for read_output and kill actions."}}
                  :required ["action"]}
+    :summary-fn (fn [{:keys [args]}]
+                  (let [action (get args "action")
+                        job-id (get args "job_id")]
+                    (case action
+                      "list" "Listing background jobs"
+                      "read_output" (str "Reading output of " job-id)
+                      "kill" (str "Killing " job-id)
+                      "Managing background job")))
     :handler #'bg-job}})

@@ -14,7 +14,7 @@
 
 (def ^:private logger-tag "[BG-TASKS]")
 
-(def ^:private max-jobs 10)
+(def max-jobs 10)
 (def ^:private max-output-lines 2000)
 
 ;; ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@
   "Number of currently running background jobs."
   []
   (count (filter #(= :running (:status %))
-                 (vals (:jobs @registry*)))))
+                 (sort-by :id (vals (:jobs @registry*))))))
 
 (defn get-job
   "Return the job map for the given ID, or nil."

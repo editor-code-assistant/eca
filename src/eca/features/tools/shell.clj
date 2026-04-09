@@ -85,12 +85,12 @@
   (let [command (get arguments "command")
         user-work-dir (get arguments "working_directory")
         work-dir (resolve-work-dir db user-work-dir)
-        max-jobs-msg "Maximum number of background jobs reached (10). Kill an existing job first."]
+        max-jobs-msg (str "Maximum number of background jobs reached (" bg/max-jobs "). Kill an existing job first.")]
     (cond
       (= :stopping (:status (call-state-fn)))
       (tools.util/single-text-content "Tool call is stopping, background job not started." true)
 
-      (>= (bg/running-count) 10)
+      (>= (bg/running-count) bg/max-jobs)
       (tools.util/single-text-content max-jobs-msg true)
 
       :else
