@@ -3,12 +3,13 @@ ECA Agent Guide (AGENTS.md)
 - Build (requires Clojure CLI + Babashka):
   - All-in-one debug CLI (JVM, nREPL): `bb debug-cli`
   - Production CLI (JVM): `bb prod-cli`  |  Production JAR: `bb prod-jar`
-  - Native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
+  - In production we use a native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
 - Test (Kaocha via `:test` alias):
   - Run all unit tests: `bb test`  (same as `clojure -M:test`)
-  - Run a single test namespace: `clojure -M:test --focus eca.main-test`
-  - Run a single test var: `clojure -M:test --focus eca.main-test/parse-opts-test`
-  - Integration tests (requires built `./eca` or `eca.exe`): `bb integration-test`
+  - Run a single unit test namespace: `clojure -M:test --focus eca.main-test`
+  - Run a single unit test var: `clojure -M:test --focus eca.main-test/parse-opts-test`
+  - Run all integration tests (requires built `./eca` or `eca.exe`): `bb integration-test`
+  - Run a single integration test: `bb integration-test --dev --ns integration.chat.mcp-remote-test`
 - Lint/format:
   - Lint: `clj-kondo --lint src test dev integration-test`
   - Formatting not enforced; follow idiomatic Clojure (`cljfmt` optional).
@@ -31,4 +32,4 @@ ECA Agent Guide (AGENTS.md)
 - Avoid adding too many comments, only add essential or when you think is really important to mention something. 
 - ECA's protocol specification of client <-> server lives in docs/protocol.md
 - If changing ECA config structure, remember to update its docs/config.json
-- When adding support to a new feature or fixing a existing github issue, add a entry to Unreleased in CHANGELOG.md if not already there as last entry, be concise like the rest.
+- When adding support to a new feature or fixing a existing github issue, add a entry to Unreleased in CHANGELOG.md if not already there as last entry, be concise like the rest, implementation details not needed, mention the issue number in the end if you know it's related to one.

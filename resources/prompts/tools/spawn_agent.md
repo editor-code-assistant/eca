@@ -1,18 +1,11 @@
-Spawn a new agent to handle multistep tasks in isolated context.
+Spawn an isolated sub-agent to handle complex, multi-step tasks without polluting your current context.
 
-The agent runs independently with its own conversation history and returns a summary of its findings/actions.
-Use this for:
-- Codebase exploration without polluting your context
-- Focused research on specific areas
-- Delegating specialized tasks (review, analysis, etc.)
+Use for: Codebase exploration, codebase editing and refactoring, focused research, or delegating specialized tasks.
+Proactive use: If the specific agent's description suggests proactive use, use it whenever the task complexity justifies delegation.
+Restrictions: Avoid sub-agents for simple tasks, file reading, or basic lookups. Delegate ONLY if the task is complex, requires multi-step processing, or benefits from summarization and token saving.
+Agent Limits: Sub-agents cannot spawn other agents (no nesting) and have access only to their configured tools.
 
-The spawned agent:
-- Has access only to its configured tools
-- Cannot spawn other agents (no nesting)
-- Must return a summary when complete
-
-Usage notes:
-- Your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final message.
-- Clearly tell the agent whether you expect it to write code or just to do research and how to verify its work if possible.
-- If the agent description suggests proactive use, use it whenever the task complexity justifies delegation.
-- Avoid sub-agents for simple tasks, file reading, or basic lookups. Delegate only if the task is complex, requires multi-step processing, or benefits from summarization and token saving.
+Strict rules for arguments:
+- 'task': Provide a highly detailed prompt. Explicitly state whether it should write/edit code or just research, how to verify its work, and exactly what specific information it must return to you.
+- 'activity': Must be a concise 3-4 word label for the UI (e.g., "exploring codebase", "refactoring module").
+- 'model' & 'variant': - NEVER include these arguments if the user hasn't explicitly requested a specific model or variant.

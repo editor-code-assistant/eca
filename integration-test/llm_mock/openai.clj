@@ -180,10 +180,15 @@
         (hk/close ch)))))
 
 (defn ^:private chat-title-text-0 [ch]
-  (hk/send! ch
-            (json/generate-string
-             {:output [{:content [{:text "Some Cool Title"}]}]})
-            true))
+  (sse-send! ch "response.output_text.delta"
+             {:type "response.output_text.delta" :delta "Some Cool Title"})
+  (sse-send! ch "response.completed"
+             {:type "response.completed"
+              :response {:output []
+                         :usage {:input_tokens 5
+                                 :output_tokens 5}
+                         :status "completed"}})
+  (hk/close ch))
 
 (defn handle-openai-responses [req]
   (let [body (some-> (slurp (:body req))

@@ -2,6 +2,7 @@
   "Tool for spawning subagents to perform focused tasks in isolated context."
   (:require
    [clojure.string :as str]
+   [eca.config :as config]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]))
@@ -53,7 +54,7 @@
 
 (defn ^:private send-step-progress!
   "Send a toolCallRunning notification with current step progress to the parent chat."
-  [messenger chat-id tool-call-id agent-name activity subagent-chat-id step max-steps model arguments]
+  [messenger chat-id tool-call-id agent-name activity subagent-chat-id step max-steps model variant arguments]
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id
@@ -65,26 +66,65 @@
               :origin "native"
               :summary (format "%s: %s" agent-name activity)
               :arguments arguments
-              :details {:type :subagent
-                        :subagent-chat-id subagent-chat-id
-                        :model model
-                        :agent-name agent-name
-                        :step step
-                        :max-steps max-steps}}}))
+              :details (cond-> {:type :subagent
+                                :subagent-chat-id subagent-chat-id
+                                :model model
+                                :agent-name agent-name
+                                :step step
+                                :max-steps max-steps}
+                         variant (assoc :variant variant))}}))
 
 (defn ^:private stop-subagent-chat!
-  "Stop a running subagent chat."
+  "Stop a running subagent chat silently (parent already shows 'Prompt stopped')."
   [db* messenger metrics subagent-chat-id agent-name]
   (let [prompt-stop (requiring-resolve 'eca.features.chat/prompt-stop)]
     (try
-      (prompt-stop {:chat-id subagent-chat-id} db* messenger metrics)
+      (prompt-stop {:chat-id subagent-chat-id} db* messenger metrics {:silent? true})
       (catch Exception e
         (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e)))))))
+
+(defn ^:private available-model-names
+  "Returns a sorted list of available model names from the runtime db."
+  [db]
+  (some->> (:models db)
+           keys
+           sort
+           vec))
+
+(defn ^:private available-variant-names
+  "Returns a sorted union of all variant names across all available models."
+  [config db]
+  (let [model-keys (keys (:models db))]
+    (when (seq model-keys)
+      (let [all-variants (->> model-keys
+                              (mapcat (fn [^String full-model]
+                                        (let [idx (.indexOf full-model "/")]
+                                          (when (pos? idx)
+                                            (let [provider (subs full-model 0 idx)
+                                                  model (subs full-model (inc idx))
+                                                  user-variants (get-in config [:providers provider :models model :variants])]
+                                              (keys (config/effective-model-variants config provider model user-variants)))))))
+                              (into (sorted-set)))]
+        (when (seq all-variants)
+          (vec all-variants))))))
+
+(defn ^:private model-variant-names
+  "Returns sorted variant names for a specific full model string (e.g. \"anthropic/claude-sonnet-4-6\")."
+  [config ^String full-model]
+  (when full-model
+    (let [idx (.indexOf full-model "/")]
+      (when (pos? idx)
+        (let [provider (subs full-model 0 idx)
+              model (subs full-model (inc idx))
+              user-variants (get-in config [:providers provider :models model :variants])
+              variants (config/effective-model-variants config provider model user-variants)]
+          (when (seq variants)
+            (vec (sort (keys variants)))))))))
 
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
    Spawns a subagent to perform a focused task and returns the result."
-  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn]}]
+  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn trust]}]
   (let [agent-name (get arguments "agent")
         task (get arguments "task")
         activity (get arguments "activity" "working")
@@ -110,10 +150,35 @@
         ;; Create subagent chat session using deterministic id based on tool-call-id
         subagent-chat-id (->subagent-chat-id tool-call-id)
 
-        parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or (:model subagent) parent-model)]
+        user-model (tools.util/normalize-optional-string (get arguments "model"))
+        _ (when user-model
+            (let [available-models (:models db)]
+              (when (and (seq available-models)
+                         (not (contains? available-models user-model)))
+                (throw (ex-info (format "Model '%s' is not available. Available models: %s"
+                                        user-model
+                                        (str/join ", " (available-model-names db)))
+                                {:model user-model
+                                 :available (available-model-names db)})))))
 
-    (logger/info logger-tag (format "Spawning agent '%s' for task: %s" agent-name task))
+        parent-model (get-in db [:chats chat-id :model])
+        subagent-model (or user-model (:model subagent) parent-model)
+
+        ;; Variant validation: reject only when the resolved model has configured
+        ;; variants and the user-specified one isn't among them. Models with no
+        ;; configured variants accept any variant (the LLM API will reject if invalid).
+        user-variant (tools.util/normalize-optional-string (get arguments "variant"))
+        _ (when user-variant
+            (let [valid-variants (model-variant-names config subagent-model)]
+              (when (and (seq valid-variants)
+                         (not (some #{user-variant} valid-variants)))
+                (throw (ex-info (format "Variant '%s' is not available for model '%s'. Available variants: %s"
+                                        user-variant subagent-model (str/join ", " valid-variants))
+                                {:variant user-variant
+                                 :model subagent-model
+                                 :available valid-variants})))))]
+
+    (logger/info logger-tag (format "Spawning agent '%s' for task: %s (model: %s, variant: %s)" agent-name task subagent-model (or user-variant "default")))
 
     (let [max-steps-limit (max-steps subagent)]
       (swap! db* assoc-in [:chats subagent-chat-id]
@@ -132,11 +197,13 @@
                                     task max-steps-limit)
                             task)]
           (chat-prompt
-           {:message task-prompt
-            :chat-id subagent-chat-id
-            :model subagent-model
-            :agent agent-name
-            :contexts []}
+           (cond-> {:message task-prompt
+                    :chat-id subagent-chat-id
+                    :model subagent-model
+                    :agent agent-name
+                    :contexts []
+                    :trust trust}
+             user-variant (assoc :variant user-variant))
            db*
            messenger
            config
@@ -157,7 +224,7 @@
                 ;; Send step progress when step advances
                 (when (> current-step last-step)
                   (send-step-progress! messenger chat-id tool-call-id agent-name activity
-                                       subagent-chat-id current-step max-steps-limit subagent-model arguments))
+                                       subagent-chat-id current-step max-steps-limit subagent-model user-variant arguments))
                 (cond
                   ;; Parent chat stopped — propagate stop to subagent
                   (= :stopping (:status (call-state-fn)))
@@ -192,7 +259,7 @@
           (throw e))))))
 
 (defn ^:private build-description
-  "Build tool description with available agents listed."
+  "Build tool description with available agents and models listed."
   [config]
   (let [base-description (tools.util/read-tool-description "spawn_agent")
         agents (all-agents config)
@@ -204,39 +271,46 @@
     (str base-description agents-section)))
 
 (defn definitions
-  [config]
+  [config db]
   {"spawn_agent"
    {:description (build-description config)
-    :parameters {:type "object"
-                 :properties {"agent" {:type "string"
-                                       :description "Name of the agent to spawn"}
-                              "task" {:type "string"
-                                      :description "Clear description of what the agent should accomplish"}
-                              "activity" {:type "string"
-                                          :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}}
-                 :required ["agent" "task" "activity"]}
-    :handler #'spawn-agent
-    :summary-fn (fn [{:keys [args]}]
-                  (if-let [agent-name (get args "agent")]
-                    (let [activity (get args "activity" "working")]
-                      (format "%s: %s" agent-name activity))
-                    "Spawning agent"))}})
+    :parameters  {:type       "object"
+                  :properties {"agent"    {:type        "string"
+                                           :description "Name of the agent to spawn"}
+                               "task"     {:type        "string"
+                                           :description "The detailed instructions for the agent"}
+                               "activity" {:type        "string"
+                                           :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
+                               "model"    {:type        "string"
+                                           :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
+                               "variant"  {:type        "string"
+                                           :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
+                  :required   ["agent" "task" "activity"]}
+    :handler     #'spawn-agent
+    :summary-fn  (fn [{:keys [args]}]
+                   (if-let [agent-name (get args "agent")]
+                     (let [activity (get args "activity" "working")]
+                       (format "%s: %s" agent-name activity))
+                     "Spawning agent"))}})
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
   (let [agent-name (get arguments "agent")
+        user-model (tools.util/normalize-optional-string (get arguments "model"))
+        user-variant (tools.util/normalize-optional-string (get arguments "variant"))
         subagent (when agent-name
                    (get-agent agent-name config))
         parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or (:model subagent) parent-model)
+        subagent-model (or user-model (:model subagent) parent-model)
         subagent-chat-id (when tool-call-id
                            (->subagent-chat-id tool-call-id))]
-    {:type :subagent
-     :subagent-chat-id subagent-chat-id
-     :model subagent-model
-     :agent-name agent-name
-     :step (get-in db [:chats subagent-chat-id :current-step] 1)
-     :max-steps (max-steps subagent)}))
+    (cond-> {:type :subagent
+             :subagent-chat-id subagent-chat-id
+             :model subagent-model
+             :agent-name agent-name
+             :step (get-in db [:chats subagent-chat-id :current-step] 1)
+             :max-steps (max-steps subagent)}
+      user-variant (assoc :variant user-variant))))
 
 (defmethod tools.util/tool-call-details-after-invocation :spawn_agent
   [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]

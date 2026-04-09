@@ -202,3 +202,7 @@
             (assoc result :contents [{:type :text
                                       :text (str truncated notice)}]))
           result)))))
+
+(defn normalize-optional-string
+  [value]
+  (some-> value string/trim not-empty))

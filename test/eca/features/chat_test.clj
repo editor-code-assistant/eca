@@ -3,7 +3,9 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -20,7 +22,8 @@
                       llm-api/sync-prompt! (constantly nil)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/all-tools (:all-tools-mock mocks)
-                      f.tools/approval (constantly :allow)]
+                      f.tools/approval (constantly :allow)
+                      config/await-plugins-resolved! (constantly true)]
           (h/config! {:env "test"})
           (swap! (h/db*) update :models
                  (fn [models]
@@ -103,7 +106,7 @@
               :content {:type :progress :state :running :text "Waiting model"}
               :role :system}
              {:chat-id chat-id
-              :content {:type :text :text "Error from mocked API"}
+              :content {:type :text :text "\n\nError from mocked API"}
               :role :system}
              {:chat-id chat-id
               :content {:state :finished :type :progress}
@@ -194,6 +197,44 @@
                 :role :system}]}
              (h/messages)))))))
 
+(deftest context-overflow-auto-compact-guard-test
+  (testing "context overflow after auto-compact reports error instead of looping"
+    (h/reset-components!)
+    (let [api-call-count* (atom 0)
+          auto-compact-count* (atom 0)]
+      (with-redefs-fn
+        {#'f.chat/trigger-auto-compact!
+         (fn [chat-ctx _all-tools user-messages]
+           (swap! auto-compact-count* inc)
+           (#'f.chat/prompt-messages!
+            user-messages
+            :auto-compact
+            (assoc chat-ctx :auto-compacted? true)))}
+        (fn []
+          (let [{:keys [chat-id]}
+                (prompt!
+                 {:message "Do something"}
+                 {:all-tools-mock (constantly [])
+                  :api-mock
+                  (fn [{:keys [on-error]}]
+                    (swap! api-call-count* inc)
+                    (on-error {:error/type :context-overflow
+                               :message "token limit exceeded"}))})]
+            (is (= 1 @auto-compact-count*)
+                "auto-compact should trigger exactly once, not loop")
+            (is (= 2 @api-call-count*)
+                "LLM should be called exactly twice: initial prompt and resume after compact")
+            (is (match?
+                 {:chat-content-received
+                  (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text "Context window exceeded. Auto-compacting conversation..."}}
+                             {:role :system
+                              :content {:type :text
+                                        :text "\n\ntoken limit exceeded"}}])}
+                 (h/messages))
+                "Should show auto-compact attempt and then the final error")))))))
+
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
    :content {:id id
@@ -255,7 +296,26 @@
 
   (testing "handles empty message history"
     (let [db* (atom {:chats {"c1" {:messages []}}})]
-      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {}))))))
+      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {})))))
+
+  (testing "stops at compact_marker boundary, does not prune pre-compaction messages"
+    (let [large-text (apply str (repeat 100000 "x"))
+          messages [(make-tool-call-msg "old")
+                    (make-tool-output-msg "old" large-text)
+                    {:role "compact_marker" :content {:auto? false}}
+                    {:role "user" :content [{:type :text :text "summary"}]}
+                    (make-tool-call-msg "new")
+                    (make-tool-output-msg "new" large-text)]
+          db* (atom {:chats {"c1" {:messages messages}}})
+          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
+      (is (pos? freed))
+      (let [pruned (get-in @db* [:chats "c1" :messages])]
+        ;; Pre-compaction tool output should be untouched
+        (is (= large-text
+               (get-in (nth pruned 1) [:content :output :contents 0 :text])))
+        ;; Post-compaction tool output should be cleared
+        (is (= "[content cleared to reduce context size]"
+               (get-in (nth pruned 5) [:content :output :contents 0 :text])))))))
 
 (deftest contexts-in-prompt-test
   (testing "When prompt contains @file we add a user message"
@@ -588,7 +648,40 @@
              {"foo" 42 "bar" "yo"}))
         (is (match?
              @invoked?
-             [[{:role :user :content "test"}] :mcp-prompt test-chat-ctx]))))))
+             [[{:role :user :content "test"}] :mcp-prompt test-chat-ctx])))))
+
+  (testing "shows error message and finishes chat when get-prompt! returns error-message"
+    (let [test-chat-ctx {:db* (atom {})}
+          sent-content (atom nil)
+          finished-status (atom nil)]
+      (with-redefs [f.mcp/all-prompts (fn [_]
+                                        [{:name "failing-prompt" :arguments [{:name "arg1"}]}])
+                    f.prompt/get-prompt! (fn [_ _ _]
+                                           {:error-message "MCP error getting prompt: code=-32603 message=Invalid required argument: arg1"})
+                    lifecycle/send-content! (fn [_ctx _role content]
+                                              (reset! sent-content content))
+                    lifecycle/finish-chat-prompt! (fn [status _ctx]
+                                                    (reset! finished-status status))]
+        (#'f.chat/send-mcp-prompt! {:prompt "failing-prompt" :args ["val1"]} test-chat-ctx)
+        (is (= :text (:type @sent-content)))
+        (is (string/includes? (:text @sent-content) "MCP error getting prompt"))
+        (is (= :idle @finished-status)))))
+
+  (testing "shows error message and finishes chat when get-prompt! returns nil"
+    (let [test-chat-ctx {:db* (atom {})}
+          sent-content (atom nil)
+          finished-status (atom nil)]
+      (with-redefs [f.mcp/all-prompts (fn [_]
+                                        [{:name "nil-prompt" :arguments []}])
+                    f.prompt/get-prompt! (fn [_ _ _] nil)
+                    lifecycle/send-content! (fn [_ctx _role content]
+                                              (reset! sent-content content))
+                    lifecycle/finish-chat-prompt! (fn [status _ctx]
+                                                    (reset! finished-status status))]
+        (#'f.chat/send-mcp-prompt! {:prompt "nil-prompt" :args []} test-chat-ctx)
+        (is (= :text (:type @sent-content)))
+        (is (string/includes? (:text @sent-content) "No response from prompt"))
+        (is (= :idle @finished-status))))))
 
 (deftest message->decision-test
   (testing "plain prompt message"

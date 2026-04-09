@@ -113,6 +113,55 @@
           (is (> (:expires-at result) now-seconds)
               "expires-at should be computed relative to current time"))))))
 
+(deftest create-response-refreshes-account-id-after-tool-call-test
+  (testing "uses refreshed provider auth metadata after a long-running tool call"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [api-key account-id on-stream] :as _opts}]
+                      (swap! requests* conj {:api-key api-key
+                                             :account-id account-id})
+                      (when (= 1 (count @requests*))
+                        (on-stream "response.completed"
+                                   {:response {:output [{:type "function_call"
+                                                         :id "item-1"
+                                                         :call_id "call-1"
+                                                         :name "eca__spawn_agent"
+                                                         :arguments "{}"}]
+                                               :usage {:input_tokens 1
+                                                       :output_tokens 1}}}))
+                      :ok)]
+        (llm-providers.openai/create-response!
+         {:model "gpt-test"
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :instructions "ins"
+          :reason? false
+          :supports-image? false
+          :api-key "stale-token"
+          :api-url "http://localhost:1"
+          :past-messages []
+          :tools [{:full-name "eca__spawn_agent" :description "spawn" :parameters {:type "object"}}]
+          :web-search false
+          :extra-payload {}
+          :extra-headers nil
+          :auth-type :auth/oauth
+          :account-id "old-account"}
+         {:on-message-received (fn [_])
+          :on-error (fn [e] (throw (ex-info "err" e)))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_]
+                             {:new-messages []
+                              :tools []
+                              :fresh-api-key "fresh-token"
+                              :provider-auth {:account-id "new-account"}})
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])
+          :on-server-web-search (fn [_])})
+        (is (= [{:api-key "stale-token"
+                 :account-id "old-account"}
+                {:api-key "fresh-token"
+                 :account-id "new-account"}]
+               @requests*))))))
+
 (deftest ->normalize-messages-test
   (testing "no previous history"
     (is (match?
@@ -162,3 +211,229 @@
           [{:role "user" :content [{:type :text :text "Check diagnostics"}]}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__editor_diagnostics" :arguments nil}}]
           true)))))
+
+(defn- base-provider-params []
+  {:model "gpt-test"
+   :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+   :instructions "test"
+   :reason? false
+   :supports-image? false
+   :api-key "fake-key"
+   :api-url "http://localhost:1"
+   :past-messages []
+   :tools [{:full-name "eca__shell_command" :description "run" :parameters {:type "object"}}]
+   :web-search false
+   :extra-payload {}
+   :extra-headers nil
+   :auth-type :auth/api-key
+   :account-id nil})
+
+(defn- base-callbacks [{:keys [on-prepare-tool-call on-tools-called on-message-received on-error]
+                        :or {on-prepare-tool-call (fn [_])
+                             on-tools-called (fn [_] {:new-messages [] :tools []})
+                             on-message-received (fn [_])
+                             on-error (fn [e] (throw (ex-info "unexpected error in test" e)))}}]
+  {:on-message-received on-message-received
+   :on-error on-error
+   :on-prepare-tool-call on-prepare-tool-call
+   :on-tools-called on-tools-called
+   :on-reason (fn [_])
+   :on-usage-updated (fn [_])
+   :on-server-web-search (fn [_])})
+
+(deftest create-response-tool-calls-via-output-test
+  (testing "tool calls in response.completed output trigger callbacks correctly"
+    (let [prepare-calls* (atom [])
+          tools-called* (atom [])
+          requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (when (= 1 (count @requests*))
+                        (on-stream "response.output_item.added"
+                                   {:item {:type "function_call"
+                                           :id "item-1"
+                                           :call_id "call-1"
+                                           :name "eca__shell_command"
+                                           :arguments ""}})
+                        (on-stream "response.function_call_arguments.delta"
+                                   {:item_id "item-1"
+                                    :delta "{\"command\":\"ls\"}"})
+                        (on-stream "response.output_item.done"
+                                   {:item {:type "function_call"
+                                           :id "item-1"
+                                           :call_id "call-1"
+                                           :name "eca__shell_command"
+                                           :arguments "{\"command\":\"ls\"}"}})
+                        (on-stream "response.completed"
+                                   {:response {:output [{:type "function_call"
+                                                         :id "item-1"
+                                                         :call_id "call-1"
+                                                         :name "eca__shell_command"
+                                                         :arguments "{\"command\":\"ls\"}"}]
+                                               :usage {:input_tokens 10
+                                                       :output_tokens 5}
+                                               :status "completed"}})))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-prepare-tool-call (fn [data] (swap! prepare-calls* conj data))
+           :on-tools-called (fn [tool-calls]
+                              (swap! tools-called* conj tool-calls)
+                              {:new-messages [] :tools []})}))
+        (is (pos? (count @prepare-calls*)))
+        (is (= "call-1" (:id (first @prepare-calls*))))
+        (is (= "eca__shell_command" (:full-name (first @prepare-calls*))))
+        (is (= 1 (count @tools-called*)))
+        (is (match? [{:id "call-1"
+                      :full-name "eca__shell_command"
+                      :arguments {"command" "ls"}}]
+                    (first @tools-called*)))
+        (is (= 2 (count @requests*)))))))
+
+(deftest create-response-tool-calls-fallback-via-atom-test
+  (testing "empty output in response.completed still triggers on-tools-called via atom fallback"
+    (let [tools-called* (atom [])
+          requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (when (= 1 (count @requests*))
+                        (on-stream "response.output_item.added"
+                                   {:item {:type "function_call"
+                                           :id "item-1"
+                                           :call_id "call-1"
+                                           :name "eca__shell_command"
+                                           :arguments ""}})
+                        (on-stream "response.function_call_arguments.delta"
+                                   {:item_id "item-1"
+                                    :delta "{\"command\":\"ls\"}"})
+                        (on-stream "response.output_item.done"
+                                   {:item {:type "function_call"
+                                           :id "item-1"
+                                           :call_id "call-1"
+                                           :name "eca__shell_command"
+                                           :arguments "{\"command\":\"ls\"}"}})
+                        ;; response.completed with EMPTY output — fallback must kick in
+                        (on-stream "response.completed"
+                                   {:response {:output []
+                                               :usage {:input_tokens 10
+                                                       :output_tokens 5}
+                                               :status "completed"}})))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-tools-called (fn [tool-calls]
+                              (swap! tools-called* conj tool-calls)
+                              {:new-messages [] :tools []})}))
+        (is (= 1 (count @tools-called*)))
+        (is (match? [{:id "call-1"
+                      :full-name "eca__shell_command"
+                      :arguments {"command" "ls"}}]
+                    (first @tools-called*)))
+        (is (= 2 (count @requests*)))))))
+
+(deftest create-response-text-only-no-phantom-calls-test
+  (testing "text-only final response doesn't produce phantom tool calls from stale atom entries"
+    (let [tools-called* (atom [])
+          finish-received* (atom false)
+          requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (case (count @requests*)
+                        ;; First call: tool call with Copilot-style mismatched item IDs
+                        1 (do
+                            (on-stream "response.output_item.added"
+                                       {:item {:type "function_call"
+                                               :id "stream-added-id"
+                                               :call_id "call-1"
+                                               :name "eca__shell_command"
+                                               :arguments ""}})
+                            (on-stream "response.function_call_arguments.delta"
+                                       {:item_id "stream-added-id"
+                                        :delta "{\"command\":\"ls\"}"})
+                            (on-stream "response.output_item.done"
+                                       {:item {:type "function_call"
+                                               :id "stream-done-id"
+                                               :call_id "call-1"
+                                               :name "eca__shell_command"
+                                               :arguments "{\"command\":\"ls\"}"}})
+                            (on-stream "response.completed"
+                                       {:response {:output [{:type "function_call"
+                                                             :id "output-id"
+                                                             :call_id "call-1"
+                                                             :name "eca__shell_command"
+                                                             :arguments "{\"command\":\"ls\"}"}]
+                                                   :usage {:input_tokens 10 :output_tokens 5}
+                                                   :status "completed"}}))
+                        ;; Second call: text-only response (no tool calls)
+                        2 (on-stream "response.completed"
+                                     {:response {:output [{:type "message"
+                                                           :id "msg-1"
+                                                           :content [{:text "Done."}]}]
+                                                 :usage {:input_tokens 5 :output_tokens 3}
+                                                 :status "completed"}})
+                        nil))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-message-received (fn [msg]
+                                  (when (= :finish (:type msg))
+                                    (reset! finish-received* true)))
+           :on-tools-called (fn [tool-calls]
+                              (swap! tools-called* conj tool-calls)
+                              {:new-messages [] :tools []})}))
+        (is (= 1 (count @tools-called*))
+            "on-tools-called should fire exactly once, not for phantom calls")
+        (is (true? @finish-received*)
+            "text-only response should trigger :finish")
+        (is (= 2 (count @requests*))
+            "should make exactly 2 requests, no retry loop")))))
+
+(deftest create-response-mismatched-item-ids-test
+  (testing "different item IDs across streaming events still produce correct tool calls"
+    (let [tools-called* (atom [])
+          requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (when (= 1 (count @requests*))
+                        ;; Copilot-style: different encrypted IDs for the same tool call
+                        (on-stream "response.output_item.added"
+                                   {:item {:type "function_call"
+                                           :id "encrypted-added-id"
+                                           :call_id "call-1"
+                                           :name "eca__shell_command"
+                                           :arguments ""}})
+                        (on-stream "response.function_call_arguments.delta"
+                                   {:item_id "encrypted-added-id"
+                                    :delta "{\"command\":\"ls\"}"})
+                        ;; output_item.done uses a DIFFERENT encrypted id
+                        (on-stream "response.output_item.done"
+                                   {:item {:type "function_call"
+                                           :id "encrypted-done-id"
+                                           :call_id "call-1"
+                                           :name "eca__shell_command"
+                                           :arguments "{\"command\":\"ls\"}"}})
+                        ;; response.completed uses yet ANOTHER encrypted id
+                        (on-stream "response.completed"
+                                   {:response {:output [{:type "function_call"
+                                                         :id "encrypted-output-id"
+                                                         :call_id "call-1"
+                                                         :name "eca__shell_command"
+                                                         :arguments "{\"command\":\"ls\"}"}]
+                                               :usage {:input_tokens 10 :output_tokens 5}
+                                               :status "completed"}})))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-tools-called (fn [tool-calls]
+                              (swap! tools-called* conj tool-calls)
+                              {:new-messages [] :tools []})}))
+        (is (= 1 (count @tools-called*)))
+        (is (match? [{:id "call-1"
+                      :full-name "eca__shell_command"
+                      :arguments {"command" "ls"}}]
+                    (first @tools-called*)))
+        (is (= 2 (count @requests*)))))))

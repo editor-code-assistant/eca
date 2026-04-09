@@ -118,9 +118,9 @@
              }))
         messages))
 
-(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers]}
+(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers extra-payload]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
-                     on-reason extra-payload] :as callbacks}]
+                     on-reason] :as callbacks}]
   (let [messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
                   (normalize-messages user-messages))
@@ -143,7 +143,7 @@
                                    call-id (str (random-uuid))
                                    tool-call {:id call-id
                                               :full-name (:name function)
-                                              :arguments (:arguments function)}]
+                                              :arguments (update-keys (:arguments function) name)}]
                                (on-prepare-tool-call (assoc tool-call :arguments-text ""))
                                (swap! tool-calls* assoc rid tool-call))
 

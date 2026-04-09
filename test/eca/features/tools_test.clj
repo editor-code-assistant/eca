@@ -205,6 +205,22 @@
       (testing "fallback to manual approval"
         (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))))))
 
+(deftest approval-trust-test
+  (let [request-tool {:name "request" :server {:name "web"} :origin :mcp}
+        all-tools [request-tool]]
+    (testing "trust promotes :ask to :trust/allow"
+      (is (= :trust/allow (f.tools/approval all-tools request-tool {} {} {} nil {:trust true}))))
+    (testing "trust does not override :deny"
+      (is (= :deny (f.tools/approval all-tools request-tool {} {}
+                                     {:toolCall {:approval {:deny {"web__request" {}}}}} nil {:trust true}))))
+    (testing "trust does not change :allow"
+      (is (= :allow (f.tools/approval all-tools request-tool {} {}
+                                      {:toolCall {:approval {:allow {"web__request" {}}}}} nil {:trust true}))))
+    (testing "no trust returns :ask as-is"
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil nil)))
+      (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil {:trust false}))))))
+
 (deftest agent-specific-approval-test
   (let [shell-tool {:name "shell_command" :full-name "eca__shell_command" :server {:name "eca"} :origin :native}
         read-tool {:name "read_file" :full-name "eca__read_file" :server {:name "eca"} :origin :native}
@@ -306,7 +322,21 @@
         "head -10 file.txt"
         "pwd"
         "date"
-        "env"))
+        "env"
+        "cd /tmp && jar xf /home/user/.m2/repository/lib/lib-1.0.jar src/foo.cljc 2>&1; echo \"---DONE---\""
+        "some-cmd 2>&1; echo done"
+        "some-cmd 2>/dev/null; echo done"))
+
+    (testing "redirections to /tmp/ are not denied in plan mode"
+      (are [command] (not= :deny
+                           (f.tools/approval all-tools shell-tool
+                                             {"command" command} {} config "plan"))
+        "gh api repos/editor-code-assistant/eca-emacs/contents/eca-chat.el --jq '.content' 2>/dev/null | base64 -d 2>/dev/null > /tmp/eca-chat.el && wc -l /tmp/eca-chat.el"
+        "echo test > /tmp/output.txt"
+        "cat file.txt > /tmp/result.log"
+        "ls -la >> /tmp/listing.txt"
+        "some-cmd 2> /tmp/errors.log"
+        "bash -c 'echo test > /tmp/file.txt'"))
 
     (testing "same commands work fine in code agent mode (not denied)"
       (are [command] (not= :deny
@@ -343,7 +373,8 @@
             (h/messenger)
             (h/metrics)
             identity
-            identity))))))
+            identity
+            nil))))))
 
 (deftest call-tool!-mcp-missing-required-test
   (testing "INVALID_ARGS for missing required param on MCP tool"
@@ -372,7 +403,8 @@
             (h/messenger)
             (h/metrics)
             identity
-            identity))))))
+            identity
+            nil))))))
 
 (deftest call-tool!-missing-multiple-required-test
   (testing "INVALID_ARGS for multiple missing required params on native tool"
@@ -401,4 +433,5 @@
             (h/messenger)
             (h/metrics)
             identity
-            identity))))))
+            identity
+            nil))))))

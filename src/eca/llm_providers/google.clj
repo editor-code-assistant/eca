@@ -13,7 +13,7 @@
   (if (not (string/blank? input))
     (do
       (config/update-global-config! {:providers {"google" {:key input}}})
-      (swap! db* update :auth dissoc provider)
+      (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))
     (send-msg! (format "Invalid API key '%s'" input))))

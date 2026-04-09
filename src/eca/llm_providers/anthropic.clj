@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
@@ -65,10 +66,29 @@
             :name (:full-name tool)}) tools)
     web-search (conj {:type "web_search_20250305"
                       :name "web_search"
-                      :max_uses 10
-                      :cache_control {:type "ephemeral"}})))
+                      :max_uses 10})))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers]}]
+(defn ^:private cache-control-value
+  "Returns the cache_control map based on cache retention config and API URL.
+   Only applies 1-hour TTL when hitting the direct Anthropic API."
+  [api-url cache-retention]
+  (if (and (= "long" cache-retention)
+           (or (nil? api-url)
+               (string/includes? api-url "api.anthropic.com")))
+    {:type "ephemeral" :ttl "1h"}
+    {:type "ephemeral"}))
+
+(defn ^:private add-cache-to-last-tool
+  "Adds cache_control to the last tool in the tools array, ensuring
+   the full tools list is part of the cached prefix."
+  [tools cache-control]
+  (if (seq tools)
+    (shared/update-last
+     (vec tools)
+     (fn [tool] (assoc tool :cache_control cache-control)))
+    tools))
+
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path messages-path))
         reason-id* (atom (str (random-uuid)))
         oauth? (= :auth/oauth auth-type)
@@ -103,10 +123,47 @@
                        :status status
                        :body body-str}))
           (if on-stream
-            (with-open [rdr (io/reader body)]
-              (doseq [[event data] (llm-util/event-data-seq rdr)]
-                (llm-util/log-response logger-tag rid event data)
-                (on-stream event data content-block* reason-id*)))
+            (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))
+                  completed?* (atom false)]
+              (try
+                (with-open [rdr (io/reader body)]
+                  (doseq [[event data] (llm-util/event-data-seq rdr)]
+                    (set-reading-fn false)
+                    (touch-fn)
+                    (llm-util/log-response logger-tag rid event data)
+                    (on-stream event data content-block* reason-id*)
+                    (set-reading-fn true)
+                    (when (= "message_stop" event)
+                      (reset! completed?* true))))
+                (when-not (or @completed?* (cancelled?))
+                  (logger/warn logger-tag "Stream ended without message_stop, retrying")
+                  (on-error {:message "Stream ended without completion signal"
+                             :error/type :premature-stop}))
+                (catch clojure.lang.ExceptionInfo e
+                  (if (= :premature-stop (:error/type (ex-data e)))
+                    (do
+                      (logger/warn logger-tag "Stream ended with empty response, retrying")
+                      (on-error (merge {:message (ex-message e)} (ex-data e))))
+                    (throw e)))
+                (catch java.io.IOException e
+                  (let [reason @reason*]
+                    (cond
+                      (= :cancelled reason)
+                      (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                      (= :idle-timeout reason)
+                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
+                                                  (or stream-idle-timeout-seconds 120))
+                                 :exception e})
+
+                      :else
+                      (on-error {:exception e
+                                 :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))}))))
+                (finally
+                  (stop-fn))))
             (do
               (llm-util/log-response logger-tag rid "response" body)
               (reset! response*
@@ -158,19 +215,20 @@
                                    (if (string? c)
                                      (string/trim c)
                                      (vec
-                                      (keep #(case (name (:type %))
+                                      (keep #(when-let [t (:type %)]
+                                               (case (name t)
 
-                                               "text"
-                                               (update % :text string/trim)
+                                                 "text"
+                                                 (update % :text string/trim)
 
-                                               "image"
-                                               (when supports-image?
-                                                 {:type "image"
-                                                  :source {:data (:base64 %)
-                                                           :media_type (:media-type %)
-                                                           :type "base64"}})
+                                                 "image"
+                                                 (when supports-image?
+                                                   {:type "image"
+                                                    :source {:data (:base64 %)
+                                                             :media_type (:media-type %)
+                                                             :type "base64"}})
 
-                                               %)
+                                                 %))
                                             c))))))))
         past-messages))
 
@@ -240,7 +298,7 @@
    []
    messages))
 
-(defn ^:private add-cache-to-last-message [messages]
+(defn ^:private add-cache-to-last-message [messages cache-control]
   ;; TODO add cache_control to last non thinking message
   (shared/update-last
    (vec messages)
@@ -249,13 +307,14 @@
        (if (string? content)
          (assoc-in message [:content] [{:type :text
                                         :text content
-                                        :cache_control {:type "ephemeral"}}])
-         (assoc-in message [:content (dec (count content)) :cache_control] {:type "ephemeral"}))))))
+                                        :cache_control cache-control}])
+         (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
 
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload extra-headers supports-image? http-client]}
+           tools web-search extra-payload extra-headers supports-image? http-client cancelled?
+           stream-idle-timeout-seconds cache-retention]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
@@ -263,28 +322,40 @@
                      merge-adjacent-assistants
                      merge-adjacent-tool-results)
         stream? (boolean callbacks)
+        cache-control (cache-control-value api-url cache-retention)
+        {:keys [static dynamic]} (if (map? instructions)
+                                    instructions
+                                    {:static instructions :dynamic nil})
+        system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
+                               {:type "text" :text static :cache_control cache-control}]
+                        (not (string/blank? dynamic))
+                        (conj {:type "text" :text dynamic :cache_control cache-control}))
         body (merge
               (assoc-some
                {:model model
-                :messages (add-cache-to-last-message messages)
+                :messages (add-cache-to-last-message messages cache-control)
                 :max_tokens (or max-output-tokens 32000)
                 :stream stream?
-                :tools (->tools tools web-search)
-                :system [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
-                         {:type "text" :text instructions :cache_control {:type "ephemeral"}}]}
+                :tools (add-cache-to-last-tool (->tools tools web-search) cache-control)
+                :system system-blocks}
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)
         context-usage* (atom nil)
+        has-content?* (atom false)
+        has-stop-reason?* (atom false)
         on-stream-fn
         (when stream?
           (fn handle-stream [event data content-block* reason-id*]
             (case event
-              "message_start" (let [usage (-> data :message :usage)]
-                                (reset! context-usage*
-                                        {:input-tokens (or (:input_tokens usage) 0)
-                                         :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
-                                         :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)}))
+              "message_start" (do
+                                (reset! has-content?* false)
+                                (reset! has-stop-reason?* false)
+                                (let [usage (-> data :message :usage)]
+                                  (reset! context-usage*
+                                          {:input-tokens (or (:input_tokens usage) 0)
+                                           :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
+                                           :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)})))
               "content_block_start" (case (-> data :content_block :type)
                                       "thinking" (let [new-id (str (random-uuid))]
                                                    (reset! reason-id* new-id)
@@ -299,11 +370,13 @@
                                                                         :data (-> data :content_block :data)})
                                                             (swap! content-block* assoc (:index data) (:content_block data)))
                                       "tool_use" (do
+                                                   (reset! has-content?* true)
                                                    (on-prepare-tool-call {:full-name (-> data :content_block :name)
                                                                           :id (-> data :content_block :id)
                                                                           :arguments-text ""})
                                                    (swap! content-block* assoc (:index data) (:content_block data)))
                                       "server_tool_use" (let [content-block (:content_block data)]
+                                                          (reset! has-content?* true)
                                                           (swap! content-block* assoc (:index data) content-block)
                                                           (on-server-web-search {:status :started
                                                                                   :id (:id content-block)
@@ -320,8 +393,10 @@
                                                                                         :raw-content (:content content-block)}))
                                       nil)
               "content_block_delta" (case (-> data :delta :type)
-                                      "text_delta" (on-message-received {:type :text
-                                                                         :text (-> data :delta :text)})
+                                      "text_delta" (do
+                                                     (reset! has-content?* true)
+                                                     (on-message-received {:type :text
+                                                                           :text (-> data :delta :text)}))
                                       "input_json_delta" (let [text (-> data :delta :partial_json)
                                                                _ (swap! content-block* update-in [(:index data) :input-json] str text)
                                                                content-block (get @content-block* (:index data))]
@@ -354,6 +429,8 @@
                                                                                  :input (or input (:input content-block) {})}))
                                       nil))
               "message_delta" (do
+                                (when (-> data :delta :stop_reason)
+                                  (reset! has-stop-reason?* true))
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]
                                   (let [ctx @context-usage*]
@@ -369,13 +446,13 @@
                                                                     :full-name (:name content-block)
                                                                     :arguments (json/parse-string (:input-json content-block))}))
                                                                (vals @content-block*))]
-                                               (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
+                                               (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
                                                  (let [messages (-> new-messages
                                                                     group-parallel-tool-calls
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
                                                                     merge-adjacent-tool-results
-                                                                    add-cache-to-last-message)]
+                                                                    (add-cache-to-last-message cache-control))]
                                                    (reset! content-block* {})
                                                    (base-request!
                                                     {:rid (llm-util/gen-rid)
@@ -383,21 +460,33 @@
                                                                   :messages messages
                                                                   :tools (->tools tools web-search))
                                                      :api-url api-url
-                                                     :api-key api-key
+                                                     :api-key (or fresh-api-key api-key)
                                                      :http-client http-client
                                                      :extra-headers extra-headers
                                                      :auth-type auth-type
                                                      :url-relative-path url-relative-path
                                                      :content-block* (atom nil)
+                                                     :cancelled? cancelled?
                                                      :on-error on-error
-                                                     :on-stream handle-stream}))))
-                                  "end_turn" (do
-                                               (reset! content-block* {})
-                                               (on-message-received {:type :finish
-                                                                     :finish-reason (-> data :delta :stop_reason)}))
+                                                     :on-stream handle-stream
+                                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds}))))
+                                  "end_turn" (if @has-content?*
+                                               (do
+                                                 (reset! content-block* {})
+                                                 (on-message-received {:type :finish
+                                                                       :finish-reason (-> data :delta :stop_reason)}))
+                                               (throw (ex-info "Stream ended with empty response"
+                                                               {:error/type :premature-stop})))
                                   "max_tokens" (on-message-received {:type :limit-reached
                                                                      :tokens (:usage data)})
                                   nil))
+              "message_stop" (when-not @has-stop-reason?*
+                               (if @has-content?*
+                                 (on-message-received {:type :finish
+                                                       :finish-reason "end_turn"
+                                                       :premature? true})
+                                 (throw (ex-info "Stream ended without completion"
+                                                 {:error/type :premature-stop}))))
               "error" (on-error {:message (format "\nAnthropic error response: %s" (:error data))})
               nil)))]
     (base-request!
@@ -410,8 +499,10 @@
       :auth-type auth-type
       :url-relative-path url-relative-path
       :content-block* (atom nil)
+      :cancelled? cancelled?
       :on-error on-error
-      :on-stream on-stream-fn})))
+      :on-stream on-stream-fn
+      :stream-idle-timeout-seconds stream-idle-timeout-seconds})))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
 
@@ -494,6 +585,50 @@
                       {:status status
                        :body body})))))
 
+;; --- Settings-based login (providers/login flow) ---
+
+(defmethod f.providers/start-login! ["anthropic" "max"] [_ _ db* _config _messenger _metrics]
+  (let [{:keys [verifier url]} (oauth-url :max)]
+    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
+                                             :mode :max
+                                             :verifier verifier})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser, then paste the authorization code"
+     :fields [{:key "code" :label "Authorization code" :type "text"}]}))
+
+(defmethod f.providers/start-login! ["anthropic" "console"] [_ _ db* _config _messenger _metrics]
+  (let [{:keys [verifier url]} (oauth-url :console)]
+    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
+                                             :mode :console
+                                             :verifier verifier})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser, then paste the authorization code"
+     :fields [{:key "code" :label "Authorization code" :type "text"}]}))
+
+(defmethod f.providers/complete-oauth-code! "anthropic" [_ data db* messenger metrics]
+  (let [code (:code data)
+        {:keys [mode verifier]} (get-in @db* [:auth "anthropic"])]
+    (case mode
+      :console
+      (let [{:keys [access-token]} (oauth-authorize code verifier)
+            raw-key (create-api-key access-token)]
+        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
+                                                        :type :auth/token
+                                                        :api-key raw-key}))
+      :max
+      (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize code verifier)]
+        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
+                                                        :type :auth/oauth
+                                                        :refresh-token refresh-token
+                                                        :api-key access-token
+                                                        :expires-at expires-at})))
+    (f.providers/sync-and-notify! "anthropic" db* messenger metrics)
+    {:action "done"}))
+
+;; --- Chat-based login (legacy /login command) ---
+
 (defmethod f.login/login-step ["anthropic" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
@@ -550,7 +685,7 @@
   (if (string/starts-with? input "sk-")
     (do
       (config/update-global-config! {:providers {"anthropic" {:key input}}})
-      (swap! db* update :auth dissoc provider)
+      (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))
     (send-msg! (format "Invalid API key '%s'" input))))
@@ -563,4 +698,4 @@
                                                  :refresh-token refresh-token
                                                  :api-key access-token
                                                  :expires-at expires-at})
-    (f.login/login-done! ctx :silent? true)))
+    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))

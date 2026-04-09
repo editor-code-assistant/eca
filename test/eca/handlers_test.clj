@@ -28,7 +28,18 @@
                                             :models {"gpt-5" {:a 1}
                                                      "gpt-5.2" {}}
                                             :url string?}}}
-             (#'config/all* @db*)))))))
+             (#'config/all* @db*))))))
+
+  (testing "snapshots initial-workspace-folders for stable cache key"
+    (h/reset-components!)
+    (let [workspace-folders [{:uri "file:///project/main" :name "main"}]]
+      (with-redefs [db/load-db-from-cache! (constantly nil)]
+        (handlers/initialize (h/components)
+                             {:workspace-folders workspace-folders
+                              :initialization-options {:pureConfig true}})
+        (is (match? {:initial-workspace-folders workspace-folders
+                     :workspace-folders workspace-folders}
+                    (h/db)))))))
 
 (deftest chat-selected-agent-changed-test
   (testing "Switching to agent with defaultModel updates model and variants"

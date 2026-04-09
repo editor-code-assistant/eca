@@ -33,13 +33,79 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
 === "HTTP (streamable or sse)"
 
-    ECA supports OAuth authentication as well
+    ECA supports OAuth authentication automatically via MCP spec discovery.
 
     ```javascript title="~/.config/eca/config.json"
     {
       "mcpServers": {
         "cool-mcp": {
           "url": "https://my-remote-mcp.com/mcp"
+        }
+      }
+    }
+    ```
+
+=== "OAuth with pre-registered client"
+
+    Some providers (e.g. Databricks) require a pre-registered OAuth application
+    and don't support dynamic client registration. Use `clientId` with the
+    client ID from your provider's OAuth app settings.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "databricks-sql": {
+          "url": "https://my-workspace.cloud.databricks.com/api/2.0/mcp/sql",
+          "clientId": "<your-oauth-app-client-id>"
+        }
+      }
+    }
+    ```
+
+=== "Confidential OAuth (e.g. Slack)"
+
+    Some providers (e.g. Slack MCP) require confidential OAuth with both a
+    `clientId` and `clientSecret`, and require HTTPS pre-registered redirect URIs.
+
+    Setup steps:
+
+    1. Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps)
+    2. Enable MCP under *Features > Agents & AI Apps*
+    3. Under *OAuth & Permissions > Redirect URLs*, add
+       `https://localhost:19284/auth/callback`
+    4. Add the user scopes you need (e.g. `search:read.public`, `channels:history`)
+    5. Copy the credentials from *Settings > Basic Information > App Credentials*
+
+    When `oauthPort` is set, ECA uses a bundled localhost certificate to serve
+    HTTPS on the callback. On first authorization, your browser will show a
+    certificate warning — click *Advanced → Proceed* to complete the flow.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "slack": {
+          "url": "https://mcp.slack.com/mcp",
+          "clientId": "<your-slack-app-client-id>",
+          "clientSecret": "<your-slack-app-client-secret>",
+          "oauthPort": 19284
+        }
+      }
+    }
+    ```
+
+=== "Static auth header"
+
+    For servers that accept a static token (e.g. a personal access token),
+    set the `Authorization` header directly. This skips OAuth entirely.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "my-api": {
+          "url": "https://my-remote-mcp.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:MY_API_TOKEN}"
+          }
         }
       }
     }

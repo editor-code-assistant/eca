@@ -4,9 +4,10 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.mcp :as f.tools.mcp]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :refer [assoc-some]]))
+   [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
 
@@ -531,7 +532,7 @@
    The on-before-hook-action and on-after-hook-action callbacks are optional (default to noops)
    and are used for UI notifications. In tests, these can be omitted."
   [{:keys [full-name arguments]} all-tools db config agent-name chat-id
-   & [{:keys [on-before-hook-action on-after-hook-action]
+   & [{:keys [on-before-hook-action on-after-hook-action trust]
        :or {on-before-hook-action (fn [_] nil)
             on-after-hook-action (fn [_] nil)}}]]
   (let [tool (tool-by-full-name full-name all-tools)
@@ -539,8 +540,10 @@
         server (:server tool)
         server-name (:name server)
 
-        ;; 1. Determine initial config-based approval
-        initial-approval (f.tools/approval all-tools tool arguments db config agent-name)
+        ;; 1. Determine approval (trust promotion handled inside f.tools/approval)
+        approval (f.tools/approval all-tools tool arguments db config agent-name {:trust trust})
+        trusted? (= :trust/allow approval)
+        effective-approval (if trusted? :allow approval)
 
         ;; 2. Run hooks to collect modifications and approval overrides
         hook-state* (atom {:hook-results []
@@ -556,7 +559,7 @@
                   {:tool-name name
                    :server server-name
                    :tool-input arguments
-                   :approval initial-approval})
+                   :approval effective-approval})
            {:on-before-action on-before-hook-action
             :on-after-action (fn [result]
                                (on-after-hook-action result)
@@ -577,12 +580,15 @@
         final-decision (cond
                          hook-rejected? :deny
                          approval-override (keyword approval-override)
-                         :else initial-approval)
+                         :else effective-approval)
 
         ;; 5. Build the reason map
         reason (case final-decision
-                 :allow {:code :user-config-allow
-                         :text "Tool call allowed by user config"}
+                 :allow (if trusted?
+                          {:code :trust-allow
+                           :text "Tool call allowed by trust mode"}
+                          {:code :user-config-allow
+                           :text "Tool call allowed by user config"})
                  :deny (if hook-rejected?
                          {:code :hook-rejected
                           :text hook-rejection-reason}
@@ -627,7 +633,8 @@
                           decision-plan                                  (decide-tool-call-action
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
-                                                                           :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)})
+                                                                           :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
+                                                                           :trust                 (:trust chat-ctx)})
                           {:keys [decision arguments hook-rejected? reason hook-continue
                                   hook-stop-reason arguments-modified?]} decision-plan
                           _ (when arguments-modified?
@@ -674,7 +681,8 @@
                                                                      messenger
                                                                      metrics
                                                                      (partial get-tool-call-state @db* chat-id id)
-                                                                     (partial transition-tool-call! db* chat-ctx id))
+                                                                     (partial transition-tool-call! db* chat-ctx id)
+                                                                     {:trust (:trust chat-ctx)})
                                           details (f.tools/tool-call-details-after-invocation name arguments details result
                                                                                               {:db @db*
                                                                                                :config config
@@ -740,8 +748,8 @@
                                                                      :details details
                                                                      :summary summary
                                                                      :progress-text (if (= name "spawn_agent")
-                                                                         "Waiting subagent"
-                                                                         "Calling tool")})))
+                                                                                      "Waiting subagent"
+                                                                                      "Calling tool")})))
                         (let [tool-call-state (get-tool-call-state @db* chat-id id)
                               {:keys [code text]} (:decision-reason tool-call-state)
                               effective-hook-continue (when hook-rejected? hook-continue)
@@ -791,6 +799,7 @@
                                                     :ex-data (ex-data t)
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
+            (f.tools.mcp/await-pending-tools-refresh @db* 5000)
             (let [all-tools (f.tools/all-tools chat-id agent @db* config)]
               (if-let [rejection-info @rejected-tool-call-info*]
                 (let [reason-code
@@ -805,7 +814,8 @@
                                                                      :text (or hook-stop-reason "Tool rejected by hook")})
                           (lifecycle/finish-chat-prompt! :idle chat-ctx) nil)
                       {:tools all-tools
-                       :new-messages (get-in @db* [:chats chat-id :messages])})
+                       :new-messages (shared/messages-after-last-compact-marker
+                                      (get-in @db* [:chats chat-id :messages]))})
                     (if (get-in @db* [:chats chat-id :subagent])
                       ;; Subagent: user can't provide rejection input directly, so continue
                       ;; the LLM loop with a rejection message letting the subagent adapt
@@ -813,7 +823,8 @@
                                             :content [{:type :text
                                                        :text "I rejected one or more tool calls. The tool call was not allowed. Try a different approach to complete the task."}]})
                           {:tools all-tools
-                           :new-messages (get-in @db* [:chats chat-id :messages])})
+                           :new-messages (shared/messages-after-last-compact-marker
+                                          (get-in @db* [:chats chat-id :messages]))})
                       (do (lifecycle/send-content! chat-ctx :system {:type :text
                                                                      :text "Tell ECA what to do differently for the rejected tool(s)"})
                           (add-to-history! {:role "user"
@@ -823,7 +834,15 @@
                           nil))))
                 (do
                   (lifecycle/maybe-renew-auth-token chat-ctx)
-                  (if-let [continue-fn (:continue-fn chat-ctx)]
-                    (continue-fn all-tools user-messages)
-                    {:tools all-tools
-                     :new-messages (get-in @db* [:chats chat-id :messages])}))))))))))
+                  (let [provider-auth (get-in @db* [:auth (:provider chat-ctx)])
+                        [_ fresh-api-key] (llm-util/provider-api-key (:provider chat-ctx)
+                                                                     provider-auth
+                                                                     config)
+                        result (if-let [continue-fn (:continue-fn chat-ctx)]
+                                 (continue-fn all-tools user-messages)
+                                 {:tools all-tools
+                                  :new-messages (get-in @db* [:chats chat-id :messages])})]
+                    (when result
+                      (assoc result
+                             :fresh-api-key fresh-api-key
+                             :provider-auth provider-auth))))))))))))

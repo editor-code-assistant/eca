@@ -1,7 +1,12 @@
 (ns eca.features.tools.mcp-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.tools.mcp :as mcp]))
+   [eca.features.tools.mcp :as mcp]
+   [eca.network :as network]
+   [plumcp.core.api.mcp-client :as pmc]
+   [plumcp.core.client.http-client-transport :as phct]
+   [plumcp.core.protocol :as pp]
+   [plumcp.core.support.http-client :as phc]))
 
 (deftest all-tools-test
   (testing "empty db"
@@ -124,3 +129,105 @@
       (is (= {:mcp-clients {}
               :workspace-folders []
               :other-key "value"} @db*)))))
+
+(def ^:private ->transport #'mcp/->transport)
+
+(deftest transport-middleware-reads-latest-token-test
+  (testing "request middleware uses current atom value, not a stale snapshot"
+    (let [db* (atom {:mcp-auth {"test-server" {:access-token "token-v1"}}})
+          captured-rm* (atom nil)]
+      (binding [network/*ssl-context* nil]
+        (with-redefs [phc/make-http-client (fn [_url {:keys [request-middleware]}]
+                                             (reset! captured-rm* request-middleware)
+                                             :mock-http-client)
+                      phct/make-streamable-http-transport (fn [_hc] :mock-transport)]
+          (->transport "test-server" {:url "https://example.com/mcp"} [] db*)))
+      (let [rm @captured-rm*]
+        (is (some? rm) "middleware should have been captured")
+
+        (testing "reads initial token"
+          (let [result (rm {:headers {}})]
+            (is (= "Bearer token-v1" (get-in result [:headers "Authorization"])))))
+
+        (testing "reads updated token after atom mutation"
+          (swap! db* assoc-in [:mcp-auth "test-server" :access-token] "token-v2")
+          (let [result (rm {:headers {}})]
+            (is (= "Bearer token-v2" (get-in result [:headers "Authorization"])))))
+
+        (testing "no Authorization header when token is removed"
+          (swap! db* update :mcp-auth dissoc "test-server")
+          (let [result (rm {:headers {}})]
+            (is (nil? (get-in result [:headers "Authorization"])))))))))
+
+(deftest initialize-server-retries-on-transport-error-test
+  (testing "retries with token refresh when needs-reinit? is set during init (e.g. 403)"
+    (let [db* (atom {:mcp-auth {"test-server" {:access-token "old-token"
+                                                :url "https://example.com/mcp"}}
+                      :workspace-folders [{:uri "file:///tmp" :name "test"}]})
+          attempt-count* (atom 0)
+          refresh-count* (atom 0)
+          status-updates* (atom [])
+          mock-client (Object.)
+          make-transport (fn [_name _config _workspaces _db*]
+                           (let [attempt (swap! attempt-count* inc)
+                                 needs-reinit?* (atom (<= attempt 2))]
+                             {:transport :mock-transport
+                              :needs-reinit?* needs-reinit?*}))]
+      (with-redefs-fn {#'mcp/->transport make-transport
+                       #'mcp/->client (fn [_name _transport _timeout _workspaces _opts]
+                                        mock-client)
+                       #'pp/stop-client-transport! (fn [_t _g] nil)
+                       #'pmc/get-initialize-result (fn [_client]
+                                                     {:serverInfo {:version "1.0"}
+                                                      :capabilities {:tools true}})
+                       #'pmc/list-tools (fn [_client _opts] [])
+                       #'pmc/list-prompts (fn [_client _opts] [])
+                       #'pmc/list-resources (fn [_client _opts] [])
+                       #'mcp/try-refresh-token! (fn [_name _db* _url _metrics _config]
+                                                  (swap! refresh-count* inc)
+                                                  true)}
+        (fn []
+          (#'mcp/initialize-server! "test-server" db*
+           {:mcpServers {"test-server" {:url "https://example.com/mcp"}}
+            :mcpTimeoutSeconds 5}
+           nil
+           (fn [server] (swap! status-updates* conj (:status server))))))
+
+      (is (= 3 @attempt-count*) "should have attempted 3 times (2 failed + 1 success)")
+      (is (= 2 @refresh-count*) "should have tried token refresh on each retry")
+      (is (= :running (get-in @db* [:mcp-clients "test-server" :status]))
+          "server should be running after successful retry")))
+
+  (testing "fails after exhausting all retry attempts"
+    (let [db* (atom {:mcp-auth {"fail-server" {:access-token "bad-token"
+                                                :url "https://example.com/mcp"}}
+                      :workspace-folders [{:uri "file:///tmp" :name "test"}]})
+          attempt-count* (atom 0)
+          refresh-count* (atom 0)]
+      (with-redefs-fn {#'mcp/->transport (fn [_name _config _workspaces _db*]
+                                           (swap! attempt-count* inc)
+                                           {:transport :mock-transport
+                                            :needs-reinit?* (atom true)})
+                       #'mcp/->client (fn [_name _transport _timeout _workspaces _opts]
+                                        (Object.))
+                       #'pp/stop-client-transport! (fn [_t _g] nil)
+                       #'pmc/get-initialize-result (fn [_client]
+                                                     {:serverInfo {:version "1.0"}
+                                                      :capabilities {:tools true}})
+                       #'pmc/list-tools (fn [_client _opts] [])
+                       #'pmc/list-prompts (fn [_client _opts] [])
+                       #'pmc/list-resources (fn [_client _opts] [])
+                       #'mcp/try-refresh-token! (fn [_name _db* _url _metrics _config]
+                                                  (swap! refresh-count* inc)
+                                                  false)}
+        (fn []
+          (#'mcp/initialize-server! "fail-server" db*
+           {:mcpServers {"fail-server" {:url "https://example.com/mcp"}}
+            :mcpTimeoutSeconds 5}
+           nil
+           (constantly nil))))
+
+      (is (= 3 @attempt-count*) "should have attempted max-init-retries (3) times")
+      (is (= 2 @refresh-count*) "should have tried token refresh on attempts 1 and 2")
+      (is (= :failed (get-in @db* [:mcp-clients "fail-server" :status]))
+          "server should be in failed state after exhausting retries"))))

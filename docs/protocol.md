@@ -136,7 +136,7 @@ interface InitializeParams {
      * process is not alive then the server should exit (see exit notification)
      * its process.
      */
-     processId: integer | null;
+     processId?: integer | null;
      
      /**
      * Information about the client
@@ -388,6 +388,12 @@ interface ChatPromptParams {
      * Falls back to the agent's configured variant if not specified.
      */
     variant?: string;
+
+    /**
+     * When true, tool calls that would normally require manual approval
+     * are auto-accepted. Does not override deny rules.
+     */
+    trust?: boolean;
 }
 
 /**
@@ -583,7 +589,8 @@ type ChatContent =
     | ChatToolCallRunningContent
     | ChatToolCalledContent
     | ChatToolCallRejectedContent
-    | ChatMetadataContent;
+    | ChatMetadataContent
+    | ChatFlagContent;
     
 /**
  * Simple text message from the LLM
@@ -1081,6 +1088,11 @@ interface SubagentDetails {
     model: string;
 
     /**
+     * The variant this subagent is using, when one is explicitly selected.
+     */
+    variant?: string;
+
+    /**
      * The name of the agent being spawned.
      */
     agentName: string;
@@ -1179,6 +1191,25 @@ interface ChatMetadataContent {
      * The chat title.
      */
     title: string;
+}
+
+/**
+ * A named checkpoint flag in the chat history.
+ * Flags act as bookmarks that survive across sessions
+ * and are discoverable via timeline.
+ */
+interface ChatFlagContent {
+    type: 'flag';
+
+    /**
+     * The flag display text.
+     */
+    text: string;
+
+    /**
+     * Unique identifier for this flag.
+     */
+    contentId: string;
 }
 
 ```
@@ -1406,6 +1437,31 @@ interface ChatPromptStopParams {
 }
 ```
 
+### Chat steer prompt (➡️)
+
+A client notification to steer the current running prompt by injecting a user message
+at the next LLM loop turn boundary (e.g. after tool calls complete).
+If the prompt finishes before the steer is consumed, the client should send it as a regular prompt.
+
+_Notification:_
+
+* method: `chat/promptSteer`
+* params: `ChatPromptSteerParams` defined as follows:
+
+```typescript
+interface ChatPromptSteerParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The user message to inject at the next LLM turn boundary.
+     */
+    message: string;
+}
+```
+
 ### Chat rollback (↩️)
 
 A client request to rollback chat messages to before a specific user sent message using `contentId`.
@@ -1476,6 +1532,107 @@ _Response:_
 interface ChatClearResponse {}
 ```
 
+### Chat add flag (➡️)
+
+A client request to add a named flag (checkpoint) to the chat history.
+The flag is inserted after the message identified by the given `contentId`.
+The `contentId` matches against both message-level `contentId` (user messages) and
+content `id` fields (tool calls, reasons, etc), allowing placement between any message types.
+Flags are persisted as messages and propagate automatically with fork and resume.
+
+_Request:_
+
+* method: `chat/addFlag`
+* params: `ChatAddFlagParams` defined as follows:
+
+```typescript
+interface ChatAddFlagParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The id of the message after which the flag is inserted.
+     * Matches against message contentId or content.id fields.
+     */
+    contentId: string;
+
+    /**
+     * The flag display text.
+     */
+    text: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatAddFlagResponse {}
+```
+
+### Chat remove flag (➡️)
+
+A client request to remove a flag from the chat history.
+The client is responsible for removing the flag from the UI after a successful response.
+
+_Request:_
+
+* method: `chat/removeFlag`
+* params: `ChatRemoveFlagParams` defined as follows:
+
+```typescript
+interface ChatRemoveFlagParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The content id of the flag to remove.
+     */
+    contentId: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatRemoveFlagResponse {}
+```
+
+### Chat fork (➡️)
+
+A client request to fork the chat into a new chat with messages up to and including
+the message identified by the given `contentId`. The server creates the new chat,
+sends a `chat/opened` notification with the new chat, then streams the kept messages
+via `chat/contentReceived`. A system message is also sent to the original chat.
+
+_Request:_
+
+* method: `chat/fork`
+* params: `ChatForkParams` defined as follows:
+
+```typescript
+interface ChatForkParams {
+    /**
+     * The chat session identifier of the source chat.
+     */
+    chatId: string;
+
+    /**
+     * The content id of the message up to which to fork (inclusive).
+     */
+    contentId: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatForkResponse {}
+```
+
 ### Chat cleared (⬅️)
 
 A server notification to clear a chat UI, currently supporting removing only messages of the chat.
@@ -1497,6 +1654,31 @@ interface ChatClearedParams {
      * Whether to clear the messages of a chat.
      */
     messages: boolean;
+}
+```
+
+### Chat opened (⬅️)
+
+A server notification indicating a new chat was created server-side (e.g. via `/fork`).
+Clients should create a new chat entry in the UI. The chat messages will follow as `chat/contentReceived` notifications.
+
+_Notification:_
+
+* method: `chat/opened`
+* params: `ChatOpenedParams` defined as follows:
+
+```typescript
+interface ChatOpenedParams {
+
+    /**
+     * The new chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The title of the new chat.
+     */
+    title?: string;
 }
 ```
 
@@ -1523,6 +1705,36 @@ _Response:_
 
 ```typescript
 interface ChatDeleteResponse {}
+```
+
+### Chat update (↩️)
+
+A client request to update chat metadata like title.
+Server will persist the change, broadcast to all connected clients via `chat/contentReceived` with metadata content, and return an empty response.
+
+_Request:_
+
+* method: `chat/update`
+* params: `ChatUpdateParams` defined as follows:
+
+```typescript
+interface ChatUpdateParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * New title for the chat.
+     */
+    title?: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatUpdateResponse {}
 ```
 
 ### Chat selected agent changed (➡️)
@@ -1941,46 +2153,122 @@ interface MCPServerUpdatedParams {
     name: string;
     
     /**
-     * The command to start this server.
+     * The command used to start this server (stdio transport).
      */
-    command: string;
+    command?: string;
 
     /**
-     * The arguments to start this server.
+     * The arguments passed to the command (stdio transport).
      */
-    args: string[];
+    args?: string[];
+
+    /**
+     * The URL of the server (Streamable HTTP transport).
+     */
+    url?: string;
     
     /**
      * The status of the server.
      */
-    status: 'running' | 'starting' | 'stopped' | 'failed' | 'disabled';
+    status: 'running' | 'starting' | 'stopped' | 'failed' | 'disabled' | 'requires-auth';
+
+    /**
+     * Whether the server has an OAuth access token.
+     */
+    hasAuth: boolean;
     
     /**
-     * The tools supported by this mcp server if not disabled.
+     * The tools provided by this MCP server.
      */
     tools?: ServerTool[];
+
+    /**
+     * The prompts provided by this MCP server.
+     */
+    prompts?: ServerPrompt[];
+
+    /**
+     * The resources provided by this MCP server.
+     */
+    resources?: ServerResource[];
 }
 
 interface ServerTool {
     /**
-     * The server tool name.
+     * The tool name.
      */
     name: string;
     
     /**
-     * The server tool description.
+     * The tool description.
      */
     description: string;
     
     /**
-     * The server tool parameters.
+     * The tool parameters (JSON Schema).
      */
     parameters: any; 
     
     /**
-     * Whether this tool is disabled.
+     * Whether this tool is disabled by the current agent configuration.
      */
     disabled?: boolean;
+}
+
+interface ServerPrompt {
+    /**
+     * The prompt name.
+     */
+    name: string;
+
+    /**
+     * The prompt description.
+     */
+    description: string;
+
+    /**
+     * The prompt arguments.
+     */
+    arguments?: PromptArgument[];
+}
+
+interface PromptArgument {
+    /**
+     * The argument name.
+     */
+    name: string;
+
+    /**
+     * The argument description.
+     */
+    description: string;
+
+    /**
+     * Whether this argument is required.
+     */
+    required: boolean;
+}
+
+interface ServerResource {
+    /**
+     * The resource URI.
+     */
+    uri: string;
+
+    /**
+     * The resource name.
+     */
+    name: string;
+
+    /**
+     * The resource description.
+     */
+    description: string;
+
+    /**
+     * The MIME type of the resource.
+     */
+    mimeType: string;
 }
 ```
 
@@ -2022,11 +2310,348 @@ interface MCPStartServerParams {
 }
 ```
 
-### Add MCP (↩️)
+### Connect MCP server (➡️)
 
-Soon
+A client notification to initiate OAuth authorization for an MCP server that has `requires-auth` status.
+The server starts a local OAuth callback server and opens the authorization URL in the browser.
+On successful authorization, the server completes the OAuth flow and sends `tool/serverUpdated` with status `running`.
+
+_Notification:_
+
+* method: `mcp/connectServer`
+* params: `MCPConnectServerParams` defined as follows:
+
+```typescript
+interface MCPConnectServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+### Logout MCP server (➡️)
+
+A client notification to logout from an MCP server, clearing its stored OAuth credentials
+and restarting the server. The server will re-detect auth requirements and send
+`tool/serverUpdated` with status `requires-auth`.
+
+_Notification:_
+
+* method: `mcp/logoutServer`
+* params: `MCPLogoutServerParams` defined as follows:
+
+```typescript
+interface MCPLogoutServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+### Disable MCP server (➡️)
+
+A client notification to disable an MCP server. Persists `disabled: true` in the config file,
+stops the server if running, and sends `tool/serverUpdated` with status `disabled`.
+
+_Notification:_
+
+* method: `mcp/disableServer`
+* params: `MCPDisableServerParams` defined as follows:
+
+```typescript
+interface MCPDisableServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+### Enable MCP server (➡️)
+
+A client notification to enable a disabled MCP server. Removes the `disabled` flag from the config file,
+starts the server, and sends `tool/serverUpdated` with the new status.
+
+_Notification:_
+
+* method: `mcp/enableServer`
+* params: `MCPEnableServerParams` defined as follows:
+
+```typescript
+interface MCPEnableServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+### Update MCP Server (↩️)
+
+Updates an MCP server's connection configuration (command/args or url), persists the change to the appropriate config file (local or global), and restarts the server.
+
+_Request:_
+
+* method: `mcp/updateServer`
+* params: `MCPUpdateServerParams` defined as follows:
+
+```typescript
+interface MCPUpdateServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+    /**
+     * The command to run (for stdio servers).
+     */
+    command?: string;
+    /**
+     * The command arguments (for stdio servers).
+     */
+    args?: string[];
+    /**
+     * The URL (for remote/HTTP servers).
+     */
+    url?: string;
+}
+```
+
+_Response:_
+
+* result: `{}`
+
+## Provider Management
+
+### List Providers (↩️)
+
+Returns all known providers with their current authentication status and available models.
+
+_Request:_
+
+* method: `providers/list`
+* params: `{}`
+
+_Response:_
+
+* result: `ProvidersListResult` defined as follows:
+
+```typescript
+interface ProvidersListResult {
+    providers: ProviderStatus[];
+}
+
+interface ProviderStatus {
+    /** Provider identifier (e.g. "anthropic", "openai"). */
+    id: string;
+    /** Human-readable label (e.g. "GitHub Copilot"). */
+    label?: string;
+    /** Whether this provider exists in the resolved config. */
+    configured: boolean;
+    /** Current authentication state. */
+    auth: ProviderAuth;
+    /** Login methods available for this provider, if any. */
+    login?: { methods: LoginMethod[] };
+    /** Models currently available for this provider. */
+    models: ProviderModel[];
+    /** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */
+    settings?: Record<string, any>;
+}
+
+interface ProviderAuth {
+    /** Authentication status. */
+    status: 'authenticated' | 'expiring' | 'expired' | 'unauthenticated' | 'local' | 'not-running';
+    /** Authentication type. */
+    type?: 'oauth' | 'api-key';
+    /** How the credential was resolved. */
+    source?: 'config' | 'login' | 'env';
+    /** Login mode used (e.g. "max", "console", "manual", "pro"). */
+    mode?: string;
+    /** Token expiry as epoch seconds. */
+    expiresAt?: number;
+    /** Environment variable name when source is "env". */
+    envVar?: string;
+}
+
+interface LoginMethod {
+    /** Method identifier (e.g. "max", "pro", "api-key", "device"). */
+    key: string;
+    /** Human-readable label. */
+    label: string;
+}
+
+interface ProviderModel {
+    /** Model name without provider prefix. */
+    id: string;
+    /** Model capabilities. */
+    capabilities: {
+        reason: boolean;
+        vision: boolean;
+        tools: boolean;
+        webSearch: boolean;
+    };
+    /** Token costs per 1M tokens. */
+    cost?: { input: number; output: number };
+    /** Model-level config key-vals (modelName, extraPayload, extraHeaders, reasoningHistory, variants). */
+    settings?: Record<string, any>;
+}
+```
+
+### Login Provider (↩️)
+
+Initiates a login flow for a provider. Two-round-trip design: calling without a method returns
+available methods to choose from; calling with a method starts the authentication flow and
+returns an action descriptor telling the client what to render.
+
+_Request:_
+
+* method: `providers/login`
+* params: `ProvidersLoginParams` defined as follows:
+
+```typescript
+interface ProvidersLoginParams {
+    /** The provider to log in to (e.g. "anthropic"). */
+    provider: string;
+    /** The login method to use. Omit on first call to get available methods. */
+    method?: string;
+}
+```
+
+_Response:_
+
+* result: One of the following action descriptors:
+
+```typescript
+/** Multiple methods available — client should present choice and re-call with method. */
+interface ChooseMethodAction {
+    action: 'choose-method';
+    methods: LoginMethod[];
+}
+
+/** Browser-based OAuth — client opens URL, optionally collects a code. */
+interface AuthorizeAction {
+    action: 'authorize';
+    /** The OAuth authorization URL to open in the browser. */
+    url: string;
+    /** Instructional message for the user. */
+    message: string;
+    /**
+     * Fields to collect after browser auth (e.g. authorization code).
+     * If absent, the server handles the callback automatically and
+     * completion is signaled via providers/updated notification.
+     */
+    fields?: InputField[];
+}
+
+/** GitHub device flow — client shows code for user to enter at URL. */
+interface DeviceCodeAction {
+    action: 'device-code';
+    /** The verification URL. */
+    url: string;
+    /** The user code to enter. */
+    code: string;
+    /** Instructional message for the user. */
+    message: string;
+}
+
+/** Collect input fields (API key, URL, models). */
+interface InputAction {
+    action: 'input';
+    fields: InputField[];
+}
+
+/** Login completed immediately. */
+interface DoneAction {
+    action: 'done';
+}
+
+interface InputField {
+    /** Field identifier. */
+    key: string;
+    /** Human-readable label. */
+    label: string;
+    /** Field type: "secret" for passwords/keys, "text" for regular input. */
+    type: 'secret' | 'text';
+}
+```
+
+### Login Provider Input (↩️)
+
+Submits collected input data (API key, authorization code, URL, models) to complete a login flow.
+
+_Request:_
+
+* method: `providers/loginInput`
+* params: `ProvidersLoginInputParams` defined as follows:
+
+```typescript
+interface ProvidersLoginInputParams {
+    /** The provider being logged in to. */
+    provider: string;
+    /** The collected input data. Keys match the field keys from the action descriptor. */
+    data: Record<string, string>;
+}
+```
+
+_Response:_
+
+* result: `{ action: 'done' }`
+
+### Logout Provider (↩️)
+
+Clears authentication for a provider and re-syncs available models.
+
+_Request:_
+
+* method: `providers/logout`
+* params: `ProvidersLogoutParams` defined as follows:
+
+```typescript
+interface ProvidersLogoutParams {
+    /** The provider to log out of. */
+    provider: string;
+}
+```
+
+_Response:_
+
+* result: `{}`
+
+### Provider Updated (⬅️)
+
+A server notification sent when a provider's authentication state or available models change.
+Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+status (same shape as items in `providers/list` response).
+
+_Notification:_
+
+* method: `providers/updated`
+* params: `ProviderStatus` (see `providers/list` response above)
 
 ## General features
+
+### progress (⬅️)
+
+A notification from the server reporting the progress of an initialization task. Each task
+sends a `start` notification when it begins and a `finish` notification when it completes (or fails).
+Clients can track all tasks to derive aggregate initialization progress.
+
+_Notification:_
+
+* method: `$/progress`
+* params: `ProgressParams` defined as follows:
+
+```typescript
+interface ProgressParams {
+  /** Whether this task is starting or finishing. */
+  type: "start" | "finish";
+  /** Stable identifier for the task (e.g. "models", "plugins", "mcp-servers"). */
+  taskId: string;
+  /** Human-readable label for the task. */
+  title: string;
+}
+```
 
 ### showMessage (⬅️)
 

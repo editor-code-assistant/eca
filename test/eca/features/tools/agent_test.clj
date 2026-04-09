@@ -15,10 +15,25 @@
            "general" {:mode "subagent"
                       :description "General purpose agent"}
            "code" {:mode "primary"
-                   :description "Code agent"}}})
+                   :description "Code agent"}}
+   :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]"
+                     {:variants {"low" {:thinking {:type "adaptive"}}
+                                 "medium" {:thinking {:type "adaptive"}}
+                                 "high" {:thinking {:type "adaptive"}}
+                                 "max" {:thinking {:type "adaptive"}}}}
+                     ".*gpt[-._]5"
+                     {:variants {"none" {:reasoning {:effort "none"}}
+                                 "low" {:reasoning {:effort "low"}}
+                                 "medium" {:reasoning {:effort "medium"}}
+                                 "high" {:reasoning {:effort "high"}}}}}})
+
+(def ^:private test-db
+  {:models {"anthropic/claude-sonnet-4-6" {}
+            "anthropic/claude-opus-4-6" {}
+            "openai/gpt-4.1" {}}})
 
 (defn ^:private spawn-handler []
-  (get-in (f.tools.agent/definitions test-config) ["spawn_agent" :handler]))
+  (get-in (f.tools.agent/definitions test-config test-db) ["spawn_agent" :handler]))
 
 (deftest spawn-agent-not-found-test
   (testing "throws when agent is not found"
@@ -99,6 +114,63 @@
                         @chat-prompt-called*)))
           (testing "preserves subagent chat for resume replay"
             (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
+
+(deftest spawn-agent-trust-propagation-test
+  (testing "forwards trust to subagent chat/prompt"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        ((spawn-handler)
+         {"agent" "explorer" "task" "find files" "activity" "exploring"}
+         {:db* db*
+          :config test-config
+          :messenger (h/messenger)
+          :metrics (h/metrics)
+          :chat-id "chat-1"
+          :tool-call-id "tc-1"
+          :call-state-fn (constantly {:status :executing})
+          :trust true})
+        (is (match? {:chat-id subagent-chat-id
+                     :agent "explorer"
+                     :trust true}
+                    @chat-prompt-called*)))))
+
+  (testing "does not forward trust when not set"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        ((spawn-handler)
+         {"agent" "explorer" "task" "find files" "activity" "exploring"}
+         {:db* db*
+          :config test-config
+          :messenger (h/messenger)
+          :metrics (h/metrics)
+          :chat-id "chat-1"
+          :tool-call-id "tc-1"
+          :call-state-fn (constantly {:status :executing})})
+        (is (nil? (:trust @chat-prompt-called*)))))))
 
 (deftest spawn-agent-max-steps-reached-test
   (testing "returns halted result when subagent reaches max steps"
@@ -186,6 +258,290 @@
         (testing "subagent chat is preserved for resume replay"
           (is (some? (get-in @db* [:chats subagent-chat-id]))))))))
 
+(deftest spawn-agent-user-specified-model-test
+  (testing "uses user-specified model over agent default and parent model"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/parent-model"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}
+                              "openai/gpt-4.1" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"
+                       "model" "anthropic/claude-sonnet-4-6"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "anthropic/claude-sonnet-4-6" (:model @chat-prompt-called*))))))))
+
+(deftest spawn-agent-invalid-model-test
+  (testing "throws when user specifies a model not in available models"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}}})
+          result (try
+                   ((spawn-handler)
+                    {"agent" "explorer" "task" "explore" "activity" "exploring"
+                     "model" "nonexistent/model"}
+                    {:db* db*
+                     :config test-config
+                     :messenger (h/messenger)
+                     :metrics (h/metrics)
+                     :chat-id "chat-1"
+                     :tool-call-id "tc-1"
+                     :call-state-fn (constantly {:status :executing})})
+                   (catch Exception e
+                     {:error true :ex-data (ex-data e) :message (ex-message e)}))]
+      (is (match? {:error true
+                   :message #"not available"}
+                  result))
+      (is (match? {:model "nonexistent/model"}
+                  (:ex-data result))))))
+
+(deftest spawn-agent-user-specified-variant-test
+  (testing "passes user-specified variant to chat/prompt"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "anthropic/claude-sonnet-4-6"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"
+                       "variant" "high"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "high" (:variant @chat-prompt-called*)))))))
+
+  (testing "does not include variant in chat/prompt params when not specified"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "anthropic/claude-sonnet-4-6"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        ((spawn-handler)
+         {"agent" "explorer" "task" "explore" "activity" "exploring"}
+         {:db* db*
+          :config test-config
+          :messenger (h/messenger)
+          :metrics (h/metrics)
+          :chat-id "chat-1"
+          :tool-call-id "tc-1"
+          :call-state-fn (constantly {:status :executing})})
+        (is (nil? (:variant @chat-prompt-called*)))))))
+
+(deftest spawn-agent-invalid-variant-test
+  (testing "throws when user specifies a variant not valid for the resolved model"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "anthropic/claude-sonnet-4-6"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}}})
+          result (try
+                   ((spawn-handler)
+                    {"agent" "explorer" "task" "explore" "activity" "exploring"
+                     "variant" "xhigh"}
+                    {:db* db*
+                     :config test-config
+                     :messenger (h/messenger)
+                     :metrics (h/metrics)
+                     :chat-id "chat-1"
+                     :tool-call-id "tc-1"
+                     :call-state-fn (constantly {:status :executing})})
+                   (catch Exception e
+                     {:error true :ex-data (ex-data e) :message (ex-message e)}))]
+      (is (match? {:error true
+                   :message #"not available for model"}
+                  result))
+      (is (match? {:variant "xhigh"
+                   :model "anthropic/claude-sonnet-4-6"
+                   :available ["high" "low" "max" "medium"]}
+                  (:ex-data result))))))
+
+(deftest spawn-agent-combined-model-and-variant-test
+  (testing "passes both user-specified model and variant to chat/prompt"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "openai/gpt-4.1"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}
+                              "openai/gpt-4.1" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"
+                       "model" "anthropic/claude-sonnet-4-6" "variant" "high"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "anthropic/claude-sonnet-4-6" (:model @chat-prompt-called*)))
+          (is (= "high" (:variant @chat-prompt-called*)))))))
+
+  (testing "validates variant against user-specified model, not parent model"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "openai/gpt-4.1"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}
+                              "openai/gpt-4.1" {}}})
+          result (try
+                   ((spawn-handler)
+                    {"agent" "explorer" "task" "explore" "activity" "exploring"
+                     "model" "anthropic/claude-sonnet-4-6" "variant" "xhigh"}
+                    {:db* db*
+                     :config test-config
+                     :messenger (h/messenger)
+                     :metrics (h/metrics)
+                     :chat-id "chat-1"
+                     :tool-call-id "tc-1"
+                     :call-state-fn (constantly {:status :executing})})
+                   (catch Exception e
+                     {:error true :ex-data (ex-data e) :message (ex-message e)}))]
+      (is (match? {:error true
+                   :message #"not available for model"}
+                  result))
+      (is (match? {:model "anthropic/claude-sonnet-4-6"}
+                  (:ex-data result))))))
+
+(deftest spawn-agent-variant-for-model-without-variants-test
+  (testing "variant passes through when model has no configured variants"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "openai/gpt-4.1"}}
+                     :models {"openai/gpt-4.1" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"
+                       "variant" "high"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "high" (:variant @chat-prompt-called*))))))))
+
+(deftest spawn-agent-model-accepted-when-models-db-empty-test
+  (testing "user-specified model is accepted when models db is empty"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/parent"}}
+                     :models {}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"
+                       "model" "some/new-model"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "some/new-model" (:model @chat-prompt-called*))))))))
+
+(deftest spawn-agent-agent-default-model-priority-test
+  (testing "user-specified model takes precedence over agent defaultModel"
+    (let [config-with-default (assoc-in test-config [:agent "explorer" :defaultModel] "anthropic/claude-opus-4-6")
+          db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/parent"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}
+                              "anthropic/claude-opus-4-6" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((get-in (f.tools.agent/definitions config-with-default test-db) ["spawn_agent" :handler])
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"
+                       "model" "anthropic/claude-sonnet-4-6"}
+                      {:db* db*
+                       :config config-with-default
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "anthropic/claude-sonnet-4-6" (:model @chat-prompt-called*))
+              "user-specified model should win over agent defaultModel"))))))
+
 (deftest extract-final-summary-test
   (testing "extracts text from last assistant message"
     (is (= "Hello world"
@@ -219,26 +575,43 @@
 
 (deftest definitions-test
   (testing "spawn_agent tool definition has correct structure"
-    (let [defs (f.tools.agent/definitions test-config)
+    (let [defs (f.tools.agent/definitions test-config test-db)
           tool (get defs "spawn_agent")]
       (is (some? tool))
       (is (string? (:description tool)))
       (is (match? {:type "object"
                    :properties {"agent" {:type "string"}
                                 "task" {:type "string"}
-                                "activity" {:type "string"}}
+                                "activity" {:type "string"}
+                                "model" {:type "string"}
+                                "variant" {:type "string"}}
                    :required ["agent" "task" "activity"]}
                   (:parameters tool)))))
 
+  (testing "model and variant enums are absent when no models in db"
+    (let [defs (f.tools.agent/definitions test-config {})
+          props (get-in defs ["spawn_agent" :parameters :properties])]
+      (is (= "string" (:type (get props "model"))))
+      (is (nil? (:enum (get props "model"))))
+      (is (= "string" (:type (get props "variant"))))
+      (is (nil? (:enum (get props "variant"))))))
+
+  (testing "gracefully handles nil db"
+    (let [defs (f.tools.agent/definitions test-config nil)
+          props (get-in defs ["spawn_agent" :parameters :properties])]
+      (is (some? (get props "model")))
+      (is (nil? (:enum (get props "model"))))
+      (is (nil? (:enum (get props "variant"))))))
+
   (testing "description includes available subagents"
-    (let [desc (:description (get (f.tools.agent/definitions test-config) "spawn_agent"))]
+    (let [desc (:description (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
       (is (re-find #"- explorer:" desc))
       (is (re-find #"- general:" desc))
       (is (not (re-find #"- code:" desc))
           "primary agents should not appear in subagent list")))
 
   (testing "summary-fn formats agent name with activity"
-    (let [summary-fn (:summary-fn (get (f.tools.agent/definitions test-config) "spawn_agent"))]
+    (let [summary-fn (:summary-fn (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
       (is (= "explorer: searching files"
              (summary-fn {:args {"agent" "explorer" "activity" "searching files"}})))
       (is (= "Spawning agent"

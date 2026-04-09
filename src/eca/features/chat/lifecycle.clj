@@ -67,30 +67,35 @@
           (name from)
           content))
 
-(defn finish-chat-prompt! [status {:keys [message chat-id db* metrics config on-finished-side-effect prompt-id] :as chat-ctx}]
-  (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
-    (when-not (get-in @db* [:chats chat-id :auto-compacting?])
-      (swap! db* assoc-in [:chats chat-id :status] status)
-      (let [db @db*
-            subagent? (some? (get-in db [:chats chat-id :subagent]))
-            hook-type (if subagent? :subagentPostRequest :postRequest)
-            hook-data (cond-> (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
-                                     {:prompt message})
-                        subagent? (assoc :parent-chat-id (get-in db [:chats chat-id :parent-chat-id])))]
-        (f.hooks/trigger-if-matches! hook-type
-                                     hook-data
-                                     {:on-before-action (partial notify-before-hook-action! chat-ctx)
-                                      :on-after-action (partial notify-after-hook-action! chat-ctx)}
-                                     db
-                                     config))
-      (send-content! chat-ctx :system
-                     {:type :progress
-                      :state :finished})
-      (when-not (get-in @db* [:chats chat-id :created-at])
-        (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
-    (when on-finished-side-effect
-      (on-finished-side-effect))
-    (db/update-workspaces-cache! @db* metrics)))
+(defn finish-chat-prompt! [status {:keys [message chat-id db* messenger metrics config on-finished-side-effect prompt-id] :as chat-ctx}]
+  (when-not (get-in @db* [:chats chat-id :prompt-finished?])
+    (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
+      (when-not (get-in @db* [:chats chat-id :auto-compacting?])
+        (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
+        (swap! db* assoc-in [:chats chat-id :status] status)
+        (swap! db* update-in [:chats chat-id] dissoc :steer-message)
+        (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
+        (let [db @db*
+              subagent? (some? (get-in db [:chats chat-id :subagent]))
+              hook-type (if subagent? :subagentPostRequest :postRequest)
+              hook-data (cond-> (merge (f.hooks/chat-hook-data db chat-id (:agent chat-ctx))
+                                       {:prompt message})
+                          subagent? (assoc :parent-chat-id (get-in db [:chats chat-id :parent-chat-id])))]
+          (f.hooks/trigger-if-matches! hook-type
+                                       hook-data
+                                       {:on-before-action (partial notify-before-hook-action! chat-ctx)
+                                        :on-after-action (partial notify-after-hook-action! chat-ctx)}
+                                       db
+                                       config))
+        (send-content! chat-ctx :system
+                       {:type :progress
+                        :state :finished})
+        (when-not (get-in @db* [:chats chat-id :created-at])
+          (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
+      (when (and on-finished-side-effect
+                 (not (identical? :stopping (get-in @db* [:chats chat-id :status]))))
+        (on-finished-side-effect))
+      (db/update-workspaces-cache! @db* metrics))))
 
 (defn maybe-renew-auth-token [chat-ctx]
   (f.login/maybe-renew-auth-token!
@@ -108,7 +113,9 @@
 (defn assert-chat-not-stopped! [{:keys [chat-id db* prompt-id] :as chat-ctx}]
   (let [chat (get-in @db* [:chats chat-id])
         superseded? (and prompt-id (not= prompt-id (:prompt-id chat)))
-        stopped? (or (identical? :stopping (:status chat)) superseded?)]
+        stopped? (or (identical? :stopping (:status chat))
+                     (:prompt-finished? chat)
+                     superseded?)]
     (when stopped?
       (finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))
       (logger/info logger-tag "Chat prompt stopped:" chat-id (when superseded? "(superseded)"))

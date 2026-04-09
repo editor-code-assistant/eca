@@ -25,6 +25,12 @@
 
 (set! *warn-on-reflection* true)
 
+(defn fork-title [title]
+  (let [title (or title "Untitled")]
+    (if-let [[_ base n] (re-matches #"(.+?)\s*\((\d+)\)\s*$" title)]
+      (str base " (" (inc (parse-long n)) ")")
+      (str title " (2)"))))
+
 (defn ^:private normalize-command-name [f]
   (string/lower-case (fs/strip-ext (fs/file-name f))))
 
@@ -113,10 +119,18 @@
                        :type :native
                        :description "Summarize the chat so far cleaning previous chat history to reduce context."
                        :arguments [{:name "additional-input"}]}
+                      {:name "fork"
+                       :type :native
+                       :description "Fork current chat into a new chat with the same history and settings."
+                       :arguments []}
                       {:name "resume"
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
                        :arguments [{:name "chat-id"}]}
+                      {:name "remote"
+                       :type :native
+                       :description "Show remote server connection details."
+                       :arguments []}
                       {:name "config"
                        :type :native
                        :description "Show ECA config for troubleshooting."
@@ -166,17 +180,22 @@
             skills-cmds
             custom-cmds)))
 
+(defn ^:private substitute-args [content args]
+  (let [args-joined (string/join " " args)
+        content-with-args (-> content
+                              (string/replace "$ARGS" args-joined)
+                              (string/replace "$ARGUMENTS" args-joined))]
+    (reduce (fn [c [i arg]]
+              (-> c
+                  (string/replace (str "$ARG" (inc i)) arg)
+                  (string/replace (str "$" (inc i)) arg)))
+            content-with-args
+            (map-indexed vector args))))
+
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))
                                                   custom-cmds)))]
-    (let [args-joined (string/join " " args)
-          content-with-args (-> raw-content
-                                (string/replace "$ARGS" args-joined)
-                                (string/replace "$ARGUMENTS" args-joined))]
-      (reduce (fn [content [i arg]]
-                (string/replace content (str "$ARG" (inc i)) arg))
-              content-with-args
-              (map-indexed vector args)))))
+    (substitute-args raw-content args)))
 
 (defn ^:private format-tool-permissions [{:keys [toolCall]}]
   (when-let [approval (:approval toolCall)]
@@ -322,6 +341,28 @@
                                      metrics)
                 {:type :new-chat-status
                  :status :login})
+      "fork" (let [chat (get-in db [:chats chat-id])
+                    new-id (str (random-uuid))
+                    now (System/currentTimeMillis)
+                    new-title (fork-title (:title chat))
+                    new-chat {:id new-id
+                              :title new-title
+                              :status :idle
+                              :created-at now
+                              :updated-at now
+                              :model (:model chat)
+                              :last-api (:last-api chat)
+                              :messages (vec (:messages chat))
+                              :prompt-finished? true}]
+                (swap! db* assoc-in [:chats new-id] new-chat)
+                (db/update-workspaces-cache! @db* metrics)
+                (messenger/chat-opened messenger {:chat-id new-id :title new-title})
+                {:type :chat-messages
+                 :chats {new-id {:messages (:messages chat)
+                                 :title new-title}
+                         chat-id {:messages [{:role "system"
+                                              :content [{:type :text
+                                                         :text (str "Chat forked to: " new-title)}]}]}}})
       "resume" (let [chats (into {}
                                  (filter #(and (not= chat-id (first %))
                                                (not (:subagent (second %)))))
@@ -348,12 +389,18 @@
                                       (fn [s chat-id]
                                         (let [chat (get chats chat-id)
                                               msgs-count (count (filter #(= "user" (:role %))
-                                                                        (:messages chat)))]
+                                                                        (:messages chat)))
+                                              flags (->> (:messages chat)
+                                                         (filter #(= "flag" (:role %)))
+                                                         (map #(get-in % [:content :text])))]
                                           (if (> msgs-count 0)
-                                            (str s (format "%s - %s - %s\n"
+                                            (str s (format "%s - %s - %s%s\n"
                                                            (inc (.indexOf ^PersistentVector chats-ids chat-id))
                                                            (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
-                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))))
+                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))
+                                                           (if (seq flags)
+                                                             (str " 🚩 " (string/join ", " flags))
+                                                             "")))
                                             s)))
                                       ""
                                       chats-ids)
@@ -365,9 +412,12 @@
                    :else
                    (let [chat (get chats selected-chat-id)]
                      (swap! db* assoc-in [:chats chat-id] chat)
+                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting?)
+                     (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
                      (swap! db* update-in [:chats] #(dissoc % selected-chat-id))
                      (db/update-workspaces-cache! @db* metrics)
                      {:type :chat-messages
+                      :clear-before? true
                       :chats {chat-id {:title (:title chat)
                                        :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
                                                          (:messages chat))}}})))
@@ -397,6 +447,34 @@
                            user-prompt (second args)]
                        {:type :send-prompt
                         :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools agent db config)})
+      "remote" (let [connect-url (:remote-connect-url db)
+                     host (:remote-host db)
+                     token (:remote-token db)
+                     private? (:remote-private-host? db)
+                     text (cond
+                            (not connect-url)
+                            "Remote server is not enabled. Set `remote.enabled: true` in your ECA config to start it."
+
+                            private?
+                            (multi-str "## 🌐 Remote Server"
+                                       ""
+                                       (str "**Host:** `" host "`")
+                                       (str "**Password:** `" token "`")
+                                       (str "**URL:** " connect-url)
+                                       ""
+                                       "This is a private/LAN address. You need to configure your client to connect directly."
+                                       ""
+                                       "📖 [Setup guide](https://eca.dev/config/remote)")
+
+                            :else
+                            (multi-str "## 🌐 Remote Server"
+                                       ""
+                                       (str "**URL:** " connect-url)
+                                       (str "**Password:** `" token "`")
+                                       ""
+                                       "📖 [Setup guide](https://eca.dev/config/remote)"))]
+                 {:type :chat-messages
+                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "config" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages
@@ -465,6 +543,8 @@
          :prompt custom-command-prompt}
         (if-let [skill (first (filter #(= command (:name %)) skills))]
           {:type :send-prompt
-           :prompt (str "Load skill: " (:name skill))}
+           :prompt (if (seq args)
+                    (substitute-args (:body skill) args)
+                    (str "Load skill: " (:name skill)))}
           {:type :text
            :text (str "Unknown command: " command)})))))

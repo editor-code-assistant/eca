@@ -10,6 +10,7 @@
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
    [eca.features.tools.filesystem :as f.tools.filesystem]
+   [eca.features.tools.git :as f.tools.git]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.mcp.clojure-mcp]
    [eca.features.tools.shell :as f.tools.shell]
@@ -65,45 +66,52 @@
       true)))
 
 (defn approval
-  "Return the approval keyword for the specific tool call: ask, allow or deny.
-   Agent-name parameter is required - pass nil for global-only approval rules."
-  [all-tools tool args db config agent-name]
-  (let [{:keys [server name require-approval-fn]} tool
-        remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
-        native-tools (filter #(= :native (:origin %)) all-tools)
-        {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
-                                                    (get-in config [:agent agent-name :toolCall :approval]))]
-    (cond
-      remember-to-approve?
-      :allow
+  "Return the approval keyword for the specific tool call: :ask, :allow or :deny.
+   Agent-name parameter is required - pass nil for global-only approval rules.
+   Optional opts map supports :trust - when true, promotes :ask to :trust/allow
+   (never overrides :deny). Callers should normalize :trust/allow to :allow."
+  ([all-tools tool args db config agent-name]
+   (approval all-tools tool args db config agent-name nil))
+  ([all-tools tool args db config agent-name {:keys [trust]}]
+   (let [{:keys [server name require-approval-fn]} tool
+         remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
+         native-tools (filter #(= :native (:origin %)) all-tools)
+         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
+                                                     (get-in config [:agent agent-name :toolCall :approval]))
+         result (cond
+                  remember-to-approve?
+                  :allow
 
-      (and require-approval-fn (require-approval-fn args {:db db}))
-      :ask
+                  (and require-approval-fn (require-approval-fn args {:db db}))
+                  :ask
 
-      (some #(approval-matches? % (:name server) name args native-tools) deny)
-      :deny
+                  (some #(approval-matches? % (:name server) name args native-tools) deny)
+                  :deny
 
-      (some #(approval-matches? % (:name server) name args native-tools) ask)
-      :ask
+                  (some #(approval-matches? % (:name server) name args native-tools) ask)
+                  :ask
 
-      (some #(approval-matches? % (:name server) name args native-tools) allow)
-      :allow
+                  (some #(approval-matches? % (:name server) name args native-tools) allow)
+                  :allow
 
-      (legacy-manual-approval? config name)
-      :ask
+                  (legacy-manual-approval? config name)
+                  :ask
 
-      (= "ask" byDefault)
-      :ask
+                  (= "ask" byDefault)
+                  :ask
 
-      (= "allow" byDefault)
-      :allow
+                  (= "allow" byDefault)
+                  :allow
 
-      (= "deny" byDefault)
-      :deny
+                  (= "deny" byDefault)
+                  :deny
 
-       ;; Probably a config error, default to ask
-      :else
-      :ask)))
+                  ;; Probably a config error, default to ask
+                  :else
+                  :ask)]
+     (if (and trust (= result :ask))
+       :trust/allow
+       result))))
 
 (defn ^:private get-disabled-tools
   "Returns a set of disabled tools, merging global and agent-specific."
@@ -147,12 +155,13 @@
    (merge {}
           f.tools.filesystem/definitions
           f.tools.shell/definitions
+          f.tools.git/definitions
           f.tools.editor/definitions
           f.tools.chat/definitions
           f.tools.skill/definitions
           f.tools.task/definitions
           f.tools.background/definitions
-          (f.tools.agent/definitions config)
+          (f.tools.agent/definitions config db)
           (f.tools.custom/definitions config))))
 
 (defn native-tools [db config]
@@ -162,9 +171,10 @@
   "Filter tools for subagent execution.
 
    - Excludes spawn_agent to prevent nesting.
-   - Excludes task because task list state is currently chat-local; it should be managed by the parent agent."
+   - Excludes task because task list state is currently chat-local; it should be managed by the parent agent.
+   - Excludes git because subagents don't perform git operations."
   [tools]
-  (filterv #(not (contains? #{"spawn_agent" "task"} (:name %))) tools))
+  (filterv #(not (contains? #{"spawn_agent" "task" "git"} (:name %))) tools))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
@@ -203,7 +213,7 @@
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
-                  ]
+                  {:keys [trust]}]
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
   (let [[server-name tool-name] (string/split full-name #"__")
         arguments (update-keys arguments clojure.core/name)
@@ -231,8 +241,12 @@
                                                            :chat-id chat-id
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
-                                                           :state-transition-fn state-transition-fn})
-                           (f.mcp/call-tool! tool-name arguments {:db db})))
+                                                           :state-transition-fn state-transition-fn
+                                                           :trust trust})
+                           (f.mcp/call-tool! tool-name arguments {:db db
+                                                                  :db* db*
+                                                                  :config config
+                                                                  :metrics metrics})))
                        (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name full-name :error (:error result)} metrics)
@@ -242,11 +256,12 @@
             (dissoc result :rollback-changes))
           result))
       (catch Exception e
-        (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name (.getMessage e) (with-out-str (.printStackTrace e))))
-        (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
-        {:error true
-         :contents [{:type :text
-                     :text (str "Error calling tool: " (.getMessage e))}]}))))
+        (let [error-msg (or (.getMessage e) (.getName (class e)))]
+          (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name error-msg (with-out-str (.printStackTrace e))))
+          (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
+          {:error true
+           :contents [{:type :text
+                       :text (str "Error calling tool: " error-msg)}]})))))
 
 (defn ^:private notify-server-updated [metrics messenger tool-status-fn server]
   (metrics/count-up! "mcp-server-status" {:name (:name server)
@@ -288,6 +303,50 @@
      name
      db*
      config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn connect-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/connect-server!
+     name
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn logout-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/logout-server!
+     name
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn update-server! [name server-fields db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/update-server!
+     name
+     server-fields
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn disable-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/disable-server!
+     name
+     db*
+     config
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn enable-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/enable-server!
+     name
+     db*
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
 

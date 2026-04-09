@@ -133,11 +133,6 @@ jobs:
         run: |
           bb native-cli
 
-      - name: Compress binary
-        uses: svenstaro/upx-action@v2
-        with:
-          file: eca
-
       - name: Zip binary
         run: zip eca-native-linux-amd64.zip eca
 
@@ -197,11 +192,6 @@ jobs:
           ECA_MUSL: true
         run: |
           bb native-cli
-
-      - name: Compress binary
-        uses: svenstaro/upx-action@v2
-        with:
-          file: eca
 
       - name: Zip binary
         run: zip eca-native-static-linux-amd64.zip eca
@@ -382,22 +372,12 @@ jobs:
           native-image-musl: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # see https://github.com/oracle/graal/issues/4340
-      - name: GraalVM workaround to support UPX compression
-        run: |
-          7z d "$env:JAVA_HOME\lib\svm\builder\svm.jar" com/oracle/svm/core/windows/WindowsImageHeapProviderFeature.class
-
       - name: Build Windows native image
         env:
           ECA_JAR: eca.jar
           ECA_XMX: "-J-Xmx7g"
         run: |
           bb native-cli
-
-      - name: Compress binary
-        uses: svenstaro/upx-action@v2
-        with:
-          file: eca.exe
 
       - name: Zip binary
         run: |

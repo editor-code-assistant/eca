@@ -36,10 +36,10 @@ flowchart TD
 ```
 
 1. You register one or more **sources** (git URL or local path) and list plugin names in **`install`**.
-2. ECA resolves each source — cloning git repos to a local cache or using the local path directly.
+2. ECA resolves each source — cloning git repos to a local cache or using the local path directly.  This is done on startup and (currently) each hour thereafter.
 3. Each source provides a **marketplace** (`.eca-plugin/marketplace.json`) listing its available plugins.
 4. ECA matches `install` names against the marketplace, then **discovers components** from each matched plugin directory.
-5. All components are **merged** into the config waterfall — user config always takes precedence on conflicts.
+5. All components are **merged** into the config waterfall, in the order specified by the `install` key (later plugins override earlier plugins) — user config always takes precedence on conflicts.
 
 ## Commands
 

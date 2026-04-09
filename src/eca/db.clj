@@ -57,7 +57,7 @@
                         :status (or :idle :running :stopping :login)
                         :created-at :number
                         :login-provider :string
-                        :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason")
+                        :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason" "compact_marker" "flag" "server_tool_use" "server_tool_result")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
                                     :content-id :string}]
                         :task {:next-id :number
@@ -120,6 +120,10 @@
           "deepseek" {}
           "github-copilot" {}
           "google" {}
+          "litellm" {}
+          "lmstudio" {}
+          "mistral" {}
+          "moonshot" {}
           "openai" {}
           "openrouter" {}
           "z-ai" {}}
@@ -199,9 +203,31 @@
 (defn update-workspaces-cache! [db metrics]
   (-> (normalize-db-for-workspace-write db)
       (assoc :version version)
-      (upsert-cache! (transit-global-by-workspaces-db-file (:workspace-folders db)) metrics)))
+      (upsert-cache! (transit-global-by-workspaces-db-file (or (:initial-workspace-folders db)
+                                                               (:workspace-folders db))) metrics)))
 
 (defn update-global-cache! [db metrics]
   (-> (normalize-db-for-global-write db)
       (assoc :version version)
       (upsert-cache! (transit-global-db-file) metrics)))
+
+(defn cleanup-old-chats!
+  "Deletes chats older than retention-days from the db and flushes the workspace cache.
+   When retention-days is non-positive, cleanup is disabled."
+  [db* metrics retention-days]
+  (when (pos? retention-days)
+    (let [retention-ms (* retention-days 24 60 60 1000)
+          cutoff (- (System/currentTimeMillis) retention-ms)
+          removed (atom 0)]
+      (swap! db* update :chats
+             (fn [chats]
+               (into {}
+                     (filter (fn [[_id chat]]
+                               (let [created-at (:created-at chat)]
+                                 (if (and created-at (< created-at cutoff))
+                                   (do (swap! removed inc) false)
+                                   true))))
+                     chats)))
+      (when (pos? @removed)
+        (logger/info logger-tag (str "Cleaned up " @removed " chat(s) older than " retention-days " days"))
+        (update-workspaces-cache! @db* metrics)))))

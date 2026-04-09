@@ -40,6 +40,12 @@
       "default": "code",
       "examples": ["code", "plan"]
     },
+    "chatRetentionDays": {
+      "type": "integer",
+      "description": "Number of days to keep old chats and tool call output cache before cleanup. Set to 0 to disable cleanup entirely.",
+      "markdownDescription": "Number of days to keep old chats and tool call output cache before cleanup. Set to `0` to disable cleanup entirely.",
+      "default": 14
+    },
     "agent": {
       "type": "object",
       "description": "Named agent configurations for different workflows.",
@@ -138,6 +144,12 @@
       "description": "Timeout in seconds for LSP operations.",
       "markdownDescription": "Timeout in seconds for LSP operations.",
       "default": 30
+    },
+    "streamIdleTimeoutSeconds": {
+      "type": "integer",
+      "description": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
+      "markdownDescription": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
+      "default": 120
     },
     "mcpServers": {
       "type": "object",
@@ -332,6 +344,41 @@
         ]
       }
     },
+    "remote": {
+      "type": "object",
+      "description": "Remote web control server configuration. When enabled, starts an embedded HTTP server allowing a web frontend (web.eca.dev) to observe and control chat sessions in real-time.",
+      "markdownDescription": "Remote web control server configuration. When enabled, starts an embedded HTTP server allowing a web frontend (`web.eca.dev`) to observe and control chat sessions in real-time.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enables the remote HTTP server.",
+          "markdownDescription": "Enables the remote HTTP server."
+        },
+        "host": {
+          "type": "string",
+          "description": "Host used in the logged URL for web.eca.dev to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via InetAddress/getLocalHost.",
+          "markdownDescription": "Host used in the logged URL for `web.eca.dev` to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via `InetAddress/getLocalHost`.",
+          "examples": [
+            "192.168.1.42",
+            "myserver.example.com"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "description": "Port the HTTP server listens on. When unset, tries port 7777, then 7778, 7779, etc. up to 20 attempts.",
+          "markdownDescription": "Port the HTTP server listens on. When unset, tries port `7777`, then `7778`, `7779`, etc. up to 20 attempts.",
+          "examples": [
+            7777
+          ]
+        },
+        "password": {
+          "type": "string",
+          "description": "Auth token for Bearer authentication. When unset, a 32-byte hex token is auto-generated and logged to stderr.",
+          "markdownDescription": "Auth token for Bearer authentication. When unset, a 32-byte hex token is auto-generated and logged to stderr."
+        }
+      }
+    },
     "network": {
       "type": "object",
       "description": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",
@@ -451,6 +498,26 @@
           "description": "Whether this provider requires authentication.",
           "markdownDescription": "Whether this provider requires authentication."
         },
+        "auth": {
+          "type": "object",
+          "description": "Authentication endpoint overrides for providers that use OAuth device flow. Used when the provider's identity server differs from the default (e.g. enterprise or self-hosted instances).",
+          "markdownDescription": "Authentication endpoint overrides for providers that use OAuth device flow. Used when the provider's identity server differs from the default (e.g. enterprise or self-hosted instances).",
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "Base URL of the identity provider. OAuth device-flow endpoints are derived from this URL.",
+              "markdownDescription": "Base URL of the identity provider. OAuth device-flow endpoints are derived from this URL.",
+              "format": "uri",
+              "examples": ["https://github.mycompany.com"]
+            },
+            "clientId": {
+              "type": "string",
+              "description": "OAuth client ID to use for the device-flow. Defaults to the provider's public client ID when omitted.",
+              "markdownDescription": "OAuth client ID to use for the device-flow. Defaults to the provider's public client ID when omitted."
+            }
+          }
+        },
         "completionUrlRelativePath": {
           "type": "string",
           "description": "Custom relative URL path for completion requests.",
@@ -512,6 +579,13 @@
           "additionalProperties": {
             "$ref": "#/definitions/model"
           }
+        },
+        "cacheRetention": {
+          "type": "string",
+          "description": "Prompt cache retention for Anthropic. 'short' uses 5-min TTL (default), 'long' uses 1-hour TTL at higher write cost. Only applies when hitting the direct Anthropic API.",
+          "markdownDescription": "Prompt cache retention for Anthropic. `short` uses 5-min TTL (default), `long` uses 1-hour TTL at higher write cost. Only applies when hitting the direct Anthropic API.",
+          "enum": ["short", "long"],
+          "default": "short"
         }
       },
       "additionalProperties": false
@@ -805,6 +879,19 @@
           "markdownDescription": "Configuration for the shell_command tool.",
           "additionalProperties": false,
           "properties": {
+            "path": {
+              "type": "string",
+              "description": "Custom shell executable path. Overrides the default platform shell (bash on Linux/macOS, powershell on Windows).",
+              "markdownDescription": "Custom shell executable path. Overrides the default platform shell (`bash` on Linux/macOS, `powershell` on Windows)."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Arguments passed to the shell before the script argument. E.g. [\"-l\", \"-c\"] for bash.",
+              "markdownDescription": "Arguments passed to the shell before the script argument. E.g. `[\"-l\", \"-c\"]` for bash."
+            },
             "summaryMaxLength": {
               "type": "integer",
               "description": "Maximum length of shell command summary.",
@@ -935,6 +1022,31 @@
           "description": "Whether this MCP server is disabled.",
           "markdownDescription": "Whether this MCP server is disabled.",
           "default": false
+        },
+        "headers": {
+          "type": "object",
+          "description": "Custom HTTP headers to include in requests to this MCP server. If an Authorization header is set, OAuth is skipped entirely.",
+          "markdownDescription": "Custom HTTP headers to include in requests to this MCP server. If an `Authorization` header is set, OAuth is skipped entirely.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "clientId": {
+          "type": "string",
+          "description": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, dynamic client registration is skipped.",
+          "markdownDescription": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, dynamic client registration is skipped."
+        },
+        "clientSecret": {
+          "type": "string",
+          "description": "OAuth client secret for servers that require confidential OAuth (e.g. Slack MCP). Used together with clientId for token exchange.",
+          "markdownDescription": "OAuth client secret for servers that require confidential OAuth (e.g. Slack MCP). Used together with `clientId` for token exchange."
+        },
+        "oauthPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Fixed port for the OAuth callback server. Required by providers like Slack that mandate pre-registered redirect URIs. When set, the callback uses HTTPS with a bundled localhost certificate. Register https://localhost:<port>/auth/callback as the redirect URI in your OAuth app.",
+          "markdownDescription": "Fixed port for the OAuth callback server. Required by providers like Slack that mandate pre-registered redirect URIs. When set, the callback uses HTTPS with a bundled localhost certificate. Register `https://localhost:<port>/auth/callback` as the redirect URI in your OAuth app."
         }
       },
       "additionalProperties": false

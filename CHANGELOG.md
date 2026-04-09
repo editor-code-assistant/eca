@@ -2,8 +2,233 @@
 
 ## Unreleased
 
+- Add background shell command support via `background` parameter on `shell_command` tool and new `bg_job` tool for managing long-running processes (#77).
+
+## 0.124.5
+
+- Fix Github Enterprise models fetch. #402
+
+## 0.124.4
+
+- Fix github-copilot retry loops in chats.
+- Fix Github Enterprise to use the proper url during prompts. #402
+
+## 0.124.3
+
+- Fix `/resume` broken for OpenAI chats: handle nil reasoning text during replay, preserve prompt-id after chat replacement, and clear UI before replaying messages. #400
+- Add GitHub Enterprise support for Copilot authentication via `auth.url` and `auth.clientId` provider config. #402
+- Add `chat/update` notification for renaming chats. Chat titles are now persisted to the database and broadcast to all connected clients including remote web interface.
+
+## 0.124.2
+
+- Fix OpenAI Responses API tool calls not executing when streaming response returns empty output, and fix spurious retries caused by stale tool-call state with Copilot encrypted IDs. #398
+- Fix auth refresh propagation during streaming and `spawn_agent` tool calls, preventing mid-session failures.
+
+## 0.124.1
+
+- Add `cacheRetention` provider config for Anthropic to support 1-hour prompt cache TTL. Set to `"long"` for sessions with pauses longer than 5 minutes.
+
+## 0.124.0
+
+- Add `chatRetentionDays` config to control chat and cache cleanup retention period, default changed from 7 to 14 days. Set to 0 to disable cleanup. #393
+- Preserve full chat history across compactions using tombstone markers instead of replacing messages. #394
+- Add message flags — named checkpoints for resuming and forking chats. #395
+- Fix OpenAI models getting stuck at toolCallPrepare when streaming response returns empty output in response.completed. #398
+
+## 0.123.3
+
+- Fix exceptions on openai responses models when creating tasks.
+- Fix potential infinite auto-compact loop when context overflow persists after compaction. #391
+- Improve Anthropic prompt caching: split system prompt into static/dynamic blocks, add cache markers to the tools array, and memoize static instructions per chat.
+
+## 0.123.2
+
+- Wait for pending MCP tool list refresh before reading tools after tool execution, fixing race where dynamically loaded tools were not immediately available.
+
+## 0.123.1
+
+- Fix OAuth HTTPS server crash in native image by building SSLContext in-memory instead of relying on ring-jetty's keystore path reflection.
+
+## 0.123.0
+
+- Bump plumcp to 0.2.0-beta6.
+- Fix MCP server start/stop blocking the protocol thread, causing ECA to become unresponsive.
+- Dispatch request and notification handlers off the protocol thread to prevent blocking.
+- Fix false positves rejection on plan agent.
+- Add `chat/promptSteer` notification for injecting user messages into a running prompt at the next LLM turn boundary. [#386](https://github.com/editor-code-assistant/eca/issues/386)
+
+## 0.122.1
+
+- Fix `/resume` getting stuck when resumed chat had stale compaction flags.
+- Add `clientSecret` and `oauthPort` support for MCP servers requiring confidential OAuth with HTTPS pre-registered redirect URIs (e.g. Slack MCP).
+
+## 0.122.0
+
+- Improve summary of filesystem and shell functions making cleaner.
+- Fix `move_file` not working for renaming.
+- Support parameterized skills via slash commands with `$ARGS`/`$ARGUMENTS`/`$1`/`$2` substitution, e.g. `/review-pr URL`. #384
+
+## 0.121.1
+
+- Fix remote connection for tailscale + docs.
+
+## 0.121.0
+
+- Add `providers/list`, `providers/login`, `providers/loginInput`, `providers/logout` requests and `providers/updated` notification for settings-based provider/model management.
+- Add LiteLLM, LM Studio, Mistral, and Moonshot as built-in providers with login support.
+- Fix Z-AI provider config using wrong API type and URL.
+- Improve explorer subagent prompt, remove role based approach.
+- Remove model/variant list from spawn_agent tool description so it doesn't use models when it is not asked to. #369
+- Add `streamIdleTimeoutSeconds` config option to make the LLM stream idle timeout configurable (default: 120s).
+
+## 0.120.1
+
+- Update the compact prompt to read the active eca__task list after compacting.
+- Fix MCP OAuth discovery failing for servers whose authorization_server URL has a trailing slash (e.g. Miro) due to malformed well-known endpoint URL.
+
+## 0.120.0
+
+- Add `mcp/disableServer` and `mcp/enableServer` notifications to toggle MCP servers from the client, persisting the `disabled` flag in config.json.
+
+## 0.119.0
+
+- Add `/fork` command to clone current chat into a new chat with the same history and settings, and `chat/opened` server notification.
+- Fix `/resume` leaving the chat stuck after replaying messages because the resumed chat's `:prompt-finished?` flag blocked finalization.
+
+## 0.118.1
+
+- Fix ECA stop timing out.
+- Add `$/progress` server notification for initialization progress reporting (models sync, plugins, MCP servers, remote server, cleanup).
+
+## 0.118.0
+
+- Show the selected `variant` in `spawn_agent` subagent details and harden restrictions regarding the use of the optional model in sub-agent. #369
+- Fix MCP OAuth browser not opening on Windows by using `cmd /c start` instead of `java.awt.Desktop`, which is unavailable in the native image.
+- Improve server shutdown speed for remote MCP servers.
+- Extract git/gh instructions from `shell_command` into a dedicated `git` tool with a condensed prompt, reducing per-turn token overhead.
+- Fix crash when `@` signs in prompts (e.g. email addresses) are misinterpreted as context mentions. #379
+
+## 0.117.1
+
+- Fix remote server on Windows stealing TLS traffic from Tailscale/WireGuard when using the same port, by binding to specific interfaces instead of `0.0.0.0` when tunnel adapters are detected.
+- Fix plugin-defined hooks not firing for `chatStart` and `sessionStart` due to plugins resolving after hooks fired. #374
+- Fix workspace cache resume when worktrees are dynamically added mid-session by using the initial workspace set for the cache key. #372
+- Lots of improvements to stop prompt behavior:
+  - Fix exception when stopping while a subagent chat run.
+  - Fix duplicate "Prompt stopped" message when stopping with a running subagent.
+  - Fix delayed newline appearing after stopping a prompt by suppressing belated status notifications.
+  - Reduce stream watchdog poll interval for faster stop responsiveness.
+
+## 0.117.0
+
+- Fix `/compact` triggering empty-response retries and rejected tool errors after the compact tool finishes.
+- Start remote server as https using built-in cert/private key. Fixes mixed content issues.
+- Fix stopping a prompt during `web_search` leaving chat in unrecoverable state. #375
+
+## 0.116.6
+
+- Bump plumcp to 0.2.0-beta5.
+- Fix auto-continue clobbering new prompt status and losing the stop button.
+- Add configurable shell for `shell_command` tool via `toolCall.shellCommand.path` and `toolCall.shellCommand.args`. #370
+- Fix providers disappearing from `/login` after saving an API key. eca-emacs#196
+- Fix `remote.enabled` in project-local `.eca/config.json` being ignored when a global config also exists.
+
+## 0.116.5
+
+- Add `/remote` command to display connection URL, password and setup guide. Password is no longer shown in logs or welcome message.
+- Improve server port binding for remote.
+
+## 0.116.4
+
+- Fix remote server failing to bind when other services (e.g. Tailscale) hold the same ports on different network interfaces, by falling back to `127.0.0.1` when `0.0.0.0` is unavailable.
+
+## 0.116.3
+
+- Fix remote server failing to bind when other services (e.g. Tailscale) hold the same ports on different network interfaces, by falling back to `127.0.0.1` when `0.0.0.0` is unavailable.
+
+## 0.116.2
+
+- Fix stopping a prompt corruping other cases of chat.
+
+## 0.116.1
+
+- Fix stopping a prompt corrupting chat history with empty content blocks, causing subsequent API errors.
+
+## 0.116.0
+
+- Auto-retry Anthropic streams that end prematurely with empty responses, and auto-continue when response is truncated (e.g. unclosed code blocks).
+- Fix resume crash when conversation contained server-side tool use (e.g. web search).
+- Add remote web control server for browser-based chat observation and control via `web.eca.dev`. #333
+
+## 0.115.5
+
+- Fix chat getting stuck when LLM streaming connection hangs or is cancelled.
+
+## 0.115.4
+
+- Fix auto-compact race condition where stale messages were sent to model after compaction, causing context overflow in subagents. #357
+
+## 0.115.3
+
+- Fix MCP server auth being invalidated when only URL query parameters change.
+- Fix MCP HTTP transport using stale auth token instead of reading latest from state, and retry initialization with token refresh on 403/4xx errors.
+- Fix MCP initialize request sending server config name as client name instead of "ECA".
+
+## 0.115.2
+
+- Fix STDIO MCP server deadlock caused by list_changed notification handlers blocking the reader thread.
+- Consider Anthropic internal server error as a retriable error.
+- Improve MCP error logging to show error code, message, and data instead of null.
+- Improve error handling when MCP promtps fail on server side.
+- Use rewrite-json to edit jsons without losing formatting.
+- Allow shell output redirections to `/tmp/` in plan/explorer agents instead of denying them.
+- Fix crash when hook returns additionalContext and message has string content (e.g. `/compact` command).
+
+## 0.115.1
+
+- Improve OAuth callback error page to show error code, description, and error URI from the authorization server response.
+- Bump plumcp to 0.2.0-beta4, simplify MCP tool call error handling now that HTTP 400/404/500 are returned as JSON-RPC errors.
+- Fix MCP server incorrectly marked as running when HTTP transport returns 4xx (e.g. 401/403) during initialization.
+
+## 0.115.0
+
+- Improve native image size for smaller eca binaries
+  - Drop UPX compression for all native image builds.
+  - Optimize native image for size with `-Os`.
+- Add optional `model` and `variant` parameters to `spawn_agent` tool, allowing users to run subagents on a different model or variant than the current conversation.
+- Improve MCP OAuth spec compliance: add Protected Resource Metadata discovery (RFC 9728), OIDC Discovery 1.0 fallback for authorization server metadata, fix `scope` parameter formatting, include `resource` parameter (RFC 8707) in authorization and token requests, and support `clientId` in MCP server config for pre-registered OAuth applications.
+- Add trust mode: clients can send `trust: true` in `chat/prompt` to auto-accept tool calls that would require manual approval.
+- Improve MCP tool call error handling
+
+## 0.114.2
+
+- Fix completion requests failing with OpenAI subscription models by always streaming on the Responses API. eca-emacs#183
+- Disable upx for Windows binaries. #362
+
+## 0.114.1
+
+- Fix native image on Windows not running on older CPUs by enabling `-march=compatibility`. #362
+- Fix simple summaries in tool calls for ollama.
+- Add MCP server instructions to LLM context. #361
+
+## 0.114.0
+
+- Delete chats older than 7 days on server startup.
+- Use human-readable workspace cache directory names (e.g. `my-project_a1b2c3d4`), with automatic migration from old hash-only format.
+- Show MCP server URL in the details page and allow editing command/args/url inline with `mcp/updateServer` endpoint.
+- Add `mcp/updateServer` to support change mcp commands/urls from client UI.
+
+## 0.113.1
+
+- Fix MCP server threads blocking ECA shutdown when stuck during initialization; startup now uses daemon threads with interrupt-based cancellation for clean exit.
+- Re-initialize MCP session and retry tool call on HTTP 404 (session expired) or 5xx (e.g. pod swap dropping the SSE stream), per MCP Streamable HTTP spec.
+- Fix `preRequest` hook `all_messages` containing only the current turn instead of the full conversation history.
+
+## 0.113.0
+
 - Clarify Task tool prompt for task ordering, task granularity, concurrent starts, and clearing finished task lists.
 - Add background shell command support via `background` parameter on `shell_command` tool and new `bg_job` tool for managing long-running processes (#77).
+- Improve MCP server auth: stop auto-opening browser on OAuth, add `mcp/connectServer` request for client-driven auth and `mcp/logoutServer` notification for clearing credentials.
 - Replace MCP Java SDK with plumcp for MCP client communication. SSE transport is no longer supported (deprecated in MCP spec 2025-03-26).
 - Fix crash on invalid YAML frontmatter in plugin skill files.
 - Show "Waiting subagent" instead of "Calling tool" in progress messages during subagent execution.
@@ -40,7 +265,7 @@
 
 - Fix MCP OAuth client registration failing for servers that require Content-Type header
 - Prevent MCP servers from getting stuck at "starting" when OAuth or other initialization errors occur.
-- Fix GitHub Copilot premium request overconsumption: 
+- Fix GitHub Copilot premium request overconsumption:
   - Chat titles LLM request don't spend premium requests.
   - Subagents now use same premium request of primary agent.
   - gpt-5.3-codex and gpt-5.4 now spend way less premium requests.

@@ -15,7 +15,7 @@ ECA manages the context window through four layers of defense, each addressing a
 
 ECA automatically truncates tool call outputs that are too large before sending them to the LLM. When output exceeds the configured limits, ECA:
 
-1. Saves the full output to a cache file in `~/.cache/eca/toolCallOutputs` (cleaned every 7 days).
+1. Saves the full output to a cache file in `~/.cache/eca/toolCallOutputs` (cleaned every 14 days, configurable via `chatRetentionDays`).
 2. Truncates the output to the configured line limit.
 3. Appends an `[OUTPUT TRUNCATED]` notice telling the LLM where the full content is saved and suggesting it use `eca__grep` or `eca__read_file` with offset/limit to access the rest.
 

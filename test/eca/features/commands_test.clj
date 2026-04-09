@@ -31,3 +31,36 @@
     (let [custom [{:name "test" :content "Process $ARGUMENTS here"}]]
       (is (= "Process one two here"
              (#'f.commands/get-custom-command "test" ["one" "two"] custom))))))
+
+(deftest substitute-args-test
+  (testing "replaces $ARGS with all args joined"
+    (is (= "Review https://github.com/org/repo/pull/1"
+           (#'f.commands/substitute-args "Review $ARGS" ["https://github.com/org/repo/pull/1"]))))
+
+  (testing "replaces $ARGUMENTS with all args joined"
+    (is (= "Review https://github.com/org/repo/pull/1"
+           (#'f.commands/substitute-args "Review $ARGUMENTS" ["https://github.com/org/repo/pull/1"]))))
+
+  (testing "replaces positional $ARGn placeholders"
+    (is (= "First:a Second:b"
+           (#'f.commands/substitute-args "First:$ARG1 Second:$ARG2" ["a" "b"]))))
+
+  (testing "unmatched positional placeholders remain"
+    (is (= "A:x B:$ARG2"
+           (#'f.commands/substitute-args "A:$ARG1 B:$ARG2" ["x"]))))
+
+  (testing "returns content as-is when no placeholders"
+    (is (= "No placeholders here"
+           (#'f.commands/substitute-args "No placeholders here" ["ignored"]))))
+
+  (testing "works with empty args"
+    (is (= "Hello  world"
+           (#'f.commands/substitute-args "Hello $ARGS world" []))))
+
+  (testing "replaces Claude Code compatible $n positional placeholders"
+    (is (= "First:a Second:b"
+           (#'f.commands/substitute-args "First:$1 Second:$2" ["a" "b"]))))
+
+  (testing "replaces both $ARGn and $n placeholders"
+    (is (= "A:x B:x"
+           (#'f.commands/substitute-args "A:$ARG1 B:$1" ["x"])))))

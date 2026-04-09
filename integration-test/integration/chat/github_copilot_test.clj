@@ -207,21 +207,21 @@
                                               :name "directory_tree"
                                               :argumentsText ""
                                               :manualApproval false
-                                              :summary "Listing file tree"})
+                                              :summary "Listing tree"})
           (match-content chat-id "assistant" {:type "toolCallPrepare"
                                               :origin "native"
                                               :id "tool-1"
                                               :name "directory_tree"
                                               :argumentsText "{\"pat"
                                               :manualApproval false
-                                              :summary "Listing file tree"})
+                                              :summary "Listing tree"})
           (match-content chat-id "assistant" {:type "toolCallPrepare"
                                               :origin "native"
                                               :id "tool-1"
                                               :name "directory_tree"
                                               :argumentsText (str "h\":\"" (h/json-escape-path (h/project-path->canon-path "resources")) "\"}")
                                               :manualApproval false
-                                              :summary "Listing file tree"})
+                                              :summary "Listing tree"})
           (match-content chat-id "system" {:type "usage"
                                            :messageInputTokens 5
                                            :messageOutputTokens 30
@@ -234,20 +234,20 @@
                                               :name "directory_tree"
                                               :arguments {:path (h/project-path->canon-path "resources")}
                                               :manualApproval false
-                                              :summary "Listing file tree"})
+                                              :summary "Listing tree: resources"})
           (match-content chat-id "assistant" {:type "toolCallRunning"
                                               :origin "native"
                                               :id "tool-1"
                                               :name "directory_tree"
                                               :arguments {:path (h/project-path->canon-path "resources")}
                                               :totalTimeMs number?
-                                              :summary "Listing file tree"})
+                                              :summary "Listing tree: resources"})
           (match-content chat-id "assistant" {:type "toolCalled"
                                               :origin "native"
                                               :id "tool-1"
                                               :name "directory_tree"
                                               :arguments {:path (h/project-path->canon-path "resources")}
-                                              :summary "Listing file tree"
+                                              :summary "Listing tree: resources"
                                               :error false
                                               :outputs [{:type "text" :text (str "[FILE] " (h/project-path->canon-path "resources/file1.md\n")
                                                                                  "[FILE] " (h/project-path->canon-path "resources/file2.md\n"))}]})

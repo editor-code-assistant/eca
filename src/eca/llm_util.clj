@@ -8,7 +8,7 @@
    [eca.secrets :as secrets]
    [eca.shared :as shared])
   (:import
-   [java.io BufferedReader]))
+   [java.io BufferedReader Closeable]))
 
 (set! *warn-on-reflection* true)
 
@@ -86,6 +86,54 @@
 
 (defn log-response [tag rid event data]
   (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))
+
+(def ^:private default-stream-idle-timeout-ms 120000)
+(def ^:private default-stream-check-interval-ms 500)
+
+(defn start-stream-watchdog!
+  "Starts a daemon thread that monitors a streaming connection.
+   Closes `closeable` when `cancelled?` returns true or when no SSE events
+   have been received for `idle-timeout-ms` while actively reading.
+
+   Returns a map with:
+   - :touch-fn        - call on each received event to reset the idle timer
+   - :set-reading-fn  - call with true/false to track whether blocked on .readLine
+   - :stop-fn         - call to stop the watchdog (e.g. in finally)
+   - :reason*         - atom; :cancelled or :idle-timeout when triggered, nil otherwise"
+  [^Closeable closeable cancelled? {:keys [idle-timeout-ms check-interval-ms]
+                                    :or {idle-timeout-ms default-stream-idle-timeout-ms
+                                         check-interval-ms default-stream-check-interval-ms}}]
+  (let [last-activity* (atom (System/currentTimeMillis))
+        in-read?* (atom false)
+        running?* (atom true)
+        reason* (atom nil)
+        thread (Thread.
+                (fn []
+                  (try
+                    (while @running?*
+                      (Thread/sleep (long check-interval-ms))
+                      (when @running?*
+                        (cond
+                          (and cancelled? (cancelled?))
+                          (do (reset! reason* :cancelled)
+                              (reset! running?* false)
+                              (.close closeable))
+
+                          (and @in-read?*
+                               (> (- (System/currentTimeMillis) @last-activity*)
+                                  idle-timeout-ms))
+                          (do (reset! reason* :idle-timeout)
+                              (reset! running?* false)
+                              (.close closeable)))))
+                    (catch Exception _))))]
+    (.setDaemon thread true)
+    (.start thread)
+    {:touch-fn (fn [] (reset! last-activity* (System/currentTimeMillis)))
+     :set-reading-fn (fn [reading?] (reset! in-read?* (boolean reading?)))
+     :stop-fn (fn []
+                (reset! running?* false)
+                (.interrupt thread))
+     :reason* reason*}))
 
 (defn provider-api-key [provider provider-auth config]
   (or (when-let [key (not-empty (get-in config [:providers (name provider) :key]))]

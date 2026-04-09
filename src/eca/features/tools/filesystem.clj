@@ -96,14 +96,13 @@
     (let [line-offset (get args "line_offset" 0)
           limit (get args "limit" (get-in config [:toolCall :readFile :maxLines]))
           sub-read (or line-offset limit)]
-      (format "Reading file %s %s"
+      (format "Reading %s %s"
               (fs/file-name (fs/file path))
               (str
-                (when sub-read
-                  (format "(%s-%s)"
-                          line-offset
-                          (+ line-offset limit)))
-                )))
+               (when sub-read
+                 (format "(%s-%s)"
+                         line-offset
+                         (+ line-offset limit))))))
     "Reading file"))
 
 (defn ^:private write-file [arguments _]
@@ -117,9 +116,26 @@
                                :content old-content}])))
 
 (defn ^:private write-file-summary [{:keys [args]}]
-  (if-let [path (get args "path")]
-    (str "Creating file " (fs/file-name (fs/file path)))
+  (if (get args "path")
+    "Creating"
     "Creating file"))
+
+(defn ^:private edit-file-summary [{:keys [args]}]
+  (if (get args "path")
+    "Editing"
+    "Editing file"))
+
+(defn ^:private directory-tree-summary [{:keys [args db]}]
+  (if-let [path (get args "path")]
+    (let [root (path->root-filename db path)
+          display-path (if root
+                         (let [rel (str (fs/relativize (fs/path root) (fs/path path)))]
+                           (if (= rel "")
+                             (fs/file-name (fs/file root))
+                             rel))
+                         path)]
+      (str "Listing tree: " display-path))
+    "Listing tree"))
 
 (defn ^:private run-ripgrep [path pattern include output-mode]
   (let [mode-flags (case output-mode
@@ -253,8 +269,8 @@
 (defn grep-summary [{:keys [args]}]
   (if-let [pattern (get args "pattern")]
     (if (> (count pattern) 22)
-      (format "Searching for '%s...'" (subs pattern 0 22))
-      (format "Searching for '%s'" pattern))
+      (format "Searching: %s..." (subs pattern 0 22))
+      (format "Searching: %s" pattern))
     "Searching for files"))
 
 (defn ^:private handle-file-change-result
@@ -342,13 +358,25 @@
                                                ["destination" (complement fs/exists?) "Path $destination already exists"]])
       (let [source (get arguments "source")
             destination (get arguments "destination")
-            source-content (slurp source)]
+            directory? (fs/directory? source)
+            source-content (when-not directory? (slurp source))]
         (fs/move source destination {:replace-existing false})
-        (assoc (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
-               :rollback-changes [{:path destination
-                                   :content nil}
-                                  {:path source
-                                   :content source-content}]))))
+        (cond-> (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
+          (not directory?) (assoc :rollback-changes [{:path destination
+                                                      :content nil}
+                                                     {:path source
+                                                      :content source-content}])))))
+
+(defn ^:private move-file-summary [{:keys [args]}]
+  (let [source (get args "source")
+        destination (get args "destination")]
+    (if (and source destination)
+      (let [source-parent (some-> source fs/path fs/parent str)
+            dest-parent (some-> destination fs/path fs/parent str)]
+        (if (= source-parent dest-parent)
+          (str "Renaming " (fs/file-name (fs/file source)))
+          (str "Moving " (fs/file-name (fs/file source)))))
+      "Moving file")))
 
 (def definitions
   {"directory_tree"
@@ -361,7 +389,7 @@
                  :required ["path"]}
     :handler #'directory-tree
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
-    :summary-fn (constantly "Listing file tree")}
+    :summary-fn #'directory-tree-summary}
    "read_file"
    {:description (tools.util/read-tool-description "read_file")
     :parameters {:type "object"
@@ -400,7 +428,7 @@
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
-    :summary-fn (constantly "Editing file")}
+    :summary-fn #'edit-file-summary}
    "preview_file_change"
    {:description (tools.util/read-tool-description "preview_file_change")
     :parameters {:type "object"
@@ -426,7 +454,7 @@
                  :required ["source" "destination"]}
     :handler #'move-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"])
-    :summary-fn (constantly "Moving file")}
+    :summary-fn #'move-file-summary}
    "grep"
    {:description (tools.util/read-tool-description "grep")
     :parameters {:type "object"

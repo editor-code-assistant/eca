@@ -17,6 +17,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.features.agents :as agents]
+   [rewrite-json.core :as rj]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -41,14 +42,14 @@
 (defn get-property [property] (System/getProperty property))
 
 (def ^:private dangerous-commands-regexes
-  [".*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"
-   ".*\\|\\s*(tee|dd|xargs).*",
-   ".*\\b(sed|awk|perl)\\s+.*-i.*",
-   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",
-   ".*git\\s+(add|commit|push).*",
-   ".*npm\\s+install.*",
-   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",
-   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null($|\\s))(?!&\\d+($|\\s))\\S+.*"])
+  [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
+   ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
+   ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
+   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
+   ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
+   ".*npm\\s+install.*",                                                                 ;; npm install
+   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*"])
 
 (def ^:private openai-variants
   {"none" {:reasoning {:effort "none"}}
@@ -96,7 +97,7 @@
                    :disabledTools ["preview_file_change"]}
            "plan" {:mode "primary"
                    :prompts {:chat "${classpath:prompts/plan_agent.md}"}
-                   :disabledTools ["edit_file" "write_file" "move_file"]
+                   :disabledTools ["edit_file" "write_file" "move_file" "git"]
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command"
                                                  {:argsMatchers {"command" ["pwd"
@@ -119,7 +120,7 @@
            "explorer" {:mode "subagent"
                        :description "${classpath:prompts/explorer_agent_description.md}"
                        :systemPrompt "${classpath:prompts/explorer_agent.md}"
-                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change"]
+                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change" "git"]
                        :toolCall {:approval {:byDefault "ask"
                                              :allow {"eca__shell_command"
                                                      {:argsMatchers {"command" ["pwd"
@@ -167,13 +168,14 @@
                          :ask {}
                          :deny {}}
               :readFile {:maxLines 2000}
-              :shellCommand {:summaryMaxLength 25}
+              :shellCommand {:summaryMaxLength 35}
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
-                                                                           :excludeProviders ["github-copilot"]}}
+                                                                            :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
+   :streamIdleTimeoutSeconds 120
    :mcpServers {}
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
@@ -182,9 +184,11 @@
                               "- `/login` to authenticate with providers"
                               "- `/init` to create/update AGENTS.md"
                               "- `/doctor` or `/config` to troubleshoot"
+                              "- `/remote` for remote connection details"
                               ""
                               "Add more contexts in `@`"
                               ""
+                              "Toggle **trust mode** to auto-accept all tool calls"
                               "")
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
@@ -193,6 +197,7 @@
    :netrcFile nil
    :autoCompactPercentage 75
    :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
+   :remote {:enabled false}
    :env "prod"})
 
 (defn ^:private parse-dynamic-string-values
@@ -308,6 +313,19 @@
 (def initialization-config* (atom {}))
 
 (def plugin-components* (atom nil))
+
+(def ^:private plugins-resolved* (promise))
+
+(defn deliver-plugins-resolved!
+  "Signal that plugin resolution has finished (successfully or not)."
+  []
+  (deliver plugins-resolved* true))
+
+(defn await-plugins-resolved!
+  "Block until plugin resolution has finished. Returns true when resolved,
+   nil on timeout (30s)."
+  []
+  (deref plugins-resolved* 30000 nil))
 
 (defn ^:private deep-merge [& maps]
   (apply merge-with (fn [& args]
@@ -507,14 +525,14 @@
           (merge-config $ plugin-config))
         ;; Append plugin commands/rules (vector concat, not deep-merge replace)
         (cond->
-          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
-          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
+         (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
+         (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
         migrate-legacy-config
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         ;; Plugin agents merge at same level as markdown agents
         (as-> config
               (let [md-agent-configs (when-not pure-config?
-                                      (agents/all-md-agents (:workspace-folders db)))]
+                                       (agents/all-md-agents (:workspace-folders db)))]
                 (if (or (seq md-agent-configs) (seq plugin-agents))
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs plugin-agents existing)))
@@ -613,12 +631,27 @@
 
 (def ^:private config-schema-url "https://eca.dev/config.json")
 
+(defn ^:private flatten-to-paths
+  "Recursively walks a nested map and returns a sequence of [path value] pairs,
+   where path is a vector of string keys and value is a leaf (non-map) value.
+   Mirrors deep-merge semantics: only the touched leaf paths are written."
+  ([m] (flatten-to-paths [] m))
+  ([prefix m]
+   (reduce-kv (fn [acc k v]
+                (let [path (conj prefix (if (keyword? k) (name k) (str k)))]
+                  (if (and (map? v) (seq v))
+                    (into acc (flatten-to-paths path v))
+                    (conj acc [path v]))))
+              []
+              m)))
+
 (defn update-global-config! [config]
-  (let [global-config-file (global-config-file)
-        current-config (normalize-fields normalization-rules (config-from-global-file))
-        new-config (deep-merge current-config
-                               (normalize-fields normalization-rules config))
-        new-config (assoc new-config "$schema" config-schema-url)
-        new-config-json (json/generate-string new-config {:pretty true})]
-    (io/make-parents global-config-file)
-    (spit global-config-file new-config-json)))
+  (let [file (global-config-file)
+        raw (if (.exists file) (slurp file) "{}")
+        root (rj/parse-string raw)
+        root (reduce (fn [r [path v]] (rj/assoc-in r path v))
+                     root
+                     (flatten-to-paths config))
+        root (rj/assoc-in root ["$schema"] config-schema-url)]
+    (io/make-parents file)
+    (spit file (rj/to-string root))))

@@ -28,7 +28,9 @@
             (is (= false (:compacting? chat-state))
                 "Should set compacting? to false")
             (is (= test-summary (:last-summary chat-state))
-                "Should save the summary as last-summary"))))))
+                "Should save the summary as last-summary")
+            (is (= true (:compact-done? chat-state))
+                "Should set compact-done? to true"))))))
 
   (testing "Handles empty summary"
     (let [db* (h/db*)
@@ -45,7 +47,8 @@
         
         (let [chat-state (get-in @db* [:chats chat-id])]
           (is (= false (:compacting? chat-state)))
-          (is (= empty-summary (:last-summary chat-state))))))))
+          (is (= empty-summary (:last-summary chat-state)))
+          (is (= true (:compact-done? chat-state))))))))
 
 (deftest compact-chat-enabled-test
   (testing "Tool is enabled when chat is compacting"

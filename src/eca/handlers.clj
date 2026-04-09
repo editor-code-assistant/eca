@@ -9,6 +9,7 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
+   [eca.features.providers :as f.providers]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -43,6 +44,12 @@
     (when (and agent-variant variants (some #{agent-variant} variants))
       agent-variant)))
 
+(defn welcome-message
+  "Builds the welcome message from config, appending a remote hint when available."
+  [config]
+  (or (:welcomeMessage (:chat config)) ;;legacy
+      (:welcomeMessage config)))
+
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
@@ -50,15 +57,21 @@
       (swap! db* assoc
              :client-info (:client-info params)
              :workspace-folders (:workspace-folders params)
+             :initial-workspace-folders (:workspace-folders params)
              :client-capabilities (:capabilities params))
       (metrics/set-extra-metrics! db*)
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
-      {:chat-welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
-                                 (:welcomeMessage config))})))
+      {:chat-welcome-message (welcome-message config)})))
 
-(defn initialized [{:keys [db* messenger config metrics]}]
+(defn ^:private send-progress! [db* messenger params]
+  (when-not (:stopping @db*)
+    (try
+      (messenger/progress messenger params)
+      (catch Exception _))))
+
+(defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
           (fn [config]
@@ -82,8 +95,7 @@
                                                        :select-agent default-agent-name
                                                        :variants (or variants [])
                                                        :select-variant (select-variant default-agent-config variants)
-                                                       :welcome-message (or (:welcomeMessage (:chat config)) ;;legacy
-                                                                            (:welcomeMessage config))
+                                                       :welcome-message (welcome-message config)
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
                                                        :default-model default-model
                                                        :default-agent default-agent-name
@@ -94,36 +106,51 @@
                                                      messenger
                                                      db*)))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
-      (shared/future* config (sync-models-and-notify! config))))
-  (future
-    (Thread/sleep 1000) ;; wait chat window is open in some editors.
-    (when-let [error (config/validation-error)]
-      (messenger/chat-content-received
-       messenger
-       {:role "system"
-        :content {:type :text
-                  :text (format "\nFailed to parse '%s' config, check stderr logs, double check your config and restart\n"
-                                error)}}))
-    (config/listen-for-changes! db*))
-  (future
-    ;; Resolve plugins before MCP init so plugin-provided servers are included
-    (try
-      (let [plugins-config (:plugins config)]
-        (when (seq plugins-config)
-          (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
-      (catch Exception e
-        (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
-    (let [config (config/all @db*)]
-      (f.tools/init-servers! db* messenger config metrics)))
-  (future
-    (cache/cleanup-tool-call-outputs!))
-  ;; Trigger sessionStart hook after initialization
-  (shared/future* config
-    (f.hooks/trigger-if-matches! :sessionStart
-                                 (f.hooks/base-hook-data @db*)
-                                 {}
-                                 @db*
-                                 config)))
+      (shared/future* config
+        (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
+            (sync-models-and-notify! config)
+            (send-progress! db* messenger {:type "finish" :taskId "models" :title "Syncing models"}))))
+    (when (get-in config [:remote :enabled])
+      (send-progress! db* messenger {:type "start" :taskId "remote-server" :title "Starting remote server"})
+      (start-remote-server! components)
+      (send-progress! db* messenger {:type "finish" :taskId "remote-server" :title "Starting remote server"}))
+    (future
+      (Thread/sleep 1000) ;; wait chat window is open in some editors.
+      (when-let [error (config/validation-error)]
+        (messenger/chat-content-received
+         messenger
+         {:role "system"
+          :content {:type :text
+                    :text (format "\nFailed to parse '%s' config, check stderr logs, double check your config and restart\n"
+                                  error)}}))
+      (config/listen-for-changes! db*))
+    (future
+      (send-progress! db* messenger {:type "start" :taskId "plugins" :title "Resolving plugins"})
+      (try
+        (let [plugins-config (:plugins config)]
+          (when (seq plugins-config)
+            (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
+        (catch Exception e
+          (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
+      (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
+      (config/deliver-plugins-resolved!)
+      (let [config (config/all @db*)]
+      ;; Trigger sessionStart with plugin-aware config
+        (shared/future* config
+          (f.hooks/trigger-if-matches! :sessionStart
+                                       (f.hooks/base-hook-data @db*)
+                                       {}
+                                       @db*
+                                       config))
+        (send-progress! db* messenger {:type "start" :taskId "mcp-servers" :title "Initializing MCP servers"})
+        (f.tools/init-servers! db* messenger config metrics)
+        (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
+    (future
+      (send-progress! db* messenger {:type "start" :taskId "cleanup" :title "Cleaning up"})
+      (let [retention-days (get config :chatRetentionDays 14)]
+        (cache/cleanup-tool-call-outputs! retention-days)
+        (db/cleanup-old-chats! db* metrics retention-days))
+      (send-progress! db* messenger {:type "finish" :taskId "cleanup" :title "Cleaning up"}))))
 
 (defn workspace-did-change-folders [{:keys [db*]} params]
   (let [{:keys [added removed]} (:event params)
@@ -149,8 +176,8 @@
 
     ;; 3. Then shutdown
     (f.background-tasks/cleanup-all!)
-    (f.mcp/shutdown! db*)
     (swap! db* assoc :stopping true)
+    (f.mcp/shutdown! db*)
     nil))
 
 (defn chat-prompt [{:keys [messenger db* config metrics]} params]
@@ -183,19 +210,39 @@
   (metrics/task metrics :eca/chat-prompt-stop
     (f.chat/prompt-stop params db* messenger metrics)))
 
-(defn chat-delete [{:keys [db* config metrics]} params]
+(defn chat-prompt-steer [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-prompt-steer
+    (f.chat/prompt-steer params db*)))
+
+(defn chat-delete [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-delete
-    (f.chat/delete-chat params db* config metrics)
+    (f.chat/delete-chat params db* messenger config metrics)
     {}))
 
-(defn chat-clear [{:keys [db* metrics]} params]
+(defn chat-clear [{:keys [db* messenger metrics]} params]
   (metrics/task metrics :eca/chat-clear
-    (f.chat/clear-chat params db* metrics)
+    (f.chat/clear-chat params db* messenger metrics)
     {}))
 
 (defn chat-rollback [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-rollback
     (f.chat/rollback-chat params db* messenger)))
+
+(defn chat-add-flag [{:keys [db* metrics messenger]} params]
+  (metrics/task metrics :eca/chat-add-flag
+    (f.chat/add-flag params db* messenger metrics)))
+
+(defn chat-remove-flag [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-remove-flag
+    (f.chat/remove-flag params db* metrics)))
+
+(defn chat-fork [{:keys [db* metrics messenger]} params]
+  (metrics/task metrics :eca/chat-fork
+    (f.chat/fork-chat params db* messenger metrics)))
+
+(defn chat-update [{:keys [db* messenger metrics]} params]
+  (metrics/task metrics :eca/chat-update
+    (f.chat/update-chat params db* messenger metrics)))
 
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server
@@ -204,6 +251,32 @@
 (defn mcp-start-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-start-server
     (f.tools/start-server! (:name params) db* messenger config metrics)))
+
+(defn mcp-connect-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-connect-server
+    (f.tools/connect-server! (:name params) db* messenger config metrics)))
+
+(defn mcp-logout-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-logout-server
+    (f.tools/logout-server! (:name params) db* messenger config metrics)))
+
+(defn mcp-update-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-update-server
+    (let [server-name (:name params)
+          server-fields (cond-> {}
+                          (:command params) (assoc :command (:command params))
+                          (:args params) (assoc :args (:args params))
+                          (:url params) (assoc :url (:url params)))]
+      (f.tools/update-server! server-name server-fields db* messenger config metrics)
+      {})))
+
+(defn mcp-disable-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-disable-server
+    (f.tools/disable-server! (:name params) db* messenger config metrics)))
+
+(defn mcp-enable-server [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-enable-server
+    (f.tools/enable-server! (:name params) db* messenger config metrics)))
 
 (defn ^:private update-agent-model-and-variants!
   "Updates the selected model and variants based on agent configuration."
@@ -268,3 +341,21 @@
   (metrics/task metrics :eca/rewrite-prompt
     (handle-expected-errors
      (f.rewrite/prompt params db* config messenger metrics))))
+
+(defn providers-list [{:keys [db* config metrics]} _params]
+  (metrics/task metrics :eca/providers-list
+    (f.providers/providers-list db* config)))
+
+(defn providers-login [{:keys [db* config messenger metrics]} params]
+  (metrics/task metrics :eca/providers-login
+    (handle-expected-errors
+     (f.providers/provider-login (:provider params) (:method params) db* config messenger metrics))))
+
+(defn providers-login-input [{:keys [db* config messenger metrics]} params]
+  (metrics/task metrics :eca/providers-login-input
+    (handle-expected-errors
+     (f.providers/provider-login-input (:provider params) (:data params) db* config messenger metrics))))
+
+(defn providers-logout [{:keys [db* config messenger metrics]} params]
+  (metrics/task metrics :eca/providers-logout
+    (f.providers/provider-logout (:provider params) db* config messenger metrics)))

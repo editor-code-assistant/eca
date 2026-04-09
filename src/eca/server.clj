@@ -9,10 +9,13 @@
    [eca.metrics :as metrics]
    [eca.nrepl :as nrepl]
    [eca.opentelemetry :as opentelemetry]
+   [eca.remote.messenger :as remote.messenger]
+   [eca.remote.server :as remote.server]
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
    [jsonrpc4clj.liveness-probe :as liveness-probe]
-   [jsonrpc4clj.server :as jsonrpc.server]))
+   [jsonrpc4clj.server :as jsonrpc.server]
+   [promesa.core :as p]))
 
 (set! *warn-on-reflection* true)
 
@@ -20,15 +23,38 @@
   [_level & args]
   (apply logger/info args))
 
+(def ^:private remote-server* (atom nil))
+
 (defn ^:private exit [server]
   (metrics/task
     :eca/exit
-    (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
+    (let [remote-stop-f (when-let [rs @remote-server*]
+                          (future (remote.server/stop! rs)))]
+      (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
+      (some-> remote-stop-f deref))
     (shutdown-agents)
     (System/exit 0)))
 
 (defn ^:private with-config [components]
   (assoc components :config (config/all @(:db* components))))
+
+(defmacro ^:private eventually
+  "Dispatches handler body to a background thread, returning a promise.
+  Releases the protocol thread immediately. jsonrpc4clj resolves the promise
+  and sends the JSON-RPC response when the work completes."
+  [& body]
+  `(p/thread ~@body))
+
+(defmacro ^:private async-notify
+  "Dispatches notification handler body to a background thread.
+  Releases the protocol thread immediately. Exceptions are logged since
+  notification handlers have no response channel."
+  [& body]
+  `(p/thread
+     (try
+       ~@body
+       (catch Throwable e#
+         (logger/error e# "[server] Error in async notification handler")))))
 
 (defmethod jsonrpc.server/receive-request "initialize" [_ {:keys [server] :as components} params]
   (when-let [parent-process-id (:process-id params)]
@@ -36,7 +62,7 @@
   (handlers/initialize components params))
 
 (defmethod jsonrpc.server/receive-notification "initialized" [_ components _params]
-  (handlers/initialized (with-config components)))
+  (async-notify (handlers/initialized (with-config components))))
 
 (defmethod jsonrpc.server/receive-request "shutdown" [_ components _params]
   (handlers/shutdown (with-config components)))
@@ -45,19 +71,19 @@
   (exit server))
 
 (defmethod jsonrpc.server/receive-notification "workspace/didChangeWorkspaceFolders" [_ components params]
-  (handlers/workspace-did-change-folders (with-config components) params))
+  (async-notify (handlers/workspace-did-change-folders (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
-  (handlers/chat-prompt (with-config components) params))
+  (eventually (handlers/chat-prompt (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/queryContext" [_ components params]
-  (handlers/chat-query-context (with-config components) params))
+  (eventually (handlers/chat-query-context (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/queryFiles" [_ components params]
-  (handlers/chat-query-files (with-config components) params))
+  (eventually (handlers/chat-query-files (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/queryCommands" [_ components params]
-  (handlers/chat-query-commands (with-config components) params))
+  (eventually (handlers/chat-query-commands (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "chat/toolCallApprove" [_ components params]
   (handlers/chat-tool-call-approve (with-config components) params))
@@ -68,36 +94,78 @@
 (defmethod jsonrpc.server/receive-notification "chat/promptStop" [_ components params]
   (handlers/chat-prompt-stop (with-config components) params))
 
+(defmethod jsonrpc.server/receive-notification "chat/promptSteer" [_ components params]
+  (handlers/chat-prompt-steer (with-config components) params))
+
 (defmethod jsonrpc.server/receive-request "chat/delete" [_ components params]
-  (handlers/chat-delete (with-config components) params))
+  (eventually (handlers/chat-delete (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/clear" [_ components params]
-  (handlers/chat-clear (with-config components) params))
+  (eventually (handlers/chat-clear (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/rollback" [_ components params]
-  (handlers/chat-rollback (with-config components) params))
+  (eventually (handlers/chat-rollback (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/addFlag" [_ components params]
+  (eventually (handlers/chat-add-flag (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/removeFlag" [_ components params]
+  (eventually (handlers/chat-remove-flag (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/fork" [_ components params]
+  (eventually (handlers/chat-fork (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/update" [_ components params]
+  (eventually (handlers/chat-update (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
-  (handlers/mcp-stop-server (with-config components) params))
+  (async-notify (handlers/mcp-stop-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "mcp/startServer" [_ components params]
-  (handlers/mcp-start-server (with-config components) params))
+  (async-notify (handlers/mcp-start-server (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-notification "mcp/connectServer" [_ components params]
+  (async-notify (handlers/mcp-connect-server (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-notification "mcp/logoutServer" [_ components params]
+  (async-notify (handlers/mcp-logout-server (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-notification "mcp/disableServer" [_ components params]
+  (async-notify (handlers/mcp-disable-server (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-notification "mcp/enableServer" [_ components params]
+  (async-notify (handlers/mcp-enable-server (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "mcp/updateServer" [_ components params]
+  (eventually (handlers/mcp-update-server (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "chat/selectedAgentChanged" [_ components params]
-  (handlers/chat-selected-agent-changed (with-config components) params))
+  (async-notify (handlers/chat-selected-agent-changed (with-config components) params)))
 
 ;; Legacy: backward compat for clients using old method name
 (defmethod jsonrpc.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
-  (handlers/chat-selected-agent-changed (with-config components) params))
+  (async-notify (handlers/chat-selected-agent-changed (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
-  (handlers/chat-selected-model-changed (with-config components) params))
+  (async-notify (handlers/chat-selected-model-changed (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "providers/list" [_ components params]
+  (eventually (handlers/providers-list (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "providers/login" [_ components params]
+  (eventually (handlers/providers-login (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "providers/loginInput" [_ components params]
+  (eventually (handlers/providers-login-input (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "providers/logout" [_ components params]
+  (eventually (handlers/providers-logout (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
-  (handlers/completion-inline (with-config components) params))
+  (eventually (handlers/completion-inline (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "rewrite/prompt" [_ components params]
-  (handlers/rewrite-prompt (with-config components) params))
+  (eventually (handlers/rewrite-prompt (with-config components) params)))
 
 (defn ^:private monitor-server-logs [log-ch]
   ;; NOTE: if this were moved to `initialize`, after timbre has been configured,
@@ -131,6 +199,15 @@
   (chat-cleared [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/cleared" params)))
+  (chat-status-changed [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/statusChanged" params)))
+  (chat-deleted [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/deleted" params)))
+  (chat-opened [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/opened" params)))
   (rewrite-content-received [_this content]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))
@@ -140,9 +217,15 @@
   (tool-server-updated [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "tool/serverUpdated" params)))
+  (provider-updated [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "providers/updated" params)))
   (showMessage [_this msg]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "$/showMessage" msg)))
+  (progress [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "$/progress" params)))
   (editor-diagnostics [_this uri]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri)))))
@@ -153,12 +236,28 @@
     (metrics/->NoopMetrics)))
 
 (defn start-server! [server]
-  (let [db* (atom db/initial-db)
+  (let [db* (atom (assoc db/initial-db :started-at (System/currentTimeMillis)))
         metrics (->Metrics db*)
+        stdio-messenger (->ServerMessenger server db*)
+        ;; Always create SSE connections and BroadcastMessenger so the remote
+        ;; HTTP server can be started later (e.g. when local project config
+        ;; enables it after initialize). Broadcasting to an empty set is a no-op.
+        sse-connections* (atom #{})
+        messenger (remote.messenger/->BroadcastMessenger stdio-messenger sse-connections*)
+        start-remote-server!
+        (fn [components]
+          (when-let [rs (remote.server/start! components sse-connections*)]
+            (reset! remote-server* rs)
+            (swap! db* assoc
+                   :remote-connect-url (:connect-url rs)
+                   :remote-host (:host rs)
+                   :remote-token (:token rs)
+                   :remote-private-host? (:private-host? rs))))
         components {:db* db*
-                    :messenger (->ServerMessenger server db*)
+                    :messenger messenger
                     :metrics metrics
-                    :server server}]
+                    :server server
+                    :start-remote-server! start-remote-server!}]
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
     (monitor-server-logs (:log-ch server))

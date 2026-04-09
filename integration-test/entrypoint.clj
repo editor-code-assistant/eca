@@ -6,7 +6,8 @@
    [clojure.test :as t]
    [integration.eca :as eca]
    [integration.chat.hooks-test]
-   [llm-mock.server :as llm-mock.server]))
+   [llm-mock.server :as llm-mock.server]
+   [mcp-mock.server :as mcp-mock.server]))
 
 (def namespaces
   '[integration.initialize-test
@@ -18,6 +19,7 @@
     integration.chat.custom-provider-test
     integration.chat.hooks-test
     integration.chat.commands-test
+    integration.chat.mcp-remote-test
     integration.rewrite.openai-test])
 
 (defn timeout [timeout-ms callback]
@@ -125,6 +127,7 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
     (println "Preparing mcp-server-sample")
     (shell {:out nil :dir "integration-test/mcp-server-sample"} "clojure -Stree")
     (llm-mock.server/start!)
+    (mcp-mock.server/start!)
 
     (let [timeout-minutes (if (re-find #"(?i)win|mac" (System/getProperty "os.name"))
                             10 ;; win and mac ci runs take longer
@@ -134,6 +137,7 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
                                    (apply t/run-tests nses)))]
 
       (llm-mock.server/stop!)
+      (mcp-mock.server/stop!)
 
       (when (= test-results :timed-out)
         (println)

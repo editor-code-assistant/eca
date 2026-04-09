@@ -3,12 +3,17 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.prompt :as f.prompt]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.azure]
    [eca.llm-providers.copilot]
    [eca.llm-providers.deepseek]
    [eca.llm-providers.errors :as llm-providers.errors]
    [eca.llm-providers.google]
+   [eca.llm-providers.litellm]
+   [eca.llm-providers.lmstudio]
+   [eca.llm-providers.mistral]
+   [eca.llm-providers.moonshot]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
@@ -28,6 +33,7 @@
   #{"gpt-5.3-codex" "gpt-5.4"})
 
 (def ^:private default-max-retries 10)
+(def ^:private premature-stop-max-retries 3)
 (def ^:private default-base-delay-ms 2000)
 (def ^:private default-backoff-multiplier 2)
 (def ^:private max-delay-ms 60000)
@@ -163,7 +169,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth sync? subagent?]
+           past-messages tools provider-auth sync? subagent? cancelled?]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities) tools)
@@ -180,6 +186,8 @@
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
+        ;; Flatten {:static :dynamic} instructions map into a single string for non-Anthropic providers
+        flat-instructions (if (map? instructions) (f.prompt/instructions->str instructions) instructions)
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -194,7 +202,7 @@
         (= "openai" provider)
         (handler
          {:model real-model
-          :instructions instructions
+          :instructions flat-instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
@@ -227,11 +235,15 @@
           :extra-headers extra-headers
           :api-url api-url
           :api-key api-key
-          :auth-type auth-type}
+          :auth-type auth-type
+          :cancelled? cancelled?
+          :cache-retention (:cacheRetention provider-config)
+          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
 
         (= "github-copilot" provider)
-        (let [copilot-headers (fn [user-initiator?]
+        (let [api-url (or (:api-url provider-auth) api-url)
+              copilot-headers (fn [user-initiator?]
                                 (merge {"openai-intent" "conversation-panel"
                                         "x-request-id" (str (random-uuid))
                                         "x-initiator" (if user-initiator? "user" "agent")
@@ -241,7 +253,7 @@
                                         "copilot-integration-id" "vscode-chat"}
                                        extra-headers))
               base-opts {:model real-model
-                         :instructions instructions
+                         :instructions flat-instructions
                          :user-messages user-messages
                          :max-output-tokens max-output-tokens
                          :reason? reason?
@@ -271,7 +283,7 @@
         (= "google" provider)
         (handler
          {:model real-model
-          :instructions instructions
+          :instructions flat-instructions
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
@@ -296,7 +308,7 @@
           :reason? (:reason? model-capabilities)
           :supports-image? supports-image?
           :model real-model
-          :instructions instructions
+          :instructions flat-instructions
           :user-messages user-messages
           :past-messages past-messages
           :tools tools
@@ -313,7 +325,7 @@
               http-client (:httpClient provider-config)]
           (handler
            {:model real-model
-            :instructions instructions
+            :instructions flat-instructions
             :user-messages user-messages
             :max-output-tokens max-output-tokens
             :web-search web-search
@@ -329,7 +341,8 @@
             :reasoning-history reasoning-history
             :http-client http-client
             :api-url api-url
-            :api-key api-key}
+            :api-key api-key
+            :cancelled? cancelled?}
            callbacks))
 
         :else
@@ -375,20 +388,23 @@
         retry-rules (:retryRules provider-config)
         maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
-                             :as classified} (llm-providers.errors/classify-error error-data retry-rules)]
-                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom} error-type)
-                                 (< attempt default-max-retries)
+                             :as classified} (llm-providers.errors/classify-error error-data retry-rules)
+                            max-retries (if (= :premature-stop error-type)
+                                          premature-stop-max-retries
+                                          default-max-retries)]
+                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
+                                 (< attempt max-retries)
                                  (not (cancelled?)))
                           (let [delay-ms (retry-delay-ms attempt)]
                             (logger/info logger-tag
                                          (format "Retryable error (attempt %d/%d), retrying in %ds"
-                                                 (inc attempt) default-max-retries (quot delay-ms 1000))
+                                                 (inc attempt) max-retries (quot delay-ms 1000))
                                          {:error-type error-type
                                           :status (:status error-data)})
                             (when on-retry
                               (try
                                 (on-retry {:attempt (inc attempt)
-                                           :max-retries default-max-retries
+                                           :max-retries max-retries
                                            :delay-ms delay-ms
                                            :error-data error-data
                                            :classified classified})
@@ -455,6 +471,7 @@
                 :user-messages user-messages
                 :variant variant
                 :subagent? subagent?
+                :cancelled? cancelled?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
                 :on-tools-called on-tools-called

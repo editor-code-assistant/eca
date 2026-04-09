@@ -91,24 +91,27 @@
 
 (defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
   (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
-    (when (<= (long expires-at) (quot (System/currentTimeMillis) 1000))
+    ;; Renew 60 seconds before expiration to avoid race between check and request
+    (when (<= (long expires-at) (+ 60 (quot (System/currentTimeMillis) 1000)))
       (when on-renewing
         (on-renewing))
       (renew-auth! provider ctx
                    {:on-error on-error}))))
 
 (defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}
-                   & {:keys [silent?]
-                      :or {silent? false}}]
+                   & {:keys [silent? skip-models-sync?]
+                      :or {silent? false
+                           skip-models-sync? false}}]
   (when (get-in @db* [:auth provider])
     (db/update-global-cache! @db* metrics))
-  (models/sync-models! db*
-                       (config/all @db*) ;; force get updated config
-                       (fn [new-models]
-                         (messenger/config-updated
-                          messenger
-                          {:chat
-                           {:models (sort (keys new-models))}})))
+  (when-not skip-models-sync?
+    (models/sync-models! db*
+                         (config/all @db*) ;; force get updated config
+                         (fn [new-models]
+                           (messenger/config-updated
+                            messenger
+                            {:chat
+                             {:models (sort (keys new-models))}}))))
   (swap! db* assoc-in [:chats chat-id :login-provider] nil)
   (swap! db* assoc-in [:chats chat-id :status] :idle)
   (when-not silent?

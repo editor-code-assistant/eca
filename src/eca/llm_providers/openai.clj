@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.oauth :as oauth]
@@ -95,8 +96,10 @@
               (llm-util/log-response logger-tag rid "response" body)
               (response-body->result body)))))
       (catch Exception e
-        (on-error {:exception e
-                   :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))})))))
+        (let [msg (or (ex-message e) (.getName (class e)))
+              prefix (if (ex-data e) "Internal error" "Connection error")]
+          (on-error {:exception e
+                     :message (format "%s: %s" prefix msg)}))))))
 
 (defn ^:private normalize-messages [messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]
@@ -156,7 +159,6 @@
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (->tools tools web-search codex?)
-        stream? (boolean callbacks)
         body (merge
               (assoc-some
                {:model model
@@ -172,14 +174,15 @@
                 :reasoning (when reason?
                              {:effort "medium"
                               :summary "auto"})
-                :stream stream?}
+                :stream true}
                :max_output_tokens (when-not codex? max-output-tokens)
                :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
         reasoning-item-id* (atom nil)
+        sync-result* (when-not callbacks (atom nil))
         on-stream-fn
-        (when stream?
+        (if callbacks
           (fn handle-stream [event data]
             (case event
               ;; text
@@ -187,7 +190,7 @@
               (on-message-received {:type :text
                                     :text (:delta data)})
               ;; tools
-              "response.function_call_arguments.delta" (let [call (get @tool-call-by-item-id* (:item_id data))]
+              "response.function_call_arguments.delta" (when-let [call (get @tool-call-by-item-id* (:item_id data))]
                                                          (on-prepare-tool-call {:id (:id call)
                                                                                 :full-name (:full-name call)
                                                                                 :arguments-text (:delta data)}))
@@ -195,12 +198,23 @@
               "response.output_item.done"
               (case (:type (:item data))
                 "reasoning" (do (reset! reasoning-item-id* nil)
-                               (on-reason {:status :finished
-                                           :id (-> data :item :id)
-                                           :external-id (-> data :item :encrypted_content)}))
+                                (on-reason {:status :finished
+                                            :id (-> data :item :id)
+                                            :external-id (-> data :item :encrypted_content)}))
+                "function_call" (let [done-item-id (-> data :item :id)
+                                      done-call-id (-> data :item :call_id)
+                                      args (-> data :item :arguments)]
+                                  (swap! tool-call-by-item-id*
+                                         (fn [m]
+                                           (if-let [existing-key (or (when (contains? m done-item-id) done-item-id)
+                                                                     (->> m
+                                                                          (some (fn [[k v]]
+                                                                                  (when (= done-call-id (:id v)) k)))))]
+                                             (assoc-in m [existing-key :arguments] args)
+                                             (assoc m done-item-id {:arguments args})))))
                 "web_search_call" (on-server-web-search {:status :finished
-                                                          :id (-> data :item :id)
-                                                          :output nil})
+                                                         :id (-> data :item :id)
+                                                         :output nil})
                 nil)
 
               ;; URL mentioned
@@ -237,28 +251,35 @@
                                                          :full-name function-name
                                                          :arguments-text function-args}))
                 "web_search_call" (on-server-web-search {:status :started
-                                                          :id (-> data :item :id)
-                                                          :name "web_search"
-                                                          :input nil})
+                                                         :id (-> data :item :id)
+                                                         :name "web_search"
+                                                         :input nil})
                 nil)
 
               ;; done
               "response.completed"
               (let [response (:response data)
-                    tool-calls (keep (fn [{:keys [id call_id name arguments] :as output}]
-                                       (when (= "function_call" (:type output))
-                                         ;; Fallback case when the tool call was not prepared before when
-                                         ;; some models/apis respond only with response.completed (skipping streaming).
-                                         (when-not (get @tool-call-by-item-id* id)
-                                           (swap! tool-call-by-item-id* assoc id {:full-name name :id call_id})
-                                           (on-prepare-tool-call {:id call_id
-                                                                  :full-name name
-                                                                  :arguments-text arguments}))
-                                         {:id call_id
-                                          :item-id id
-                                          :full-name name
-                                          :arguments (json/parse-string arguments)}))
-                                     (:output response))]
+                    tool-calls (or (seq (keep (fn [{:keys [id call_id name arguments] :as output}]
+                                                (when (= "function_call" (:type output))
+                                                  (when-not (some #(= call_id (:id %)) (vals @tool-call-by-item-id*))
+                                                    (swap! tool-call-by-item-id* assoc id {:full-name name :id call_id})
+                                                    (on-prepare-tool-call {:id call_id
+                                                                           :full-name name
+                                                                           :arguments-text arguments}))
+                                                  {:id call_id
+                                                   :item-id id
+                                                   :full-name name
+                                                   :arguments (json/parse-string arguments)}))
+                                              (:output response)))
+                                   ;; Fallback: some models stream tool calls via events
+                                   ;; but return empty :output in response.completed
+                                   (seq (keep (fn [[item-id {:keys [full-name id arguments]}]]
+                                                (when arguments
+                                                  {:id id
+                                                   :item-id item-id
+                                                   :full-name full-name
+                                                   :arguments (json/parse-string arguments)}))
+                                              @tool-call-by-item-id*)))]
                 (on-usage-updated (let [input-cache-read-tokens (-> response :usage :input_tokens_details :cached_tokens)]
                                     {:input-tokens (if input-cache-read-tokens
                                                      (- (-> response :usage :input_tokens) input-cache-read-tokens)
@@ -266,7 +287,8 @@
                                      :output-tokens (-> response :usage :output_tokens)
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
-                  (when-let [{:keys [new-messages tools]} (on-tools-called tool-calls)]
+                  (when-let [{:keys [new-messages tools fresh-api-key provider-auth]} (on-tools-called tool-calls)]
+                    (reset! tool-call-by-item-id* {})
                     (base-responses-request!
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
@@ -274,15 +296,13 @@
                                    :tools (->tools tools web-search codex?))
                       :api-url api-url
                       :url-relative-path url-relative-path
-                      :api-key api-key
-                      :account-id account-id
+                      :api-key (or fresh-api-key api-key)
+                      :account-id (or (:account-id provider-auth) account-id)
                       :http-client http-client
                       :extra-headers extra-headers
                       :auth-type auth-type
                       :on-error on-error
-                      :on-stream handle-stream})
-                    (doseq [tool-call tool-calls]
-                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call))))
+                      :on-stream handle-stream}))
                   (on-message-received {:type :finish
                                         :finish-reason (-> data :response :status)})))
 
@@ -291,19 +311,33 @@
                                     (on-error {:message (:message error)}))
                                   (on-message-received {:type :finish
                                                         :finish-reason (-> data :response :status)}))
-              nil)))]
-    (base-responses-request!
-     {:rid (llm-util/gen-rid)
-      :body body
-      :api-url api-url
-      :url-relative-path url-relative-path
-      :api-key api-key
-      :account-id account-id
-      :http-client http-client
-      :extra-headers extra-headers
-      :auth-type auth-type
-      :on-error on-error
-      :on-stream on-stream-fn})))
+              nil))
+          ;; Sync mode: collect text deltas into result atom
+          (let [sb (StringBuilder.)]
+            (fn handle-sync-stream [event data]
+              (case event
+                "response.output_text.delta"
+                (.append sb ^String (:delta data))
+                "response.completed"
+                (reset! sync-result* {:output-text (.toString sb)})
+                "response.failed"
+                (reset! sync-result* {:error {:message (-> data :response :error :message)}})
+                nil))))
+        result (base-responses-request!
+                {:rid (llm-util/gen-rid)
+                 :body body
+                 :api-url api-url
+                 :url-relative-path url-relative-path
+                 :api-key api-key
+                 :account-id account-id
+                 :http-client http-client
+                 :extra-headers extra-headers
+                 :auth-type auth-type
+                 :on-error on-error
+                 :on-stream on-stream-fn})]
+    (if callbacks
+      result
+      (or @sync-result* result))))
 
 (def ^:private client-id "app_EMoamEEZ73f0CkXaXp7hrann")
 
@@ -371,6 +405,42 @@
                       {:status status
                        :body body})))))
 
+;; --- Settings-based login (providers/login flow) ---
+
+(defmethod f.providers/start-login! ["openai" "pro"] [_ _ db* _config messenger metrics]
+  (let [local-server-port 1455
+        server-url (str "http://localhost:" local-server-port "/auth/callback")
+        {:keys [verifier url]} (oauth-url server-url)]
+    (oauth/start-oauth-server!
+     {:port local-server-port
+      :on-success (fn [{:keys [code]}]
+                    (try
+                      (let [{:keys [access-token refresh-token account-id expires-at]}
+                            (oauth-authorize server-url code verifier)]
+                        (swap! db* update-in [:auth "openai"] merge
+                               {:step :login/done
+                                :type :auth/oauth
+                                :mode :pro
+                                :refresh-token refresh-token
+                                :api-key access-token
+                                :account-id account-id
+                                :expires-at expires-at})
+                        (f.providers/sync-and-notify! "openai" db* messenger metrics))
+                      (catch Exception e
+                        (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
+                      (finally
+                        (future
+                          (Thread/sleep 2000)
+                          (oauth/stop-oauth-server! local-server-port)))))
+      :on-error (fn [error]
+                  (logger/error logger-tag "OAuth error:" error)
+                  (oauth/stop-oauth-server! local-server-port))})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser. ECA will finish the login automatically."}))
+
+;; --- Chat-based login (legacy /login command) ---
+
 (defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
@@ -414,10 +484,9 @@
 (defmethod f.login/login-step ["openai" :login/waiting-api-key] [{:keys [input db* provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
     (do (config/update-global-config! {:providers {"openai" {:key input}}})
-        (swap! db* update :auth dissoc provider)
+        (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
         (send-msg! (str "API key saved in " (.getCanonicalPath (config/global-config-file))))
-
-        (f.login/login-done! ctx :update-cache? false))
+        (f.login/login-done! ctx))
     (send-msg! (format "Invalid API key '%s'" input))))
 
 (defmethod f.login/login-step ["openai" :login/renew-token] [{:keys [db* provider] :as ctx}]
@@ -432,4 +501,4 @@
                                                  :api-key access-token
                                                  :account-id new-account-id
                                                  :expires-at expires-at})
-    (f.login/login-done! ctx :silent? true)))
+    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))

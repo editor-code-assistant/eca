@@ -25,26 +25,30 @@
    - :file        Script file path (mutually exclusive with :script)
    - :input       String to pass as stdin (optional)
    - :out-mode    Output capture mode — :string (default) or :stream
+   - :shell-path  Custom shell executable path (optional, overrides platform default)
+   - :shell-args  Custom shell args placed before the script/file arg (optional)
 
    Returns: babashka.process process object (deref-able)"
-  [{:keys [cwd script file input out-mode]
+  [{:keys [cwd script file input out-mode shell-path shell-args]
     :or {out-mode :string}}]
   {:pre [(some? cwd)
          (or (some? script) (some? file))
          (not (and script file))]}
-  (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")
-        cmd (cond
-              (and win? file)
-              ["powershell.exe" "-ExecutionPolicy" "Bypass" "-File" file]
+  (let [cmd (if shell-path
+              (into (vec (cons shell-path shell-args)) [(or script file)])
+              (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")]
+                (cond
+                  (and win? file)
+                  ["powershell.exe" "-ExecutionPolicy" "Bypass" "-File" file]
 
-              (and win? script)
-              ["powershell.exe" "-NoProfile" "-Command" script]
+                  (and win? script)
+                  ["powershell.exe" "-NoProfile" "-Command" script]
 
-              file
-              ["bash" file]
+                  file
+                  ["bash" file]
 
-              :else
-              ["bash" "-c" script])]
+                  :else
+                  ["bash" "-c" script])))]
     (p/process (cond-> {:cmd cmd
                         :dir cwd
                         :out out-mode
@@ -126,16 +130,21 @@
 
 (defn ^:private foreground-shell-command
   "Run a shell command synchronously, blocking until completion or timeout."
-  [arguments {:keys [db tool-call-id call-state-fn state-transition-fn]}]
+  [arguments {:keys [db config tool-call-id call-state-fn state-transition-fn]}]
   (let [command-args (get arguments "command")
         user-work-dir (get arguments "working_directory")
         timeout (min (or (get arguments "timeout") default-timeout) max-timeout)
+        shell-config (get-in config [:toolCall :shellCommand])
+        shell-path (get shell-config :path)
+        shell-args (get shell-config :args)
         work-dir (resolve-work-dir db user-work-dir)]
     (let [_ (logger/debug logger-tag "Running command:" command-args)
           result (try
                    (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                   (start-shell-process! {:cwd work-dir
-                                                          :script command-args}))]
+                                   (start-shell-process! (cond-> {:cwd work-dir
+                                                                   :script command-args}
+                                                           shell-path (assoc :shell-path shell-path)
+                                                           shell-args (assoc :shell-args shell-args))))]
                      (do
                        (state-transition-fn :resources-created {:resources {:process proc}})
                        (try (deref proc
@@ -203,12 +212,14 @@
         workspace-folders (:workspace-folders db)
         bg? (get args "background")]
     (if-let [command (some-> (get args "command")
-                             (strip-workspace-cd-prefix workspace-folders))]
-      (let [prefix (if bg? "[BG] Running '" "Running '")]
+                             (strip-workspace-cd-prefix workspace-folders)
+                             (string/replace #"\n" " ")
+                             string/trim)]
+      (let [prefix (if bg? "[BG] $ " "$ ")]
         (if (> (count command) max-length)
-          (format "%s%s...'" prefix (subs command 0 max-length))
-          (format "%s%s'" prefix command)))
-      "Running shell command")))
+          (format "%s%s..." prefix (subs command 0 max-length))
+          (format "%s%s" prefix command)))
+      "Preparing shell command")))
 
 (def definitions
   {"shell_command"
