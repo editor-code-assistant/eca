@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.124.5
+
 - Fix Github Enterprise models fetch. #402
 
 ## 0.124.4
