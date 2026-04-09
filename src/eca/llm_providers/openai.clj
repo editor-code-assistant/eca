@@ -96,8 +96,10 @@
               (llm-util/log-response logger-tag rid "response" body)
               (response-body->result body)))))
       (catch Exception e
-        (on-error {:exception e
-                   :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))})))))
+        (let [msg (or (ex-message e) (.getName (class e)))
+              prefix (if (ex-data e) "Internal error" "Connection error")]
+          (on-error {:exception e
+                     :message (format "%s: %s" prefix msg)}))))))
 
 (defn ^:private normalize-messages [messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]
@@ -199,8 +201,17 @@
                                 (on-reason {:status :finished
                                             :id (-> data :item :id)
                                             :external-id (-> data :item :encrypted_content)}))
-                "function_call" (swap! tool-call-by-item-id* update (-> data :item :id)
-                                       assoc :arguments (-> data :item :arguments))
+                "function_call" (let [done-item-id (-> data :item :id)
+                                      done-call-id (-> data :item :call_id)
+                                      args (-> data :item :arguments)]
+                                  (swap! tool-call-by-item-id*
+                                         (fn [m]
+                                           (if-let [existing-key (or (when (contains? m done-item-id) done-item-id)
+                                                                     (->> m
+                                                                          (some (fn [[k v]]
+                                                                                  (when (= done-call-id (:id v)) k)))))]
+                                             (assoc-in m [existing-key :arguments] args)
+                                             (assoc m done-item-id {:arguments args})))))
                 "web_search_call" (on-server-web-search {:status :finished
                                                          :id (-> data :item :id)
                                                          :output nil})
@@ -277,8 +288,7 @@
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
                   (when-let [{:keys [new-messages tools fresh-api-key provider-auth]} (on-tools-called tool-calls)]
-                    (doseq [tool-call tool-calls]
-                      (swap! tool-call-by-item-id* dissoc (:item-id tool-call)))
+                    (reset! tool-call-by-item-id* {})
                     (base-responses-request!
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
