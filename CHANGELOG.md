@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix github-copilot retry loops in chats.
+
 ## 0.124.3
 
 - Fix `/resume` broken for OpenAI chats: handle nil reasoning text during replay, preserve prompt-id after chat replacement, and clear UI before replaying messages. #400
