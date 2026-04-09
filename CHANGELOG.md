@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Github Enterprise models fetch.
+
 ## 0.124.4
 
 - Fix github-copilot retry loops in chats.
