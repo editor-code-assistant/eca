@@ -242,7 +242,8 @@
          callbacks)
 
         (= "github-copilot" provider)
-        (let [copilot-headers (fn [user-initiator?]
+        (let [api-url (or (:api-url provider-auth) api-url)
+              copilot-headers (fn [user-initiator?]
                                 (merge {"openai-intent" "conversation-panel"
                                         "x-request-id" (str (random-uuid))
                                         "x-initiator" (if user-initiator? "user" "agent")

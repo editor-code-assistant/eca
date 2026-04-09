@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix github-copilot retry loops in chats.
+- Fix Github Enterprise to use the proper url during prompts. #402
 
 ## 0.124.3
 

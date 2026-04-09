@@ -93,7 +93,8 @@
           (reset! req* req)
           {:status 200
            :body {:token      "copilot-api-key"
-                  :expires_at 9999999999}})
+                  :expires_at 9999999999
+                  :endpoints  {:api "https://copilot-proxy.ghe.example.com"}}})
 
         (let [access-token "gh-access-123"
               result (#'llm-providers.copilot/oauth-renew-token test-provider-settings access-token)]
@@ -110,7 +111,8 @@
                  (select-keys (:headers @req*) ["authorization" "Content-Type" "Accept" "editor-plugin-version"]))
               (str "Headers should include auth headers and access-token: " (:headers @req*)))
 
-          ;; response parsing
-          (is (= {:api-key   "copilot-api-key"
-                  :expires-at 9999999999}
+          ;; response parsing — includes api-url from endpoints.api
+          (is (= {:api-key    "copilot-api-key"
+                  :expires-at 9999999999
+                  :api-url    "https://copilot-proxy.ghe.example.com"}
                  result)))))))

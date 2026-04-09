@@ -73,8 +73,9 @@
                                 :http-client (client/merge-with-global-http-client {})
                                 :as :json})]
     (if-let [token (:token body)]
-      {:api-key token
-       :expires-at (:expires_at body)}
+      (cond-> {:api-key token
+               :expires-at (:expires_at body)}
+        (get-in body [:endpoints :api]) (assoc :api-url (get-in body [:endpoints :api])))
       (throw (ex-info (format "Error on copilot login: %s" body)
                       {:status status
                        :body body})))))
@@ -94,12 +95,11 @@
                       (get-in @db* [:auth "github-copilot" :step])))
           (let [result (try
                          (let [access-token (oauth-access-token provider-settings device-code)
-                               {:keys [api-key expires-at]} (oauth-renew-token provider-settings access-token)]
+                               token-data (oauth-renew-token provider-settings access-token)]
                            (swap! db* update-in [:auth "github-copilot"] merge
-                                  {:step :login/done
-                                   :access-token access-token
-                                   :api-key api-key
-                                   :expires-at expires-at})
+                                  (assoc token-data
+                                         :step :login/done
+                                         :access-token access-token))
                            (f.providers/sync-and-notify! "github-copilot" db* messenger metrics)
                            :done)
                          (catch Exception e
@@ -131,11 +131,9 @@
 (defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider config send-msg!] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
         access-token (oauth-access-token provider-settings (get-in @db* [:auth provider :device-code]))
-        {:keys [api-key expires-at]} (oauth-renew-token provider-settings access-token)]
-    (swap! db* update-in [:auth provider] merge {:step :login/done
-                                                 :access-token access-token
-                                                 :api-key api-key
-                                                 :expires-at expires-at})
+        token-data (oauth-renew-token provider-settings access-token)]
+    (swap! db* update-in [:auth provider] merge
+           (assoc token-data :step :login/done :access-token access-token))
     (f.login/login-done! ctx)
     (send-msg! (format "\nMake sure to enable the model you want to use at: %s/settings/copilot/features"
                        (github-base-url provider-settings)))))
@@ -143,7 +141,6 @@
 (defmethod f.login/login-step ["github-copilot" :login/renew-token] [{:keys [db* provider config] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
         access-token (get-in @db* [:auth provider :access-token])
-        {:keys [api-key expires-at]} (oauth-renew-token provider-settings access-token)]
-    (swap! db* update-in [:auth provider] merge {:api-key api-key
-                                                 :expires-at expires-at})
+        token-data (oauth-renew-token provider-settings access-token)]
+    (swap! db* update-in [:auth provider] merge token-data)
     (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
