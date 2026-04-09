@@ -250,7 +250,7 @@
               (let [response (:response data)
                     tool-calls (or (seq (keep (fn [{:keys [id call_id name arguments] :as output}]
                                                 (when (= "function_call" (:type output))
-                                                  (when-not (get @tool-call-by-item-id* id)
+                                                  (when-not (some #(= call_id (:id %)) (vals @tool-call-by-item-id*))
                                                     (swap! tool-call-by-item-id* assoc id {:full-name name :id call_id})
                                                     (on-prepare-tool-call {:id call_id
                                                                            :full-name name
