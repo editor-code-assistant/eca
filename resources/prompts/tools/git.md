@@ -15,7 +15,7 @@ Commit message here.
 
 🤖 Generated with [eca](https://eca.dev)
 
-Co-Authored-By: eca <git@eca.dev>
+Co-Authored-By: eca-agent <git@eca.dev>
 EOF
 )"
 </example>
