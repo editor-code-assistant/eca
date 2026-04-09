@@ -228,7 +228,8 @@
    Returns a map of model-id -> model-config map, or nil."
   [provider provider-config config db]
   (when (contains? native-models-endpoint-providers (:api provider-config))
-    (let [api-url (llm-util/provider-api-url provider config)
+    (let [api-url (or (get-in db [:auth provider :api-url])
+                      (llm-util/provider-api-url provider config))
           [_ api-key] (llm-util/provider-api-key provider
                                                  (get-in db [:auth provider])
                                                  config)
