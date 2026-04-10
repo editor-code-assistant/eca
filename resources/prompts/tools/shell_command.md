@@ -17,8 +17,8 @@ Before executing the command, please follow these steps:
   - Capture the output of the command.
 
 Background execution:
-  - Set `background: true` for long-running commands that don't terminate on their own
-    (dev servers, file watchers, nREPL servers, docker-compose, etc.).
+  - Set `background` to a brief description for long-running commands that don't terminate on their own
+    (e.g., `"dev-server"`, `"file-watcher"`, `"docker-compose"`).
   - Background commands return immediately with a job ID.
   - Use `eca__bg_job` with action `read_output` to check output, or `kill` to stop the process.
 

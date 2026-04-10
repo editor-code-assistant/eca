@@ -342,6 +342,28 @@
     (handle-expected-errors
      (f.rewrite/prompt params db* config messenger metrics))))
 
+(defn jobs-list [{:keys [db* metrics]} _params]
+  (metrics/task metrics :eca/jobs-list
+    {:jobs (f.background-tasks/jobs-summary db*)}))
+
+(defn jobs-kill [{:keys [db* messenger metrics]} params]
+  (metrics/task metrics :eca/jobs-kill
+    (let [job-id (:job-id params)
+          killed? (f.background-tasks/kill-job! job-id)]
+      (when killed?
+        (messenger/jobs-updated messenger {:jobs (f.background-tasks/jobs-summary db*)}))
+      {:killed killed?})))
+
+(defn jobs-read-output [{:keys [metrics]} params]
+  (metrics/task metrics :eca/jobs-read-output
+    (if-let [result (f.background-tasks/peek-output (:job-id params))]
+      {:lines (:lines result)
+       :status (:status result)
+       :exit-code (:exit-code result)}
+      {:lines []
+       :status nil
+       :exit-code nil})))
+
 (defn providers-list [{:keys [db* config metrics]} _params]
   (metrics/task metrics :eca/providers-list
     (f.providers/providers-list db* config)))

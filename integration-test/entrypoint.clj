@@ -20,6 +20,7 @@
     integration.chat.hooks-test
     integration.chat.commands-test
     integration.chat.mcp-remote-test
+    integration.chat.background-jobs-test
     integration.rewrite.openai-test])
 
 (defn timeout [timeout-ms callback]

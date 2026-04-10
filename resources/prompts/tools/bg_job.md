@@ -6,7 +6,7 @@ Actions:
 - `kill`: Terminate a running background job. Requires `job_id`.
 
 Usage notes:
-- Background jobs are started via `eca__shell_command` with `background: true`.
+- Background jobs are started via `eca__shell_command` with `background` set to a brief description (e.g., `"dev-server"`).
 - `read_output` returns only **new** output since your last read, so call it periodically to monitor.
 - Job IDs follow the pattern `job-1`, `job-2`, etc.
 - Use `list` to discover running jobs if you don't remember the ID.

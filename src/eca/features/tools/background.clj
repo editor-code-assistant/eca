@@ -16,8 +16,9 @@
       (tools.util/single-text-content
        (string/join
         "\n"
-        (map (fn [{:keys [id type label status exit-code] :as job}]
+        (map (fn [{:keys [id type label summary status exit-code] :as job}]
                (str "- " id
+                    (when summary (str " (" summary ")"))
                     " [" (name type) "] "
                     (name status)
                     (when exit-code (str " (exit " exit-code ")"))

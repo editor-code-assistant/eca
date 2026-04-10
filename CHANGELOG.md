@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add background shell command support via `background` parameter on `shell_command` tool and new `bg_job` tool for managing long-running processes (#77).
+- Add background shell command support via `background` parameter on `shell_command` tool and new `bg_job` tool for managing long-running processes. #77
 
 ## 0.124.5
 

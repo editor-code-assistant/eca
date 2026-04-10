@@ -16,16 +16,9 @@
 
 (def max-jobs 10)
 (def ^:private max-output-lines 2000)
-
-;; ---------------------------------------------------------------------------
-;; Registry
-;; ---------------------------------------------------------------------------
+(def ^:private max-finished-age-ms (* 30 60 1000))
 
 (defonce registry* (atom {:next-id 1 :jobs {}}))
-
-;; ---------------------------------------------------------------------------
-;; Output buffer helpers
-;; ---------------------------------------------------------------------------
 
 (defn ^:private append-output-line!
   "Append a line to the job's output ring-buffer, dropping oldest lines
@@ -61,10 +54,6 @@
     (.start t)
     t))
 
-;; ---------------------------------------------------------------------------
-;; Type-dispatched operations (extensible for future :subagent)
-;; ---------------------------------------------------------------------------
-
 (defmulti kill-job-impl
   "Kill the underlying resource for a job. Dispatches on :type."
   (fn [job] (:type job)))
@@ -75,10 +64,6 @@
 
 (defmethod kill-job-impl :default [job]
   (logger/warn logger-tag "No kill implementation for job type" {:type (:type job)}))
-
-;; ---------------------------------------------------------------------------
-;; Public API
-;; ---------------------------------------------------------------------------
 
 (defn running-count
   "Number of currently running background jobs."
@@ -99,7 +84,7 @@
 (defn register-shell-job!
   "Register a new background shell job atomically. Returns the job map
    including its generated :id, or nil if the max concurrent limit is reached."
-  [{:keys [label process working-directory]}]
+  [{:keys [label summary process working-directory chat-id on-exit]}]
   (let [result* (volatile! nil)]
     (swap! registry*
            (fn [{:keys [next-id jobs] :as reg}]
@@ -110,6 +95,7 @@
                      job {:id id
                           :type :shell
                           :label label
+                          :summary summary
                           :status :running
                           :exit-code nil
                           :process process
@@ -117,7 +103,10 @@
                           :output* output*
                           :read-cursor* (atom 0)
                           :started-at (Instant/now)
-                          :ended-at nil}]
+                          :ended-at nil
+                          :chat-id chat-id
+                          :on-exit on-exit
+                          :notified false}]
                  (vreset! result* job)
                  (-> reg
                      (assoc :next-id (inc next-id))
@@ -155,10 +144,16 @@
            (fn []
              (try
                (let [result @process
-                     exit-code (:exit result)]
-                 (swap! registry* update-job-on-exit job-id
-                        (if (zero? exit-code) :completed :failed) exit-code)
-                 (logger/info logger-tag "Background job exited" {:id job-id :exit-code exit-code}))
+                     exit-code (:exit result)
+                     new-reg (swap! registry* update-job-on-exit job-id
+                                    (if (zero? exit-code) :completed :failed) exit-code)
+                     updated-job (get-in new-reg [:jobs job-id])]
+                 (logger/info logger-tag "Background job exited" {:id job-id :exit-code exit-code})
+                 (when-let [on-exit (:on-exit updated-job)]
+                   (try
+                     (on-exit updated-job)
+                     (catch Exception e
+                       (logger/warn logger-tag "on-exit callback error" {:id job-id :message (.getMessage e)})))))
                (catch InterruptedException _
                  (.interrupt (Thread/currentThread)))
                (catch Exception e
@@ -188,6 +183,17 @@
        :dropped dropped
        :status (:status current-job)
        :exit-code (:exit-code current-job)})))
+
+(defn peek-output
+  "Return all currently buffered output lines for a job without advancing
+   the read cursor. Returns {:lines [...] :status :kw :exit-code N-or-nil}
+   or nil if the job doesn't exist."
+  [job-id]
+  (when-let [job (get-job job-id)]
+    (let [{:keys [lines]} @(:output* job)]
+      {:lines lines
+       :status (:status job)
+       :exit-code (:exit-code job)})))
 
 (defn kill-job!
   "Kill a running background job. Returns true if killed, false if not
@@ -228,9 +234,55 @@
       (< secs 3600) (format "%dm%ds" (quot secs 60) (mod secs 60))
       :else          (format "%dh%dm" (quot secs 3600) (mod (quot secs 60) 60)))))
 
-;; ---------------------------------------------------------------------------
-;; JVM shutdown hook
-;; ---------------------------------------------------------------------------
+(defn enqueue-job-notification!
+  "Append a notification map to the chat's pending job notifications."
+  [db* chat-id notification]
+  (swap! db* update-in [:chats chat-id :pending-job-notifications] (fnil conj []) notification))
+
+(defn evict-notified-jobs!
+  "Remove all jobs where :notified is true from the registry."
+  []
+  (swap! registry*
+         (fn [reg]
+           (update reg :jobs
+                   (fn [jobs]
+                     (into {} (remove (fn [[_ job]] (:notified job))) jobs))))))
+
+(defn ^:private evict-stale-jobs!
+  "Remove finished jobs older than max-finished-age-ms from the registry."
+  []
+  (let [now (Instant/now)]
+    (swap! registry*
+           (fn [reg]
+             (update reg :jobs
+                     (fn [jobs]
+                       (into {}
+                             (remove (fn [[_ {:keys [status ended-at]}]]
+                                       (and (not= :running status)
+                                            ended-at
+                                            (> (.between ChronoUnit/MILLIS ^Instant ended-at now)
+                                               max-finished-age-ms))))
+                             jobs)))))))
+
+(defn jobs-summary
+  "Returns a vector of job summary maps for all non-notified jobs.
+   Also evicts stale finished jobs as a side effect."
+  [db*]
+  (evict-stale-jobs!)
+  (let [db @db*]
+    (->> (vals (:jobs @registry*))
+         (remove :notified)
+         (mapv (fn [{:keys [id type status label summary started-at exit-code chat-id] :as job}]
+                 {:id id
+                  :type type
+                  :status status
+                  :label label
+                  :summary summary
+                  :started-at (str started-at)
+                  :elapsed (elapsed-str job)
+                  :exit-code exit-code
+                  :chat-id chat-id
+                  :chat-label (or (get-in db [:chats chat-id :title]) chat-id)})))))
 
 (defonce ^:private _shutdown-hook
   (.addShutdownHook

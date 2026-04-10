@@ -7,6 +7,7 @@
    [eca.features.background-tasks :as bg]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
+   [eca.messenger :as messenger]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -81,8 +82,10 @@
 (defn ^:private background-shell-command
   "Start a shell process in the background, register it as a background job,
    and return immediately with the job ID and any initial output."
-  [arguments {:keys [db call-state-fn]}]
+  [arguments {:keys [db db* chat-id messenger call-state-fn]}]
   (let [command (get arguments "command")
+        bg-value (get arguments "background")
+        summary (when (string? bg-value) bg-value)
         user-work-dir (get arguments "working_directory")
         work-dir (resolve-work-dir db user-work-dir)
         max-jobs-msg (str "Maximum number of background jobs reached (" bg/max-jobs "). Kill an existing job first.")]
@@ -97,13 +100,31 @@
       (try
         (let [proc (start-shell-process! {:cwd work-dir
                                           :script command
-                                          :out-mode :stream})]
+                                          :out-mode :stream})
+              on-exit (fn [completed-job]
+                        (try
+                          (let [output-lines (:lines @(:output* completed-job))
+                                tail (vec (take-last 20 output-lines))]
+                            (bg/enqueue-job-notification!
+                             db* chat-id
+                             {:job-id (:id completed-job)
+                              :status (:status completed-job)
+                              :exit-code (:exit-code completed-job)
+                              :label (:label completed-job)
+                              :output-tail tail})
+                            (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)}))
+                          (catch Exception e
+                            (logger/warn logger-tag "on-exit notification error" {:message (.getMessage e)}))))]
           (if-let [job (bg/register-shell-job! {:label command
+                                                :summary summary
                                                 :process proc
-                                                :working-directory work-dir})]
+                                                :working-directory work-dir
+                                                :chat-id chat-id
+                                                :on-exit on-exit})]
             (do
               (bg/start-output-capture! job (:out proc) (:err proc))
               (bg/monitor-process-exit! (:id job) proc)
+              (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)})
               (wait-for-initial-output (:id job) call-state-fn)
               (let [{:keys [lines status exit-code]} (bg/read-output! (:id job))
                     initial-output (string/join "\n" lines)]
@@ -137,9 +158,9 @@
         shell-config (get-in config [:toolCall :shellCommand])
         shell-path (get shell-config :path)
         shell-args (get shell-config :args)
-        work-dir (resolve-work-dir db user-work-dir)]
-    (let [_ (logger/debug logger-tag "Running command:" command-args)
-          result (try
+        work-dir (resolve-work-dir db user-work-dir)
+        _ (logger/debug logger-tag "Running command:" command-args)
+        result (try
                    (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
                                    (start-shell-process! (cond-> {:cwd work-dir
                                                                    :script command-args}
@@ -185,7 +206,7 @@
                                          :text (str "Stderr:\n" err)}])
                                      (when-not (string/blank? out)
                                        [{:type :text
-                                         :text (str "Stdout:\n" out)}])))})))))
+                                         :text (str "Stdout:\n" out)}])))}))))
 
 (defn ^:private shell-command [arguments ctx]
   (or (tools.util/invalid-arguments arguments [["working_directory" #(or (nil? %)
@@ -231,8 +252,8 @@
                                                    :description "The directory to run the command in. (Default: first workspace-root)"}
                               "timeout" {:type "integer"
                                          :description (format "Optional timeout in milliseconds (Default: %s)" default-timeout)}
-                              "background" {:type "boolean"
-                                            :description "Set to true to run this command in the background. Use eca__bg_job to read output or kill the process later."}}
+                              "background" {:type "string"
+                                            :description "Set to a brief description to run this command in the background (e.g., 'dev-server', 'file-watcher'). Use eca__bg_job to read output or kill the process later."}}
                  :required ["command"]}
     :handler #'shell-command
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])

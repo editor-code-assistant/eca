@@ -37,6 +37,7 @@
   (config-updated [_ data] (swap! messages* update :config-updated (fnil conj []) data))
   (tool-server-updated [_ data] (swap! messages* update :tool-server-update (fnil conj []) data))
   (provider-updated [_ data] (swap! messages* update :provider-updated (fnil conj []) data))
+  (jobs-updated [_ data] (swap! messages* update :jobs-updated (fnil conj []) data))
   (showMessage [_ data] (swap! messages* update :show-message (fnil conj []) data))
   (progress [_ data] (swap! messages* update :progress (fnil conj []) data))
   (editor-diagnostics [_ _uri] (future {:diagnostics @diagnostics*})))
