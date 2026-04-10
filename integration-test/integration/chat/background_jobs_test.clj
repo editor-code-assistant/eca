@@ -46,11 +46,12 @@
                                        :status "running"}])}
                     resp))))
 
-    (testing "jobs/readOutput returns captured output"
+    (testing "jobs/readOutput returns captured output with stream tags"
       (let [resp (eca/request! [:jobs/readOutput {:job-id @job-id*}])]
-        (is (match? {:lines (m/pred #(some (fn [l] (re-find #"bg-test-output" l)) %))
+        (is (match? {:lines (m/pred #(some (fn [l] (re-find #"bg-test-output" (:text l))) %))
                      :status "running"}
-                    resp))))
+                    resp))
+        (is (every? #(contains? #{"stdout" "stderr"} (:stream %)) (:lines resp)))))
 
     (testing "jobs/kill terminates the running job"
       (let [resp (eca/request! [:jobs/kill {:job-id @job-id*}])]

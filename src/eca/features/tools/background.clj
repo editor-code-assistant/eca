@@ -11,7 +11,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn ^:private action-list [_arguments]
-  (let [jobs (bg/list-jobs)]
+  (let [jobs (remove :notified (bg/list-jobs))]
     (if (seq jobs)
       (tools.util/single-text-content
        (string/join
@@ -31,7 +31,7 @@
   (if-let [result (bg/read-output! job-id)]
     (let [{:keys [lines dropped status exit-code]} result
           output (if (seq lines)
-                   (string/join "\n" lines)
+                   (string/join "\n" (map bg/format-output-line lines))
                    "(no new output)")]
       (tools.util/single-text-content
        (str "Job " job-id " — " (name status)

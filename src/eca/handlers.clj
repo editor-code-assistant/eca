@@ -357,7 +357,9 @@
 (defn jobs-read-output [{:keys [metrics]} params]
   (metrics/task metrics :eca/jobs-read-output
     (if-let [result (f.background-tasks/peek-output (:job-id params))]
-      {:lines (:lines result)
+      {:lines (mapv (fn [{:keys [text stream]}]
+                      {:text text :stream (name stream)})
+                    (:lines result))
        :status (:status result)
        :exit-code (:exit-code result)}
       {:lines []

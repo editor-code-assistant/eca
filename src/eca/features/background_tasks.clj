@@ -21,12 +21,12 @@
 (defonce registry* (atom {:next-id 1 :jobs {}}))
 
 (defn ^:private append-output-line!
-  "Append a line to the job's output ring-buffer, dropping oldest lines
-   beyond `max-output-lines`."
-  [output* line]
+  "Append a tagged line to the job's output ring-buffer, dropping oldest lines
+   beyond `max-output-lines`. Each line is stored as {:text str :stream kw}."
+  [output* stream line]
   (swap! output*
          (fn [{:keys [lines total-lines]}]
-           (let [new-lines (conj lines line)
+           (let [new-lines (conj lines {:text line :stream stream})
                  new-lines (if (> (count new-lines) max-output-lines)
                              (subvec new-lines (- (count new-lines) max-output-lines))
                              new-lines)]
@@ -35,15 +35,15 @@
 
 (defn ^:private capture-stream!
   "Read lines from an InputStream in a daemon thread, appending each to the
-   job's output buffer. Returns the Thread."
-  [output* ^InputStream stream]
+   job's output buffer tagged with the stream type. Returns the Thread."
+  [output* stream-kw ^InputStream stream]
   (let [t (Thread.
            (fn []
              (try
                (with-open [reader (BufferedReader. (InputStreamReader. stream "UTF-8"))]
                  (loop []
                    (when-let [line (.readLine reader)]
-                     (append-output-line! output* line)
+                     (append-output-line! output* stream-kw line)
                      (recur))))
                (catch InterruptedException _
                  (.interrupt (Thread/currentThread)))
@@ -119,11 +119,11 @@
 
 (defn start-output-capture!
   "Start capturing stdout and stderr from a background shell process.
-   Returns the capture threads."
+   Each line is tagged with :stdout or :stderr. Returns the capture threads."
   [job ^InputStream out-stream ^InputStream err-stream]
   (let [output* (:output* job)]
-    [(capture-stream! output* out-stream)
-     (capture-stream! output* err-stream)]))
+    [(capture-stream! output* :stdout out-stream)
+     (capture-stream! output* :stderr err-stream)]))
 
 (defn ^:private update-job-on-exit
   "Atomically update a job's status on process exit, unless already :killed."
@@ -167,7 +167,9 @@
   "Read new output lines since the last read for the given job.
    Returns {:lines [...] :dropped N :status :kw :exit-code N-or-nil}
    where :dropped is the count of lines that were evicted from the buffer
-   before they could be read."
+   before they could be read.
+   Note: the buffer snapshot and cursor advance are not atomic — under very
+   high output throughput a small number of lines between reads may be skipped."
   [job-id]
   (when-let [job (get-job job-id)]
     (let [{:keys [lines total-lines]} @(:output* job)
@@ -190,10 +192,19 @@
    or nil if the job doesn't exist."
   [job-id]
   (when-let [job (get-job job-id)]
-    (let [{:keys [lines]} @(:output* job)]
+    (let [{:keys [lines]} @(:output* job)
+          current-job (get-job job-id)]
       {:lines lines
-       :status (:status job)
-       :exit-code (:exit-code job)})))
+       :status (:status current-job)
+       :exit-code (:exit-code current-job)})))
+
+(defn format-output-line
+  "Format a tagged output line for text display.
+   Stderr lines get a [stderr] prefix."
+  ^String [{:keys [text stream]}]
+  (if (= :stderr stream)
+    (str "[stderr] " text)
+    text))
 
 (defn kill-job!
   "Kill a running background job. Returns true if killed, false if not

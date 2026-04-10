@@ -104,7 +104,7 @@
               on-exit (fn [completed-job]
                         (try
                           (let [output-lines (:lines @(:output* completed-job))
-                                tail (vec (take-last 20 output-lines))]
+                                tail (mapv bg/format-output-line (take-last 20 output-lines))]
                             (bg/enqueue-job-notification!
                              db* chat-id
                              {:job-id (:id completed-job)
@@ -127,7 +127,7 @@
               (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)})
               (wait-for-initial-output (:id job) call-state-fn)
               (let [{:keys [lines status exit-code]} (bg/read-output! (:id job))
-                    initial-output (string/join "\n" lines)]
+                    initial-output (string/join "\n" (map bg/format-output-line lines))]
                 (if (and (not= :running status) exit-code (not (zero? exit-code)))
                   {:error true
                    :contents [{:type :text

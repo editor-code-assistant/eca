@@ -2716,12 +2716,19 @@ _Response:_
 
 ```typescript
 interface JobsReadOutputResult {
-    /** Buffered output lines (up to 2000 most recent). */
-    lines: string[];
+    /** Buffered output lines (up to 2000 most recent), tagged with stream source. */
+    lines: OutputLine[];
     /** Current job status. */
     status: "running" | "completed" | "failed" | "killed";
     /** Process exit code, or null if still running. */
     exitCode: number | null;
+}
+
+interface OutputLine {
+    /** The text content of the line. */
+    text: string;
+    /** Which stream produced this line. */
+    stream: "stdout" | "stderr";
 }
 ```
 

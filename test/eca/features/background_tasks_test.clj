@@ -78,12 +78,13 @@
 (deftest read-output-basic-test
   (with-redefs [p/destroy-tree (constantly nil)]
     (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
-          output* (:output* job)]
+          output* (:output* job)
+          out (fn [s] {:text s :stream :stdout})]
 
       (testing "first read returns all buffered lines"
-        (reset! output* {:lines ["line1" "line2" "line3"] :total-lines 3})
+        (reset! output* {:lines [(out "line1") (out "line2") (out "line3")] :total-lines 3})
         (let [result (bg/read-output! (:id job))]
-          (is (= ["line1" "line2" "line3"] (:lines result)))
+          (is (= [(out "line1") (out "line2") (out "line3")] (:lines result)))
           (is (= 0 (:dropped result)))))
 
       (testing "second read with no new lines returns empty"
@@ -92,34 +93,35 @@
           (is (= 0 (:dropped result)))))
 
       (testing "incremental read returns only new lines"
-        (reset! output* {:lines ["line1" "line2" "line3" "line4" "line5"] :total-lines 5})
+        (reset! output* {:lines [(out "line1") (out "line2") (out "line3") (out "line4") (out "line5")] :total-lines 5})
         (let [result (bg/read-output! (:id job))]
-          (is (= ["line4" "line5"] (:lines result)))
+          (is (= [(out "line4") (out "line5")] (:lines result)))
           (is (= 0 (:dropped result))))))))
 
 (deftest read-output-ring-buffer-overflow-test
   (with-redefs [p/destroy-tree (constantly nil)]
     (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
-          output* (:output* job)]
+          output* (:output* job)
+          out (fn [s] {:text s :stream :stdout})]
 
       (testing "reports dropped lines when buffer overflows before read"
         ;; Simulate: 200 total lines produced, only last 100 in buffer.
         ;; Cursor at 0 (never read) — 100 lines were dropped.
-        (reset! output* {:lines (vec (map str (range 100 200))) :total-lines 200})
+        (reset! output* {:lines (vec (map #(out (str %)) (range 100 200))) :total-lines 200})
         (reset! (:read-cursor* job) 0)
         (let [result (bg/read-output! (:id job))]
           (is (= 100 (count (:lines result))))
-          (is (= "100" (first (:lines result))))
+          (is (= "100" (:text (first (:lines result)))))
           (is (= 100 (:dropped result)))))
 
       (testing "handles cursor within buffer range correctly"
         ;; Cursor at 150 (read up to line 150). Buffer has lines 100-199.
         ;; Should return lines 150-199 (50 lines), 0 dropped.
-        (reset! output* {:lines (vec (map str (range 100 200))) :total-lines 200})
+        (reset! output* {:lines (vec (map #(out (str %)) (range 100 200))) :total-lines 200})
         (reset! (:read-cursor* job) 150)
         (let [result (bg/read-output! (:id job))]
           (is (= 50 (count (:lines result))))
-          (is (= "150" (first (:lines result))))
+          (is (= "150" (:text (first (:lines result)))))
           (is (= 0 (:dropped result))))))))
 
 (deftest read-output-nonexistent-test
@@ -139,12 +141,15 @@
           err-stream (ByteArrayInputStream. (.getBytes err-data "UTF-8"))
           threads (bg/start-output-capture! job out-stream err-stream)]
 
-      (testing "capture threads read lines into output buffer"
+      (testing "capture threads read lines into output buffer with stream tags"
         ;; Wait for threads to finish reading
         (doseq [^Thread t threads] (.join t 2000))
-        (let [result (bg/read-output! (:id job))]
-          (is (= 3 (count (:lines result))))
-          (is (= #{"hello" "world" "warning"} (set (:lines result)))))))))
+        (let [result (bg/read-output! (:id job))
+              lines (:lines result)]
+          (is (= 3 (count lines)))
+          (is (= #{"hello" "world" "warning"} (set (map :text lines))))
+          (is (= #{:stdout} (set (map :stream (filter #(#{"hello" "world"} (:text %)) lines)))))
+          (is (= :stderr (:stream (first (filter #(= "warning" (:text %)) lines))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Kill and cleanup
@@ -267,9 +272,10 @@
 
       (testing "read_output for existing job"
         (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})]
-          (reset! (:output* job) {:lines ["hello" "world"] :total-lines 2})
+          (reset! (:output* job) {:lines [{:text "hello" :stream :stdout}
+                                          {:text "oops" :stream :stderr}] :total-lines 2})
           (is (match? {:error false
-                       :contents [{:type :text :text #"hello\nworld"}]}
+                       :contents [{:type :text :text #"hello\n\[stderr\] oops"}]}
                       (handler {"action" "read_output" "job_id" (:id job)} {}))))))))
 
 (deftest bg-job-tool-kill-test
