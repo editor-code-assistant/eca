@@ -82,7 +82,7 @@
 (defn ^:private background-shell-command
   "Start a shell process in the background, register it as a background job,
    and return immediately with the job ID and any initial output."
-  [arguments {:keys [db db* chat-id messenger call-state-fn]}]
+  [arguments {:keys [db db* chat-id messenger call-state-fn tool-call-id]}]
   (let [command (get arguments "command")
         bg-value (get arguments "background")
         summary (when (string? bg-value) bg-value)
@@ -120,6 +120,7 @@
                                                 :process proc
                                                 :working-directory work-dir
                                                 :chat-id chat-id
+                                                :tool-call-id tool-call-id
                                                 :on-exit on-exit})]
             (do
               (bg/start-output-capture! job (:out proc) (:err proc))
@@ -236,7 +237,7 @@
                              (strip-workspace-cd-prefix workspace-folders)
                              (string/replace #"\n" " ")
                              string/trim)]
-      (let [prefix (if bg? "[BG] $ " "$ ")]
+      (let [prefix (if bg? "🟡 $ " "$ ")]
         (if (> (count command) max-length)
           (format "%s%s..." prefix (subs command 0 max-length))
           (format "%s%s" prefix command)))

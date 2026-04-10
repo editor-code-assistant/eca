@@ -84,7 +84,7 @@
 (defn register-shell-job!
   "Register a new background shell job atomically. Returns the job map
    including its generated :id, or nil if the max concurrent limit is reached."
-  [{:keys [label summary process working-directory chat-id on-exit]}]
+  [{:keys [label summary process working-directory chat-id tool-call-id on-exit]}]
   (let [result* (volatile! nil)]
     (swap! registry*
            (fn [{:keys [next-id jobs] :as reg}]
@@ -105,6 +105,7 @@
                           :started-at (Instant/now)
                           :ended-at nil
                           :chat-id chat-id
+                          :tool-call-id tool-call-id
                           :on-exit on-exit
                           :notified false}]
                  (vreset! result* job)
@@ -283,17 +284,18 @@
   (let [db @db*]
     (->> (vals (:jobs @registry*))
          (remove :notified)
-         (mapv (fn [{:keys [id type status label summary started-at exit-code chat-id] :as job}]
-                 {:id id
-                  :type type
-                  :status status
-                  :label label
-                  :summary summary
-                  :started-at (str started-at)
-                  :elapsed (elapsed-str job)
-                  :exit-code exit-code
-                  :chat-id chat-id
-                  :chat-label (or (get-in db [:chats chat-id :title]) chat-id)})))))
+         (mapv (fn [{:keys [id type status label summary started-at exit-code chat-id tool-call-id] :as job}]
+                 (cond-> {:id id
+                          :type type
+                          :status status
+                          :label label
+                          :summary summary
+                          :started-at (str started-at)
+                          :elapsed (elapsed-str job)
+                          :exit-code exit-code
+                          :chat-id chat-id
+                          :chat-label (or (get-in db [:chats chat-id :title]) chat-id)}
+                   tool-call-id (assoc :tool-call-id tool-call-id)))))))
 
 (defonce ^:private _shutdown-hook
   (.addShutdownHook
