@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [clojure.test :refer [is]]
    [integration.eca :as eca]
+   [matcher-combinators.core :as mc]
    [matcher-combinators.test :refer [match?]]))
 
 (def windows?
@@ -80,7 +81,10 @@
         actuals (mapv (fn [_] (eca/client-awaits-server-notification :chat/contentReceived))
                       (range n))]
     (doseq [[chat-id role content] specs]
-      (is (some #(match? {:chatId chat-id :role role :content content} %) actuals)
+      (is (some (fn [actual]
+                  (mc/indicates-match?
+                   (mc/match {:chatId chat-id :role role :content content} actual)))
+                actuals)
           (str "Expected a notification with role=" role
                " content=" content
                " but none of the " n " received matched")))))
