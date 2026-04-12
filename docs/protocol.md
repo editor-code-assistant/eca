@@ -2173,6 +2173,11 @@ interface MCPServerUpdatedParams {
     status: 'running' | 'starting' | 'stopped' | 'failed' | 'disabled' | 'requires-auth';
 
     /**
+     * Whether the server is disabled.
+     */
+    disabled: boolean;
+
+    /**
      * Whether the server has an OAuth access token.
      */
     hasAuth: boolean;

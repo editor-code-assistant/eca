@@ -192,6 +192,7 @@
    :resources (get-in db [:mcp-clients mcp-name :resources])
    :instructions (get-in db [:mcp-clients mcp-name :instructions])
    :has-auth (boolean (get-in db [:mcp-auth mcp-name :access-token]))
+   :disabled (boolean (:disabled server-config))
    :status status})
 
 (defn ^:private ->content [content-client]
@@ -626,7 +627,7 @@
     (memoize/memo-clear! config/all)
     (when (get-in db [:mcp-clients server-name :client])
       (stop-server! server-name db* config {:on-server-updated on-server-updated}))
-    (on-server-updated (->server server-name server-config :disabled @db*))))
+    (on-server-updated (->server server-name (assoc server-config :disabled true) :disabled @db*))))
 
 (defn enable-server!
   "Enable an MCP server: remove disabled from config, start the server, notify."
