@@ -318,7 +318,7 @@
                    {:type "content_block_delta"
                     :index 1
                     :delta {:type "input_json_delta"
-                            :partial_json "{\"command\":\"echo bg-test-output && sleep 30\",\"background\":\"bg-test\"}"}})
+                            :partial_json "{\"command\":\"echo bg-test-output; sleep 30\",\"background\":\"bg-test\"}"}})
         (sse-send! ch "message_delta"
                    {:type "message_delta"
                     :delta {:stop_reason "tool_use"}
