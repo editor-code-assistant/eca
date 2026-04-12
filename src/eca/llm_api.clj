@@ -353,7 +353,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth variant cancelled? on-retry subagent?]
+           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -386,6 +386,17 @@
                              (on-error args)))
         provider-config (get-in config [:providers provider])
         retry-rules (:retryRules provider-config)
+        ;; Renew before each prompt! call — token can expire during long tool calls or retries.
+        fresh-provider-auth (fn []
+                              (if refresh-provider-auth-fn
+                                (try
+                                  (or (refresh-provider-auth-fn) provider-auth)
+                                  (catch Exception e
+                                    (logger/warn logger-tag
+                                                 "refresh-provider-auth-fn failed, falling back to captured auth"
+                                                 {:exception (ex-message e)})
+                                    provider-auth))
+                                provider-auth))
         maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
@@ -431,7 +442,7 @@
                               :model-capabilities model-capabilities
                               :instructions instructions
                               :tools tools
-                              :provider-auth provider-auth
+                              :provider-auth (fresh-provider-auth)
                               :past-messages past-messages
                               :user-messages user-messages
                               :variant variant
@@ -466,7 +477,7 @@
                 :model-capabilities model-capabilities
                 :instructions instructions
                 :tools tools
-                :provider-auth provider-auth
+                :provider-auth (fresh-provider-auth)
                 :past-messages past-messages
                 :user-messages user-messages
                 :variant variant

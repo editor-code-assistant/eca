@@ -332,3 +332,55 @@
           (is (= expected-provider-auth
                  (:provider-auth result))
               "provider-auth must be returned so providers can reuse refreshed auth metadata"))))))
+
+(deftest on-tools-called!-rejection-returns-fresh-auth-test
+  (testing "rejected subagent path also propagates refreshed auth"
+    ;; Previously rejection branches skipped maybe-renew-auth-token and
+    ;; returned without :fresh-api-key, breaking long-running subagents.
+    (h/reset-components!)
+    (let [chat-id   "test-chat"
+          provider  "github-copilot"
+          renewed-provider-auth {:api-key "fresh-token-after-rejection"
+                                 :expires-at 9999999999}
+          db*       (h/db*)
+          _         (swap! db* #(-> %
+                                    (assoc-in [:auth provider :api-key] "stale-token")
+                                    (assoc-in [:chats chat-id :subagent] {:max-steps nil})
+                                    (assoc-in [:chats chat-id :status] :running)
+                                    (assoc-in [:chats chat-id :messages] [])
+                                    (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)))
+          chat-ctx  {:db*       db*
+                     :config    (h/config)
+                     :chat-id   chat-id
+                     :provider  provider
+                     :agent     :default
+                     :messenger (h/messenger)
+                     :metrics   (h/metrics)}
+          received-msgs* (atom "")
+          add-to-history! (fn [msg]
+                            (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id           "call-1"
+                       :full-name    "eca__test_tool"
+                       :arguments    {}
+                       :arguments-text "{}"}]
+          all-tools  [{:name      "test_tool"
+                       :full-name "eca__test_tool"
+                       :origin    :eca
+                       :server    {:name "eca"}}]]
+      (with-redefs [f.tools/all-tools                           (constantly all-tools)
+                    f.tools/approval                            (constantly :deny)
+                    f.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
+                    f.tools/call-tool!                          (fn [& _] {:contents [{:text "ignored" :type :text}]})
+                    f.tools/tool-call-details-before-invocation (constantly nil)
+                    f.tools/tool-call-details-after-invocation  (constantly nil)
+                    f.tools/tool-call-summary                   (constantly "Test tool")
+                    lifecycle/maybe-renew-auth-token
+                    (fn [ctx]
+                      (swap! (:db* ctx) update-in [:auth provider] merge renewed-provider-auth))]
+        (let [result ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
+          (is (some? result)
+              "subagent rejection path must continue the loop (non-nil) instead of aborting")
+          (is (= (:api-key renewed-provider-auth) (:fresh-api-key result))
+              "rejection path must also return fresh api-key so the next subagent request uses the renewed token")
+          (is (= (:api-key renewed-provider-auth) (:api-key (:provider-auth result)))
+              "rejection path must also return refreshed provider-auth"))))))

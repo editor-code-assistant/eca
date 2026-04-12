@@ -210,6 +210,53 @@
             :provider-auth {:api-key "test-key"}}
            (dissoc overrides :stream))))
 
+(deftest refresh-provider-auth-fn-used-for-initial-and-retry-test
+  (testing "refresh-provider-auth-fn supplies a fresh provider-auth on each prompt! call"
+    ;; Previously provider-auth was captured once and reused across retries,
+    ;; so expired tokens caused all retries to fail.
+    (let [refresh-calls* (atom 0)
+          seen-api-keys* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [provider-auth]}]
+                                          (swap! seen-api-keys* conj (:api-key provider-auth))
+                                          (let [attempt (count @seen-api-keys*)]
+                                            (if (= 1 attempt)
+                                              {:error {:status 429
+                                                       :body "Rate limit exceeded"
+                                                       :message "LLM response status: 429"}}
+                                              {:output-text "success"
+                                               :usage {:input-tokens 1 :output-tokens 1}})))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :provider-auth {:api-key "stale-token"}
+           :refresh-provider-auth-fn (fn []
+                                       (let [n (swap! refresh-calls* inc)]
+                                         {:api-key (str "fresh-token-" n)}))
+           :on-error identity
+           :on-message-received identity})))
+      (is (= 2 @refresh-calls*)
+          "refresh-provider-auth-fn is called once per prompt! attempt (initial + retry)")
+      (is (= ["fresh-token-1" "fresh-token-2"] @seen-api-keys*)
+          "each prompt! invocation (including the retry) must see a freshly read api-key")))
+
+  (testing "falls back to captured provider-auth when refresh-provider-auth-fn throws"
+    (let [seen-api-keys* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [provider-auth]}]
+                                          (swap! seen-api-keys* conj (:api-key provider-auth))
+                                          {:output-text "ok"
+                                           :usage {:input-tokens 1 :output-tokens 1}})
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :provider-auth {:api-key "fallback-token"}
+           :refresh-provider-auth-fn (fn [] (throw (ex-info "boom" {})))
+           :on-error identity
+           :on-message-received identity})))
+      (is (= ["fallback-token"] @seen-api-keys*)
+          "when refresh-provider-auth-fn throws, prompt! keeps running with the statically captured provider-auth"))))
+
 (deftest sync-retry-on-rate-limited-test
   (testing "retries on 429 and succeeds on subsequent attempt"
     (let [attempt* (atom 0)
