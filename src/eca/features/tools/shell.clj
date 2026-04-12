@@ -17,6 +17,11 @@
 (def ^:private default-timeout 60000)
 (def ^:private max-timeout (* 60000 10))
 
+(defmethod tools.util/tool-call-details-before-invocation :shell_command
+  [_name arguments _server _ctx]
+  (when (get arguments "background")
+    {:background true}))
+
 (defn start-shell-process!
   "Start a shell process, returning the process object for deref/management.
 
@@ -231,16 +236,14 @@
 
 (defn shell-command-summary [{:keys [args config db]}]
   (let [max-length (get-in config [:toolCall :shellCommand :summaryMaxLength])
-        workspace-folders (:workspace-folders db)
-        bg? (get args "background")]
+        workspace-folders (:workspace-folders db)]
     (if-let [command (some-> (get args "command")
                              (strip-workspace-cd-prefix workspace-folders)
                              (string/replace #"\n" " ")
                              string/trim)]
-      (let [prefix (if bg? "🟡 $ " "$ ")]
-        (if (> (count command) max-length)
-          (format "%s%s..." prefix (subs command 0 max-length))
-          (format "%s%s" prefix command)))
+      (if (> (count command) max-length)
+        (format "$ %s..." (subs command 0 max-length))
+        (format "$ %s" command))
       "Preparing shell command")))
 
 (def definitions
