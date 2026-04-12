@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.125.0
+
 - Refresh auth token before each LLM API call, preventing stale tokens during long-running tool calls.
 - Add background shell command support via `background` parameter on `shell_command` tool and new `bg_job` tool for managing long-running processes. #77
 - Add `disabled` field to MCP server notifications, allowing clients to distinguish between stopped and config-disabled servers. #403
