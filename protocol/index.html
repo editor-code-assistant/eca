@@ -1560,6 +1560,57 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#background-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Background Jobs
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background Jobs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#list-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      List Jobs (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kill-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      Kill Job (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-job-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      Read Job Output (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobs-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      Jobs Updated (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#general-features" class="md-nav__link">
     <span class="md-ellipsis">
       General features
@@ -2171,6 +2222,57 @@
   <a href="#provider-updated" class="md-nav__link">
     <span class="md-ellipsis">
       Provider Updated (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#background-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Background Jobs
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background Jobs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#list-jobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      List Jobs (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kill-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      Kill Job (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-job-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      Read Job Output (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobs-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      Jobs Updated (⬅️)
     </span>
   </a>
   
@@ -4639,6 +4741,102 @@ status (same shape as items in <code>providers/list</code> response).</p>
 <li>method: <code>providers/updated</code></li>
 <li>params: <code>ProviderStatus</code> (see <code>providers/list</code> response above)</li>
 </ul>
+<h2 id="background-jobs">Background Jobs<a class="headerlink" href="#background-jobs" title="Permanent link">#</a></h2>
+<h3 id="list-jobs">List Jobs (↩️)<a class="headerlink" href="#list-jobs" title="Permanent link">#</a></h3>
+<p>Returns all active (non-evicted) background jobs across all chats.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>jobs/list</code></li>
+<li>params: <code>{}</code> (none)</li>
+</ul>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>JobsListResult</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">JobsListResult</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">jobs</span><span class="o">:</span><span class="w"> </span><span class="kt">JobSummary</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">JobSummary</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Unique job identifier (e.g. &quot;job-1&quot;). */</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Job type (currently always &quot;shell&quot;). */</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Current status. */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;running&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;completed&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;failed&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;killed&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Human-readable label (the command string). */</span>
+<span class="w">    </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Brief description of the job purpose (e.g. &quot;dev-server&quot;), or null if not provided. */</span>
+<span class="w">    </span><span class="nx">summary</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** ISO 8601 timestamp of when the job started. */</span>
+<span class="w">    </span><span class="nx">startedAt</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Human-readable elapsed time (e.g. &quot;5m23s&quot;). */</span>
+<span class="w">    </span><span class="nx">elapsed</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Process exit code, or null if still running. */</span>
+<span class="w">    </span><span class="nx">exitCode</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** The chat that spawned this job. */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Display label for the chat (title or chat-id fallback). */</span>
+<span class="w">    </span><span class="nx">chatLabel</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="kill-job">Kill Job (↩️)<a class="headerlink" href="#kill-job" title="Permanent link">#</a></h3>
+<p>Terminates a running background job.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>jobs/kill</code></li>
+<li>params: <code>JobsKillParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">JobsKillParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The job ID to kill. */</span>
+<span class="w">    </span><span class="nx">jobId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>{ killed: boolean }</code></li>
+</ul>
+<h3 id="read-job-output">Read Job Output (↩️)<a class="headerlink" href="#read-job-output" title="Permanent link">#</a></h3>
+<p>Returns the currently buffered output lines for a background job. This is a snapshot read
+that does not affect the LLM's incremental read cursor.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>jobs/readOutput</code></li>
+<li>params: <code>JobsReadOutputParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">JobsReadOutputParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The job ID to read output from. */</span>
+<span class="w">    </span><span class="nx">jobId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>JobsReadOutputResult</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">JobsReadOutputResult</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Buffered output lines (up to 2000 most recent), tagged with stream source. */</span>
+<span class="w">    </span><span class="nx">lines</span><span class="o">:</span><span class="w"> </span><span class="kt">OutputLine</span><span class="p">[];</span>
+<span class="w">    </span><span class="cm">/** Current job status. */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;running&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;completed&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;failed&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;killed&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Process exit code, or null if still running. */</span>
+<span class="w">    </span><span class="nx">exitCode</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">OutputLine</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The text content of the line. */</span>
+<span class="w">    </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Which stream produced this line. */</span>
+<span class="w">    </span><span class="nx">stream</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;stdout&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;stderr&quot;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="jobs-updated">Jobs Updated (⬅️)<a class="headerlink" href="#jobs-updated" title="Permanent link">#</a></h3>
+<p>A server notification sent when the background jobs list changes. Sent after a job is
+created, completes, fails, is killed, or is evicted. Contains the full list of active jobs.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>jobs/updated</code></li>
+<li>params: <code>JobsListResult</code> (see <code>jobs/list</code> response above)</li>
+</ul>
 <h2 id="general-features">General features<a class="headerlink" href="#general-features" title="Permanent link">#</a></h2>
 <h3 id="progress">progress (⬅️)<a class="headerlink" href="#progress" title="Permanent link">#</a></h3>
 <p>A notification from the server reporting the progress of an initialization task. Each task
@@ -4687,7 +4885,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 12, 2026 17:52:51 UTC">April 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 12, 2026 18:04:46 UTC">April 12, 2026</span>
   </span>
 
     
