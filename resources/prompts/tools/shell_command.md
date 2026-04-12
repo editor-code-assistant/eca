@@ -16,6 +16,12 @@ Before executing the command, please follow these steps:
   - After ensuring proper quoting, execute the command.
   - Capture the output of the command.
 
+Background execution:
+  - Set `background` to a brief description for long-running commands that don't terminate on their own
+    (e.g., `"dev-server"`, `"file-watcher"`, `"docker-compose"`).
+  - Background commands return immediately with a job ID.
+  - Use `eca__bg_job` with action `read_output` to check output, or `kill` to stop the process.
+
 Usage notes:
   - The `command` argument is required.
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.

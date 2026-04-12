@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.features.tools.agent :as f.tools.agent]
+   [eca.features.tools.background :as f.tools.background]
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
@@ -159,6 +160,7 @@
           f.tools.chat/definitions
           f.tools.skill/definitions
           f.tools.task/definitions
+          f.tools.background/definitions
           (f.tools.agent/definitions config db)
           (f.tools.custom/definitions config))))
 

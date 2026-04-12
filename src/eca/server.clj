@@ -149,6 +149,15 @@
 (defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
   (async-notify (handlers/chat-selected-model-changed (with-config components) params)))
 
+(defmethod jsonrpc.server/receive-request "jobs/list" [_ components params]
+  (eventually (handlers/jobs-list (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "jobs/kill" [_ components params]
+  (eventually (handlers/jobs-kill (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "jobs/readOutput" [_ components params]
+  (eventually (handlers/jobs-read-output (with-config components) params)))
+
 (defmethod jsonrpc.server/receive-request "providers/list" [_ components params]
   (eventually (handlers/providers-list (with-config components) params)))
 
@@ -220,6 +229,9 @@
   (provider-updated [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "providers/updated" params)))
+  (jobs-updated [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "jobs/updated" params)))
   (showMessage [_this msg]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "$/showMessage" msg)))

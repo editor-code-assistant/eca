@@ -2629,6 +2629,119 @@ _Notification:_
 * method: `providers/updated`
 * params: `ProviderStatus` (see `providers/list` response above)
 
+## Background Jobs
+
+### List Jobs (↩️)
+
+Returns all active (non-evicted) background jobs across all chats.
+
+_Request:_
+
+* method: `jobs/list`
+* params: `{}` (none)
+
+_Response:_
+
+* result: `JobsListResult` defined as follows:
+
+```typescript
+interface JobsListResult {
+    jobs: JobSummary[];
+}
+
+interface JobSummary {
+    /** Unique job identifier (e.g. "job-1"). */
+    id: string;
+    /** Job type (currently always "shell"). */
+    type: string;
+    /** Current status. */
+    status: "running" | "completed" | "failed" | "killed";
+    /** Human-readable label (the command string). */
+    label: string;
+    /** Brief description of the job purpose (e.g. "dev-server"), or null if not provided. */
+    summary: string | null;
+    /** ISO 8601 timestamp of when the job started. */
+    startedAt: string;
+    /** Human-readable elapsed time (e.g. "5m23s"). */
+    elapsed: string;
+    /** Process exit code, or null if still running. */
+    exitCode: number | null;
+    /** The chat that spawned this job. */
+    chatId: string;
+    /** Display label for the chat (title or chat-id fallback). */
+    chatLabel: string;
+}
+```
+
+### Kill Job (↩️)
+
+Terminates a running background job.
+
+_Request:_
+
+* method: `jobs/kill`
+* params: `JobsKillParams` defined as follows:
+
+```typescript
+interface JobsKillParams {
+    /** The job ID to kill. */
+    jobId: string;
+}
+```
+
+_Response:_
+
+* result: `{ killed: boolean }`
+
+### Read Job Output (↩️)
+
+Returns the currently buffered output lines for a background job. This is a snapshot read
+that does not affect the LLM's incremental read cursor.
+
+_Request:_
+
+* method: `jobs/readOutput`
+* params: `JobsReadOutputParams` defined as follows:
+
+```typescript
+interface JobsReadOutputParams {
+    /** The job ID to read output from. */
+    jobId: string;
+}
+```
+
+_Response:_
+
+* result: `JobsReadOutputResult` defined as follows:
+
+```typescript
+interface JobsReadOutputResult {
+    /** Buffered output lines (up to 2000 most recent), tagged with stream source. */
+    lines: OutputLine[];
+    /** Current job status. */
+    status: "running" | "completed" | "failed" | "killed";
+    /** Process exit code, or null if still running. */
+    exitCode: number | null;
+}
+
+interface OutputLine {
+    /** The text content of the line. */
+    text: string;
+    /** Which stream produced this line. */
+    stream: "stdout" | "stderr";
+}
+```
+
+### Jobs Updated (⬅️)
+
+A server notification sent when the background jobs list changes. Sent after a job is
+created, completes, fails, is killed, or is evicted. Contains the full list of active jobs.
+
+_Notification:_
+
+* method: `jobs/updated`
+* params: `JobsListResult` (see `jobs/list` response above)
+
 ## General features
 
 ### progress (⬅️)

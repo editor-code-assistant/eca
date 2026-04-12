@@ -14,6 +14,7 @@
   (tool-server-updated [this params])
   (config-updated [this params])
   (provider-updated [this params])
+  (jobs-updated [this params])
   (showMessage [this msg])
   (progress [this params])
   (editor-diagnostics [this uri]))
