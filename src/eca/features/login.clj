@@ -91,7 +91,7 @@
 
 (defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
   (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
-    ;; Renew 60 seconds before expiration to avoid race between check and request
+    ;; Renew 60s before expiration to avoid race between check and request
     (when (<= (long expires-at) (+ 60 (quot (System/currentTimeMillis) 1000)))
       (when on-renewing
         (on-renewing))

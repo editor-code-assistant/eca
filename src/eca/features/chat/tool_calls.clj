@@ -800,7 +800,16 @@
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
             (f.tools.mcp/await-pending-tools-refresh @db* 5000)
-            (let [all-tools (f.tools/all-tools chat-id agent @db* config)]
+            ;; Token can expire during long tool calls (e.g. spawn_agent),
+            ;; so renew before any continuation branch.
+            (lifecycle/maybe-renew-auth-token chat-ctx)
+            (let [all-tools (f.tools/all-tools chat-id agent @db* config)
+                  refreshed-provider-auth (get-in @db* [:auth (:provider chat-ctx)])
+                  [_ refreshed-api-key] (llm-util/provider-api-key (:provider chat-ctx)
+                                                                   refreshed-provider-auth
+                                                                   config)
+                  with-fresh-auth #(some-> % (assoc :fresh-api-key refreshed-api-key
+                                                    :provider-auth refreshed-provider-auth))]
               (if-let [rejection-info @rejected-tool-call-info*]
                 (let [reason-code
                       (if (map? rejection-info) (:code rejection-info) rejection-info)
@@ -813,18 +822,20 @@
                       (do (lifecycle/send-content! chat-ctx :system {:type :text
                                                                      :text (or hook-stop-reason "Tool rejected by hook")})
                           (lifecycle/finish-chat-prompt! :idle chat-ctx) nil)
-                      {:tools all-tools
-                       :new-messages (shared/messages-after-last-compact-marker
-                                      (get-in @db* [:chats chat-id :messages]))})
+                      (with-fresh-auth
+                        {:tools all-tools
+                         :new-messages (shared/messages-after-last-compact-marker
+                                        (get-in @db* [:chats chat-id :messages]))}))
                     (if (get-in @db* [:chats chat-id :subagent])
                       ;; Subagent: user can't provide rejection input directly, so continue
                       ;; the LLM loop with a rejection message letting the subagent adapt
                       (do (add-to-history! {:role "user"
                                             :content [{:type :text
                                                        :text "I rejected one or more tool calls. The tool call was not allowed. Try a different approach to complete the task."}]})
-                          {:tools all-tools
-                           :new-messages (shared/messages-after-last-compact-marker
-                                          (get-in @db* [:chats chat-id :messages]))})
+                          (with-fresh-auth
+                            {:tools all-tools
+                             :new-messages (shared/messages-after-last-compact-marker
+                                            (get-in @db* [:chats chat-id :messages]))}))
                       (do (lifecycle/send-content! chat-ctx :system {:type :text
                                                                      :text "Tell ECA what to do differently for the rejected tool(s)"})
                           (add-to-history! {:role "user"
@@ -832,17 +843,9 @@
                                                        :text "I rejected one or more tool calls with the following reason"}]})
                           (lifecycle/finish-chat-prompt! :idle chat-ctx)
                           nil))))
-                (do
-                  (lifecycle/maybe-renew-auth-token chat-ctx)
-                  (let [provider-auth (get-in @db* [:auth (:provider chat-ctx)])
-                        [_ fresh-api-key] (llm-util/provider-api-key (:provider chat-ctx)
-                                                                     provider-auth
-                                                                     config)
-                        result (if-let [continue-fn (:continue-fn chat-ctx)]
-                                 (continue-fn all-tools user-messages)
-                                 {:tools all-tools
-                                  :new-messages (get-in @db* [:chats chat-id :messages])})]
-                    (when result
-                      (assoc result
-                             :fresh-api-key fresh-api-key
-                             :provider-auth provider-auth))))))))))))
+                (with-fresh-auth
+                  (if-let [continue-fn (:continue-fn chat-ctx)]
+                    (continue-fn all-tools user-messages)
+                    {:tools all-tools
+                     :new-messages (shared/messages-after-last-compact-marker
+                                    (get-in @db* [:chats chat-id :messages]))}))))))))))

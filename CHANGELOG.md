@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Refresh auth token before each LLM API call, preventing stale tokens during long-running tool calls.
+
 ## 0.124.5
 
 - Fix Github Enterprise models fetch. #402
