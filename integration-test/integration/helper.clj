@@ -71,6 +71,20 @@
         :content content}
        (eca/client-awaits-server-notification :chat/contentReceived))))
 
+(defn match-contents-unordered
+  "Consume the next N chat/contentReceived notifications and verify that
+  each SPEC is matched by exactly one of them, regardless of arrival
+  order.  Each spec is a triple [chat-id role content]."
+  [& specs]
+  (let [n       (count specs)
+        actuals (mapv (fn [_] (eca/client-awaits-server-notification :chat/contentReceived))
+                      (range n))]
+    (doseq [[chat-id role content] specs]
+      (is (some #(match? {:chatId chat-id :role role :content content} %) actuals)
+          (str "Expected a notification with role=" role
+               " content=" content
+               " but none of the " n " received matched")))))
+
 (defn match-rewrite-content [rewrite-id content]
   (is (match?
        {:rewriteId rewrite-id

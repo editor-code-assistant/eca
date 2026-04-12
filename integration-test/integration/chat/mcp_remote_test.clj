@@ -4,7 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
-   [integration.helper :refer [match-content]]
+   [integration.helper :refer [match-content match-contents-unordered]]
    [llm-mock.mocks :as llm.mocks]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]
@@ -107,12 +107,14 @@
                                           :id "mcp-tool-1"
                                           :arguments {:message "hello from mcp"}
                                           :manualApproval false})
-      (match-content chat-id "assistant" {:type "toolCallRunning"
-                                          :origin "mcp"
-                                          :name "echo"
-                                          :id "mcp-tool-1"
-                                          :arguments {:message "hello from mcp"}})
-      (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
+      ;; toolCallRunning and progress may arrive in either order on Windows
+      (match-contents-unordered
+       [chat-id "assistant" {:type "toolCallRunning"
+                             :origin "mcp"
+                             :name "echo"
+                             :id "mcp-tool-1"
+                             :arguments {:message "hello from mcp"}}]
+       [chat-id "system" {:type "progress" :state "running" :text "Calling tool"}])
 
       ;; Tool called result — echo returns the same message
       (match-content chat-id "assistant" {:type "toolCalled"
@@ -237,12 +239,14 @@
                                           :id "mcp-add-tool-1"
                                           :arguments {:name "multiply"}
                                           :manualApproval false})
-      (match-content chat-id "assistant" {:type "toolCallRunning"
-                                          :origin "mcp"
-                                          :name "add-tool"
-                                          :id "mcp-add-tool-1"
-                                          :arguments {:name "multiply"}})
-      (match-content chat-id "system" {:type "progress" :state "running" :text "Calling tool"})
+      ;; toolCallRunning and progress may arrive in either order on Windows
+      (match-contents-unordered
+       [chat-id "assistant" {:type "toolCallRunning"
+                             :origin "mcp"
+                             :name "add-tool"
+                             :id "mcp-add-tool-1"
+                             :arguments {:name "multiply"}}]
+       [chat-id "system" {:type "progress" :state "running" :text "Calling tool"}])
 
       ;; Tool result
       (match-content chat-id "assistant" {:type "toolCalled"
