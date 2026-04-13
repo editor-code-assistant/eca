@@ -477,6 +477,22 @@
         (swap! bg/registry* assoc-in [:jobs job-id :notified] true))
       (bg/evict-notified-jobs!))))
 
+(defn ^:private sanitize-title
+  "Clean up a chat title: take first meaningful line, strip control chars,
+   markdown header prefixes, collapse whitespace, and truncate to 40 chars."
+  [^String s]
+  (when s
+    (-> (string/split s #"\n")
+        (->> (map string/trim)
+             (remove string/blank?)
+             first)
+        (or "")
+        (string/replace #"[\x00-\x1f\x7f]" " ")
+        (string/replace #"^#+\s*" "")
+        (string/replace #"\s+" " ")
+        (string/trim)
+        (as-> t (subs t 0 (min (count t) 40))))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -579,7 +595,7 @@
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
                 (when output-text
-                  (let [title (subs output-text 0 (min (count output-text) 40))]
+                  (let [title (sanitize-title output-text)]
                     (swap! db* assoc-in [:chats chat-id :title] title)
                     (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
                     (when (= :idle (get-in @db* [:chats chat-id :status]))
@@ -1198,13 +1214,14 @@
   [{:keys [chat-id title]} db* messenger metrics]
   (when (and (get-in @db* [:chats chat-id])
              title)
-    (swap! db* assoc-in [:chats chat-id :title] title)
-    (swap! db* assoc-in [:chats chat-id :title-custom?] true)
-    (messenger/chat-content-received messenger
-                                     {:chat-id chat-id
-                                      :role    "system"
-                                      :content {:type :metadata :title title}})
-    (db/update-workspaces-cache! @db* metrics))
+    (let [title (sanitize-title title)]
+      (swap! db* assoc-in [:chats chat-id :title] title)
+      (swap! db* assoc-in [:chats chat-id :title-custom?] true)
+      (messenger/chat-content-received messenger
+                                       {:chat-id chat-id
+                                        :role    "system"
+                                        :content {:type :metadata :title title}})
+      (db/update-workspaces-cache! @db* metrics)))
   {})
 
 (defn rollback-chat
@@ -1243,6 +1260,7 @@
         :db* db*
         :messenger messenger}))
     {}))
+
 
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both

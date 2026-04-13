@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Chat titles now re-generate at the 3rd user message using full conversation context for more accurate titles.
+- Sanitize chat titles to remove newlines, control characters, and markdown header prefixes.
 
 ## 0.125.0
 
