@@ -251,7 +251,7 @@
           config (config/all @db*)]
       (handlers/chat-update
        (assoc components :config config)
-       {:chat-id chat-id :title (:title body)})
+       {:chat-id chat-id :title (:title body) :trust (:trust body)})
       (no-content))))
 
 (defn handle-set-trust [{:keys [db*]} request {:keys [sse-connections*]}]
