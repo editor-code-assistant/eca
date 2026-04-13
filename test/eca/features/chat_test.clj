@@ -197,6 +197,108 @@
                 :role :system}]}
              (h/messages)))))))
 
+(defn ^:private prompt-with-title!
+  "Like prompt! but accepts a :sync-prompt-mock for title generation testing.
+   Accepts optional :config in mocks to override default config."
+  [params mocks]
+  (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                   (on-first-response-received {:type :text :text "response"})
+                   (on-message-received {:type :text :text "response"})
+                   (on-message-received {:type :finish}))
+        {:keys [chat-id] :as resp}
+        (with-redefs [llm-api/sync-or-async-prompt! api-mock
+                      llm-api/sync-prompt! (:sync-prompt-mock mocks)
+                      f.tools/call-tool! (constantly nil)
+                      f.tools/all-tools (constantly [])
+                      f.tools/approval (constantly :allow)
+                      config/await-plugins-resolved! (constantly true)]
+          (h/config! (merge {:env "test" :chat {:title true}}
+                            (:config mocks)))
+          (swap! (h/db*) update :models
+                 (fn [models]
+                   (merge {"openai/gpt-5.2" {:tools true}}
+                          (or models {}))))
+          (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics)))]
+    (is (match? {:chat-id string? :status :prompting} resp))
+    {:chat-id chat-id}))
+
+(deftest title-generation-test
+  (testing "generates title on first message and re-generates at third with full context"
+    (h/reset-components!)
+    (let [sync-prompt-calls* (atom [])
+          call-count* (atom 0)
+          sync-mock (fn [params]
+                      (swap! sync-prompt-calls* conj params)
+                      {:output-text (str "Title " (swap! call-count* inc))})]
+      ;; Message 1: should generate title
+      (let [{:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
+        (is (= 1 (count @sync-prompt-calls*))
+            "Should call sync-prompt! on first message")
+        (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
+        (is (= 1 (count (:user-messages (first @sync-prompt-calls*))))
+            "First title uses only the current user message")
+
+        ;; Message 2: should NOT re-generate title
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "Also refactor" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+        (is (= 1 (count @sync-prompt-calls*))
+            "Should NOT call sync-prompt! on second message")
+        (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
+
+        ;; Message 3: should re-generate title with full conversation context
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+        (is (= 2 (count @sync-prompt-calls*))
+            "Should call sync-prompt! again on third message")
+        (is (= "Title 2" (get-in (h/db) [:chats chat-id :title])))
+        (let [retitle-messages (:user-messages (second @sync-prompt-calls*))]
+          (is (> (count retitle-messages) 1)
+              "Third message title should include full conversation history"))
+
+        ;; Message 4: should NOT re-generate title
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "One more thing" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+        (is (= 2 (count @sync-prompt-calls*))
+            "Should NOT call sync-prompt! after third message"))))
+
+  (testing "manual rename suppresses automatic re-titling"
+    (h/reset-components!)
+    (let [sync-prompt-calls* (atom [])
+          sync-mock (fn [params]
+                      (swap! sync-prompt-calls* conj params)
+                      {:output-text "Auto Title"})]
+      ;; Message 1: generates initial title
+      (let [{:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
+        (is (= 1 (count @sync-prompt-calls*)))
+
+        ;; Manual rename
+        (f.chat/update-chat {:chat-id chat-id :title "My Custom Title"} (h/db*) (h/messenger) (h/metrics))
+        (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))
+        (is (true? (get-in (h/db) [:chats chat-id :title-custom?])))
+
+        ;; Messages 2 and 3: should NOT re-generate because of manual rename
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "Second msg" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "Third msg" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+        (is (= 1 (count @sync-prompt-calls*))
+            "Should NOT re-title after manual rename")
+        (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title]))))))
+
+  (testing "title disabled in config skips all generation"
+    (h/reset-components!)
+    (let [sync-prompt-calls* (atom [])
+          sync-mock (fn [params]
+                      (swap! sync-prompt-calls* conj params)
+                      {:output-text "Should not appear"})
+          disabled-mocks {:sync-prompt-mock sync-mock :config {:chat {:title false}}}]
+      (let [{:keys [chat-id]} (prompt-with-title! {:message "Hello"} disabled-mocks)]
+        (prompt-with-title! {:message "Second" :chat-id chat-id} disabled-mocks)
+        (prompt-with-title! {:message "Third" :chat-id chat-id} disabled-mocks)
+        (is (zero? (count @sync-prompt-calls*))
+            "Should never call sync-prompt! when title is disabled")
+        (is (nil? (get-in (h/db) [:chats chat-id :title])))))))
+
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)

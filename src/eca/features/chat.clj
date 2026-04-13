@@ -538,6 +538,7 @@
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (swap! db* assoc-in [:chats chat-id :prompt-id] prompt-id)
       (swap! db* assoc-in [:chats chat-id :model] full-model)
+      (swap! db* update-in [:chats chat-id :user-prompt-count] (fnil inc 0))
       (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
             _ (lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
             db @db*
@@ -552,27 +553,37 @@
                               (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
-                                 (lifecycle/send-content! chat-ctx :system (merge {:type :usage} usage))))]
+                                 (lifecycle/send-content! chat-ctx :system (merge {:type :usage} usage))))
+            prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
+            retitle? (= prompt-count 3)
+            generate-title? (and (get-in config [:chat :title])
+                                 (not (get-in db [:chats chat-id :title-custom?]))
+                                 (or (and (not (get-in db [:chats chat-id :title]))
+                                          (not retitle?))
+                                     retitle?))]
         (assert-compatible-apis-between-models! db chat-id provider model config)
-        (when (and (not (get-in db [:chats chat-id :title]))
-                   (get-in config [:chat :title]))
-          (future* config
-            (when-let [{:keys [output-text]} (llm-api/sync-prompt!
-                                              {:provider provider
-                                               :model model
-                                               :model-capabilities
-                                               (assoc model-capabilities :reason? false :tools false :web-search false)
-                                               :instructions (f.prompt/chat-title-prompt agent config)
-                                               :user-messages user-messages
-                                               :config config
-                                               :provider-auth provider-auth
-                                               :subagent? true})]
-              (when output-text
-                (let [title (subs output-text 0 (min (count output-text) 40))]
-                  (swap! db* assoc-in [:chats chat-id :title] title)
-                  (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
-                  (when (= :idle (get-in @db* [:chats chat-id :status]))
-                    (db/update-workspaces-cache! @db* metrics)))))))
+        (when generate-title?
+          (let [title-messages (if retitle?
+                                 (into (get-in db [:chats chat-id :messages] [])
+                                       user-messages)
+                                 user-messages)]
+            (future* config
+              (when-let [{:keys [output-text]} (llm-api/sync-prompt!
+                                                {:provider provider
+                                                 :model model
+                                                 :model-capabilities
+                                                 (assoc model-capabilities :reason? false :tools false :web-search false)
+                                                 :instructions (f.prompt/chat-title-prompt agent config)
+                                                 :user-messages title-messages
+                                                 :config config
+                                                 :provider-auth provider-auth
+                                                 :subagent? true})]
+                (when output-text
+                  (let [title (subs output-text 0 (min (count output-text) 40))]
+                    (swap! db* assoc-in [:chats chat-id :title] title)
+                    (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
+                    (when (= :idle (get-in @db* [:chats chat-id :status]))
+                      (db/update-workspaces-cache! @db* metrics))))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
@@ -1182,11 +1193,13 @@
 
 (defn update-chat
   "Update chat metadata like title.
-   Broadcasts the change to all connected clients."
+   Broadcasts the change to all connected clients.
+   Marks the title as custom to suppress automatic re-titling."
   [{:keys [chat-id title]} db* messenger metrics]
   (when (and (get-in @db* [:chats chat-id])
              title)
     (swap! db* assoc-in [:chats chat-id :title] title)
+    (swap! db* assoc-in [:chats chat-id :title-custom?] true)
     (messenger/chat-content-received messenger
                                      {:chat-id chat-id
                                       :role    "system"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Chat titles now re-generate at the 3rd user message using full conversation context for more accurate titles.
+
 ## 0.125.0
 
 - Refresh auth token before each LLM API call, preventing stale tokens during long-running tool calls.
