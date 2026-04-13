@@ -4,6 +4,7 @@
 
 - Chat titles now re-generate at the 3rd user message using full conversation context for more accurate titles.
 - Sanitize chat titles to remove newlines, control characters, and markdown header prefixes.
+- Trust mode can now be toggled via `chat/update` and applies immediately to the next tool call without requiring a new prompt.
 
 ## 0.125.0
 

@@ -299,6 +299,37 @@
             "Should never call sync-prompt! when title is disabled")
         (is (nil? (get-in (h/db) [:chats chat-id :title])))))))
 
+(deftest update-chat-trust-test
+  (testing "update-chat stores trust in chat state"
+    (h/reset-components!)
+    (let [chat-id "trust-chat"]
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id})
+      (f.chat/update-chat {:chat-id chat-id :trust true} (h/db*) (h/messenger) (h/metrics))
+      (is (true? (get-in (h/db) [:chats chat-id :trust])))))
+
+  (testing "update-chat sets trust to false"
+    (h/reset-components!)
+    (let [chat-id "trust-chat"]
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :trust true})
+      (f.chat/update-chat {:chat-id chat-id :trust false} (h/db*) (h/messenger) (h/metrics))
+      (is (false? (get-in (h/db) [:chats chat-id :trust])))))
+
+  (testing "update-chat without trust does not change existing trust"
+    (h/reset-components!)
+    (let [chat-id "trust-chat"]
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :trust true})
+      (f.chat/update-chat {:chat-id chat-id :title "New Title"} (h/db*) (h/messenger) (h/metrics))
+      (is (true? (get-in (h/db) [:chats chat-id :trust])))
+      (is (= "New Title" (get-in (h/db) [:chats chat-id :title])))))
+
+  (testing "update-chat with trust and title updates both"
+    (h/reset-components!)
+    (let [chat-id "trust-chat"]
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id})
+      (f.chat/update-chat {:chat-id chat-id :title "My Chat" :trust true} (h/db*) (h/messenger) (h/metrics))
+      (is (true? (get-in (h/db) [:chats chat-id :trust])))
+      (is (= "My Chat" (get-in (h/db) [:chats chat-id :title]))))))
+
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)

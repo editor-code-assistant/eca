@@ -1080,7 +1080,9 @@
                                    :agent-config agent-config
                                    :trust trust
                                    :variant (or variant (:variant agent-config))}
-                                  :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))]
+                                  :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
+        _ (when (some? trust)
+            (swap! db* assoc-in [:chats chat-id :trust] trust))]
     (try
       (prompt* params base-chat-ctx)
       (catch Exception e
@@ -1208,20 +1210,23 @@
     (db/update-workspaces-cache! @db* metrics)))
 
 (defn update-chat
-  "Update chat metadata like title.
-   Broadcasts the change to all connected clients.
-   Marks the title as custom to suppress automatic re-titling."
-  [{:keys [chat-id title]} db* messenger metrics]
-  (when (and (get-in @db* [:chats chat-id])
-             title)
-    (let [title (sanitize-title title)]
-      (swap! db* assoc-in [:chats chat-id :title] title)
-      (swap! db* assoc-in [:chats chat-id :title-custom?] true)
-      (messenger/chat-content-received messenger
-                                       {:chat-id chat-id
-                                        :role    "system"
-                                        :content {:type :metadata :title title}})
-      (db/update-workspaces-cache! @db* metrics)))
+  "Update chat metadata like title and trust.
+   Broadcasts changes to all connected clients.
+   Marks the title as custom to suppress automatic re-titling.
+   Trust changes apply immediately to subsequent tool calls in the active prompt."
+  [{:keys [chat-id title trust]} db* messenger metrics]
+  (when (get-in @db* [:chats chat-id])
+    (when (some? trust)
+      (swap! db* assoc-in [:chats chat-id :trust] trust))
+    (when title
+      (let [title (sanitize-title title)]
+        (swap! db* assoc-in [:chats chat-id :title] title)
+        (swap! db* assoc-in [:chats chat-id :title-custom?] true)
+        (messenger/chat-content-received messenger
+                                         {:chat-id chat-id
+                                          :role    "system"
+                                          :content {:type :metadata :title title}})
+        (db/update-workspaces-cache! @db* metrics))))
   {})
 
 (defn rollback-chat

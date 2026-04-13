@@ -634,7 +634,7 @@
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
                                                                            :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
-                                                                           :trust                 (:trust chat-ctx)})
+                                                                           :trust                 (get-in @db* [:chats chat-id :trust])})
                           {:keys [decision arguments hook-rejected? reason hook-continue
                                   hook-stop-reason arguments-modified?]} decision-plan
                           _ (when arguments-modified?
@@ -682,7 +682,7 @@
                                                                      metrics
                                                                      (partial get-tool-call-state @db* chat-id id)
                                                                      (partial transition-tool-call! db* chat-ctx id)
-                                                                     {:trust (:trust chat-ctx)})
+                                                                     {:trust (get-in @db* [:chats chat-id :trust])})
                                           details (f.tools/tool-call-details-after-invocation name arguments details result
                                                                                               {:db @db*
                                                                                                :config config

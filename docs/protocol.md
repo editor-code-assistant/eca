@@ -1728,6 +1728,13 @@ interface ChatUpdateParams {
      * New title for the chat.
      */
     title?: string;
+
+    /**
+     * When true, enables trust mode for this chat — tool calls that would
+     * normally require manual approval are auto-accepted. Does not override deny rules.
+     * Changes apply immediately to subsequent tool calls in the active prompt.
+     */
+    trust?: boolean;
 }
 ```
 
