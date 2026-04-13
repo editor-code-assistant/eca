@@ -107,23 +107,21 @@
                                           :id "mcp-tool-1"
                                           :arguments {:message "hello from mcp"}
                                           :manualApproval false})
-      ;; toolCallRunning and progress may arrive in either order on Windows
+      ;; toolCallRunning, progress, and toolCalled may arrive in any order on Windows
       (match-contents-unordered
        [chat-id "assistant" {:type "toolCallRunning"
                              :origin "mcp"
                              :name "echo"
                              :id "mcp-tool-1"
                              :arguments {:message "hello from mcp"}}]
-       [chat-id "system" {:type "progress" :state "running" :text "Calling tool"}])
-
-      ;; Tool called result — echo returns the same message
-      (match-content chat-id "assistant" {:type "toolCalled"
-                                          :origin "mcp"
-                                          :name "echo"
-                                          :id "mcp-tool-1"
-                                          :arguments {:message "hello from mcp"}
-                                          :error nil
-                                          :outputs [{:type "text" :text "hello from mcp"}]})
+       [chat-id "system" {:type "progress" :state "running" :text "Calling tool"}]
+       [chat-id "assistant" {:type "toolCalled"
+                             :origin "mcp"
+                             :name "echo"
+                             :id "mcp-tool-1"
+                             :arguments {:message "hello from mcp"}
+                             :error nil
+                             :outputs [{:type "text" :text "hello from mcp"}]}])
 
       ;; Second LLM turn: final response after tool result
       (match-content chat-id "assistant" {:type "text" :text "The echo tool returned: hello from mcp"})
@@ -239,24 +237,22 @@
                                           :id "mcp-add-tool-1"
                                           :arguments {:name "multiply"}
                                           :manualApproval false})
-      ;; toolCallRunning and progress may arrive in either order on Windows
+      ;; toolCallRunning, progress, and toolCalled may arrive in any order on Windows
       (match-contents-unordered
        [chat-id "assistant" {:type "toolCallRunning"
                              :origin "mcp"
                              :name "add-tool"
                              :id "mcp-add-tool-1"
                              :arguments {:name "multiply"}}]
-       [chat-id "system" {:type "progress" :state "running" :text "Calling tool"}])
-
-      ;; Tool result
-      (match-content chat-id "assistant" {:type "toolCalled"
-                                          :origin "mcp"
-                                          :name "add-tool"
-                                          :id "mcp-add-tool-1"
-                                          :arguments {:name "multiply"}
-                                          :error nil
-                                          :outputs [{:type "text"
-                                                     :text "Tool 'multiply' registered successfully"}]})
+       [chat-id "system" {:type "progress" :state "running" :text "Calling tool"}]
+       [chat-id "assistant" {:type "toolCalled"
+                             :origin "mcp"
+                             :name "add-tool"
+                             :id "mcp-add-tool-1"
+                             :arguments {:name "multiply"}
+                             :error nil
+                             :outputs [{:type "text"
+                                        :text "Tool 'multiply' registered successfully"}]}])
 
       ;; Second LLM turn: final response
       (match-content chat-id "assistant" {:type "text" :text "Tool added successfully"})
