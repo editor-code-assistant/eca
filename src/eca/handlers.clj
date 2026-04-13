@@ -133,15 +133,16 @@
         (catch Exception e
           (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
       (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
-      (config/deliver-plugins-resolved!)
       (let [config (config/all @db*)]
-      ;; Trigger sessionStart with plugin-aware config
-        (shared/future* config
-          (f.hooks/trigger-if-matches! :sessionStart
-                                       (f.hooks/base-hook-data @db*)
-                                       {}
-                                       @db*
-                                       config))
+        ;; Trigger sessionStart before delivering plugins-resolved so it
+        ;; completes before any chatStart hook can fire (chatStart waits
+        ;; on await-plugins-resolved!).
+        (f.hooks/trigger-if-matches! :sessionStart
+                                     (f.hooks/base-hook-data @db*)
+                                     {}
+                                     @db*
+                                     config)
+        (config/deliver-plugins-resolved!)
         (send-progress! db* messenger {:type "start" :taskId "mcp-servers" :title "Initializing MCP servers"})
         (f.tools/init-servers! db* messenger config metrics)
         (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
