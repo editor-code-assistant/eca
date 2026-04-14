@@ -927,3 +927,30 @@
              (h/messages)))))))
 
 
+
+(deftest prompt-cache-agent-switch-test
+  (testing "agent switching invalidates static prompt cache"
+    (h/reset-components!)
+    (let [build-calls* (atom 0)
+          api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          base-mocks {:all-tools-mock (constantly [])
+                      :api-mock api-mock
+                      :call-tool-mock (constantly nil)}]
+      (with-redefs [f.prompt/build-chat-instructions
+                    (fn [& _]
+                      (swap! build-calls* inc)
+                      {:static (str "static-" @build-calls*)
+                       :dynamic "dynamic"})]
+        (let [{:keys [chat-id]} (prompt! {:message "Hello" :agent "code"} base-mocks)]
+          (is (= 1 @build-calls*) "First call should build instructions")
+
+          (h/reset-messenger!)
+          (prompt! {:message "Hello again" :chat-id chat-id :agent "code"} base-mocks)
+          (is (= 1 @build-calls*) "Same agent reuses cached static instructions")
+
+          (h/reset-messenger!)
+          (prompt! {:message "Switch" :chat-id chat-id :agent "plan"} base-mocks)
+          (is (= 2 @build-calls*) "Different agent should rebuild instructions"))))))

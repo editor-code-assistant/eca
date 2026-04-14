@@ -328,6 +328,7 @@
           (handler
            {:model real-model
             :instructions flat-instructions
+            :agent agent
             :user-messages user-messages
             :max-output-tokens max-output-tokens
             :web-search web-search
