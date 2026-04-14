@@ -66,7 +66,7 @@ Phase 1 is complete only after the first `## Present Plan` is sent.
 - **Goal:** State the chosen approach with rationale based on Explore.
 - **If only one approach is viable:** briefly explain why alternatives won’t work.
 - **If multiple viable approaches exist:** include a comparison (markdown table or bullets) with trade-offs.
-- Ask a question only when user input is needed to choose a viable option.
+- Ask a question (via `eca__ask_user`) only when user input is needed to choose a viable option.
 - Ask questions one at a time to refine the idea.
 - Prefer multiple choice questions when possible, but open-ended is fine too.
 - Only one question per message; ask follow-ups iteratively if needed.

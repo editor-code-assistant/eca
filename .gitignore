@@ -35,6 +35,7 @@ result
 docs/README.md
 docs/CHANGELOG.md
 docs/images/
+CHANGELOG.html
 
 # mkdocs build output
 /site

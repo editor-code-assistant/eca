@@ -16,6 +16,7 @@
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.skill :as f.tools.skill]
    [eca.features.tools.task :as f.tools.task]
+   [eca.features.tools.ask-user :as f.tools.ask-user]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -161,6 +162,7 @@
           f.tools.skill/definitions
           f.tools.task/definitions
           f.tools.background/definitions
+          f.tools.ask-user/definitions
           (f.tools.agent/definitions config db)
           (f.tools.custom/definitions config))))
 

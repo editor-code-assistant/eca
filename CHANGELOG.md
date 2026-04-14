@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support `ask_user` tool allowing LLM to ask the user questions with optional selectable options. #338
+
 ## 0.126.0
 
 - Chat titles now re-generate at the 3rd user message using full conversation context for more accurate titles.

@@ -17,4 +17,5 @@
   (jobs-updated [this params])
   (showMessage [this msg])
   (progress [this params])
-  (editor-diagnostics [this uri]))
+  (editor-diagnostics [this uri])
+  (ask-question [this params]))

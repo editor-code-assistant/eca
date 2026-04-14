@@ -62,4 +62,6 @@
     (sse/broadcast! sse-connections* "session:progress" (->camel params)))
 
   (editor-diagnostics [_this uri]
-    (messenger/editor-diagnostics inner uri)))
+    (messenger/editor-diagnostics inner uri))
+  (ask-question [_this params]
+    (messenger/ask-question inner params)))

@@ -240,7 +240,10 @@
      (jsonrpc.server/send-notification server "$/progress" params)))
   (editor-diagnostics [_this uri]
     (jsonrpc.server/discarding-stdout
-     (jsonrpc.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri)))))
+     (jsonrpc.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri))))
+  (ask-question [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-request server "chat/askQuestion" params))))
 
 (defn ^:private ->Metrics [db*]
   (if-let [otlp-config (:otlp (config/all @db*))]

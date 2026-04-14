@@ -212,6 +212,18 @@ interface ClientCapabilities {
              */ 
             diagnostics?: boolean;
         }
+
+        /**
+         * Chat-related capabilities beyond the basic chat flag.
+         */
+        chatCapabilities?: {
+            /**
+             * Whether client supports `chat/askQuestion` server request,
+             * enabling the server to ask the user a question and receive an answer
+             * during a chat session.
+             */
+            askQuestion?: boolean;
+        }
     }
 }
 
@@ -1850,6 +1862,81 @@ interface EditorDiagnostic {
      * The diagnostic message. Ex: 'Wrong number of args for function X'
      */
     message: string; 
+}
+```
+
+### Chat ask question (↪️)
+
+A server request to ask the user a question and receive an answer during a chat session.
+This enables the server to present the user with a question (optionally with predefined options)
+and wait for their response. When `allowFreeform` is true, the user can type a custom answer in addition to selecting a predefined option.
+
+_Request:_
+
+* method: `chat/askQuestion`
+* params: `ChatAskQuestionParams` defined as follows:
+
+```typescript
+interface ChatAskQuestionParams {
+    /**
+     * The chat id where the question is being asked.
+     */
+    chatId: string;
+
+    /**
+     * The question text to present to the user.
+     */
+    question: string;
+
+    /**
+     * Optional predefined options for the user to choose from.
+     * When present, the client should render these as selectable choices.
+     * The user should always be able to type a custom answer regardless.
+     */
+    options?: ChatAskQuestionOption[];
+
+    /**
+     * Optional tool call id that originated this question.
+     * When present, the client may hide the associated tool call block
+     * and show the question inline instead.
+     */
+    toolCallId?: string;
+
+    /**
+     * Whether the user can type a custom freeform answer.
+     * When false, only the predefined options (and cancel) are valid.
+     * Defaults to true.
+     */
+    allowFreeform: boolean;
+}
+
+interface ChatAskQuestionOption {
+    /**
+     * Short label for the option.
+     */
+    label: string;
+
+    /**
+     * Optional description providing more context about the option.
+     */
+    description?: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatAskQuestionResponse {
+    /**
+     * The user's answer. Contains the selected option label or freeform text.
+     * Null when cancelled.
+     */
+    answer: string | null;
+
+    /**
+     * Whether the user cancelled the question without answering.
+     */
+    cancelled: boolean;
 }
 ```
 
