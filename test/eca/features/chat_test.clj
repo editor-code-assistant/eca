@@ -45,6 +45,24 @@
           (catch InterruptedException _))
         (recur (- deadline (System/currentTimeMillis)))))))
 
+(deftest prompt-chat-variant-override-test
+  (testing "explicit chat variant nil overrides agent default variant"
+    (h/reset-components!)
+    (h/config! {:agent {"code" {:variant "high"}}})
+    (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :variant nil})
+    (let [seen-variant* (atom ::unset)]
+      (prompt! {:chat-id "chat-1"
+                :message "Hey!"
+                :model "openai/gpt-5.2"}
+               {:all-tools-mock (constantly [])
+                :api-mock
+                (fn [{:keys [variant on-first-response-received on-message-received]}]
+                  (reset! seen-variant* variant)
+                  (on-first-response-received {:type :text :text "Hey"})
+                  (on-message-received {:type :text :text "Hey"})
+                  (on-message-received {:type :finish}))})
+      (is (nil? @seen-variant*)))))
+
 (deftest prompt-basic-test
   (testing "Simple hello"
     (h/reset-components!)
