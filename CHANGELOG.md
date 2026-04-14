@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support `ask_user` tool allowing LLM to ask the user questions with optional selectable options. #338
+- Remove redundant system message when background jobs finish or are killed.
 - Add the `/model` command allowing the user to change the model directly from the chat.
 
 ## 0.126.0

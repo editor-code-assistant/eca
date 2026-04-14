@@ -2,274 +2,13 @@
 description: "Configure LLM providers in ECA: OpenAI, Anthropic, Copilot, Gemini, Ollama, and any OpenAI-compatible API endpoint."
 ---
 
-# Models
+# Providers / Models
 
 !!! info Login
 
-    Most providers can be configured via `/login` command, otherwise via `providers` config.
-
-Models capabilities and configurations are retrieved from [models.dev](https://models.dev) API.
-
-ECA will return to clients the models configured, either via config or login.
-
-## Built-in providers and capabilities
-
-| model                                      | tools (MCP) | reasoning / thinking | prompt caching | web_search | image_input |
-|--------------------------------------------|-------------|----------------------|----------------|------------|-------------|
-| :simple-openai: OpenAI (Also subscription) | √           | √                    | √              | √          | √           |
-| :simple-anthropic: Anthropic               | √           | √                    | √              | √          | √           |
-| :simple-githubcopilot: Github Copilot      | √           | √                    | √              | X          | √           |
-| :simple-googlegemini: Google               | √           | √                    | √              | X          | √           |
-| :simple-ollama: Ollama local models        | √           | √                    | X              | X          |             |
-
-## Config
-
-Built-in providers have already base initial `providers` configs, so you can change to add models or set its key/url.
-
-For more details, check the [config schema](./introduction.md).
-
-Example:
-
-```javascript title="~/.config/eca/config.json"
-{
-  "providers": {
-    "openai": {
-      "key": "your-openai-key-here", // configuring a key
-      "models": {
-        "o1": {}, // adding models to a built-in provider
-        "o3": {
-          "extraPayload": { // adding to the payload sent to LLM
-            "temperature": 0.5
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-**Environment Variables**: You can also set API keys using environment variables following `"<PROVIDER>_API_KEY"`, examples:
-
-- `OPENAI_API_KEY` for OpenAI
-- `ANTHROPIC_API_KEY` for Anthropic
-
-!!! info "Variants"
-
-    ECA supports the variants concept, allowing to customize the payload of models and quickly changing via UI, __useful for swaping different reasoning efforts__, for more information check [variants section](./variants.md)
-
-## Custom providers
-
-ECA allows you to configure custom LLM providers that follow API schemas similar to OpenAI or Anthropic. This is useful when you want to use:
-
-- Self-hosted LLM servers (like LiteLLM)
-- Custom company LLM endpoints
-- Additional cloud providers not natively supported
-
-You just need to add your provider to `providers` and make sure add the required fields
-
-Schema:
-
-| Option                            | Type    | Description                                                                                                  | Required |
-|-----------------------------------|---------|--------------------------------------------------------------------------------------------------------------|----------|
-| `api`                             | string  | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
-| `url`                             | string  | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
-| `key`                             | string  | API key (with support for `${env:MY_KEY}` or `{netrc:api.my-provider.com}`                                   | No*      |
-| `completionUrlRelativePath`       | string  | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
-| `thinkTagStart`                   | string  | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
-| `thinkTagEnd`                     | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
-| `httpClient`                      | map     | Allow customize the http-client for this provider requests, like changing http version                       | No       |
-| `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Rules](#retry-rules))    | No       |
-| `models`                          | map     | Key: model name, value: its config                                                                           | Yes      |
-| `models <model> extraPayload`     | map     | Extra payload sent in body to LLM                                                                            | No       |
-| `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
-| `models <model> modelName`        | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
-| `models <model> reasoningHistory` | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
-| `cacheRetention`                  | string  | Prompt cache retention for Anthropic: `"short"` (5-min, default) or `"long"` (1-hour, higher write cost). Only applies to direct Anthropic API. | No       |
-| `fetchModels`                     | boolean | Enable/disable automatic model loading from `models.dev` (enabled by default when `api` is set)              | No       |
-
-_* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
-
-Examples:
-
-=== "Custom provider"
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "my-company": {
-          "api": "openai-chat",
-          "url": "${env:MY_COMPANY_API_URL}",
-          "key": "${env:MY_COMPANY_API_KEY}",
-          "models": {
-            "gpt-5": {},
-            "deepseek-r1": {}
-           }
-        }
-      }
-    }
-    ```
-
-=== "Custom model settings / payload / header"
-
-    Using `modelName`, you can configure multiple model names using same model with different settings:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "openai": {
-          "api": "openai-responses",
-          "models": {
-            "gpt-5": {},
-            "gpt-5-high": {
-              "modelName": "gpt-5",
-              "extraPayload": { "reasoning": {"effort": "high"}},
-              "extraHeaders": { "User-Agent": "MyUserAgent"}
-            }
-          }
-        }
-      }
-    }
-    ```
-
-    This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
-
-=== "Reasoning in conversation history"
-	`reasoningHistory` - Controls whether and how the model's reasoning (thinking blocks, reasoning_content) is included in conversation history sent to the model.
-	This **only applies** to `openai_chat` API and it controls both tag-based thinking and the preservation of  `reasoning_content`.
-
-	**Available modes:**
-
-	- **`"all"`** (default, safe choice) - Send all reasoning blocks back to the model. The model can see its full chain of thought from previous turns. This is the safest option.
-	- **`"turn"`** - Send only reasoning from the current conversation turn (after the last user message). Previous reasoning is discarded before sending to the API.
-	- **`"off"`** - Never send reasoning blocks to the model. All reasoning is discarded before API calls.
-
-	**Note:** Reasoning is always shown to you in the UI and stored in chat history—this setting only controls what gets sent to the model in API requests.
-
-    Default: `"all"`.
-
-=== "Dynamic model discovery (models.dev)"
-
-    For providers with `api` configured, ECA loads models from `models.dev` by default.
-    Matching is done by provider `url` (against `models.dev` `api` field). If a models.dev provider has no `api` field (for example `anthropic`), ECA falls back to provider id key.
-
-    Set `fetchModels: false` to disable dynamic loading and use only models from your config:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "providers": {
-        "openrouter": {
-          "api": "openai-chat",
-          "url": "https://openrouter.ai/api/v1",
-          "key": "your-api-key",
-          "fetchModels": false
-        }
-      }
-    }
-    ```
-
-    Static `models` config overrides/extends discovered models, allowing customization.
-
-### API Types
-
-When configuring custom providers, choose the appropriate API type:
-
-- **`anthropic`**: Anthropic's native API for Claude models.
-- **`openai-responses`**: OpenAI's new responses API endpoint (`/v1/responses`). Best for OpenAI models with enhanced features like reasoning and web search.
-- **`openai-chat`**: Standard OpenAI Chat Completions API (`/v1/chat/completions`). Use this for most third-party providers:
-    - OpenRouter
-    - DeepSeek
-    - Together AI
-    - Groq
-    - Local LiteLLM servers
-    - Any OpenAI-compatible provider
-
-Most third-party providers use the `openai-chat` API for compatibility with existing tools and libraries.
-
-#### Endpoint override (completionUrlRelativePath)
-
-Some providers require a non-standard or versioned completion endpoint path. Use `completionUrlRelativePath` to override the default path appended to your provider `url`.
-
-Defaults by API type:
-- `openai-responses`: `/v1/responses`
-- `openai-chat`: `/v1/chat/completions`
-- `anthropic`: `/v1/messages`
-
-Only set this when your provider uses a different path or expects query parameters at the endpoint (e.g., Azure API versioning).
-
-### Credential File Authentication
-
-ECA also supports standard plain-text .netrc file format for reading credentials.
-
-Use `keyRc` in your provider config to read credentials from `~/.netrc` without storing keys directly in config or env vars.
-
-Example:
-
-```javascript title="~/.config/eca/config.json"
-{
-  "providers": {
-    "openai": {"keyRc": "api.openai.com"},
-    "anthropic": {"keyRc": "work@api.anthropic.com"}
-  }
-}
-```
-
-keyRc lookup specification format: `[login@]machine[:port]` (e.g., `api.openai.com`, `work@api.anthropic.com`, `api.custom.com:8443`).
-
-ECA by default search .netrc file stored in user's home directory. You can also provide the path to the actual file to use with `:netrcFile` in ECA config.
-
-Tip for those wish to store their credentials encrypted with tools like gpg or age:
-
-```bash
-# via secure tempororay file
-gpg --batch -q -d ./netrc.gpg > /tmp/netrc.$$ && chmod 600 /tmp/netrc.$$ && ECA_CONFIG='{"netrcFile": "/tmp/netrc.$$"}' eca server && shred -u /tmp/netrc.$$
-```
-
-Further reading on credential file formats:
-- [Curl Netrc documentation](https://everything.curl.dev/usingcurl/netrc)
-- [GNU Inetutils .netrc documentation](https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html)
-
-Notes:
-- Authentication priority (short): `key` (with dynamic string pase support) > OAuth.
-- All providers with API key auth can use credential files.
-
-### Retry Rules
-
-ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using `retryRules` to handle additional status codes or error patterns.
-
-Each rule can match by:
-
-- **`status`** (integer): HTTP status code to match
-- **`errorPattern`** (string): Regex pattern to match against any error text — response body, error message, or exception message (case-insensitive). Useful for both HTTP response errors and connection-level errors (e.g. TLS handshake failures)
-- **`label`** (string, optional): Human-readable text shown in the retry progress message
-
-At least one of `status` or `errorPattern` is required. When both are specified, both must match. Custom rules are checked before built-in classification, so they can override default behavior.
-
-```javascript title="~/.config/eca/config.json"
-{
-  "providers": {
-    "my-company": {
-      "api": "openai-chat",
-      "url": "${env:MY_COMPANY_API_URL}",
-      "key": "${env:MY_COMPANY_API_KEY}",
-      "retryRules": [
-        {"status": 418, "label": "Corporate proxy throttle"},
-        {"errorPattern": "capacity.*exceeded", "label": "Capacity exceeded"},
-        {"status": 503, "errorPattern": "maintenance", "label": "Under maintenance"},
-        {"errorPattern": "terminated.*handshake", "label": "TLS handshake failed"}
-      ],
-      "models": {
-        "gpt-5": {}
-      }
-    }
-  }
-}
-```
-
-When a retry rule matches, the chat shows a progress message like:
-
-> ⏳ Corporate proxy throttle. Retrying in 2s (attempt 1/10)
-
-## Providers examples
+    Most providers can be configured via "Providers" tab in ECA settings UI (or `/login` command in chat), otherwise via `providers` config in json.
+    
+ECA support lots of providers via its supported APIs (openai-chat, openai-responses, anthropic, ollama), allowing to connect to most avaialble providers if configured properly, if your provider is not in this list, feel free to open a issue:
 
 === "Anthropic"
 
@@ -522,3 +261,252 @@ When a retry rule matches, the chat shows a progress message like:
       }
     }
     ```
+    
+Models capabilities and configurations are retrieved from [models.dev](https://models.dev) API.
+
+## Config
+
+Built-in providers have already base initial `providers` configs, so you can change to add models or set its key/url.
+
+For more details, check the [config schema](./introduction.md).
+
+Example:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "providers": {
+    "openai": {
+      "key": "your-openai-key-here", // configuring a key
+      "models": {
+        "o1": {}, // adding models to a built-in provider
+        "o3": {
+          "extraPayload": { // adding to the payload sent to LLM
+            "temperature": 0.5
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**Environment Variables**: You can also set API keys using environment variables following `"<PROVIDER>_API_KEY"`, examples:
+
+- `OPENAI_API_KEY` for OpenAI
+- `ANTHROPIC_API_KEY` for Anthropic
+
+!!! info "Variants"
+
+    ECA supports the variants concept, allowing to customize the payload of models and quickly changing via UI, __useful for swaping different reasoning efforts__, for more information check [variants section](./variants.md)
+
+## Custom providers
+
+ECA allows you to configure custom LLM providers that follow API schemas similar to OpenAI or Anthropic. This is useful when you want to use:
+
+- Self-hosted LLM servers (like LiteLLM)
+- Custom company LLM endpoints
+- Additional cloud providers not natively supported
+
+You just need to add your provider to `providers` and make sure add the required fields
+
+Schema:
+
+| Option                            | Type    | Description                                                                                                  | Required |
+|-----------------------------------|---------|--------------------------------------------------------------------------------------------------------------|----------|
+| `api`                             | string  | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
+| `url`                             | string  | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
+| `key`                             | string  | API key (with support for `${env:MY_KEY}` or `{netrc:api.my-provider.com}`                                   | No*      |
+| `completionUrlRelativePath`       | string  | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
+| `thinkTagStart`                   | string  | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
+| `thinkTagEnd`                     | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
+| `httpClient`                      | map     | Allow customize the http-client for this provider requests, like changing http version                       | No       |
+| `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Rules](#retry-rules))    | No       |
+| `models`                          | map     | Key: model name, value: its config                                                                           | Yes      |
+| `models <model> extraPayload`     | map     | Extra payload sent in body to LLM                                                                            | No       |
+| `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
+| `models <model> modelName`        | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
+| `models <model> reasoningHistory` | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
+| `cacheRetention`                  | string  | Prompt cache retention for Anthropic: `"short"` (5-min, default) or `"long"` (1-hour, higher write cost). Only applies to direct Anthropic API. | No       |
+| `fetchModels`                     | boolean | Enable/disable automatic model loading from `models.dev` (enabled by default when `api` is set)              | No       |
+
+_* url and key will be searched as envs `<provider>_API_URL` and `<provider>_API_KEY`, they require the env to be found or config to work._
+
+Examples:
+
+=== "Custom provider"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "my-company": {
+          "api": "openai-chat",
+          "url": "${env:MY_COMPANY_API_URL}",
+          "key": "${env:MY_COMPANY_API_KEY}",
+          "models": {
+            "gpt-5": {},
+            "deepseek-r1": {}
+           }
+        }
+      }
+    }
+    ```
+
+=== "Custom model settings / payload / header"
+
+    Using `modelName`, you can configure multiple model names using same model with different settings:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "openai": {
+          "api": "openai-responses",
+          "models": {
+            "gpt-5": {},
+            "gpt-5-high": {
+              "modelName": "gpt-5",
+              "extraPayload": { "reasoning": {"effort": "high"}},
+              "extraHeaders": { "User-Agent": "MyUserAgent"}
+            }
+          }
+        }
+      }
+    }
+    ```
+
+    This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
+
+=== "Reasoning in conversation history"
+	`reasoningHistory` - Controls whether and how the model's reasoning (thinking blocks, reasoning_content) is included in conversation history sent to the model.
+	This **only applies** to `openai_chat` API and it controls both tag-based thinking and the preservation of  `reasoning_content`.
+
+	**Available modes:**
+
+	- **`"all"`** (default, safe choice) - Send all reasoning blocks back to the model. The model can see its full chain of thought from previous turns. This is the safest option.
+	- **`"turn"`** - Send only reasoning from the current conversation turn (after the last user message). Previous reasoning is discarded before sending to the API.
+	- **`"off"`** - Never send reasoning blocks to the model. All reasoning is discarded before API calls.
+
+	**Note:** Reasoning is always shown to you in the UI and stored in chat history—this setting only controls what gets sent to the model in API requests.
+
+    Default: `"all"`.
+
+=== "Dynamic model discovery (models.dev)"
+
+    For providers with `api` configured, ECA loads models from `models.dev` by default.
+    Matching is done by provider `url` (against `models.dev` `api` field). If a models.dev provider has no `api` field (for example `anthropic`), ECA falls back to provider id key.
+
+    Set `fetchModels: false` to disable dynamic loading and use only models from your config:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "openrouter": {
+          "api": "openai-chat",
+          "url": "https://openrouter.ai/api/v1",
+          "key": "your-api-key",
+          "fetchModels": false
+        }
+      }
+    }
+    ```
+
+    Static `models` config overrides/extends discovered models, allowing customization.
+
+### API Types
+
+When configuring custom providers, choose the appropriate API type:
+
+- **`anthropic`**: Anthropic's native API for Claude models.
+- **`openai-responses`**: OpenAI's new responses API endpoint (`/v1/responses`). Best for OpenAI models with enhanced features like reasoning and web search.
+- **`openai-chat`**: Standard OpenAI Chat Completions API (`/v1/chat/completions`). Use this for most third-party providers:
+    - OpenRouter
+    - DeepSeek
+    - Together AI
+    - Groq
+    - Local LiteLLM servers
+    - Any OpenAI-compatible provider
+
+Most third-party providers use the `openai-chat` API for compatibility with existing tools and libraries.
+
+#### Endpoint override (completionUrlRelativePath)
+
+Some providers require a non-standard or versioned completion endpoint path. Use `completionUrlRelativePath` to override the default path appended to your provider `url`.
+
+Defaults by API type:
+- `openai-responses`: `/v1/responses`
+- `openai-chat`: `/v1/chat/completions`
+- `anthropic`: `/v1/messages`
+
+Only set this when your provider uses a different path or expects query parameters at the endpoint (e.g., Azure API versioning).
+
+### Credential File Authentication
+
+ECA also supports standard plain-text .netrc file format for reading credentials.
+
+Use `keyRc` in your provider config to read credentials from `~/.netrc` without storing keys directly in config or env vars.
+
+Example:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "providers": {
+    "openai": {"keyRc": "api.openai.com"},
+    "anthropic": {"keyRc": "work@api.anthropic.com"}
+  }
+}
+```
+
+keyRc lookup specification format: `[login@]machine[:port]` (e.g., `api.openai.com`, `work@api.anthropic.com`, `api.custom.com:8443`).
+
+ECA by default search .netrc file stored in user's home directory. You can also provide the path to the actual file to use with `:netrcFile` in ECA config.
+
+Tip for those wish to store their credentials encrypted with tools like gpg or age:
+
+```bash
+# via secure tempororay file
+gpg --batch -q -d ./netrc.gpg > /tmp/netrc.$$ && chmod 600 /tmp/netrc.$$ && ECA_CONFIG='{"netrcFile": "/tmp/netrc.$$"}' eca server && shred -u /tmp/netrc.$$
+```
+
+Further reading on credential file formats:
+- [Curl Netrc documentation](https://everything.curl.dev/usingcurl/netrc)
+- [GNU Inetutils .netrc documentation](https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html)
+
+Notes:
+- Authentication priority (short): `key` (with dynamic string pase support) > OAuth.
+- All providers with API key auth can use credential files.
+
+### Retry Rules
+
+ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using `retryRules` to handle additional status codes or error patterns.
+
+Each rule can match by:
+
+- **`status`** (integer): HTTP status code to match
+- **`errorPattern`** (string): Regex pattern to match against any error text — response body, error message, or exception message (case-insensitive). Useful for both HTTP response errors and connection-level errors (e.g. TLS handshake failures)
+- **`label`** (string, optional): Human-readable text shown in the retry progress message
+
+At least one of `status` or `errorPattern` is required. When both are specified, both must match. Custom rules are checked before built-in classification, so they can override default behavior.
+
+```javascript title="~/.config/eca/config.json"
+{
+  "providers": {
+    "my-company": {
+      "api": "openai-chat",
+      "url": "${env:MY_COMPANY_API_URL}",
+      "key": "${env:MY_COMPANY_API_KEY}",
+      "retryRules": [
+        {"status": 418, "label": "Corporate proxy throttle"},
+        {"errorPattern": "capacity.*exceeded", "label": "Capacity exceeded"},
+        {"status": 503, "errorPattern": "maintenance", "label": "Under maintenance"},
+        {"errorPattern": "terminated.*handshake", "label": "TLS handshake failed"}
+      ],
+      "models": {
+        "gpt-5": {}
+      }
+    }
+  }
+}
+```
+
+When a retry rule matches, the chat shows a progress message like:
+
+> ⏳ Corporate proxy throttle. Retrying in 2s (attempt 1/10)
