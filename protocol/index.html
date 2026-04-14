@@ -1372,6 +1372,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-ask-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat ask question (↪️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#completion" class="md-nav__link">
     <span class="md-ellipsis">
       Completion (↩️)
@@ -2045,6 +2054,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-ask-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat ask question (↪️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#completion" class="md-nav__link">
     <span class="md-ellipsis">
       Completion (↩️)
@@ -2537,6 +2555,18 @@ separated by a <code>\r\n</code>.</p>
 <span class="cm">             * server request.</span>
 <span class="cm">             */</span><span class="w"> </span>
 <span class="w">            </span><span class="nx">diagnostics?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Chat-related capabilities beyond the basic chat flag.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">chatCapabilities</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="cm">/**</span>
+<span class="cm">             * Whether client supports `chat/askQuestion` server request,</span>
+<span class="cm">             * enabling the server to ask the user a question and receive an answer</span>
+<span class="cm">             * during a chat session.</span>
+<span class="cm">             */</span>
+<span class="w">            </span><span class="nx">askQuestion?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
@@ -4042,6 +4072,74 @@ Useful for server to provide to LLM information about errors/warnings about curr
 <span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="chat-ask-question">Chat ask question (↪️)<a class="headerlink" href="#chat-ask-question" title="Permanent link">#</a></h3>
+<p>A server request to ask the user a question and receive an answer during a chat session.
+This enables the server to present the user with a question (optionally with predefined options)
+and wait for their response. When <code>allowFreeform</code> is true, the user can type a custom answer in addition to selecting a predefined option.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/askQuestion</code></li>
+<li>params: <code>ChatAskQuestionParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatAskQuestionParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat id where the question is being asked.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The question text to present to the user.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">question</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional predefined options for the user to choose from.</span>
+<span class="cm">     * When present, the client should render these as selectable choices.</span>
+<span class="cm">     * The user should always be able to type a custom answer regardless.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">options?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAskQuestionOption</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional tool call id that originated this question.</span>
+<span class="cm">     * When present, the client may hide the associated tool call block</span>
+<span class="cm">     * and show the question inline instead.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">toolCallId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether the user can type a custom freeform answer.</span>
+<span class="cm">     * When false, only the predefined options (and cancel) are valid.</span>
+<span class="cm">     * Defaults to true.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">allowFreeform</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatAskQuestionOption</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Short label for the option.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional description providing more context about the option.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">description?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatAskQuestionResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The user&#39;s answer. Contains the selected option label or freeform text.</span>
+<span class="cm">     * Null when cancelled.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">answer</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether the user cancelled the question without answering.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">cancelled</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="completion">Completion (↩️)<a class="headerlink" href="#completion" title="Permanent link">#</a></h3>
 <p>A request sent from client to server, asking for a text to be presented to user as a inline completion for the current text code.</p>
 <p><em>Request:</em> </p>
@@ -4897,7 +4995,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 13, 2026 20:02:40 UTC">April 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 14, 2026 20:55:07 UTC">April 14, 2026</span>
   </span>
 
     
