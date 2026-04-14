@@ -1,5 +1,6 @@
 (ns eca.llm-providers.openai-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-providers.openai :as llm-providers.openai]
@@ -437,3 +438,30 @@
                       :arguments {"command" "ls"}}]
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
+
+(deftest create-response-prompt-cache-key-agent-test
+  (testing "prompt_cache_key includes agent suffix when agent is provided"
+    (let [body* (atom nil)]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [body on-stream]}]
+                      (reset! body* body)
+                      (on-stream "response.completed"
+                                 {:response {:output [] :usage {:input_tokens 1 :output_tokens 1}}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params) :agent "plan")
+         (base-callbacks {}))
+        (is (string/ends-with? (:prompt_cache_key @body*) "/plan")
+            "prompt_cache_key should end with /plan"))))
+
+  (testing "prompt_cache_key has no agent suffix when agent is nil"
+    (let [body* (atom nil)]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [body on-stream]}]
+                      (reset! body* body)
+                      (on-stream "response.completed"
+                                 {:response {:output [] :usage {:input_tokens 1 :output_tokens 1}}}))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks {}))
+        (is (not (string/includes? (:prompt_cache_key @body*) "/"))
+            "prompt_cache_key should not contain / when agent is nil")))))

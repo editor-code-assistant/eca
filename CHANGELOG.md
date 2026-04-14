@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix agent switching (e.g. "code" → "plan") not taking effect mid-conversation for OpenAI Responses API models (openai/gpt-5.3-codex, github-copilot/gpt-5.3-codex). The static system prompt cache is now keyed per agent and invalidated on agent change.
+
 ## 0.126.0
 
 - Chat titles now re-generate at the 3rd user message using full conversation context for more accurate titles.
