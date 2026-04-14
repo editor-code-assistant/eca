@@ -931,6 +931,7 @@
 (deftest prompt-cache-agent-switch-test
   (testing "agent switching invalidates static prompt cache"
     (h/reset-components!)
+    (h/config! {:agent {"code" {:mode "primary"} "plan" {:mode "primary"}}})
     (let [build-calls* (atom 0)
           api-mock (fn [{:keys [on-first-response-received on-message-received]}]
                      (on-first-response-received {:type :text :text "ok"})
