@@ -448,9 +448,9 @@
 
 (defn ^:private consume-pending-job-notifications!
   "Reads and clears any pending job notifications for the chat in a single swap.
-   For each notification, adds a user message to history and notifies the client.
+   For each notification, adds a user message to history so the LLM is aware.
    Marks each job as :notified true and evicts them from the registry."
-  [chat-id db* chat-ctx add-to-history!]
+  [chat-id db* add-to-history!]
   (let [notifications* (volatile! nil)]
     (swap! db* (fn [db]
                  (if-let [notifs (seq (get-in db [:chats chat-id :pending-job-notifications]))]
@@ -459,20 +459,15 @@
                    db)))
     (when-let [notifications @notifications*]
       (doseq [{:keys [job-id status exit-code label output-tail]} notifications]
-        (let [content-id (str (random-uuid))
-              text (str "Background job " job-id " (`" label "`) "
+        (let [text (str "Background job " job-id " (`" label "`) "
                         (name status) " with exit code " exit-code "."
                         (when (seq output-tail)
                           (str "\nLast 20 lines of output:\n"
                                (string/join "\n" output-tail))))
               user-message {:role "user"
                             :content [{:type :text :text text}]
-                            :content-id content-id}]
-          (add-to-history! user-message)
-          (lifecycle/send-content! chat-ctx :system
-            {:type :text
-             :content-id content-id
-             :text (str text "\n")})))
+                            :content-id (str (random-uuid))}]
+          (add-to-history! user-message)))
       (doseq [{:keys [job-id]} notifications]
         (swap! bg/registry* assoc-in [:jobs job-id :notified] true))
       (bg/evict-notified-jobs!))))
@@ -723,7 +718,7 @@
                                                (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
                                                (do
                                                  (consume-steer-message! chat-id db* chat-ctx add-to-history!)
-                                                 (consume-pending-job-notifications! chat-id db* chat-ctx add-to-history!)
+                                                 (consume-pending-job-notifications! chat-id db* add-to-history!)
                                                  {:tools tc-all-tools
                                                   :new-messages (shared/messages-after-last-compact-marker
                                                                  (get-in @db* [:chats chat-id :messages]))})))))
