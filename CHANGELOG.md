@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support `ask_user` tool allowing LLM to ask the user questions with optional selectable options. #338
+- Remove redundant system message when background jobs finish or are killed.
 
 ## 0.126.0
 
