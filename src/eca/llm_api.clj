@@ -167,7 +167,7 @@
       merged)))
 
 (defn ^:private prompt!
-  [{:keys [provider model model-capabilities instructions user-messages config variant
+  [{:keys [provider model model-capabilities instructions user-messages config variant agent
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
            past-messages tools provider-auth sync? subagent? cancelled?]
     :or {on-error identity}}]
@@ -203,6 +203,7 @@
         (handler
          {:model real-model
           :instructions flat-instructions
+          :agent agent
           :user-messages user-messages
           :max-output-tokens max-output-tokens
           :reason? reason?
@@ -254,6 +255,7 @@
                                        extra-headers))
               base-opts {:model real-model
                          :instructions flat-instructions
+                         :agent agent
                          :user-messages user-messages
                          :max-output-tokens max-output-tokens
                          :reason? reason?
@@ -353,7 +355,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?]
+           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent? agent]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -441,6 +443,7 @@
                               :model model
                               :model-capabilities model-capabilities
                               :instructions instructions
+                              :agent agent
                               :tools tools
                               :provider-auth (fresh-provider-auth)
                               :past-messages past-messages
@@ -476,6 +479,7 @@
                 :model model
                 :model-capabilities model-capabilities
                 :instructions instructions
+                :agent agent
                 :tools tools
                 :provider-auth (fresh-provider-auth)
                 :past-messages past-messages

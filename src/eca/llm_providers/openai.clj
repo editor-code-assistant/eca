@@ -152,7 +152,7 @@
          tools)
     (and web-search (not codex?)) (conj {:type "web_search_preview"})))
 
-(defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
+(defn create-response! [{:keys [model user-messages instructions agent reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search extra-payload extra-headers auth-type account-id http-client]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search] :as callbacks}]
   (let [codex? (= :auth/oauth auth-type)
@@ -165,7 +165,7 @@
                 :input (if codex?
                          (concat [{:role "system" :content instructions}] input)
                          input)
-                :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+                :prompt_cache_key (str (System/getProperty "user.name") "@ECA" (when agent (str "/" agent)))
                 :instructions instructions
                 :tools tools
                 :include (when reason?
