@@ -55,7 +55,8 @@
     :enabled-fn (fn [{:keys [db]}] (-> db :client-capabilities :code-assistant :chat-capabilities :ask-question))
     :summary-fn (fn [{:keys [args]}]
                   (if-let [q (get args "question")]
-                    (let [prefix "Q: "
+                    (let [q (string/replace q #"[\r\n]+" " ")
+                          prefix "Q: "
                           max-len 50
                           available (- max-len (count prefix))]
                       (if (> (count q) available)
