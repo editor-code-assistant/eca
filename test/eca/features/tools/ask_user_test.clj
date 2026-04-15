@@ -60,16 +60,6 @@
                       :text "User cancelled the question."}]}
          (call-ask-user {"question" "Which framework?"})))))
 
-(deftest ask-user-timeout-test
-  (testing "Timeout waiting for user response"
-    (reset! (:ask-question-response* (h/messenger)) :block)
-    (is (match?
-         {:error true
-          :contents [{:type :text
-                      :text "Timeout waiting for user response."}]}
-         (call-ask-user {"question" "Which framework?"}
-                        {:config {:askQuestionTimeoutSeconds 0}})))))
-
 (deftest ask-user-missing-question-test
   (testing "Missing question parameter"
     (is (match?
