@@ -189,6 +189,7 @@
         all-tools (->> (concat
                         (mapv #(assoc % :origin :native) (native-tools db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
+                       (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                        (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                        (mapv (fn [tool]
                                (update tool :description
@@ -222,6 +223,9 @@
         db @db*
         all-tools (all-tools chat-id agent-name db config)
         tool-meta (some #(when (= full-name (:full-name %)) %) all-tools)
+        arguments (if-let [parameters (:parameters tool-meta)]
+                    (tools.util/omit-optional-empty-string-args parameters arguments)
+                    arguments)
         required-args-error (when-let [parameters (:parameters tool-meta)]
                               (tools.util/required-params-error parameters arguments))]
     (try

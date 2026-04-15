@@ -435,3 +435,67 @@
             identity
             identity
             nil))))))
+
+(deftest call-tool!-omits-optional-empty-string-args-test
+  (testing "optional empty string args are omitted before native tool invocation"
+    (let [received-args* (atom nil)]
+      (is (match?
+           {:error false
+            :contents [{:type :text :text "OK"}]}
+           (with-redefs [f.tools.filesystem/definitions
+                         {"test_optional_empty"
+                          {:description "Test tool optional empty"
+                           :parameters  {"type"      "object"
+                                         :properties {"path" {:type "string"}
+                                                      "pattern" {:type "string"}}
+                                         :required   ["path"]}
+                           :handler     (fn [args _]
+                                          (reset! received-args* args)
+                                          {:error false
+                                           :contents [{:type :text :text "OK"}]})}}]
+             (f.tools/call-tool!
+              "eca__test_optional_empty"
+              {"path" "/tmp/file"
+               "pattern" ""}
+              "chat-3"
+              "call-4"
+              "code"
+              (h/db*)
+              (h/config)
+              (h/messenger)
+              (h/metrics)
+              identity
+              identity
+              nil))))
+      (is (= {"path" "/tmp/file"} @received-args*)))))
+
+(deftest call-tool!-preserves-required-empty-string-args-test
+  (testing "required empty string args are preserved"
+    (let [received-args* (atom nil)]
+      (is (match?
+           {:error false
+            :contents [{:type :text :text "OK"}]}
+           (with-redefs [f.tools.filesystem/definitions
+                         {"test_required_empty"
+                          {:description "Test tool required empty"
+                           :parameters  {"type"      "object"
+                                         :properties {"path" {:type "string"}}
+                                         :required   ["path"]}
+                           :handler     (fn [args _]
+                                          (reset! received-args* args)
+                                          {:error false
+                                           :contents [{:type :text :text "OK"}]})}}]
+             (f.tools/call-tool!
+              "eca__test_required_empty"
+              {"path" ""}
+              "chat-4"
+              "call-5"
+              "code"
+              (h/db*)
+              (h/config)
+              (h/messenger)
+              (h/metrics)
+              identity
+              identity
+              nil))))
+      (is (= {"path" ""} @received-args*)))))

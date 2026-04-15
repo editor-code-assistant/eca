@@ -5,6 +5,7 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.tools.mcp]
+   [eca.features.tools.util :as tools.util]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :as shared :refer [assoc-some]]))
@@ -628,8 +629,12 @@
           (let [rejected-tool-call-info* (atom nil)]
             (run! (fn do-tool-call [{:keys [id full-name] :as tool-call}]
                     (let [approved?*                                     (promise)
-                          {:keys [origin name server]}                   (tool-by-full-name full-name all-tools)
+                          {:keys [origin name server parameters]}        (tool-by-full-name full-name all-tools)
                           server-name                                    (:name server)
+                          tool-call                                      (update tool-call :arguments
+                                                                                 #(if parameters
+                                                                                    (tools.util/omit-optional-empty-string-args parameters %)
+                                                                                    %))
                           decision-plan                                  (decide-tool-call-action
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
