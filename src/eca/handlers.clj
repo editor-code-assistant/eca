@@ -33,8 +33,7 @@
               model (subs full-model (inc idx))
               user-variants (get-in config [:providers provider :models model :variants])
               variants (config/effective-model-variants config provider model user-variants)]
-          (when (seq variants)
-            (vec (sort (keys variants)))))))))
+          (config/selectable-variant-names variants))))))
 
 (defn ^:private select-variant
   "Returns the variant to select: the agent's configured variant if it exists

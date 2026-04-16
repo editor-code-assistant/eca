@@ -103,7 +103,7 @@
                                             (let [provider (subs full-model 0 idx)
                                                   model (subs full-model (inc idx))
                                                   user-variants (get-in config [:providers provider :models model :variants])]
-                                              (keys (config/effective-model-variants config provider model user-variants)))))))
+                                              (config/selectable-variant-names (config/effective-model-variants config provider model user-variants)))))))
                               (into (sorted-set)))]
         (when (seq all-variants)
           (vec all-variants))))))
@@ -118,8 +118,7 @@
               model (subs full-model (inc idx))
               user-variants (get-in config [:providers provider :models model :variants])
               variants (config/effective-model-variants config provider model user-variants)]
-          (when (seq variants)
-            (vec (sort (keys variants)))))))))
+          (config/selectable-variant-names variants))))))
 
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
