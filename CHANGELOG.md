@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.127.1
+
 - Auto allow ask_user tool by default.
 - Fix chat titles becoming empty when conversation history contains thinking blocks (Anthropic).
 - Add Claude Opus 4.7 support with adaptive thinking, `xhigh` effort level, and summarized thinking display.
