@@ -1769,6 +1769,7 @@
         <input type="radio" name="eca-editor" id="eca-tab-vscode">
         <input type="radio" name="eca-editor" id="eca-tab-neovim">
         <input type="radio" name="eca-editor" id="eca-tab-intellij">
+        <input type="radio" name="eca-editor" id="eca-tab-desktop">
 
         <div class="eca-editors__tabs">
           <label for="eca-tab-emacs" class="eca-editors__tab">
@@ -1786,6 +1787,10 @@
           <label for="eca-tab-neovim" class="eca-editors__tab">
             <svg viewBox="0 0 24 24"><path d="M2.214 4.954v13.615L7.2 24V10.314L14.863 19.6h.075l4.848-5.37V2.086l-4.985 5.2V0z"/></svg>
             Neovim
+          </label>
+          <label for="eca-tab-desktop" class="eca-editors__tab">
+            <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7l-2 3v1h8v-1l-2-3h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 12H3V4h18v10z"/></svg>
+            Desktop
           </label>
         </div>
 
@@ -1847,6 +1852,21 @@
       </div>
       <a href="https://github.com/editor-code-assistant/eca-nvim" class="eca-editors__panel-link" target="_blank">
         View eca-nvim plugin
+        <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
+      </a>
+    </div>
+          <div class="eca-editors__panel eca-editors__panel--desktop">
+      <div class="eca-editors__panel-frame">
+        <div class="eca-editors__panel-bar">
+      <span class="eca-editors__panel-dot eca-editors__panel-dot--red"></span>
+      <span class="eca-editors__panel-dot eca-editors__panel-dot--yellow"></span>
+      <span class="eca-editors__panel-dot eca-editors__panel-dot--green"></span>
+      <span class="eca-editors__panel-title">ECA &mdash; Desktop</span>
+    </div>
+        <img src="https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/main/demo.gif" alt="ECA running as a Desktop app">
+      </div>
+      <a href="https://github.com/editor-code-assistant/eca-desktop" class="eca-editors__panel-link" target="_blank">
+        View eca-desktop plugin
         <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
       </a>
     </div>
