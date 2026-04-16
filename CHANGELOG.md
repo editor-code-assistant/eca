@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Auto allow ask_user tool by default.
+- Fix chat titles becoming empty when conversation history contains thinking blocks (Anthropic).
 
 ## 0.127.0
 

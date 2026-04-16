@@ -575,7 +575,8 @@
         (assert-compatible-apis-between-models! db chat-id provider model config)
         (when generate-title?
           (let [title-past-messages (when retitle?
-                                     (get-in db [:chats chat-id :messages] []))]
+                                     (->> (get-in db [:chats chat-id :messages] [])
+                                          (filterv #(not= "reason" (:role %)))))]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
