@@ -4,7 +4,6 @@
 
 - Support `ask_user` tool allowing LLM to ask the user questions with optional selectable options. #338
 - Remove redundant system message when background jobs finish or are killed.
-- Remove timeout for `ask_user` tool so it waits indefinitely for user response.
 - Fix Anthropic chat titles being empty or garbled on 3rd message retitle by passing conversation history as past-messages.
 
 ## 0.126.0
