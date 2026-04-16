@@ -574,10 +574,8 @@
                                      retitle?))]
         (assert-compatible-apis-between-models! db chat-id provider model config)
         (when generate-title?
-          (let [title-messages (if retitle?
-                                 (into (get-in db [:chats chat-id :messages] [])
-                                       user-messages)
-                                 user-messages)]
+          (let [title-past-messages (when retitle?
+                                     (get-in db [:chats chat-id :messages] []))]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
@@ -585,7 +583,8 @@
                                                  :model-capabilities
                                                  (assoc model-capabilities :reason? false :tools false :web-search false)
                                                  :instructions (f.prompt/chat-title-prompt agent config)
-                                                 :user-messages title-messages
+                                                 :past-messages title-past-messages
+                                                 :user-messages user-messages
                                                  :config config
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
