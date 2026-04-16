@@ -164,6 +164,7 @@
                                  "eca__editor_diagnostics" {}
                                  "eca__skill" {}
                                  "eca__task" {}
+                                 "eca__ask_user" {}
                                  "eca__spawn_agent" {}}
                          :ask {}
                          :deny {}}

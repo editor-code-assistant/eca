@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Auto allow ask_user tool by default.
+
 ## 0.127.0
 
 - Support `ask_user` tool allowing LLM to ask the user questions with optional selectable options. #338
