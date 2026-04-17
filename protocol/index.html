@@ -1345,6 +1345,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat list (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat open (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-selected-agent-changed" class="md-nav__link">
     <span class="md-ellipsis">
       Chat selected agent changed (➡️)
@@ -2021,6 +2039,24 @@
   <a href="#chat-update" class="md-nav__link">
     <span class="md-ellipsis">
       Chat update (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat list (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat open (↩️)
     </span>
   </a>
   
@@ -3977,6 +4013,93 @@ Server will persist the change, broadcast to all connected clients via <code>cha
 <p><em>Response:</em></p>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatUpdateResponse</span><span class="w"> </span><span class="p">{}</span>
 </code></pre></div>
+<h3 id="chat-list">Chat list (↩️)<a class="headerlink" href="#chat-list" title="Permanent link">#</a></h3>
+<p>A client request to list all persisted chats for the current workspace,
+so a freshly-started client can populate its sidebar without waiting for the
+user to resume or re-create each chat.</p>
+<p>Subagent chats are excluded. Results are sorted descending by <code>updatedAt</code> by
+default, falling back to <code>createdAt</code> when <code>updatedAt</code> is missing.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/list</code></li>
+<li>params: <code>ChatListParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatListParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional maximum number of chats to return.</span>
+<span class="cm">     * When omitted or non-positive, all chats are returned.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">limit?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional sort key. Defaults to &quot;updatedAt&quot;.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">sortBy</span><span class="o">?:</span><span class="w"> </span><span class="s1">&#39;updatedAt&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;createdAt&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatListResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">chats</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatSummary</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatSummary</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** The chat session identifier. */</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** Human-readable title, when available. */</span>
+<span class="w">    </span><span class="nx">title?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** Current chat status. */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;idle&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;running&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;stopping&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;login&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** Epoch millis when the chat was created, when available. */</span>
+<span class="w">    </span><span class="nx">createdAt?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** Epoch millis of the most recent update, when available. */</span>
+<span class="w">    </span><span class="nx">updatedAt?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** The last full model id used for this chat, when available. */</span>
+<span class="w">    </span><span class="nx">model?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** Number of persisted messages. */</span>
+<span class="w">    </span><span class="nx">messageCount</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="chat-open">Chat open (↩️)<a class="headerlink" href="#chat-open" title="Permanent link">#</a></h3>
+<p>A client request to hydrate a previously-persisted chat so it can be rendered
+in the UI. The server replays the chat by emitting <code>chat/cleared</code> (messages),
+<code>chat/opened</code>, and a sequence of <code>chat/contentReceived</code> notifications matching
+the persisted messages — without mutating server state. Typically used after
+<code>chat/list</code> when the user selects a chat that has not been opened in the current
+client session.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>chat/open</code></li>
+<li>params: <code>ChatOpenParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatOpenParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier to open.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatOpenResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * True when the chat exists and its content has been replayed via</span>
+<span class="cm">     * chat/cleared + chat/opened + chat/contentReceived. False when the</span>
+<span class="cm">     * chat is unknown or is a subagent chat.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">found</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** The chat id that was replayed (echo of the request), present when found. */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/** The chat title at the time of replay, when available. */</span>
+<span class="w">    </span><span class="nx">title?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="chat-selected-agent-changed">Chat selected agent changed (➡️)<a class="headerlink" href="#chat-selected-agent-changed" title="Permanent link">#</a></h3>
 <p>A client notification for server telling the user selected a different agent in chat.</p>
 <p><em>Notification:</em></p>
@@ -4995,7 +5118,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 16, 2026 17:48:18 UTC">April 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 17, 2026 03:19:37 UTC">April 17, 2026</span>
   </span>
 
     
