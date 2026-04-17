@@ -13,7 +13,7 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
     <tr><td align="center"><a href="https://github.com/editor-code-assistant/eca-emacs">eca-emacs<img src="https://raw.githubusercontent.com/editor-code-assistant/eca-emacs/master/demo.gif" width="720"/></a></td></tr>
     <tr><td align="center"><a href="https://github.com/editor-code-assistant/eca-vscode">eca-vscode<img src="https://raw.githubusercontent.com/editor-code-assistant/eca-vscode/master/demo.gif" width="720"/></a></td></tr>
     <tr><td align="center"><a href="https://github.com/editor-code-assistant/eca-intellij">eca-intellij<img src="https://raw.githubusercontent.com/editor-code-assistant/eca-intellij/master/demo.gif" width="720"/></a></td></tr>
-    <tr><td align="center"><a href="https://github.com/editor-code-assistant/eca-desktop">eca-desktop<img src="https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/main/demo.gif" width="720"/></a></td></tr>
+    <tr><td align="center"><a href="https://github.com/editor-code-assistant/eca-desktop">eca-desktop<img src="https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/master/demo.gif" width="720"/></a></td></tr>
   </tbody>
 </table>
  
