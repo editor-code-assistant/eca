@@ -244,6 +244,21 @@
   (metrics/task metrics :eca/chat-update
     (f.chat/update-chat params db* messenger metrics)))
 
+(defn chat-list
+  "Return a summary list of persisted chats for the current DB.
+   Supports optional :limit and :sort-by params (see `f.chat/list-chats`)."
+  [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-list
+    (f.chat/list-chats @db* params)))
+
+(defn chat-open
+  "Replay a persisted chat over the wire for the client to render.
+   Emits chat/cleared, chat/opened and per-message chat/contentReceived
+   notifications for the target chat. Returns `{:found? bool ...}`."
+  [{:keys [db* messenger metrics]} params]
+  (metrics/task metrics :eca/chat-open
+    (f.chat/open-chat! params db* messenger)))
+
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server
     (f.tools/stop-server! (:name params) db* messenger config metrics)))

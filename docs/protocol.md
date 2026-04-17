@@ -1756,6 +1756,108 @@ _Response:_
 interface ChatUpdateResponse {}
 ```
 
+### Chat list (↩️)
+
+A client request to list all persisted chats for the current workspace,
+so a freshly-started client can populate its sidebar without waiting for the
+user to resume or re-create each chat.
+
+Subagent chats are excluded. Results are sorted descending by `updatedAt` by
+default, falling back to `createdAt` when `updatedAt` is missing.
+
+_Request:_
+
+* method: `chat/list`
+* params: `ChatListParams` defined as follows:
+
+```typescript
+interface ChatListParams {
+    /**
+     * Optional maximum number of chats to return.
+     * When omitted or non-positive, all chats are returned.
+     */
+    limit?: number;
+
+    /**
+     * Optional sort key. Defaults to "updatedAt".
+     */
+    sortBy?: 'updatedAt' | 'createdAt';
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatListResponse {
+    chats: ChatSummary[];
+}
+
+interface ChatSummary {
+    /** The chat session identifier. */
+    id: string;
+
+    /** Human-readable title, when available. */
+    title?: string;
+
+    /** Current chat status. */
+    status: 'idle' | 'running' | 'stopping' | 'login';
+
+    /** Epoch millis when the chat was created, when available. */
+    createdAt?: number;
+
+    /** Epoch millis of the most recent update, when available. */
+    updatedAt?: number;
+
+    /** The last full model id used for this chat, when available. */
+    model?: string;
+
+    /** Number of persisted messages. */
+    messageCount: number;
+}
+```
+
+### Chat open (↩️)
+
+A client request to hydrate a previously-persisted chat so it can be rendered
+in the UI. The server replays the chat by emitting `chat/cleared` (messages),
+`chat/opened`, and a sequence of `chat/contentReceived` notifications matching
+the persisted messages — without mutating server state. Typically used after
+`chat/list` when the user selects a chat that has not been opened in the current
+client session.
+
+_Request:_
+
+* method: `chat/open`
+* params: `ChatOpenParams` defined as follows:
+
+```typescript
+interface ChatOpenParams {
+    /**
+     * The chat session identifier to open.
+     */
+    chatId: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatOpenResponse {
+    /**
+     * True when the chat exists and its content has been replayed via
+     * chat/cleared + chat/opened + chat/contentReceived. False when the
+     * chat is unknown or is a subagent chat.
+     */
+    found: boolean;
+
+    /** The chat id that was replayed (echo of the request), present when found. */
+    chatId?: string;
+
+    /** The chat title at the time of replay, when available. */
+    title?: string;
+}
+```
+
 ### Chat selected agent changed (➡️)
 
 A client notification for server telling the user selected a different agent in chat.

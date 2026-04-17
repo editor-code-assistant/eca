@@ -7,6 +7,7 @@
    [eca.handlers :as handlers]
    [eca.models :as models]
    [eca.test-helper :as h]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
@@ -259,3 +260,103 @@
     (is (match? {:config-updated [{:chat {:variants ["high" "medium"]
                                           :select-variant "high"}}]}
                 (h/messages)))))
+
+(defn ^:private seed-chats!
+  "Seed the test db with a map of chats keyed by id."
+  [chats]
+  (swap! (h/db*) assoc :chats chats))
+
+(deftest chat-list-test
+  (testing "Returns empty list when db has no chats"
+    (h/reset-components!)
+    (is (match? {:chats []}
+                (handlers/chat-list (h/components) {}))))
+
+  (testing "Returns summary of all non-subagent chats"
+    (h/reset-components!)
+    (seed-chats!
+     {"a" {:id "a" :title "First" :status :idle
+           :created-at 100 :updated-at 300 :model "anthropic/claude"
+           :messages [{:role "user" :content "hi"}
+                      {:role "assistant" :content "hello"}]}
+      "b" {:id "b" :title "Second" :status :idle
+           :created-at 200 :updated-at 400
+           :messages []}})
+    (is (match? {:chats (m/in-any-order
+                         [{:id "b" :title "Second" :status :idle
+                           :created-at 200 :updated-at 400 :message-count 0}
+                          {:id "a" :title "First" :status :idle
+                           :created-at 100 :updated-at 300
+                           :model "anthropic/claude" :message-count 2}])}
+                (handlers/chat-list (h/components) {}))))
+
+  (testing "Subagent chats are excluded"
+    (h/reset-components!)
+    (seed-chats!
+     {"visible" {:id "visible" :title "Normal" :status :idle
+                 :created-at 100 :updated-at 100 :messages []}
+      "hidden" {:id "hidden" :title "Sub" :status :idle
+                :created-at 200 :updated-at 200 :messages []
+                :subagent true :parent-chat-id "visible"}})
+    (let [{:keys [chats]} (handlers/chat-list (h/components) {})]
+      (is (= 1 (count chats)))
+      (is (= "visible" (:id (first chats))))))
+
+  (testing "Sorted by :updated-at descending by default"
+    (h/reset-components!)
+    (seed-chats!
+     {"old" {:id "old" :status :idle :created-at 10 :updated-at 100 :messages []}
+      "mid" {:id "mid" :status :idle :created-at 20 :updated-at 200 :messages []}
+      "new" {:id "new" :status :idle :created-at 30 :updated-at 300 :messages []}})
+    (is (= ["new" "mid" "old"]
+           (mapv :id (:chats (handlers/chat-list (h/components) {}))))))
+
+  (testing "`limit` caps the number of returned chats after sorting"
+    (h/reset-components!)
+    (seed-chats!
+     {"a" {:id "a" :status :idle :created-at 10 :updated-at 100 :messages []}
+      "b" {:id "b" :status :idle :created-at 20 :updated-at 200 :messages []}
+      "c" {:id "c" :status :idle :created-at 30 :updated-at 300 :messages []}})
+    (is (= ["c" "b"]
+           (mapv :id (:chats (handlers/chat-list (h/components) {:limit 2}))))))
+
+  (testing "`sort-by :created-at` switches the sort key"
+    (h/reset-components!)
+    (seed-chats!
+     {"x" {:id "x" :status :idle :created-at 30 :updated-at 100 :messages []}
+      "y" {:id "y" :status :idle :created-at 20 :updated-at 200 :messages []}
+      "z" {:id "z" :status :idle :created-at 10 :updated-at 300 :messages []}})
+    (is (= ["x" "y" "z"]
+           (mapv :id (:chats (handlers/chat-list (h/components)
+                                                 {:sort-by :created-at})))))))
+
+(deftest chat-open-test
+  (testing "Unknown chat returns {:found? false} and emits no messages"
+    (h/reset-components!)
+    (is (match? {:found? false}
+                (handlers/chat-open (h/components) {:chat-id "missing"})))
+    (is (nil? (:chat-opened (h/messages)))))
+
+  (testing "Subagent chat is treated as not found"
+    (h/reset-components!)
+    (seed-chats!
+     {"sub" {:id "sub" :status :idle :subagent true :parent-chat-id "main"
+             :messages [] :created-at 1 :updated-at 1}})
+    (is (match? {:found? false}
+                (handlers/chat-open (h/components) {:chat-id "sub"})))
+    (is (nil? (:chat-opened (h/messages)))))
+
+  (testing "Known chat emits chat/cleared + chat/opened and returns found? true"
+    (h/reset-components!)
+    (seed-chats!
+     {"c1" {:id "c1" :title "Hello world" :status :idle
+            :created-at 10 :updated-at 20
+            :messages [{:role "user" :content [{:type :text :text "hi"}]}]}})
+    (let [result (handlers/chat-open (h/components) {:chat-id "c1"})]
+      (is (match? {:found? true
+                   :chat-id "c1"
+                   :title "Hello world"}
+                  result))
+      (is (match? {:chat-clear [{:chat-id "c1" :messages true}]
+                   :chat-opened [{:chat-id "c1" :title "Hello world"}]}
+                  (h/messages))))))

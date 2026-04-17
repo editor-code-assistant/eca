@@ -118,6 +118,12 @@
 (defmethod jsonrpc.server/receive-request "chat/update" [_ components params]
   (eventually (handlers/chat-update (with-config components) params)))
 
+(defmethod jsonrpc.server/receive-request "chat/list" [_ components params]
+  (eventually (handlers/chat-list (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "chat/open" [_ components params]
+  (eventually (handlers/chat-open (with-config components) params)))
+
 (defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
   (async-notify (handlers/mcp-stop-server (with-config components) params)))
 
