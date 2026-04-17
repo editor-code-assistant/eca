@@ -23,7 +23,7 @@
 <meta name="twitter:image" content="{{ og_image }}" />
 
 <!-- Additional SEO -->
-<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
+<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Desktop, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
 <link rel="canonical" href="{{ page_url }}" />
 <meta name="google-site-verification" content="lpupnLMIN7V027EZqCPyBz9RafDE95tVbSxi5ocQIwA" />
 
@@ -431,7 +431,8 @@
   #eca-tab-emacs:checked ~ .eca-editors__tabs label[for="eca-tab-emacs"],
   #eca-tab-vscode:checked ~ .eca-editors__tabs label[for="eca-tab-vscode"],
   #eca-tab-neovim:checked ~ .eca-editors__tabs label[for="eca-tab-neovim"],
-  #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"] {
+  #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"],
+  #eca-tab-desktop:checked ~ .eca-editors__tabs label[for="eca-tab-desktop"] {
     background: var(--eca-tab-active-bg);
     color: var(--eca-tab-active-color);
     border-color: var(--eca-tab-active-border);
@@ -453,7 +454,8 @@
   #eca-tab-emacs:checked   ~ .eca-editors__panels .eca-editors__panel--emacs,
   #eca-tab-vscode:checked  ~ .eca-editors__panels .eca-editors__panel--vscode,
   #eca-tab-neovim:checked  ~ .eca-editors__panels .eca-editors__panel--neovim,
-  #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij {
+  #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij,
+  #eca-tab-desktop:checked ~ .eca-editors__panels .eca-editors__panel--desktop {
     opacity: 1;
     pointer-events: auto;
   }

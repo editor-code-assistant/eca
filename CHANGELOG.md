@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `eca-desktop` as an official client in docs and landing page.
 - New `chat/list` JSON-RPC request returning a summary list of persisted chats for the current workspace (id, title, status, createdAt, updatedAt, model, messageCount). Supports optional `limit` and `sortBy` params. Lets clients populate a chat sidebar on startup without requiring the user to resume each chat manually.
 - New `chat/open` JSON-RPC request that replays a persisted chat to the client by emitting `chat/cleared` (messages), `chat/opened` and the full sequence of `chat/contentReceived` notifications without mutating server state. Intended to be paired with `chat/list` to render a chat the user has not opened in the current client session.
 
