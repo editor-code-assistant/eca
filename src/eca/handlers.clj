@@ -281,7 +281,9 @@
           server-fields (cond-> {}
                           (:command params) (assoc :command (:command params))
                           (:args params) (assoc :args (:args params))
-                          (:url params) (assoc :url (:url params)))]
+                          (:url params) (assoc :url (:url params))
+                          (:env params) (assoc :env (:env params))
+                          (:headers params) (assoc :headers (:headers params)))]
       (f.tools/update-server! server-name server-fields db* messenger config metrics)
       {})))
 
@@ -292,6 +294,64 @@
 (defn mcp-enable-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-enable-server
     (f.tools/enable-server! (:name params) db* messenger config metrics)))
+
+(defn ^:private ->scope-keyword [scope]
+  (cond
+    (nil? scope) :global
+    (keyword? scope) scope
+    (string? scope) (keyword scope)
+    :else :global))
+
+(defn mcp-add-server
+  "Add a new MCP server definition at runtime.
+
+   Params:
+     :name           (required) server identifier.
+     :command :args :env           for stdio servers.
+     :url :headers :clientId :clientSecret :oauthPort  for HTTP servers.
+     :disabled       optional boolean.
+     :scope          \"global\" (default) or \"workspace\".
+     :workspaceUri   required when :scope = \"workspace\".
+
+   Returns the canonical server map (as sent over tool/serverUpdated) with
+   status :starting, :disabled, or :failed."
+  [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-add-server
+    (let [server-name (:name params)
+          server-config (cond-> {}
+                          (:command params)       (assoc :command (:command params))
+                          (:args params)          (assoc :args (:args params))
+                          (:env params)           (assoc :env (:env params))
+                          (:url params)           (assoc :url (:url params))
+                          (:headers params)       (assoc :headers (:headers params))
+                          (:clientId params)      (assoc :clientId (:clientId params))
+                          (:clientSecret params)  (assoc :clientSecret (:clientSecret params))
+                          (:oauthPort params)     (assoc :oauthPort (:oauthPort params))
+                          (contains? params :disabled) (assoc :disabled (boolean (:disabled params))))
+          opts {:scope (->scope-keyword (or (:scope params) (:workspaceScope params)))
+                :workspace-uri (or (:workspaceUri params) (:workspace-uri params))}]
+      (try
+        (let [server (f.tools/add-server! server-name server-config opts db* messenger config metrics)]
+          {:server server})
+        (catch clojure.lang.ExceptionInfo e
+          {:error {:code "invalid_request"
+                   :message (.getMessage e)
+                   :data (ex-data e)}})))))
+
+(defn mcp-remove-server
+  "Remove an MCP server definition at runtime. Stops the server if running,
+   removes the entry from the owning config file, and emits tool/serverRemoved.
+
+   Params:
+     :name  (required)"
+  [{:keys [db* messenger metrics config]} params]
+  (metrics/task metrics :eca/mcp-remove-server
+    (try
+      (f.tools/remove-server! (:name params) db* messenger config metrics)
+      (catch clojure.lang.ExceptionInfo e
+        {:error {:code "invalid_request"
+                 :message (.getMessage e)
+                 :data (ex-data e)}}))))
 
 (defn ^:private update-agent-model-and-variants!
   "Updates the selected model and variants based on agent configuration."

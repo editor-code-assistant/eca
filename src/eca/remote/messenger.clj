@@ -41,6 +41,10 @@
     (messenger/tool-server-updated inner params)
     (sse/broadcast! sse-connections* "tool:server-updated" (->camel params)))
 
+  (tool-server-removed [_this params]
+    (messenger/tool-server-removed inner params)
+    (sse/broadcast! sse-connections* "tool:server-removed" (->camel params)))
+
   (provider-updated [_this params]
     (messenger/provider-updated inner params)
     (sse/broadcast! sse-connections* "providers:updated" (->camel params)))

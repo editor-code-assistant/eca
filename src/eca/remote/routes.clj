@@ -43,6 +43,10 @@
       (when (= :post method)
         [handlers/handle-set-trust components request {:sse-connections* sse-connections*}])
 
+      ["api" "v1" "mcp"]
+      (when (= :post method)
+        [handlers/handle-mcp-add components request])
+
       ;; Dynamic routes with path params
       (when (and (>= (count segments) 4)
                  (= "api" (nth segments 0))
@@ -78,7 +82,12 @@
                 nil))
 
             "mcp"
-            (when (and (= 5 (count segments)) (= :post method))
+            (cond
+              (and (= 4 (count segments)) (= :delete method))
+              (let [server-name (nth segments 3)]
+                [handlers/handle-mcp-remove components request server-name])
+
+              (and (= 5 (count segments)) (= :post method))
               (let [server-name (nth segments 3)
                     action (nth segments 4)]
                 (case action
@@ -88,7 +97,9 @@
                   "logout"  [handlers/handle-mcp-logout components request server-name]
                   "disable" [handlers/handle-mcp-disable components request server-name]
                   "enable"  [handlers/handle-mcp-enable components request server-name]
-                  nil)))
+                  nil))
+
+              :else nil)
 
             nil))))))
 

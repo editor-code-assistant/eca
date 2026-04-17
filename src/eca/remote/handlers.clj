@@ -291,6 +291,23 @@
     (handlers/mcp-enable-server (assoc components :config config) {:name server-name})
     (no-content)))
 
+(defn handle-mcp-add [{:keys [db*] :as components} request]
+  (let [body (parse-body request)]
+    (if-not (:name body)
+      (error-response 400 "invalid_request" "Missing required field: name")
+      (let [config (config/all @db*)
+            result (handlers/mcp-add-server (assoc components :config config) body)]
+        (if-let [{:keys [code message]} (:error result)]
+          (error-response 400 (or code "invalid_request") (or message "Failed to add MCP server"))
+          (json-response (camel-keys result)))))))
+
+(defn handle-mcp-remove [{:keys [db*] :as components} _request server-name]
+  (let [config (config/all @db*)
+        result (handlers/mcp-remove-server (assoc components :config config) {:name server-name})]
+    (if-let [{:keys [code message]} (:error result)]
+      (error-response 400 (or code "invalid_request") (or message "Failed to remove MCP server"))
+      (no-content))))
+
 (deftype SSEBody [db* sse-connections*]
   ring.protocols/StreamableResponseBody
   (write-body-to-stream [_ _response os]

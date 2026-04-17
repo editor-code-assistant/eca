@@ -1,6 +1,12 @@
 (ns eca.features.tools.mcp-test
   (:require
+   [babashka.fs :as fs]
+   [cheshire.core :as json]
+   [clojure.core.memoize :as memoize]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
    [eca.features.tools.mcp :as mcp]
    [eca.network :as network]
    [plumcp.core.api.mcp-client :as pmc]
@@ -158,6 +164,197 @@
           (swap! db* update :mcp-auth dissoc "test-server")
           (let [result (rm {:headers {}})]
             (is (nil? (get-in result [:headers "Authorization"])))))))))
+
+(def ^:private walk-server-leaves #'mcp/walk-server-leaves)
+(def ^:private rj-assoc-server-entry #'mcp/rj-assoc-server-entry)
+
+(deftest walk-server-leaves-test
+  (testing "flattens string/keyword keys to string paths"
+    (is (= #{[["command"] "my-bin"]
+             [["args"] ["-a" "-b"]]}
+           (set (walk-server-leaves {:command "my-bin"
+                                     :args ["-a" "-b"]})))))
+
+  (testing "recurses into nested maps (env, headers)"
+    (is (= #{[["env" "FOO"] "bar"]
+             [["env" "BAZ"] "qux"]
+             [["headers" "Authorization"] "Bearer x"]}
+           (set (walk-server-leaves {:env {:FOO "bar" :BAZ "qux"}
+                                     :headers {:Authorization "Bearer x"}})))))
+
+  (testing "empty map produces no leaves"
+    (is (= [] (walk-server-leaves {}))))
+
+  (testing "empty sub-map is treated as a leaf (assoc'd as empty JSON object)"
+    (is (= #{[["env"] {}]}
+           (set (walk-server-leaves {:env {}}))))))
+
+(deftest rj-assoc-server-entry-preserves-comments-test
+  (testing "new entry added to a file with comments keeps the comments"
+    (let [raw (str "// user config\n"
+                   "{\n"
+                   "  \"mcpServers\": {\n"
+                   "    // existing server\n"
+                   "    \"existing\": { \"command\": \"existing-bin\" }\n"
+                   "  }\n"
+                   "}\n")
+          temp (fs/create-temp-dir)
+          file (io/file (str temp) "config.json")]
+      (try
+        (spit file raw)
+        (#'mcp/update-config-file! file
+                                   #(rj-assoc-server-entry % "added"
+                                                           {:command "new-bin"
+                                                            :args ["-x"]
+                                                            :env {:FOO "bar"}}))
+        (let [after (slurp file)]
+          (is (string/includes? after "// user config")
+              "top-of-file comment preserved")
+          (is (string/includes? after "// existing server")
+              "in-place comment preserved")
+          (is (string/includes? after "\"added\"")
+              "new entry written")
+          ;; Parse the written file (stripping comments via cheshire+allow-comments)
+          (let [parsed (#'mcp/parse-json-with-comments after)]
+            (is (= {"command" "existing-bin"}
+                   (get-in parsed ["mcpServers" "existing"])))
+            (is (= {"command" "new-bin"
+                    "args" ["-x"]
+                    "env" {"FOO" "bar"}}
+                   (get-in parsed ["mcpServers" "added"])))))
+        (finally
+          (fs/delete-tree temp)))))
+
+  (testing "replacing an existing entry strips stale fields (url -> command)"
+    (let [raw (str "{\n"
+                   "  \"mcpServers\": {\n"
+                   "    \"s\": { \"url\": \"https://old.example.com\", \"headers\": { \"X\": \"1\" } }\n"
+                   "  }\n"
+                   "}\n")
+          temp (fs/create-temp-dir)
+          file (io/file (str temp) "config.json")]
+      (try
+        (spit file raw)
+        (#'mcp/update-config-file! file
+                                   #(rj-assoc-server-entry % "s"
+                                                           {:command "new-bin"
+                                                            :args ["-a"]}))
+        (let [parsed (#'mcp/parse-json-with-comments (slurp file))]
+          (is (= {"command" "new-bin"
+                  "args" ["-a"]}
+                 (get-in parsed ["mcpServers" "s"]))
+              "old url/headers removed after switch to stdio"))
+        (finally
+          (fs/delete-tree temp))))))
+
+(deftest add-server!-validation-test
+  (testing "rejects duplicate name"
+    (let [db* (atom {:workspace-folders []})
+          config {:mcpServers {"existing" {:url "https://x"}}}]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"MCP server 'existing' already exists"
+           (mcp/add-server! "existing" {:command "bin"} {} db* config nil
+                            {:on-server-updated (constantly nil)})))))
+
+  (testing "rejects both :command and :url"
+    (let [db* (atom {:workspace-folders []})
+          config {:mcpServers {}}]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"must not specify both"
+           (mcp/add-server! "s" {:command "bin" :url "https://x"} {} db* config nil
+                            {:on-server-updated (constantly nil)})))))
+
+  (testing "rejects neither :command nor :url"
+    (let [db* (atom {:workspace-folders []})
+          config {:mcpServers {}}]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"must specify :command.*or :url"
+           (mcp/add-server! "s" {:disabled true} {} db* config nil
+                            {:on-server-updated (constantly nil)})))))
+
+  (testing "rejects blank name"
+    (let [db* (atom {:workspace-folders []})
+          config {:mcpServers {}}]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"name must be non-blank"
+           (mcp/add-server! "" {:command "bin"} {} db* config nil
+                            {:on-server-updated (constantly nil)})))))
+
+  (testing "rejects :workspace scope without :workspace-uri"
+    (let [db* (atom {:workspace-folders []})
+          config {:mcpServers {}}]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #":workspace scope requires :workspace-uri"
+           (mcp/add-server! "s" {:command "bin"} {:scope :workspace} db* config nil
+                            {:on-server-updated (constantly nil)}))))))
+
+(deftest add-server!-disabled-test
+  (testing "disabled=true: writes config, emits :disabled, does not start"
+    (let [temp (fs/create-temp-dir)
+          config-file (io/file (str temp) "config.json")
+          db* (atom {:workspace-folders []})
+          updates* (atom [])]
+      (try
+        (with-redefs [config/global-config-file (constantly config-file)
+                      config/all (fn [_] {:mcpServers {"s" {:command "bin" :disabled true}}})]
+          (memoize/memo-clear! config/all)
+          (let [result (mcp/add-server! "s"
+                                        {:command "bin" :disabled true}
+                                        {:scope :global}
+                                        db*
+                                        {:mcpServers {}}
+                                        nil
+                                        {:on-server-updated #(swap! updates* conj %)})]
+            (is (= :disabled (:status result)))
+            (is (= "s" (:name result)))
+            (is (= [:disabled] (mapv :status @updates*))
+                "only :disabled emitted, no start thread")
+            (let [written (#'mcp/parse-json-with-comments (slurp config-file))]
+              (is (= {"command" "bin" "disabled" true}
+                     (get-in written ["mcpServers" "s"]))))))
+        (finally
+          (fs/delete-tree temp))))))
+
+(deftest remove-server!-test
+  (testing "dissocs entry from config file, clears mcp-auth, calls on-server-removed"
+    (let [temp (fs/create-temp-dir)
+          config-file (io/file (str temp) "config.json")
+          _ (spit config-file (json/generate-string {"mcpServers" {"s" {"url" "https://x"}
+                                                                   "other" {"command" "o"}}}))
+          db* (atom {:workspace-folders []
+                     :mcp-auth {"s" {:access-token "tok"}}
+                     :mcp-clients {}})
+          removed* (atom nil)]
+      (try
+        (with-redefs [config/global-config-file (constantly config-file)]
+          (mcp/remove-server! "s" db*
+                              {:mcpServers {"s" {:url "https://x"}
+                                            "other" {:command "o"}}}
+                              {:on-server-updated (constantly nil)
+                               :on-server-removed #(reset! removed* %)}))
+        (is (= {:name "s"} @removed*))
+        (is (nil? (get-in @db* [:mcp-auth "s"])))
+        (let [written (#'mcp/parse-json-with-comments (slurp config-file))]
+          (is (nil? (get-in written ["mcpServers" "s"])))
+          (is (some? (get-in written ["mcpServers" "other"]))
+              "sibling entry preserved"))
+        (finally
+          (fs/delete-tree temp)))))
+
+  (testing "throws when server does not exist"
+    (let [db* (atom {:workspace-folders [] :mcp-clients {}})]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"does not exist"
+           (mcp/remove-server! "ghost" db*
+                               {:mcpServers {}}
+                               {:on-server-updated (constantly nil)
+                                :on-server-removed (constantly nil)}))))))
 
 (deftest initialize-server-retries-on-transport-error-test
   (testing "retries with token refresh when needs-reinit? is set during init (e.g. 403)"

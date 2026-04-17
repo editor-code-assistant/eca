@@ -360,3 +360,65 @@
       (is (match? {:chat-clear [{:chat-id "c1" :messages true}]
                    :chat-opened [{:chat-id "c1" :title "Hello world"}]}
                   (h/messages))))))
+
+(deftest mcp-add-server-test
+  (testing "duplicate name returns :error"
+    (h/reset-components!)
+    (h/config! {:mcpServers {"existing" {:url "https://x"}}})
+    (let [result (handlers/mcp-add-server (h/components)
+                                          {:name "existing"
+                                           :command "bin"})]
+      (is (match? {:error {:code "invalid_request"
+                           :message #"already exists"}}
+                  result))))
+
+  (testing "missing transport returns :error"
+    (h/reset-components!)
+    (h/config! {:mcpServers {}})
+    (let [result (handlers/mcp-add-server (h/components)
+                                          {:name "s"})]
+      (is (match? {:error {:code "invalid_request"
+                           :message #"must specify :command.*or :url"}}
+                  result))))
+
+  (testing "conflicting :command and :url returns :error"
+    (h/reset-components!)
+    (h/config! {:mcpServers {}})
+    (let [result (handlers/mcp-add-server (h/components)
+                                          {:name "s"
+                                           :command "bin"
+                                           :url "https://x"})]
+      (is (match? {:error {:code "invalid_request"
+                           :message #"must not specify both"}}
+                  result)))))
+
+(deftest mcp-remove-server-test
+  (testing "unknown server returns :error"
+    (h/reset-components!)
+    (h/config! {:mcpServers {}})
+    (let [result (handlers/mcp-remove-server (h/components)
+                                             {:name "ghost"})]
+      (is (match? {:error {:code "invalid_request"
+                           :message #"does not exist"}}
+                  result)))))
+
+(deftest mcp-update-server-extended-params-test
+  (testing "accepts :env and :headers params (forwarded to f.tools/update-server!)"
+    (h/reset-components!)
+    (h/config! {:mcpServers {"s" {:command "bin"}}})
+    (let [captured* (atom nil)]
+      (with-redefs [f.tools/update-server!
+                    (fn [server-name server-fields _db* _messenger _config _metrics]
+                      (reset! captured* {:name server-name :fields server-fields}))]
+        (handlers/mcp-update-server (h/components)
+                                    {:name "s"
+                                     :command "bin"
+                                     :args ["-x"]
+                                     :env {:FOO "bar"}
+                                     :headers {:Authorization "Bearer x"}})
+        (is (match? {:name "s"
+                     :fields {:command "bin"
+                              :args ["-x"]
+                              :env {:FOO "bar"}
+                              :headers {:Authorization "Bearer x"}}}
+                    @captured*))))))

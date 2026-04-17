@@ -36,6 +36,7 @@
   (rewrite-content-received [_ data] (swap! messages* update :rewrite-content-received (fnil conj []) data))
   (config-updated [_ data] (swap! messages* update :config-updated (fnil conj []) data))
   (tool-server-updated [_ data] (swap! messages* update :tool-server-update (fnil conj []) data))
+  (tool-server-removed [_ data] (swap! messages* update :tool-server-removed (fnil conj []) data))
   (provider-updated [_ data] (swap! messages* update :provider-updated (fnil conj []) data))
   (jobs-updated [_ data] (swap! messages* update :jobs-updated (fnil conj []) data))
   (showMessage [_ data] (swap! messages* update :show-message (fnil conj []) data))
