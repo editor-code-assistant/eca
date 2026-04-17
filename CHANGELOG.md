@@ -5,6 +5,8 @@
 - Add `eca-desktop` as an official client in docs and landing page.
 - New `chat/list` JSON-RPC request returning a summary list of persisted chats for the current workspace (id, title, status, createdAt, updatedAt, model, messageCount). Supports optional `limit` and `sortBy` params. Lets clients populate a chat sidebar on startup without requiring the user to resume each chat manually.
 - New `chat/open` JSON-RPC request that replays a persisted chat to the client by emitting `chat/cleared` (messages), `chat/opened` and the full sequence of `chat/contentReceived` notifications without mutating server state. Intended to be paired with `chat/list` to render a chat the user has not opened in the current client session.
+- New `mcp/addServer` and `mcp/removeServer` JSON-RPC requests for managing MCP server definitions at runtime. The server persists entries to the owning config file (project `.eca/config.json` or global), preserving comments and formatting via rewrite-json, and broadcasts a new `tool/serverRemoved` notification on successful removal. Mirrored over REST via `POST /api/v1/mcp` and `DELETE /api/v1/mcp/:name`.
+- Extend `mcp/updateServer` to accept `env` and `headers` params, and migrate its persistence off the cheshire round-trip that stripped comments from the user's config.
 
 ## 0.127.1
 
