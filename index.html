@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor.">
+        <meta name="description" content="ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ, Desktop — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor.">
       
       
       
@@ -72,7 +72,7 @@
 <!-- Open Graph -->
 <meta property="og:type" content="website" />
 <meta property="og:title" content="ECA - Free Open Source AI Pair Programming in Any Editor" />
-<meta property="og:description" content="ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor." />
+<meta property="og:description" content="ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ, Desktop — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor." />
 <meta property="og:url" content="https://eca.dev/" />
 <meta property="og:image" content="https://eca.dev/images/og-image.png" />
 <meta property="og:image:width" content="1200" />
@@ -82,11 +82,11 @@
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="ECA - Free Open Source AI Pair Programming in Any Editor" />
-<meta name="twitter:description" content="ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor." />
+<meta name="twitter:description" content="ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ, Desktop — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor." />
 <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
 <!-- Additional SEO -->
-<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
+<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Desktop, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
 <link rel="canonical" href="https://eca.dev/" />
 <meta name="google-site-verification" content="lpupnLMIN7V027EZqCPyBz9RafDE95tVbSxi5ocQIwA" />
 
@@ -96,7 +96,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "ECA - Editor Code Assistant",
-  "description": "ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor.",
+  "description": "ECA (Editor Code Assistant) is a free, open-source AI coding assistant that works with any editor — VS Code, Emacs, Neovim, IntelliJ, Desktop — and any LLM provider like OpenAI, Anthropic, Copilot, and Ollama. One config, every editor.",
   "url": "https://eca.dev/",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
@@ -494,7 +494,8 @@
   #eca-tab-emacs:checked ~ .eca-editors__tabs label[for="eca-tab-emacs"],
   #eca-tab-vscode:checked ~ .eca-editors__tabs label[for="eca-tab-vscode"],
   #eca-tab-neovim:checked ~ .eca-editors__tabs label[for="eca-tab-neovim"],
-  #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"] {
+  #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"],
+  #eca-tab-desktop:checked ~ .eca-editors__tabs label[for="eca-tab-desktop"] {
     background: var(--eca-tab-active-bg);
     color: var(--eca-tab-active-color);
     border-color: var(--eca-tab-active-border);
@@ -516,7 +517,8 @@
   #eca-tab-emacs:checked   ~ .eca-editors__panels .eca-editors__panel--emacs,
   #eca-tab-vscode:checked  ~ .eca-editors__panels .eca-editors__panel--vscode,
   #eca-tab-neovim:checked  ~ .eca-editors__panels .eca-editors__panel--neovim,
-  #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij {
+  #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij,
+  #eca-tab-desktop:checked ~ .eca-editors__panels .eca-editors__panel--desktop {
     opacity: 1;
     pointer-events: auto;
   }
