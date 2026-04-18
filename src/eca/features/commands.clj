@@ -400,7 +400,6 @@
                               :created-at now
                               :updated-at now
                               :model (:model chat)
-                              :variant (:variant chat)
                               :last-api (:last-api chat)
                               :messages (vec (:messages chat))
                               :prompt-finished? true}]

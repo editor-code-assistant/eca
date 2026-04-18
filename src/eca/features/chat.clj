@@ -1063,11 +1063,6 @@
                       new-id))
         selected-agent (config/validate-agent-name raw-agent config)
         agent-config (get-in config [:agent selected-agent])
-        chat-state (get-in @db* [:chats chat-id])
-        resolved-variant (cond
-                           (contains? params :variant) variant
-                           (contains? chat-state :variant) (:variant chat-state)
-                           :else (:variant agent-config))
         base-chat-ctx (assoc-some {:metrics metrics
                                    :config config
                                    :contexts contexts
@@ -1079,7 +1074,7 @@
                                    :agent selected-agent
                                    :agent-config agent-config
                                    :trust trust
-                                   :variant resolved-variant}
+                                   :variant (or variant (:variant agent-config))}
                                   :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
         _ (when (some? trust)
             (swap! db* assoc-in [:chats chat-id :trust] trust))]
@@ -1329,7 +1324,6 @@
                       :created-at now
                       :updated-at now
                       :model (:model chat)
-                      :variant (:variant chat)
                       :last-api (:last-api chat)
                       :messages kept-messages
                       :prompt-finished? true}]
