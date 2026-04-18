@@ -8,17 +8,15 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[TOOLS-USER]")
-(def ^:private default-timeout-seconds 300)
 
 (defn ^:private ask-user
-  [arguments {:keys [messenger config chat-id tool-call-id]}]
+  [arguments {:keys [messenger chat-id tool-call-id]}]
   (let [question (get arguments "question")
         options (get arguments "options")
         allow-freeform (get arguments "allowFreeform" true)]
     (if (or (nil? question) (string/blank? question))
       (tools.util/single-text-content "INVALID_ARGS: `question` is required and must not be blank." :error)
-      (let [timeout-ms (* 1000 (get config :askQuestionTimeoutSeconds default-timeout-seconds))
-            params (cond-> {:chatId chat-id
+      (let [params (cond-> {:chatId chat-id
                             :question question
                             :allowFreeform allow-freeform}
                      (seq options) (assoc :options options)
@@ -28,15 +26,9 @@
                                            {:chat-id chat-id
                                             :role :system
                                             :content {:type :progress :state :running :text "Waiting answer"}})
-          (let [response (deref (messenger/ask-question messenger params) timeout-ms ::timeout)]
-            (cond
-              (= response ::timeout)
-              (tools.util/single-text-content "Timeout waiting for user response." :error)
-
-              (:cancelled response)
+          (let [response @(messenger/ask-question messenger params)]
+            (if (:cancelled response)
               (tools.util/single-text-content "User cancelled the question." :error)
-
-              :else
               (tools.util/single-text-content (str "User answered: " (:answer response)))))
           (catch Exception e
             (logger/error logger-tag "Error asking user question: %s" (ex-message e))
@@ -63,7 +55,8 @@
     :enabled-fn (fn [{:keys [db]}] (-> db :client-capabilities :code-assistant :chat-capabilities :ask-question))
     :summary-fn (fn [{:keys [args]}]
                   (if-let [q (get args "question")]
-                    (let [prefix "Q: "
+                    (let [q (string/replace q #"[\r\n]+" " ")
+                          prefix "Q: "
                           max-len 50
                           available (- max-len (count prefix))]
                       (if (> (count q) available)

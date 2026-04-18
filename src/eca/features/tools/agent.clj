@@ -103,7 +103,7 @@
                                             (let [provider (subs full-model 0 idx)
                                                   model (subs full-model (inc idx))
                                                   user-variants (get-in config [:providers provider :models model :variants])]
-                                              (keys (config/effective-model-variants config provider model user-variants)))))))
+                                              (config/selectable-variant-names (config/effective-model-variants config provider model user-variants)))))))
                               (into (sorted-set)))]
         (when (seq all-variants)
           (vec all-variants))))))
@@ -118,8 +118,7 @@
               model (subs full-model (inc idx))
               user-variants (get-in config [:providers provider :models model :variants])
               variants (config/effective-model-variants config provider model user-variants)]
-          (when (seq variants)
-            (vec (sort (keys variants)))))))))
+          (config/selectable-variant-names variants))))))
 
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
@@ -150,7 +149,7 @@
         ;; Create subagent chat session using deterministic id based on tool-call-id
         subagent-chat-id (->subagent-chat-id tool-call-id)
 
-        user-model (tools.util/normalize-optional-string (get arguments "model"))
+        user-model (get arguments "model")
         _ (when user-model
             (let [available-models (:models db)]
               (when (and (seq available-models)
@@ -167,7 +166,7 @@
         ;; Variant validation: reject only when the resolved model has configured
         ;; variants and the user-specified one isn't among them. Models with no
         ;; configured variants accept any variant (the LLM API will reject if invalid).
-        user-variant (tools.util/normalize-optional-string (get arguments "variant"))
+        user-variant (get arguments "variant")
         _ (when user-variant
             (let [valid-variants (model-variant-names config subagent-model)]
               (when (and (seq valid-variants)
@@ -296,8 +295,8 @@
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
   (let [agent-name (get arguments "agent")
-        user-model (tools.util/normalize-optional-string (get arguments "model"))
-        user-variant (tools.util/normalize-optional-string (get arguments "variant"))
+        user-model (get arguments "model")
+        user-variant (get arguments "variant")
         subagent (when agent-name
                    (get-agent agent-name config))
         parent-model (get-in db [:chats chat-id :model])

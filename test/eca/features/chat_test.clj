@@ -222,6 +222,23 @@
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
 
+(deftest sanitize-title-test
+  (testing "strips markdown headers"
+    (is (= "My Title" (#'f.chat/sanitize-title "## My Title")))
+    (is (= "My Title" (#'f.chat/sanitize-title "### My Title"))))
+  (testing "takes first non-blank line"
+    (is (= "First Line" (#'f.chat/sanitize-title "\n\n  First Line\nSecond Line"))))
+  (testing "strips control characters"
+    (is (= "clean text" (#'f.chat/sanitize-title "clean\u0000 \u001ftext"))))
+  (testing "collapses whitespace"
+    (is (= "hello world" (#'f.chat/sanitize-title "hello   world"))))
+  (testing "truncates to 40 chars"
+    (is (= 40 (count (#'f.chat/sanitize-title (apply str (repeat 60 "a")))))))
+  (testing "returns empty string for blank input"
+    (is (= "" (#'f.chat/sanitize-title "  \n  \n  "))))
+  (testing "returns nil for nil input"
+    (is (nil? (#'f.chat/sanitize-title nil)))))
+
 (deftest title-generation-test
   (testing "generates title on first message and re-generates at third with full context"
     (h/reset-components!)
@@ -251,9 +268,11 @@
         (is (= 2 (count @sync-prompt-calls*))
             "Should call sync-prompt! again on third message")
         (is (= "Title 2" (get-in (h/db) [:chats chat-id :title])))
-        (let [retitle-messages (:user-messages (second @sync-prompt-calls*))]
-          (is (> (count retitle-messages) 1)
-              "Third message title should include full conversation history"))
+        (let [retitle-call (second @sync-prompt-calls*)]
+          (is (= 1 (count (:user-messages retitle-call)))
+              "Third message title should pass only current user message")
+          (is (seq (:past-messages retitle-call))
+              "Third message title should include chat history as past-messages"))
 
         ;; Message 4: should NOT re-generate title
         (h/reset-messenger!)

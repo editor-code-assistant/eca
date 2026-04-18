@@ -60,16 +60,6 @@
                       :text "User cancelled the question."}]}
          (call-ask-user {"question" "Which framework?"})))))
 
-(deftest ask-user-timeout-test
-  (testing "Timeout waiting for user response"
-    (reset! (:ask-question-response* (h/messenger)) :block)
-    (is (match?
-         {:error true
-          :contents [{:type :text
-                      :text "Timeout waiting for user response."}]}
-         (call-ask-user {"question" "Which framework?"}
-                        {:config {:askQuestionTimeoutSeconds 0}})))))
-
 (deftest ask-user-missing-question-test
   (testing "Missing question parameter"
     (is (match?
@@ -149,6 +139,9 @@
       (is (= "Q: Short question?" (summary-fn {:args {"question" "Short question?"}})))
       (is (= "Q: This is a very long question that exceeds th..."
              (summary-fn {:args {"question" "This is a very long question that exceeds the fifty character limit"}})))))
+  (testing "Summary strips newlines from question"
+    (let [summary-fn (get-in f.tools.ask-user/definitions ["ask_user" :summary-fn])]
+      (is (= "Q: First line second line" (summary-fn {:args {"question" "First line\nsecond line"}})))))
   (testing "Summary shows preparing when question not yet available"
     (let [summary-fn (get-in f.tools.ask-user/definitions ["ask_user" :summary-fn])]
       (is (= "Preparing question" (summary-fn {:args {}}))))))

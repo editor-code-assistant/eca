@@ -2,6 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
+   [eca.features.tools.util :as tools.util]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [matcher-combinators.test :refer [match?]]))
 
@@ -123,6 +124,22 @@
             :parameters {:type "object"
                          :properties {:location {:type "string"}}}
             :other-field "ignored"}]))))
+
+  (testing "preserves normalized schema order in emitted parameters"
+    (is (= [[:type "object"]
+            [:required ["location"]]
+            [:properties {:location {:type "string"}}]]
+           (-> (#'llm-providers.openai-chat/->tools
+                [{:full-name "eca__get_weather"
+                  :description "Get the weather"
+                  :parameters (tools.util/reorder-schema-required-first
+                               {:required ["location"]
+                                :type "object"
+                                :properties {:location {:type "string"}}})}])
+               first
+               :function
+               :parameters
+               seq))))
 
   (testing "Empty tools list"
     (is (match?

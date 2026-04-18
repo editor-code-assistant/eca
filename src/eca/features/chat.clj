@@ -574,10 +574,9 @@
                                      retitle?))]
         (assert-compatible-apis-between-models! db chat-id provider model config)
         (when generate-title?
-          (let [title-messages (if retitle?
-                                 (into (get-in db [:chats chat-id :messages] [])
-                                       user-messages)
-                                 user-messages)]
+          (let [title-past-messages (when retitle?
+                                     (->> (get-in db [:chats chat-id :messages] [])
+                                          (filterv #(not= "reason" (:role %)))))]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
@@ -585,7 +584,8 @@
                                                  :model-capabilities
                                                  (assoc model-capabilities :reason? false :tools false :web-search false)
                                                  :instructions (f.prompt/chat-title-prompt agent config)
-                                                 :user-messages title-messages
+                                                 :past-messages title-past-messages
+                                                 :user-messages user-messages
                                                  :config config
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
@@ -1338,3 +1338,47 @@
                                  :system
                                  {:type :text :text (str "Chat forked to: " new-title)})))
     {}))
+
+(defn list-chats
+  "Pure projection over `(:chats db)`: returns a summary list intended for the
+   client sidebar. Subagent chats are excluded. Supports optional
+   `:limit` (positive int) and `:sort-by` (`:updated-at` or `:created-at`;
+   default `:updated-at`). Results are sorted descending by the chosen
+   timestamp, falling back to the other when the primary is nil."
+  [db {:keys [limit] sort-key :sort-by}]
+  (let [primary (or sort-key :updated-at)
+        secondary (if (= primary :updated-at) :created-at :updated-at)
+        chats (->> (vals (:chats db))
+                   (remove :subagent)
+                   (sort-by (fn [c] (or (get c primary) (get c secondary) 0)) >)
+                   (mapv (fn [{:keys [id title status created-at updated-at model messages]}]
+                           (shared/assoc-some
+                            {:id id
+                             :title title
+                             :status (or status :idle)
+                             :message-count (count messages)}
+                            :created-at created-at
+                            :updated-at updated-at
+                            :model model))))]
+    {:chats (if (and limit (pos? (long limit)))
+              (vec (take (long limit) chats))
+              chats)}))
+
+(defn open-chat!
+  "Replay a persisted chat over the wire so a freshly-started client can render
+   it. Emits `chat/cleared` (messages) followed by `chat/opened` and streams each
+   persisted message via `send-chat-contents!`. Performs no DB mutation.
+   Returns `{:found? false}` when the chat does not exist or is a subagent,
+   otherwise `{:found? true :chat-id ... :title ...}`."
+  [{:keys [chat-id]} db* messenger]
+  (let [chat (get-in @db* [:chats chat-id])]
+    (if (or (nil? chat) (:subagent chat))
+      {:found? false}
+      (let [title (:title chat)
+            messages (:messages chat)
+            chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
+        (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
+        (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
+        (send-chat-contents! messages chat-ctx)
+        (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
+        {:found? true :chat-id chat-id :title title}))))

@@ -109,6 +109,18 @@
   (-> (io/resource (str "prompts/tools/" tool-name ".md"))
       (slurp)))
 
+(defn reorder-schema-required-first
+  "Returns schema as an ordered map with `type` first, `required` second when
+   present, and the remaining entries in their existing iteration order."
+  [{:keys [type required] :as schema}]
+  (let [first-entries (cond-> []
+                        type (conj [:type type])
+                        required (conj [:required required]))]
+    (if (seq first-entries)
+      (into (apply array-map (mapcat identity first-entries))
+            (remove (fn [[k _]] (contains? #{:type :required} k)) schema))
+      schema)))
+
 (defn required-params-error
   "Given a tool `parameters` JSON schema (object) and an args map, return a
   single-text-content error when any required parameter is missing. Returns nil
@@ -122,6 +134,19 @@
          (format "INVALID_ARGS: missing required params: %s"
                  (->> missing (map #(str "`" % "`")) (string/join ", ")))
          :error)))))
+
+(defn omit-optional-empty-string-args
+  "Drops optional tool arguments whose value is the empty string.
+   Required arguments are preserved exactly as provided."
+  [parameters args]
+  (let [required (->> (:required parameters)
+                      (map name)
+                      set)]
+    (into {}
+          (remove (fn [[k v]]
+                    (and (= "" v)
+                         (not (contains? required (name k))))))
+          args)))
 
 (defn ^:private contents->text
   "Concatenates all text contents from a tool result's :contents into a single string."
@@ -202,7 +227,3 @@
             (assoc result :contents [{:type :text
                                       :text (str truncated notice)}]))
           result)))))
-
-(defn normalize-optional-string
-  [value]
-  (some-> value string/trim not-empty))

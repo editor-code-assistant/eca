@@ -17,11 +17,11 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.features.agents :as agents]
-   [rewrite-json.core :as rj]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :as shared :refer [multi-str]])
+   [eca.shared :as shared :refer [multi-str]]
+   [rewrite-json.core :as rj])
   (:import
    [java.io File]))
 
@@ -64,6 +64,14 @@
    "high" {:output_config {:effort "high"} :thinking {:type "adaptive"}}
    "max" {:output_config {:effort "max"} :thinking {:type "adaptive"}}})
 
+(def ^:private anthropic-v2-variants
+  {"default" {:thinking {:type "adaptive" :display "summarized"}}
+   "low" {:output_config {:effort "low"} :thinking {:type "adaptive" :display "summarized"}}
+   "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive" :display "summarized"}}
+   "high" {:output_config {:effort "high"} :thinking {:type "adaptive" :display "summarized"}}
+   "xhigh" {:output_config {:effort "xhigh"} :thinking {:type "adaptive" :display "summarized"}}
+   "max" {:output_config {:effort "max"} :thinking {:type "adaptive" :display "summarized"}}})
+
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
@@ -79,7 +87,8 @@
                             :key "${env:ANTHROPIC_API_KEY}"
                             :requiresAuth? true
                             :models {"claude-sonnet-4-6" {}
-                                     "claude-opus-4-6" {}}}
+                                     "claude-opus-4-6" {}
+                                     "claude-opus-4-7" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
@@ -164,6 +173,7 @@
                                  "eca__editor_diagnostics" {}
                                  "eca__skill" {}
                                  "eca__task" {}
+                                 "eca__ask_user" {}
                                  "eca__spawn_agent" {}}
                          :ask {}
                          :deny {}}
@@ -171,6 +181,7 @@
               :shellCommand {:summaryMaxLength 35}
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
+                     ".*opus[-._]4[-._]7" {:variants anthropic-v2-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                             :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
@@ -241,6 +252,13 @@
       (let [filtered (into {} (remove (fn [[_ v]] (= {} v))) merged)]
         (when (seq filtered)
           filtered)))))
+
+(defn selectable-variant-names
+  "Returns sorted variant names suitable for UI display, excluding internal-only
+           variants like \"default\" which are applied automatically."
+  [variants]
+  (when (seq variants)
+    (vec (sort (remove #{"default"} (keys variants))))))
 
 (def ^:private fallback-agent "code")
 

@@ -23,7 +23,7 @@
 <meta name="twitter:image" content="{{ og_image }}" />
 
 <!-- Additional SEO -->
-<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
+<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Desktop, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
 <link rel="canonical" href="{{ page_url }}" />
 <meta name="google-site-verification" content="lpupnLMIN7V027EZqCPyBz9RafDE95tVbSxi5ocQIwA" />
 
@@ -431,7 +431,8 @@
   #eca-tab-emacs:checked ~ .eca-editors__tabs label[for="eca-tab-emacs"],
   #eca-tab-vscode:checked ~ .eca-editors__tabs label[for="eca-tab-vscode"],
   #eca-tab-neovim:checked ~ .eca-editors__tabs label[for="eca-tab-neovim"],
-  #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"] {
+  #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"],
+  #eca-tab-desktop:checked ~ .eca-editors__tabs label[for="eca-tab-desktop"] {
     background: var(--eca-tab-active-bg);
     color: var(--eca-tab-active-color);
     border-color: var(--eca-tab-active-border);
@@ -453,7 +454,8 @@
   #eca-tab-emacs:checked   ~ .eca-editors__panels .eca-editors__panel--emacs,
   #eca-tab-vscode:checked  ~ .eca-editors__panels .eca-editors__panel--vscode,
   #eca-tab-neovim:checked  ~ .eca-editors__panels .eca-editors__panel--neovim,
-  #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij {
+  #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij,
+  #eca-tab-desktop:checked ~ .eca-editors__panels .eca-editors__panel--desktop {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1496,6 +1498,7 @@
         <input type="radio" name="eca-editor" id="eca-tab-vscode">
         <input type="radio" name="eca-editor" id="eca-tab-neovim">
         <input type="radio" name="eca-editor" id="eca-tab-intellij">
+        <input type="radio" name="eca-editor" id="eca-tab-desktop">
 
         <div class="eca-editors__tabs">
           <label for="eca-tab-emacs" class="eca-editors__tab">
@@ -1513,6 +1516,10 @@
           <label for="eca-tab-neovim" class="eca-editors__tab">
             <svg viewBox="0 0 24 24"><path d="M2.214 4.954v13.615L7.2 24V10.314L14.863 19.6h.075l4.848-5.37V2.086l-4.985 5.2V0z"/></svg>
             Neovim
+          </label>
+          <label for="eca-tab-desktop" class="eca-editors__tab">
+            <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7l-2 3v1h8v-1l-2-3h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 12H3V4h18v10z"/></svg>
+            Desktop
           </label>
         </div>
 
@@ -1533,6 +1540,10 @@
              "https://raw.githubusercontent.com/editor-code-assistant/eca-nvim/master/demo.png",
              "ECA running in Neovim",
              "https://github.com/editor-code-assistant/eca-nvim", "eca-nvim") }}
+          {{ editor_panel("desktop", "ECA &mdash; Desktop",
+             "https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/master/demo.gif",
+             "ECA running as a Desktop app",
+             "https://github.com/editor-code-assistant/eca-desktop", "eca-desktop") }}
         </div>
       </div>
 

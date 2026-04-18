@@ -443,6 +443,18 @@
         (swap! db* assoc-in [:mcp-clients name :status] :failed)
         (on-server-updated (->server name server-config :failed @db*))))))
 
+(defn ^:private start-single-server-async!
+  "Spawn a daemon init thread for a single MCP server. Used by both initial
+   startup and runtime add-server!."
+  [server-name db* config metrics on-server-updated]
+  (let [t (Thread.
+           (fn []
+             (with-init-thread server-name
+               (initialize-server! server-name db* config metrics on-server-updated))))]
+    (.setName t (str "mcp-init-" server-name))
+    (.setDaemon t true)
+    (.start t)))
+
 (defn initialize-servers-async! [{:keys [on-server-updated]} db* config metrics]
   (let [db @db*]
     (doseq [[name-kwd server-config] (:mcpServers config)]
@@ -450,13 +462,7 @@
         (when-not (get-in db [:mcp-clients server-name])
           (if (get server-config :disabled false)
             (on-server-updated (->server server-name server-config :disabled db))
-            (let [t (Thread.
-                     (fn []
-                       (with-init-thread server-name
-                         (initialize-server! server-name db* config metrics on-server-updated))))]
-              (.setName t (str "mcp-init-" server-name))
-              (.setDaemon t true)
-              (.start t))))))))
+            (start-single-server-async! server-name db* config metrics on-server-updated)))))))
 
 (def ^:private disconnect-timeout-ms 3000)
 
@@ -570,37 +576,6 @@
                 {:source :global}))))
         {:source :global})))
 
-(defn ^:private replace-server-in-config-file!
-  "Replace a single MCP server entry in a JSON config file using assoc-in
-   instead of deep-merge, so old keys (e.g. :command when switching to :url)
-   are removed. Note: comments in the original file are stripped since JSON
-   output cannot preserve them."
-  [^java.io.File config-file server-name new-server-config]
-  (let [raw (when (.exists config-file)
-              (parse-json-with-comments (slurp config-file)))
-        updated (assoc-in (or raw {}) ["mcpServers" server-name]
-                          (json/parse-string (json/generate-string new-server-config)))]
-    (io/make-parents config-file)
-    (spit config-file (json/generate-string updated {:pretty true}))))
-
-(defn update-server!
-  "Update an MCP server's connection config (command/args/url), persist to the
-   correct config file (local or global), clear the config cache, then restart."
-  [server-name server-fields db* config metrics {:keys [on-server-updated]}]
-  (let [db @db*
-        {:keys [source workspace-root-uri]} (find-server-config-source server-name db)
-        current-server-config (get-in config [:mcpServers server-name])
-        ;; Build clean server entry: preserve env/disabled/headers, replace connection fields
-        preserved-keys (select-keys current-server-config [:env :disabled :headers])
-        new-server-config (merge preserved-keys server-fields)
-        config-file (if (= source :local)
-                      (io/file (shared/uri->filename workspace-root-uri) ".eca" "config.json")
-                      (config/global-config-file))]
-    (replace-server-in-config-file! config-file server-name new-server-config)
-    (memoize/memo-clear! config/all)
-    (let [fresh-config (config/all @db*)]
-      (restart-server! server-name db* fresh-config metrics on-server-updated))))
-
 (defn ^:private update-config-file!
   "Apply rewrite-json edits to a config file, preserving comments and formatting.
    `edit-fn` receives a parsed rj root node and returns the modified root."
@@ -610,11 +585,81 @@
     (io/make-parents config-file)
     (spit config-file (rj/to-string root))))
 
+(defn ^:private walk-server-leaves
+  "Walks an MCP server-config map and returns a seq of [string-path-vec value] pairs,
+   stringifying keyword keys. Vectors (e.g. :args) are treated as leaves so they
+   serialize as JSON arrays."
+  ([m] (walk-server-leaves [] m))
+  ([prefix m]
+   (reduce-kv
+    (fn [acc k v]
+      (let [path (conj prefix (if (keyword? k) (name k) (str k)))]
+        (if (and (map? v) (seq v))
+          (into acc (walk-server-leaves path v))
+          (conj acc [path v]))))
+    []
+    m)))
+
+(defn ^:private rj-assoc-server-entry
+  "Replace the `mcpServers[server-name]` subtree in a rewrite-json root with
+   the contents of `server-config`. Dissocs the existing entry first so stale
+   keys (e.g. :url after switching to stdio) do not leak in."
+  [root server-name server-config]
+  (reduce (fn [r [leaf-path v]]
+            (rj/assoc-in r (into ["mcpServers" server-name] leaf-path) v))
+          (rj/dissoc-in root ["mcpServers" server-name])
+          (walk-server-leaves server-config)))
+
 (defn ^:private resolve-config-file [server-name db]
   (let [{:keys [source workspace-root-uri]} (find-server-config-source server-name db)]
     (if (= source :local)
       (io/file (shared/uri->filename workspace-root-uri) ".eca" "config.json")
       (config/global-config-file))))
+
+(defn ^:private resolve-target-config-file
+  "Resolve the config file for a NEW server (no existing source to look up).
+   scope is :global (default) or :workspace (workspace-uri required)."
+  [scope workspace-uri db]
+  (case scope
+    :workspace (if workspace-uri
+                 (let [roots (:workspace-folders db)
+                       uris (into #{} (map :uri) roots)]
+                   (when-not (contains? uris workspace-uri)
+                     (throw (ex-info (format "workspaceUri '%s' is not an open workspace root" workspace-uri)
+                                     {:workspace-uri workspace-uri
+                                      :workspace-roots (vec uris)})))
+                   (io/file (shared/uri->filename workspace-uri) ".eca" "config.json"))
+                 (throw (ex-info ":workspace scope requires :workspace-uri"
+                                 {:scope scope})))
+    (config/global-config-file)))
+
+(defn update-server!
+  "Update an MCP server's config fields (command/args/env/url/headers), persist
+   to the correct config file preserving comments and formatting, clear the
+   config cache, then restart.
+
+   `server-fields` is a partial map of fields to override. Fields not present
+   are preserved from the existing entry EXCEPT when the transport flips:
+   switching to HTTP (by supplying :url) strips :command/:args/:env, and
+   switching to stdio (by supplying :command or :args) strips :url/:headers."
+  [server-name server-fields db* config metrics {:keys [on-server-updated]}]
+  (let [db @db*
+        current-server-config (get-in config [:mcpServers server-name])
+        switching-to-http?  (some? (:url server-fields))
+        switching-to-stdio? (or (some? (:command server-fields))
+                                (some? (:args server-fields)))
+        stripped-keys (cond
+                        switching-to-http?  [:command :args :env]
+                        switching-to-stdio? [:url :headers]
+                        :else [])
+        new-server-config (-> (apply dissoc current-server-config stripped-keys)
+                              (merge server-fields))
+        config-file (resolve-config-file server-name db)]
+    (update-config-file! config-file
+                         #(rj-assoc-server-entry % server-name new-server-config))
+    (memoize/memo-clear! config/all)
+    (let [fresh-config (config/all @db*)]
+      (restart-server! server-name db* fresh-config metrics on-server-updated))))
 
 (defn disable-server!
   "Disable an MCP server: persist disabled=true in config, stop if running, notify."
@@ -639,6 +684,77 @@
     (memoize/memo-clear! config/all)
     (let [fresh-config (config/all @db*)]
       (start-server! server-name db* fresh-config metrics {:on-server-updated on-server-updated}))))
+
+(defn ^:private normalize-new-server-config
+  "Coerce incoming map (from JSON-RPC) into the shape stored in :mcpServers.
+   Keyword-izes top-level keys and nested :env/:headers keys so internal
+   code paths (->transport, start-server!) work uniformly after config/all
+   is re-read."
+  [server-config]
+  (letfn [(kw-map [m] (into {} (map (fn [[k v]] [(keyword (name k)) v])) m))]
+    (cond-> (kw-map server-config)
+      (:env server-config)     (update :env kw-map)
+      (:headers server-config) (update :headers kw-map))))
+
+(defn add-server!
+  "Add a new MCP server definition: validate, persist to the chosen config file
+   preserving comments, clear the config cache, then start the server async
+   (unless :disabled true, in which case only emit the disabled status).
+
+   `server-config` is the wire-shape entry map. Accepted fields:
+     stdio:  :command, :args, :env, :disabled
+     HTTP:   :url, :headers, :clientId, :clientSecret, :oauthPort, :disabled
+
+   `opts`:
+     :scope         :global (default) or :workspace
+     :workspace-uri required when :scope = :workspace"
+  [server-name server-config {:keys [scope workspace-uri]} db* config metrics
+   {:keys [on-server-updated]}]
+  (when (string/blank? server-name)
+    (throw (ex-info "MCP server name must be non-blank" {})))
+  (when (get-in config [:mcpServers server-name])
+    (throw (ex-info (format "MCP server '%s' already exists" server-name)
+                    {:server-name server-name})))
+  (let [normalized (normalize-new-server-config server-config)
+        has-command? (some? (:command normalized))
+        has-url?     (some? (:url normalized))]
+    (when (and has-command? has-url?)
+      (throw (ex-info "MCP server entry must not specify both :command and :url"
+                      {:server-name server-name})))
+    (when-not (or has-command? has-url?)
+      (throw (ex-info "MCP server entry must specify :command (stdio) or :url (HTTP)"
+                      {:server-name server-name})))
+    (let [scope (or scope :global)
+          config-file (resolve-target-config-file scope workspace-uri @db*)]
+      (update-config-file! config-file
+                           #(rj-assoc-server-entry % server-name normalized))
+      (memoize/memo-clear! config/all)
+      (let [fresh-config (config/all @db*)
+            fresh-server-config (get-in fresh-config [:mcpServers server-name])]
+        (if (get fresh-server-config :disabled false)
+          (do (on-server-updated (->server server-name fresh-server-config :disabled @db*))
+              (->server server-name fresh-server-config :disabled @db*))
+          (do (start-single-server-async! server-name db* fresh-config metrics on-server-updated)
+              (->server server-name fresh-server-config :starting @db*)))))))
+
+(defn remove-server!
+  "Remove an MCP server: stop if running, dissoc from the config file
+   preserving comments, clear cache, clear any stored OAuth tokens, and
+   fire on-server-removed."
+  [server-name db* config {:keys [on-server-updated on-server-removed]}]
+  (when-not (get-in config [:mcpServers server-name])
+    (throw (ex-info (format "MCP server '%s' does not exist" server-name)
+                    {:server-name server-name})))
+  (let [db @db*
+        config-file (resolve-config-file server-name db)]
+    (when (get-in db [:mcp-clients server-name :client])
+      (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+    (swap! db* update :mcp-auth dissoc server-name)
+    (update-config-file! config-file
+                         #(rj/dissoc-in % ["mcpServers" server-name]))
+    (memoize/memo-clear! config/all)
+    (on-server-removed {:name server-name})
+    {:name server-name :removed true}))
 
 (defn all-tools [db]
   (into []

@@ -148,6 +148,40 @@
           config (config-with-truncation 5 10)]
       (is (= result (tools.util/maybe-truncate-output result config "call-empty"))))))
 
+(deftest reorder-schema-required-first-test
+  (testing "moves type first and required second when present"
+    (is (= [[:type "object"]
+            [:required ["path"]]
+            [:properties {"path" {:type "string"}}]]
+           (seq (tools.util/reorder-schema-required-first
+                 {:type "object"
+                  :properties {"path" {:type "string"}}
+                  :required ["path"]}))))))
+
+(deftest omit-optional-empty-string-args-test
+  (testing "drops optional empty string arguments"
+    (is (= {"path" "/tmp/file"}
+           (tools.util/omit-optional-empty-string-args
+            {:required ["path"]}
+            {"path" "/tmp/file"
+             "pattern" ""}))))
+
+  (testing "preserves required empty string arguments"
+    (is (= {"path" ""}
+           (tools.util/omit-optional-empty-string-args
+            {:required ["path"]}
+            {"path" ""}))))
+
+  (testing "preserves non-string empty values"
+    (is (= {"enabled" false
+            "count" 0
+            "tags" []}
+           (tools.util/omit-optional-empty-string-args
+            {:required []}
+            {"enabled" false
+             "count" 0
+             "tags" []})))))
+
 (deftest path-outside-workspace-allows-tool-call-outputs-dir-test
   (testing "path inside tool-call-outputs cache dir is not considered outside workspace"
     (let [db {:workspace-folders [{:uri (h/file-uri "file:///home/user/project") :name "project"}]}

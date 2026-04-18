@@ -12,6 +12,7 @@
   (chat-opened [this params])
   (rewrite-content-received [this data])
   (tool-server-updated [this params])
+  (tool-server-removed [this params])
   (config-updated [this params])
   (provider-updated [this params])
   (jobs-updated [this params])

@@ -189,6 +189,7 @@
         all-tools (->> (concat
                         (mapv #(assoc % :origin :native) (native-tools db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
+                       (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                        (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                        (mapv (fn [tool]
                                (update tool :description
@@ -222,6 +223,9 @@
         db @db*
         all-tools (all-tools chat-id agent-name db config)
         tool-meta (some #(when (= full-name (:full-name %)) %) all-tools)
+        arguments (if-let [parameters (:parameters tool-meta)]
+                    (tools.util/omit-optional-empty-string-args parameters arguments)
+                    arguments)
         required-args-error (when-let [parameters (:parameters tool-meta)]
                               (tools.util/required-params-error parameters arguments))]
     (try
@@ -274,6 +278,11 @@
                                                        #(mapv (comp tool-status-fn
                                                                     (fn [t] (assoc t :server {:name (:name server)})))
                                                               %)))))
+
+(defn ^:private notify-server-removed [metrics messenger params]
+  (metrics/count-up! "mcp-server-status" {:name (:name params)
+                                          :status "removed"} metrics)
+  (messenger/tool-server-removed messenger params))
 
 (defn init-servers! [db* messenger config metrics]
   (let [default-agent (get config :defaultAgent)
@@ -351,6 +360,26 @@
      db*
      metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn add-server! [name server-config opts db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/add-server!
+     name
+     server-config
+     opts
+     db*
+     config
+     metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
+
+(defn remove-server! [name db* messenger config metrics]
+  (let [tool-status-fn (make-tool-status-fn config nil)]
+    (f.mcp/remove-server!
+     name
+     db*
+     config
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
+      :on-server-removed (partial notify-server-removed metrics messenger)})))
 
 (defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
