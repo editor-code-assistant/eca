@@ -102,6 +102,10 @@
                        :type :native
                        :description "Log into a provider (Ex: /login gitub-copilot)"
                        :arguments [{:name "provider-id"}]}
+                      {:name "model"
+                       :type :native
+                       :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
+                       :arguments [{:name "full-model"}]}
                       {:name "skills"
                        :type :native
                        :description "List available skills"
@@ -341,6 +345,51 @@
                                      metrics)
                 {:type :new-chat-status
                  :status :login})
+      "model" (let [selected-model (first args)
+                     current-model (or (get-in db [:chats chat-id :model])
+                                       full-model
+                                       (llm-api/default-model db config))
+                     available-models (sort (keys (:models db)))
+                     chat-message (fn [text]
+                                    {:type :chat-messages
+                                     :chats {chat-id {:messages [{:role "system"
+                                                                  :content [{:type :text
+                                                                             :text text}]}]}}})]
+                 (cond
+                   (string/blank? selected-model)
+                   (if (seq available-models)
+                     (chat-message
+                      (multi-str (str "Current model: `" current-model "`")
+                                 ""
+                                 "Available models:"
+                                 (string/join "\n" (map #(str "- `" % "`") available-models))
+                                 ""
+                                 "Run `/model <provider/model>` to switch chat model."))
+                     (chat-message
+                      (multi-str "No models available."
+                                 ""
+                                 "Sync models or login first, for example `/login anthropic`.")))
+
+                   (not (contains? (:models db) selected-model))
+                   (chat-message
+                    (multi-str (str "Unknown model: `" selected-model "`")
+                               ""
+                               (when (seq available-models)
+                                 (str "Available models:\n"
+                                      (string/join "\n" (map #(str "- `" % "`") available-models))))))
+
+                   :else
+                   (do
+                     (swap! db* update-in [:chats chat-id] assoc :model selected-model :variant nil)
+                     (config/notify-fields-changed-only!
+                      {:chat {:select-model selected-model
+                              :variants []
+                              :select-variant nil}}
+                      messenger
+                      db*)
+                     (chat-message
+                      (multi-str (str "Selected model: `" selected-model "`")
+                                 "Using model defaults.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
                     new-id (str (random-uuid))
                     now (System/currentTimeMillis)

@@ -1,7 +1,10 @@
 (ns eca.features.commands-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.commands :as f.commands]))
+   [eca.features.commands :as f.commands]
+   [eca.test-helper :as h]))
+
+(h/reset-components-before-test)
 
 (deftest get-custom-command-tests
   (testing "returns nil when command not found"
@@ -64,3 +67,81 @@
   (testing "replaces both $ARGn and $n placeholders"
     (is (= "A:x B:x"
            (#'f.commands/substitute-args "A:$ARG1 B:$1" ["x"])))))
+
+(deftest all-commands-include-model-command-test
+  (let [commands (f.commands/all-commands {:workspace-folders []} {})]
+    (is (some #(= {:name "model"
+                   :type :native
+                   :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
+                   :arguments [{:name "full-model"}]}
+                 %)
+              commands))))
+
+(deftest handle-model-command-test
+  (testing "lists current and available models when no arg is given"
+    (swap! (h/db*) assoc :models {"anthropic/claude-sonnet-4-6" {}
+                                  "openai/gpt-5.2" {}})
+    (let [result (f.commands/handle-command! "model"
+                                             []
+                                             {:chat-id "chat-1"
+                                              :db* (h/db*)
+                                              :config (h/config)
+                                              :messenger (h/messenger)
+                                              :full-model "openai/gpt-5.2"
+                                              :agent "code"
+                                              :agent-config {}
+                                              :all-tools []
+                                              :instructions {}
+                                              :user-messages []
+                                              :metrics (h/metrics)})]
+      (is (= :chat-messages (:type result)))
+      (is (re-find #"Current model: `openai/gpt-5.2`"
+                   (get-in result [:chats "chat-1" :messages 0 :content 0 :text])))
+      (is (re-find #"anthropic/claude-sonnet-4-6"
+                   (get-in result [:chats "chat-1" :messages 0 :content 0 :text])))))
+
+  (testing "selecting model updates client selection and clears variant options"
+    (swap! (h/db*) assoc :models {"anthropic/claude-sonnet-4-6" {}
+                                  "openai/gpt-5.2" {}})
+    (swap! (h/db*) assoc-in [:chats "chat-1" :variant] "high")
+    (let [result (f.commands/handle-command! "model"
+                                             ["anthropic/claude-sonnet-4-6"]
+                                             {:chat-id "chat-1"
+                                              :db* (h/db*)
+                                              :config (h/config)
+                                              :messenger (h/messenger)
+                                              :full-model "openai/gpt-5.2"
+                                              :agent "code"
+                                              :all-tools []
+                                              :instructions {}
+                                              :user-messages []
+                                              :metrics (h/metrics)})]
+      (is (= :chat-messages (:type result)))
+      (is (= "anthropic/claude-sonnet-4-6"
+             (get-in @(h/db*) [:chats "chat-1" :model])))
+      (is (contains? (get-in @(h/db*) [:chats "chat-1"]) :variant))
+      (is (nil? (get-in @(h/db*) [:chats "chat-1" :variant])))
+      (is (re-find #"Using model defaults\."
+                   (get-in result [:chats "chat-1" :messages 0 :content 0 :text])))
+      (is (= [{:chat {:select-model "anthropic/claude-sonnet-4-6"
+                      :variants []
+                      :select-variant nil}}]
+             (:config-updated (h/messages))))))
+
+  (testing "invalid model returns helpful error"
+    (swap! (h/db*) assoc :models {"openai/gpt-5.2" {}})
+    (let [result (f.commands/handle-command! "model"
+                                             ["bad/model"]
+                                             {:chat-id "chat-1"
+                                              :db* (h/db*)
+                                              :config (h/config)
+                                              :messenger (h/messenger)
+                                              :full-model "openai/gpt-5.2"
+                                              :agent "code"
+                                              :agent-config {}
+                                              :all-tools []
+                                              :instructions {}
+                                              :user-messages []
+                                              :metrics (h/metrics)})]
+      (is (re-find #"Unknown model: `bad/model`"
+                   (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))))

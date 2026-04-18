@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Add the `/model` command allowing the user to change the model directly from the chat.
 
 ## 0.128.0
 
