@@ -23,3 +23,9 @@ Output: Single line, ≤30 chars, no explanations.
 "refactor user service" → Refactoring user service
 "why is app.js failing" → Analyzing app.js failure
 "implement rate limiting" → Implementing rate limiting
+
+Conversation:
+  user: "why is app.js failing"
+  assistant: "Looks like a missing env var in the loader."
+  user: "add a guard and default it to dev"
+→ Guarding app.js loader env var

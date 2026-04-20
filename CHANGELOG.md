@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve chat title quality on 3rd-message retitle by filtering tool calls, tool results, reasoning and flag entries from the history passed to the title LLM, and by respecting the last compact marker.
+
 ## 0.128.0
 
 - Add `eca-desktop` as an official client in docs and landing page.

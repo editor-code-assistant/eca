@@ -262,23 +262,57 @@
             "Should NOT call sync-prompt! on second message")
         (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
 
+        ;; Inject noisy entries into history before the retitle fires, to
+        ;; exercise the role/content cleanup applied to :past-messages.
+        (swap! (h/db*) update-in [:chats chat-id :messages]
+               (fnil into [])
+               [{:role "reason" :content "internal thoughts"}
+                {:role "tool_call" :content {:name "read_file"}}
+                {:role "tool_call_output" :content "file contents"}
+                {:role "flag" :content {:text "ui-only"}}])
+
         ;; Message 3: should re-generate title with full conversation context
         (h/reset-messenger!)
         (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
         (is (= 2 (count @sync-prompt-calls*))
             "Should call sync-prompt! again on third message")
         (is (= "Title 2" (get-in (h/db) [:chats chat-id :title])))
-        (let [retitle-call (second @sync-prompt-calls*)]
+        (let [retitle-call (second @sync-prompt-calls*)
+              past-roles (into #{} (map :role) (:past-messages retitle-call))]
           (is (= 1 (count (:user-messages retitle-call)))
               "Third message title should pass only current user message")
           (is (seq (:past-messages retitle-call))
-              "Third message title should include chat history as past-messages"))
+              "Third message title should include chat history as past-messages")
+          (is (= #{"user" "assistant"} past-roles)
+              "Past messages should be cleaned of tool_call, tool_call_output, reason and flag entries"))
 
         ;; Message 4: should NOT re-generate title
         (h/reset-messenger!)
         (prompt-with-title! {:message "One more thing" :chat-id chat-id} {:sync-prompt-mock sync-mock})
         (is (= 2 (count @sync-prompt-calls*))
             "Should NOT call sync-prompt! after third message"))))
+
+  (testing "retitle respects the last compact marker, dropping pre-compaction history"
+    (h/reset-components!)
+    (let [sync-prompt-calls* (atom [])
+          call-count* (atom 0)
+          sync-mock (fn [params]
+                      (swap! sync-prompt-calls* conj params)
+                      {:output-text (str "Title " (swap! call-count* inc))})]
+      (let [{:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "Also refactor" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+
+        ;; Insert a compact_marker so earlier history is treated as pre-compaction
+        ;; and must not reach the title LLM.
+        (swap! (h/db*) update-in [:chats chat-id :messages]
+               (fnil conj []) {:role "compact_marker" :content {:auto? false}})
+
+        (h/reset-messenger!)
+        (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+        (let [retitle-call (second @sync-prompt-calls*)]
+          (is (empty? (:past-messages retitle-call))
+              "Past messages before the compact marker should be dropped from title context")))))
 
   (testing "manual rename suppresses automatic re-titling"
     (h/reset-components!)

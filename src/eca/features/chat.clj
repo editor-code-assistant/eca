@@ -576,7 +576,8 @@
         (when generate-title?
           (let [title-past-messages (when retitle?
                                      (->> (get-in db [:chats chat-id :messages] [])
-                                          (filterv #(not= "reason" (:role %)))))]
+                                          shared/messages-after-last-compact-marker
+                                          (filterv #(contains? #{"user" "assistant"} (:role %)))))]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
