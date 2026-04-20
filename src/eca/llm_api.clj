@@ -172,7 +172,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth sync? subagent? cancelled?]
+           past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities) tools)
@@ -220,7 +220,8 @@
           :api-url api-url
           :api-key api-key
           :auth-type auth-type
-          :account-id (:account-id provider-auth)}
+          :account-id (:account-id provider-auth)
+          :prompt-cache-key prompt-cache-key}
          callbacks)
 
         (= "anthropic" provider)
@@ -267,7 +268,8 @@
                                                extra-payload)
                          :reasoning-history reasoning-history
                          :api-url api-url
-                         :api-key api-key}]
+                         :api-key api-key
+                         :prompt-cache-key prompt-cache-key}]
           (if (= :openai-responses (:api api-handler))
             (handler
              (assoc base-opts
@@ -356,7 +358,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
-           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?]
+           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent? prompt-cache-key]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -450,6 +452,7 @@
                               :user-messages user-messages
                               :variant variant
                               :subagent? subagent?
+                              :prompt-cache-key prompt-cache-key
                               :on-error on-error-wrapper
                               :config config})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
@@ -485,6 +488,7 @@
                 :user-messages user-messages
                 :variant variant
                 :subagent? subagent?
+                :prompt-cache-key prompt-cache-key
                 :cancelled? cancelled?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper

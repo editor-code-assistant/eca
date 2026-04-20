@@ -60,6 +60,15 @@
 (def ^:private cleared-raw-content
   [{:type "text" :text "[content cleared to reduce context size]"}])
 
+(defn ^:private prompt-cache-key
+  "Builds a provider-agnostic prompt cache key.
+   OpenAI's Responses API sends it as `prompt_cache_key`; other providers
+   currently ignore it. Scoping by agent prevents cache hits across
+   agent switches within the same user session."
+  [agent]
+  (str (System/getProperty "user.name") "@ECA"
+       (when (not-empty agent) (str "/" agent))))
+
 (defn ^:private prune-tool-results!
   "Prunes old tool result content from chat history to reduce context size.
    Walks messages backwards, protecting the most recent tool outputs up to
@@ -619,6 +628,7 @@
                                             (lifecycle/maybe-renew-auth-token chat-ctx)
                                             (get-in @db* [:auth provider]))
                 :variant (:variant chat-ctx)
+                :prompt-cache-key (prompt-cache-key agent)
                 :subagent? (some? (get-in @db* [:chats chat-id :subagent]))
                 :cancelled? (fn []
                               (let [chat (get-in @db* [:chats chat-id])]
@@ -1005,14 +1015,17 @@
                           (f.context/agents-file-contexts db)
                           (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
-        cached-static (get-in db [:chats chat-id :prompt-cache :static])
+        prompt-cache (get-in db [:chats chat-id :prompt-cache])
+        cached-static (when (= (:agent prompt-cache) agent)
+                        (:static prompt-cache))
         instructions (if cached-static
                        {:static cached-static
                         :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)}
                        (let [result (f.prompt/build-chat-instructions
                                      refined-contexts rules skills repo-map*
                                      agent config chat-id all-tools db)]
-                         (swap! db* assoc-in [:chats chat-id :prompt-cache :static] (:static result))
+                         (swap! db* update-in [:chats chat-id :prompt-cache]
+                                assoc :static (:static result) :agent agent)
                          result))
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))

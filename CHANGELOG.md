@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix stale system prompt being reused after switching agent mid-chat by scoping the chat-level prompt cache and the OpenAI Responses `prompt_cache_key` per active agent. #411
 - Improve chat title quality on 3rd-message retitle by filtering tool calls, tool results, reasoning and flag entries from the history passed to the title LLM, and by respecting the last compact marker.
 
 ## 0.128.0

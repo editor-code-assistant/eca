@@ -291,6 +291,40 @@
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
 
+(deftest create-response-prompt-cache-key-test
+  (testing "prompt_cache_key uses the provided :prompt-cache-key verbatim"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params) :prompt-cache-key "alice@ECA/plan")
+         (base-callbacks {}))
+        (is (= 1 (count @requests*)))
+        (is (= "alice@ECA/plan"
+               (get-in (first @requests*) [:body :prompt_cache_key]))
+            "Body should pass the caller-supplied cache key unchanged"))))
+  (testing "prompt_cache_key falls back to $USER@ECA when :prompt-cache-key is absent"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks {}))
+        (is (= 1 (count @requests*)))
+        (is (= (str (System/getProperty "user.name") "@ECA")
+               (get-in (first @requests*) [:body :prompt_cache_key]))
+            "Body should use the default $USER@ECA key when no cache key is provided")))))
+
 (deftest create-response-tool-calls-fallback-via-atom-test
   (testing "empty output in response.completed still triggers on-tools-called via atom fallback"
     (let [tools-called* (atom [])

@@ -153,7 +153,8 @@
     (and web-search (not codex?)) (conj {:type "web_search_preview"})))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                                max-output-tokens past-messages tools web-search extra-payload extra-headers auth-type account-id http-client]}
+                                max-output-tokens past-messages tools web-search extra-payload extra-headers auth-type account-id http-client
+                                prompt-cache-key]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search] :as callbacks}]
   (let [codex? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
@@ -165,7 +166,8 @@
                 :input (if codex?
                          (concat [{:role "system" :content instructions}] input)
                          input)
-                :prompt_cache_key (str (System/getProperty "user.name") "@ECA")
+                :prompt_cache_key (or prompt-cache-key
+                                      (str (System/getProperty "user.name") "@ECA"))
                 :instructions instructions
                 :tools tools
                 :include (when reason?

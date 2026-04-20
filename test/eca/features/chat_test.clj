@@ -979,4 +979,55 @@
                 :role "assistant"}]}
              (h/messages)))))))
 
+(deftest prompt-cache-agent-switch-test
+  (testing "Static prompt cache is rebuilt when switching agents within the same chat"
+    (h/reset-components!)
+    (let [build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions]
+      (with-redefs [f.prompt/build-chat-instructions
+                    (fn [& args]
+                      (swap! build-calls* inc)
+                      (apply real-build args))
+                    ;; Test config doesn't populate :agent, so validate-agent-name
+                    ;; would fall back to "code" for every input. Short-circuit it
+                    ;; so the test can actually exercise an agent switch.
+                    config/validate-agent-name (fn [agent-name _config] agent-name)]
+        (let [mocks {:all-tools-mock (constantly [])
+                     :api-mock (fn [{:keys [on-message-received]}]
+                                 (on-message-received {:type :finish}))}
+              {:keys [chat-id]} (prompt! {:message "Hi" :agent "code"} mocks)]
+          (is (= 1 @build-calls*)
+              "First prompt should build the static instructions once")
+          (h/reset-messenger!)
+          (prompt! {:message "Still code" :chat-id chat-id :agent "code"} mocks)
+          (is (= 1 @build-calls*)
+              "Second prompt with the same agent should reuse cached instructions")
+          (h/reset-messenger!)
+          (prompt! {:message "Switch to plan" :chat-id chat-id :agent "plan"} mocks)
+          (is (= 2 @build-calls*)
+              "Switching agent should invalidate the cache and rebuild instructions")
+          (h/reset-messenger!)
+          (prompt! {:message "Back to code" :chat-id chat-id :agent "code"} mocks)
+          (is (= 3 @build-calls*)
+              "Switching back to the first agent should also trigger a rebuild"))))))
+
+(deftest prompt-cache-key-includes-agent-test
+  (testing "sync-or-async-prompt! receives prompt-cache-key scoped by active agent"
+    (h/reset-components!)
+    (with-redefs [config/validate-agent-name (fn [agent-name _config] agent-name)]
+      (let [captured* (atom [])
+            mocks {:all-tools-mock (constantly [])
+                   :api-mock (fn [{:keys [on-message-received] :as params}]
+                               (swap! captured* conj (:prompt-cache-key params))
+                               (on-message-received {:type :finish}))}
+            {:keys [chat-id]} (prompt! {:message "hi" :agent "code"} mocks)]
+        (h/reset-messenger!)
+        (prompt! {:message "hello" :chat-id chat-id :agent "plan"} mocks)
+        (is (= 2 (count @captured*)))
+        (is (every? some? @captured*))
+        (is (string/ends-with? (first @captured*) "/code")
+            "First prompt's cache key should be suffixed by /code")
+        (is (string/ends-with? (second @captured*) "/plan")
+            "Second prompt's cache key should be suffixed by /plan")))))
+
 
