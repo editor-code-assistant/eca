@@ -24,6 +24,7 @@
            {:chatId nil
             :commands [{:name "init" :arguments []}
                        {:name "login" :arguments [{:name "provider-id"}]}
+                       {:name "model" :arguments [{:name "full-model"}]}
                        {:name "skills" :arguments []}
                        {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
                        {:name "costs" :arguments []}
