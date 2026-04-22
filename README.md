@@ -19,7 +19,7 @@ src="https://img.shields.io/github/stars/editor-code-assistant/eca?style=flat-sq
  
 <hr>
 <p align="center">
-  <a href="https://eca.dev/config/introduction/#installation"><strong>installation</strong></a> •
+  <a href="https://eca.dev/install"><strong>installation</strong></a> •
   <a href="https://eca.dev/features"><strong>features</strong></a> •
   <a href="https://eca.dev/config/introduction"><strong>configuration</strong></a> •
   <a href="https://eca.dev/config/models"><strong>models</strong></a> •

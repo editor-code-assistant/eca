@@ -11,6 +11,8 @@ nav:
   - Features:
     - Features: features.md
     - Workflows: workflows.md
+  - Install:
+    - install.md
   - Configuration:
     - Introduction: config/introduction.md
     - Providers / Models: config/models.md

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Disable `ask_user` tool for subagents since they run non-interactively. #416
+- Add a dedicated guided **Install** page to the docs site (`/install`) with a "Where do you want to use ECA?" picker for editor plugins (Emacs, VS Code, Neovim, IntelliJ), Desktop, and manual methods (script, Homebrew, mise, GitHub Releases).
 
 ## 0.128.1
 
