@@ -212,6 +212,13 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Import Developer ID certificate
+        if: ${{ secrets.CSC_LINK != '' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Build MacOS native image
         env:
           ECA_JAR: "eca.jar"
@@ -219,8 +226,35 @@ jobs:
         run: |
           bb native-cli
 
+      - name: Codesign native binary
+        if: ${{ secrets.CSC_LINK != '' }}
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::No Developer ID Application identity found in keychain"
+            exit 1
+          fi
+          echo "Signing with: $IDENTITY"
+          codesign --force --options runtime --timestamp \
+            --entitlements build/entitlements.mac.plist \
+            --sign "$IDENTITY" ./eca
+          codesign --verify --strict --verbose=4 ./eca
+
       - name: Zip binary
         run: zip eca-native-macos-amd64.zip eca
+
+      - name: Notarize zipped binary
+        if: ${{ secrets.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool submit eca-native-macos-amd64.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -259,6 +293,13 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Import Developer ID certificate
+        if: ${{ secrets.CSC_LINK != '' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
       - name: Build MacOS native image
         env:
           ECA_JAR: "eca.jar"
@@ -266,8 +307,35 @@ jobs:
         run: |
           bb native-cli
 
+      - name: Codesign native binary
+        if: ${{ secrets.CSC_LINK != '' }}
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::No Developer ID Application identity found in keychain"
+            exit 1
+          fi
+          echo "Signing with: $IDENTITY"
+          codesign --force --options runtime --timestamp \
+            --entitlements build/entitlements.mac.plist \
+            --sign "$IDENTITY" ./eca
+          codesign --verify --strict --verbose=4 ./eca
+
       - name: Zip binary
         run: zip eca-native-macos-aarch64.zip eca
+
+      - name: Notarize zipped binary
+        if: ${{ secrets.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool submit eca-native-macos-aarch64.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
 
       - name: Upload
         uses: actions/upload-artifact@v4
