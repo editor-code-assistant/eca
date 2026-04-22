@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Disable `ask_user` tool for subagents since they run non-interactively. #416
+
 ## 0.128.1
 
 - Fix stale system prompt being reused after switching agent mid-chat by scoping the chat-level prompt cache and the OpenAI Responses `prompt_cache_key` per active agent. #411

@@ -174,9 +174,10 @@
 
    - Excludes spawn_agent to prevent nesting.
    - Excludes task because task list state is currently chat-local; it should be managed by the parent agent.
-   - Excludes git because subagents don't perform git operations."
+   - Excludes git because subagents don't perform git operations.
+   - Excludes ask_user because subagents run non-interactively and cannot prompt the user."
   [tools]
-  (filterv #(not (contains? #{"spawn_agent" "task" "git"} (:name %))) tools))
+  (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools

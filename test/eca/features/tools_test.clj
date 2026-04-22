@@ -35,12 +35,14 @@
                      :origin :native}])
          (f.tools/all-tools "123" "code" {} {}))))
 
-  (testing "Subagent excludes spawn_agent and task tools"
+  (testing "Subagent excludes spawn_agent, task, git, and ask_user tools"
     (let [db {:chats {"sub-1" {:subagent {:name "explorer"}}}}
           tools (f.tools/all-tools "sub-1" "code" db {})
           tool-names (set (map :name tools))]
       (is (not (contains? tool-names "spawn_agent")))
-      (is (not (contains? tool-names "task")))))
+      (is (not (contains? tool-names "task")))
+      (is (not (contains? tool-names "git")))
+      (is (not (contains? tool-names "ask_user")))))
 
   (testing "Do not include disabled native tools"
     (is (match?
