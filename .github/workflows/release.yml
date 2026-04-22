@@ -194,6 +194,12 @@ jobs:
     name: Build native MacOS amd64 binary
     needs: [ build-jar]
     runs-on: macos-15-intel
+    env:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -213,11 +219,11 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Import Developer ID certificate
-        if: ${{ secrets.CSC_LINK != '' }}
+        if: env.CSC_LINK != ''
         uses: apple-actions/import-codesign-certs@v3
         with:
-          p12-file-base64: ${{ secrets.CSC_LINK }}
-          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+          p12-file-base64: ${{ env.CSC_LINK }}
+          p12-password: ${{ env.CSC_KEY_PASSWORD }}
 
       - name: Build MacOS native image
         env:
@@ -227,7 +233,7 @@ jobs:
           bb native-cli
 
       - name: Codesign native binary
-        if: ${{ secrets.CSC_LINK != '' }}
+        if: env.CSC_LINK != ''
         run: |
           IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')
           if [[ -z "$IDENTITY" ]]; then
@@ -244,11 +250,7 @@ jobs:
         run: zip eca-native-macos-amd64.zip eca
 
       - name: Notarize zipped binary
-        if: ${{ secrets.APPLE_ID != '' }}
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        if: env.APPLE_ID != ''
         run: |
           xcrun notarytool submit eca-native-macos-amd64.zip \
             --apple-id "$APPLE_ID" \
@@ -275,6 +277,12 @@ jobs:
     name: Build native MacOS aarch64 binary
     needs: [ build-jar]
     runs-on: macos-14
+    env:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -294,11 +302,11 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Import Developer ID certificate
-        if: ${{ secrets.CSC_LINK != '' }}
+        if: env.CSC_LINK != ''
         uses: apple-actions/import-codesign-certs@v3
         with:
-          p12-file-base64: ${{ secrets.CSC_LINK }}
-          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+          p12-file-base64: ${{ env.CSC_LINK }}
+          p12-password: ${{ env.CSC_KEY_PASSWORD }}
 
       - name: Build MacOS native image
         env:
@@ -308,7 +316,7 @@ jobs:
           bb native-cli
 
       - name: Codesign native binary
-        if: ${{ secrets.CSC_LINK != '' }}
+        if: env.CSC_LINK != ''
         run: |
           IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ {print $2; exit}')
           if [[ -z "$IDENTITY" ]]; then
@@ -325,11 +333,7 @@ jobs:
         run: zip eca-native-macos-aarch64.zip eca
 
       - name: Notarize zipped binary
-        if: ${{ secrets.APPLE_ID != '' }}
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        if: env.APPLE_ID != ''
         run: |
           xcrun notarytool submit eca-native-macos-aarch64.zip \
             --apple-id "$APPLE_ID" \
