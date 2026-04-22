@@ -227,12 +227,14 @@
     display: grid;
   }
 
+  /* `display: none` (not just opacity/visibility) is required here: inner
+     panels use nested `:checked` toggles that set `visibility: visible` on
+     their active branch, which would otherwise override any ancestor's
+     `visibility: hidden` and leak clicks from invisible arch download
+     buttons to the visible primary tab. `display: none` removes the whole
+     subtree from rendering, guaranteeing no descendant can intercept. */
   .eca-install-panel {
-    grid-area: 1 / 1;
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(6px);
-    transition: opacity 0.25s ease, transform 0.25s ease;
+    display: none;
   }
 
   #eca-install-emacs:checked    ~ .eca-install-panels .eca-install-panel--emacs,
@@ -240,9 +242,7 @@
   #eca-install-neovim:checked   ~ .eca-install-panels .eca-install-panel--neovim,
   #eca-install-intellij:checked ~ .eca-install-panels .eca-install-panel--intellij,
   #eca-install-desktop:checked  ~ .eca-install-panels .eca-install-panel--desktop {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
+    display: block;
   }
 
   .eca-install-panel__body {
@@ -386,8 +386,9 @@
   .eca-install-subpanel {
     grid-area: 1 / 1;
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.2s ease, visibility 0s linear 0.2s;
   }
 
   #eca-manual-script:checked   ~ .eca-install-subpanels .eca-install-subpanel--script,
@@ -395,7 +396,9 @@
   #eca-manual-mise:checked     ~ .eca-install-subpanels .eca-install-subpanel--mise,
   #eca-manual-releases:checked ~ .eca-install-subpanels .eca-install-subpanel--releases {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
+    transition: opacity 0.2s ease, visibility 0s linear 0s;
   }
 
   .eca-install-subpanel p {
@@ -646,18 +649,19 @@
     display: grid;
   }
 
+  /* Use `display: none` (not visibility) so the arch download buttons inside
+     hidden OS panels are fully removed from rendering. Their `:checked`
+     active rule explicitly sets `visibility: visible`, which would otherwise
+     override the OS panel's `visibility: hidden` and leak clicks from e.g.
+     `eca-mac-arm64.dmg` onto the visible Linux x64 AppImage button. */
   .eca-install-os__panel {
-    grid-area: 1 / 1;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
+    display: none;
   }
 
   #eca-desktop-os-linux:checked   ~ .eca-install-os__panels .eca-install-os__panel--linux,
   #eca-desktop-os-mac:checked     ~ .eca-install-os__panels .eca-install-os__panel--mac,
   #eca-desktop-os-windows:checked ~ .eca-install-os__panels .eca-install-os__panel--windows {
-    opacity: 1;
-    pointer-events: auto;
+    display: block;
   }
 
   /* Arch picker — compact segmented control, same visual language as OS tabs */
@@ -743,9 +747,10 @@
     align-items: flex-start; /* shrink each link to its content width */
     gap: 0.45rem;
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
     transform: translateY(4px);
-    transition: opacity 0.22s ease, transform 0.22s ease;
+    transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0.22s;
   }
 
   #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__downloads .eca-install-arch__download--mac-arm64,
@@ -753,8 +758,10 @@
   #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__downloads .eca-install-arch__download--linux-x64,
   #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__downloads .eca-install-arch__download--linux-arm64 {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
     transform: translateY(0);
+    transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0s;
   }
 
   /* Secondary (outline) download button */

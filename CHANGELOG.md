@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix empty `.sha256` for macOS aarch64 release artifact by using `shasum -a 256` (portable across macOS runners) and enabling `pipefail` so silent pipe failures don't hide.
+- Fix install page `eca-desktop` download buttons navigating to the wrong artifact (e.g. Linux/x86_64 AppImage leading to `eca-mac-arm64.dmg`) caused by hidden OS/arch panels still intercepting clicks on top of the visible panel; hidden primary tab and OS panels now use `display: none` so their nested `:checked` rules can't re-activate and leak clicks.
 
 ## 0.128.2
 
