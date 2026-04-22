@@ -241,10 +241,17 @@ jobs:
             exit 1
           fi
           echo "Signing with: $IDENTITY"
-          codesign --force --options runtime --timestamp \
-            --entitlements build/entitlements.mac.plist \
-            --sign "$IDENTITY" ./eca
-          codesign --verify --strict --verbose=4 ./eca
+          # Sign in an isolated directory so codesign does not walk sibling
+          # files in the repo root as "subcomponents".
+          TMPSIGN=$(mktemp -d)
+          cp ./eca "$TMPSIGN/eca"
+          cp build/entitlements.mac.plist "$TMPSIGN/entitlements.plist"
+          (cd "$TMPSIGN" && codesign --force --options runtime --timestamp \
+            --entitlements entitlements.plist \
+            --sign "$IDENTITY" ./eca)
+          codesign -dvvv "$TMPSIGN/eca"
+          mv "$TMPSIGN/eca" ./eca
+          rm -rf "$TMPSIGN"
 
       - name: Zip binary
         run: zip eca-native-macos-amd64.zip eca
@@ -324,10 +331,17 @@ jobs:
             exit 1
           fi
           echo "Signing with: $IDENTITY"
-          codesign --force --options runtime --timestamp \
-            --entitlements build/entitlements.mac.plist \
-            --sign "$IDENTITY" ./eca
-          codesign --verify --strict --verbose=4 ./eca
+          # Sign in an isolated directory so codesign does not walk sibling
+          # files in the repo root as "subcomponents".
+          TMPSIGN=$(mktemp -d)
+          cp ./eca "$TMPSIGN/eca"
+          cp build/entitlements.mac.plist "$TMPSIGN/entitlements.plist"
+          (cd "$TMPSIGN" && codesign --force --options runtime --timestamp \
+            --entitlements entitlements.plist \
+            --sign "$IDENTITY" ./eca)
+          codesign -dvvv "$TMPSIGN/eca"
+          mv "$TMPSIGN/eca" ./eca
+          rm -rf "$TMPSIGN"
 
       - name: Zip binary
         run: zip eca-native-macos-aarch64.zip eca
