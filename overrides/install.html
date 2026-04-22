@@ -780,52 +780,67 @@
     transform: translateY(0);
   }
 
+  /* Secondary (outline) download button */
   .eca-install-download__link {
     display: inline-flex;
     align-items: center;
     gap: 0.55rem;
-    padding: 0.55rem 0.8rem;
-    border-radius: 7px;
+    padding: 0.7rem 1.2rem;
+    border-radius: 8px;
     background: var(--eca-bg-card);
-    border: 1px solid var(--eca-border);
-    font-size: 0.85rem;
+    border: 1.5px solid var(--eca-border);
+    font-size: 0.9rem;
     font-weight: 600;
     color: var(--eca-text);
     text-decoration: none;
     transition: all 0.18s ease;
+    box-shadow: 0 1px 2px var(--eca-shadow-sm);
   }
 
   .eca-install-download__link:hover {
     border-color: var(--eca-brand);
     color: var(--eca-brand);
+    background: var(--eca-brand-bg);
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px var(--eca-brand-shadow);
+    box-shadow: 0 4px 12px var(--eca-brand-shadow-md);
   }
 
   .eca-install-download__link svg {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     fill: currentColor;
     flex-shrink: 0;
   }
 
+  /* Primary (solid brand fill) download button */
+  .eca-install-download__link--primary,
+  .eca-install-download__link--primary:hover {
+    background: var(--eca-brand-gradient);
+    border-color: transparent;
+    color: #fff;
+  }
+
   .eca-install-download__link--primary {
-    border-color: var(--eca-brand);
-    background: var(--eca-brand-bg);
-    color: var(--eca-brand);
+    box-shadow: 0 3px 10px var(--eca-brand-shadow-md);
+  }
+
+  .eca-install-download__link--primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px var(--eca-brand-shadow-md);
   }
 
   .eca-install-download__tag {
     margin-left: auto;
+    padding-left: 0.75rem;
     font-size: 0.66rem;
     font-weight: 700;
     color: var(--eca-text-muted);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
   .eca-install-download__link--primary .eca-install-download__tag {
-    color: var(--eca-brand);
+    color: rgba(255, 255, 255, 0.85);
   }
 
   /* Note callout (per-OS hints) */
