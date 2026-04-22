@@ -1424,14 +1424,14 @@
   {%- endmacro %}
 
   {# ── Editor panel macro ── #}
-  {% macro editor_panel(id, title, img_src, img_alt, display_name) -%}
+  {% macro editor_panel(id, title, img_src, img_alt, cta_text) -%}
     <div class="eca-editors__panel eca-editors__panel--{{ id }}">
       <div class="eca-editors__panel-frame">
         {{ editor_chrome(title) }}
         <img src="{{ img_src }}" alt="{{ img_alt }}">
       </div>
       <a href="install/#{{ id }}" class="eca-editors__panel-link">
-        Install {{ display_name }}
+        {{ cta_text }}
         {{ icon_chevron_right() }}
       </a>
     </div>
@@ -1526,19 +1526,19 @@
         <div class="eca-editors__panels">
           {{ editor_panel("emacs", "ECA &mdash; Emacs",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-emacs/master/demo.gif",
-             "ECA running in Emacs", "Emacs") }}
+             "ECA running in Emacs", "Install in Emacs") }}
           {{ editor_panel("vscode", "ECA &mdash; VS Code",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-vscode/master/demo.gif",
-             "ECA running in VS Code", "VS Code") }}
+             "ECA running in VS Code", "Install in VS Code") }}
           {{ editor_panel("intellij", "ECA &mdash; IntelliJ",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-intellij/master/demo.gif",
-             "ECA running in IntelliJ", "IntelliJ") }}
+             "ECA running in IntelliJ", "Install in IntelliJ") }}
           {{ editor_panel("neovim", "ECA &mdash; Neovim",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-nvim/master/demo.png",
-             "ECA running in Neovim", "Neovim") }}
+             "ECA running in Neovim", "Install in Neovim") }}
           {{ editor_panel("desktop", "ECA &mdash; Desktop",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/master/demo.gif",
-             "ECA running as a Desktop app", "Desktop") }}
+             "ECA running as a Desktop app", "Install Desktop version") }}
         </div>
       </div>
 
