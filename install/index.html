@@ -725,33 +725,123 @@
     pointer-events: auto;
   }
 
-  /* Arch-card grid */
-  .eca-install-download-group {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.9rem;
+  /* Arch picker (segmented-control style, 2 options + reveal panel) */
+  .eca-install-arch {
+    position: relative;
   }
 
-  .eca-install-download {
-    padding: 1rem 1.1rem;
-    border-radius: 10px;
-    border: 1px solid var(--eca-border);
-    background: var(--eca-bg-secondary);
+  .eca-install-arch input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
   }
 
-  .eca-install-download__header {
-    font-size: 0.72rem;
+  .eca-install-arch__heading {
+    font-size: 0.7rem;
     font-weight: 700;
-    color: var(--eca-text-muted);
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    color: var(--eca-text-muted);
     margin: 0 0 0.65rem;
   }
 
-  .eca-install-download__links {
+  .eca-install-arch__options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+    margin-bottom: 1.1rem;
+  }
+
+  .eca-install-arch__option {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.18rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    border: 1.5px solid var(--eca-border);
+    background: var(--eca-bg-card);
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+    position: relative;
+  }
+
+  .eca-install-arch__option:hover {
+    border-color: var(--eca-brand-light);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px var(--eca-brand-shadow);
+  }
+
+  .eca-install-arch__option-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--eca-text);
+  }
+
+  .eca-install-arch__option-sub {
+    font-size: 0.74rem;
+    color: var(--eca-text-muted);
+    letter-spacing: 0.01em;
+  }
+
+  .eca-install-arch__option-check {
+    position: absolute;
+    top: 0.55rem;
+    right: 0.65rem;
+    width: 16px;
+    height: 16px;
+    fill: var(--eca-brand);
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+
+  /* Active state for each of the 4 arch options */
+  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-arm64"],
+  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-x64"],
+  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-x64"],
+  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-arm64"] {
+    border-color: var(--eca-brand);
+    background: var(--eca-brand-bg);
+    box-shadow: 0 3px 10px var(--eca-brand-shadow-md);
+  }
+
+  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-arm64"]   .eca-install-arch__option-title,
+  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-x64"]     .eca-install-arch__option-title,
+  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-x64"]   .eca-install-arch__option-title,
+  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-arm64"] .eca-install-arch__option-title {
+    color: var(--eca-brand);
+  }
+
+  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-arm64"]   .eca-install-arch__option-check,
+  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-x64"]     .eca-install-arch__option-check,
+  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-x64"]   .eca-install-arch__option-check,
+  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-arm64"] .eca-install-arch__option-check {
+    opacity: 1;
+  }
+
+  /* Download reveal panels — one active at a time, per arch */
+  .eca-install-arch__downloads {
+    display: grid;
+  }
+
+  .eca-install-arch__download {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+
+  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__downloads .eca-install-arch__download--mac-arm64,
+  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__downloads .eca-install-arch__download--mac-x64,
+  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__downloads .eca-install-arch__download--linux-x64,
+  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__downloads .eca-install-arch__download--linux-arm64 {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
   }
 
   .eca-install-download__link {
@@ -1008,12 +1098,13 @@
       font-size: 0.78rem;
     }
 
-    .eca-install-download-group {
+    .eca-install-arch__options {
       grid-template-columns: 1fr;
+      gap: 0.5rem;
     }
 
-    .eca-install-download {
-      padding: 0.85rem 0.95rem;
+    .eca-install-arch__option {
+      padding: 0.7rem 0.85rem;
     }
 
     .eca-install-advanced {
@@ -1317,6 +1408,8 @@
   
 
   
+
+  
   
 
   
@@ -1497,12 +1590,29 @@
               </div>
 
               <div class="eca-install-os__panels">
-                <!-- Linux -->
+                <!-- Linux: arch picker + per-arch downloads -->
                 <div class="eca-install-os__panel eca-install-os__panel--linux">
-                  <div class="eca-install-download-group">
-                    <div class="eca-install-download">
-                      <div class="eca-install-download__header">x86_64 · Intel / AMD</div>
-                      <div class="eca-install-download__links">
+                  <div class="eca-install-arch">
+                    <!-- HTML default: Linux x64 (most common); JS upgrades to arm64 on detection. -->
+                    <input type="radio" name="eca-desktop-arch-linux" id="eca-desktop-arch-linux-x64" checked>
+                    <input type="radio" name="eca-desktop-arch-linux" id="eca-desktop-arch-linux-arm64">
+
+                    <p class="eca-install-arch__heading">Choose your architecture</p>
+                    <div class="eca-install-arch__options">
+                      <label for="eca-desktop-arch-linux-x64" class="eca-install-arch__option">
+                        <span class="eca-install-arch__option-title">x86_64</span>
+                        <span class="eca-install-arch__option-sub">Intel / AMD · 64-bit</span>
+                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                      </label>
+                      <label for="eca-desktop-arch-linux-arm64" class="eca-install-arch__option">
+                        <span class="eca-install-arch__option-title">arm64</span>
+                        <span class="eca-install-arch__option-sub">aarch64 · Raspberry Pi, ARM servers</span>
+                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                      </label>
+                    </div>
+
+                    <div class="eca-install-arch__downloads">
+                      <div class="eca-install-arch__download eca-install-arch__download--linux-x64">
                         <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-x64.AppImage"
                            class="eca-install-download__link eca-install-download__link--primary"
                            target="_blank" rel="noopener">
@@ -1514,10 +1624,7 @@
                           <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .deb
                         </a>
                       </div>
-                    </div>
-                    <div class="eca-install-download">
-                      <div class="eca-install-download__header">arm64 · aarch64</div>
-                      <div class="eca-install-download__links">
+                      <div class="eca-install-arch__download eca-install-arch__download--linux-arm64">
                         <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-arm64.AppImage"
                            class="eca-install-download__link eca-install-download__link--primary"
                            target="_blank" rel="noopener">
@@ -1539,12 +1646,29 @@
                   </p>
                 </div>
 
-                <!-- macOS -->
+                <!-- macOS: arch picker + per-arch downloads -->
                 <div class="eca-install-os__panel eca-install-os__panel--mac">
-                  <div class="eca-install-download-group">
-                    <div class="eca-install-download">
-                      <div class="eca-install-download__header">Apple Silicon · M1 / M2 / M3</div>
-                      <div class="eca-install-download__links">
+                  <div class="eca-install-arch">
+                    <!-- HTML default: Apple Silicon (majority of modern Macs); JS may override to x64. -->
+                    <input type="radio" name="eca-desktop-arch-mac" id="eca-desktop-arch-mac-arm64" checked>
+                    <input type="radio" name="eca-desktop-arch-mac" id="eca-desktop-arch-mac-x64">
+
+                    <p class="eca-install-arch__heading">Choose your Mac</p>
+                    <div class="eca-install-arch__options">
+                      <label for="eca-desktop-arch-mac-arm64" class="eca-install-arch__option">
+                        <span class="eca-install-arch__option-title">Apple Silicon</span>
+                        <span class="eca-install-arch__option-sub">M1 · M2 · M3 · M4 (arm64)</span>
+                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                      </label>
+                      <label for="eca-desktop-arch-mac-x64" class="eca-install-arch__option">
+                        <span class="eca-install-arch__option-title">Intel</span>
+                        <span class="eca-install-arch__option-sub">x86_64 · pre-2020 Macs</span>
+                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                      </label>
+                    </div>
+
+                    <div class="eca-install-arch__downloads">
+                      <div class="eca-install-arch__download eca-install-arch__download--mac-arm64">
                         <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-mac-arm64.dmg"
                            class="eca-install-download__link eca-install-download__link--primary"
                            target="_blank" rel="noopener">
@@ -1556,10 +1680,7 @@
                           <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .zip
                         </a>
                       </div>
-                    </div>
-                    <div class="eca-install-download">
-                      <div class="eca-install-download__header">Intel · x86_64</div>
-                      <div class="eca-install-download__links">
+                      <div class="eca-install-arch__download eca-install-arch__download--mac-x64">
                         <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-mac-x64.dmg"
                            class="eca-install-download__link eca-install-download__link--primary"
                            target="_blank" rel="noopener">
@@ -1662,6 +1783,33 @@
               if (osId) {
                 var osEl = document.getElementById(osId);
                 if (osEl) osEl.checked = true;
+              }
+            } catch (_e) { /* non-fatal */ }
+
+            // ── 3. Desktop panel: auto-select arch (arm64 vs x64) ──
+            // Best-effort — user-agent lies on Apple Silicon, so high-entropy
+            // client hints (Chromium) are checked async as an upgrade.
+            function setArchRadio(os, arch) {
+              var el = document.getElementById('eca-desktop-arch-' + os + '-' + arch);
+              if (el) el.checked = true;
+            }
+            try {
+              var ua2 = (navigator.userAgent || '').toLowerCase();
+              if (/aarch64|arm64|armv8/.test(ua2)) {
+                setArchRadio('mac', 'arm64');
+                setArchRadio('linux', 'arm64');
+              }
+              // Async high-entropy hint (Chromium only): overrides with accurate arch.
+              if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+                navigator.userAgentData.getHighEntropyValues(['architecture']).then(function (v) {
+                  var arch = null;
+                  if (v.architecture === 'arm')      arch = 'arm64';
+                  else if (v.architecture === 'x86') arch = 'x64';
+                  if (arch) {
+                    setArchRadio('mac', arch);
+                    setArchRadio('linux', arch);
+                  }
+                }).catch(function () { /* non-fatal */ });
               }
             } catch (_e) { /* non-fatal */ }
           })();
