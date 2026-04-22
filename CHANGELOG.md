@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix empty `.sha256` for macOS aarch64 release artifact by using `shasum -a 256` (portable across macOS runners) and enabling `pipefail` so silent pipe failures don't hide.
+
 ## 0.128.2
 
 - Sign and notarize macOS native binaries in release CI.

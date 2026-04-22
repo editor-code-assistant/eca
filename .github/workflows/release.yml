@@ -272,7 +272,9 @@ jobs:
           name: eca-native-macos-amd64.zip
 
       - name: Generate sha256
-        run: sha256sum eca-native-macos-amd64.zip | awk '{print $1}' > eca-native-macos-amd64.zip.sha256
+        run: |
+          set -euo pipefail
+          shasum -a 256 eca-native-macos-amd64.zip | awk '{print $1}' > eca-native-macos-amd64.zip.sha256
 
       - name: Upload sha256
         uses: actions/upload-artifact@v4
@@ -362,7 +364,9 @@ jobs:
           name: eca-native-macos-aarch64.zip
 
       - name: Generate sha256
-        run: sha256sum eca-native-macos-aarch64.zip | awk '{print $1}' > eca-native-macos-aarch64.zip.sha256
+        run: |
+          set -euo pipefail
+          shasum -a 256 eca-native-macos-aarch64.zip | awk '{print $1}' > eca-native-macos-aarch64.zip.sha256
 
       - name: Upload sha256
         uses: actions/upload-artifact@v4
