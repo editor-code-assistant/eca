@@ -1,0 +1,2749 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Install ECA in your editor (Emacs, VS Code, Neovim, IntelliJ), as a Desktop app, or manually via script, Homebrew, mise, or GitHub Releases.">
+      
+      
+      
+        <link rel="canonical" href="https://eca.dev/install/">
+      
+      
+        <link rel="prev" href="../workflows/">
+      
+      
+        <link rel="next" href="../config/introduction/">
+      
+      
+      <link rel="icon" href="../images/logo.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
+    
+    
+      
+        <title>Install ECA - ECA - Editor Code Assistant</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.342714a4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/layout.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+  
+
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config","G-VFJYDKR1MR"),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","G-VFJYDKR1MR",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=G-VFJYDKR1MR",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+    
+
+
+
+
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Install ECA" />
+<meta property="og:description" content="Install ECA in your editor (Emacs, VS Code, Neovim, IntelliJ), as a Desktop app, or manually via script, Homebrew, mise, or GitHub Releases." />
+<meta property="og:url" content="https://eca.dev/install/" />
+<meta property="og:image" content="https://eca.dev/images/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content="ECA - Editor Code Assistant" />
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Install ECA" />
+<meta name="twitter:description" content="Install ECA in your editor (Emacs, VS Code, Neovim, IntelliJ), as a Desktop app, or manually via script, Homebrew, mise, or GitHub Releases." />
+<meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
+
+<!-- Additional SEO -->
+<meta name="keywords" content="ECA install, Editor Code Assistant install, VS Code, Emacs, Neovim, IntelliJ, Desktop, Homebrew, mise, install script, AI pair programming" />
+<link rel="canonical" href="https://eca.dev/install/" />
+
+<style>
+  /*
+   * ECA Install Page Styles
+   * ──────────────────────────
+   * 1. Custom Properties (light + dark)
+   * 2. Page Chrome Reset
+   * 3. Hero
+   * 4. Picker (cards + panels)
+   * 5. Manual sub-tabs
+   * 6. Help footer
+   * 7. Responsive
+   */
+
+  /* ── 1. Custom Properties ── */
+  :root {
+    --eca-brand: #007a94;
+    --eca-brand-light: #00a5b8;
+    --eca-brand-hover: #004d5e;
+    --eca-brand-bg: #e3f6f9;
+    --eca-brand-shadow: rgba(0,122,148,0.08);
+    --eca-brand-shadow-md: rgba(0,122,148,0.15);
+    --eca-brand-gradient: linear-gradient(90deg, #007a94, #00a5b8);
+
+    --eca-text: #1a2b3c;
+    --eca-text-secondary: #5a6a7a;
+    --eca-text-muted: #8a9ab0;
+
+    --eca-bg-primary: #fff;
+    --eca-bg-secondary: #f6f8fa;
+    --eca-bg-card: #fff;
+    --eca-border: #e4e8ec;
+
+    --eca-shadow-sm: rgba(0,0,0,0.06);
+    --eca-shadow-md: rgba(0,0,0,0.1);
+
+    --eca-code-bg: #1a1a2e;
+    --eca-code-text: #c9d1d9;
+    --eca-terminal-bg: #2d2d2d;
+    --eca-terminal-text: #999;
+    --eca-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+
+  [data-md-color-scheme="slate"] {
+    --eca-brand: #00a5b8;
+    --eca-brand-light: #00a5b8;
+    --eca-brand-hover: #7dd8e6;
+    --eca-brand-bg: #0a2a30;
+    --eca-brand-shadow: rgba(0,165,184,0.1);
+    --eca-brand-shadow-md: rgba(0,165,184,0.2);
+    --eca-brand-gradient: linear-gradient(90deg, #00a5b8, #007a94);
+
+    --eca-text: #e0e4ea;
+    --eca-text-secondary: #8a9ab0;
+    --eca-text-muted: #5a6a7a;
+
+    --eca-bg-primary: #12121e;
+    --eca-bg-secondary: #1a1a2e;
+    --eca-bg-card: #22223a;
+    --eca-border: #2a2a3e;
+
+    --eca-shadow-sm: rgba(0,0,0,0.2);
+    --eca-shadow-md: rgba(0,0,0,0.3);
+
+    --eca-code-bg: #0a0a16;
+  }
+
+  /* ── 2. Page Chrome Reset ── */
+  .md-main__inner { margin-top: 0; }
+  .md-content__inner { padding: 0; margin: 0; }
+  .md-content { max-width: none; margin: 0; }
+  .md-main .md-main__inner.md-grid { max-width: none; padding: 0; }
+  .md-content__inner::before { display: none; }
+  article.md-content__inner { padding: 0; }
+
+  @media (max-width: 76.1875em) {
+    .md-sidebar--primary { display: block; }
+  }
+
+  /* ── 3. Intro block (replaces the old dark hero) ── */
+  .eca-install-intro {
+    padding: 2.25rem 2rem 0.5rem;
+    background: var(--eca-bg-primary);
+  }
+
+  .eca-install-intro__inner {
+    max-width: 48rem;
+    margin: 0 auto;
+  }
+
+  .eca-install-intro__note {
+    font-size: 0.92rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.55;
+    margin: 0 0 1rem;
+  }
+
+  .eca-install-intro__callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    background: var(--eca-brand-bg);
+    border: 1px solid var(--eca-border);
+    color: var(--eca-text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  .eca-install-intro__callout-icon {
+    flex-shrink: 0;
+    font-size: 1.05rem;
+    line-height: 1.3;
+  }
+
+  .eca-install-intro__callout strong {
+    color: var(--eca-text);
+    font-weight: 700;
+  }
+
+  /* ── 4. Picker (tabs + panels) ── */
+  .eca-install-picker {
+    padding: 1.5rem 2rem 3.5rem;
+    background: var(--eca-bg-primary);
+  }
+
+  .eca-install-picker__inner {
+    max-width: 60rem;
+    margin: 0 auto;
+  }
+
+  .eca-install-picker input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .eca-install-picker__question {
+    text-align: center;
+    font-size: 2.15rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--eca-text);
+    margin: 0.5rem 0 1.75rem;
+  }
+
+  /* Primary tab bar (horizontal, underline-style active indicator) */
+  .eca-install-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-bottom: 1.75rem;
+    border-bottom: 1px solid var(--eca-border);
+  }
+
+  .eca-install-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1.35rem;
+    margin-bottom: -1px; /* overlap the container's bottom-border */
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--eca-text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .eca-install-tab svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+    transition: fill 0.18s ease;
+  }
+
+  .eca-install-tab:hover {
+    color: var(--eca-text);
+    background: var(--eca-bg-secondary);
+  }
+
+  #eca-install-emacs:checked    ~ .eca-install-tabs label[for="eca-install-emacs"],
+  #eca-install-vscode:checked   ~ .eca-install-tabs label[for="eca-install-vscode"],
+  #eca-install-neovim:checked   ~ .eca-install-tabs label[for="eca-install-neovim"],
+  #eca-install-intellij:checked ~ .eca-install-tabs label[for="eca-install-intellij"],
+  #eca-install-desktop:checked  ~ .eca-install-tabs label[for="eca-install-desktop"] {
+    color: var(--eca-brand);
+    border-bottom-color: var(--eca-brand);
+    background: transparent;
+  }
+
+  /* Panels */
+  .eca-install-panels {
+    display: grid;
+  }
+
+  .eca-install-panel {
+    grid-area: 1 / 1;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(6px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+
+  #eca-install-emacs:checked    ~ .eca-install-panels .eca-install-panel--emacs,
+  #eca-install-vscode:checked   ~ .eca-install-panels .eca-install-panel--vscode,
+  #eca-install-neovim:checked   ~ .eca-install-panels .eca-install-panel--neovim,
+  #eca-install-intellij:checked ~ .eca-install-panels .eca-install-panel--intellij,
+  #eca-install-desktop:checked  ~ .eca-install-panels .eca-install-panel--desktop {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .eca-install-panel__body {
+    /* No card chrome — content flows directly on the section background.
+       Just enough top breathing room below the tab-bar underline. */
+    padding: 1.5rem 0 0.25rem;
+  }
+
+  .eca-install-panel__title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--eca-text);
+    margin: 0 0 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  .eca-install-panel__title svg {
+    width: 22px;
+    height: 22px;
+    fill: var(--eca-brand);
+  }
+
+  .eca-install-panel__desc {
+    font-size: 0.95rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.6;
+    margin: 0 0 1.25rem;
+  }
+
+  .eca-install-panel__desc code {
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: var(--eca-bg-secondary);
+    font-family: var(--eca-font-mono);
+    font-size: 0.85em;
+    color: var(--eca-brand);
+  }
+
+  .eca-install-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.7rem 1.35rem;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+  }
+
+  .eca-install-btn--primary {
+    background: var(--eca-brand-gradient);
+    color: #fff;
+    box-shadow: 0 4px 14px var(--eca-brand-shadow-md);
+  }
+
+  .eca-install-btn--primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px var(--eca-brand-shadow-md);
+    color: #fff;
+  }
+
+  .eca-install-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+  }
+
+  .eca-install-panel__meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: 0.85rem;
+    font-size: 0.82rem;
+    color: var(--eca-text-muted);
+    font-weight: 500;
+  }
+
+  .eca-install-panel__meta svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+  }
+
+  /* ── 5. Manual sub-tabs ── */
+  .eca-install-manual-wrap {
+    position: relative;
+  }
+
+  .eca-install-manual-wrap input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .eca-install-subtabs {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--eca-border);
+    padding-bottom: 0.75rem;
+  }
+
+  .eca-install-subtab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.95rem;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--eca-text-secondary);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+  }
+
+  .eca-install-subtab:hover {
+    color: var(--eca-text);
+    background: var(--eca-bg-secondary);
+  }
+
+  #eca-manual-script:checked   ~ .eca-install-subtabs label[for="eca-manual-script"],
+  #eca-manual-brew:checked     ~ .eca-install-subtabs label[for="eca-manual-brew"],
+  #eca-manual-mise:checked     ~ .eca-install-subtabs label[for="eca-manual-mise"],
+  #eca-manual-releases:checked ~ .eca-install-subtabs label[for="eca-manual-releases"] {
+    color: var(--eca-brand);
+    background: var(--eca-brand-bg);
+    border-color: var(--eca-brand);
+  }
+
+  .eca-install-subpanels {
+    display: grid;
+  }
+
+  .eca-install-subpanel {
+    grid-area: 1 / 1;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  #eca-manual-script:checked   ~ .eca-install-subpanels .eca-install-subpanel--script,
+  #eca-manual-brew:checked     ~ .eca-install-subpanels .eca-install-subpanel--brew,
+  #eca-manual-mise:checked     ~ .eca-install-subpanels .eca-install-subpanel--mise,
+  #eca-manual-releases:checked ~ .eca-install-subpanels .eca-install-subpanel--releases {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .eca-install-subpanel p {
+    font-size: 0.9rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.55;
+    margin: 0 0 0.6rem;
+  }
+
+  .eca-install-subpanel p:not(:first-child) {
+    margin-top: 1rem;
+  }
+
+  .eca-install-subpanel a {
+    color: var(--eca-brand);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .eca-install-subpanel a:hover {
+    text-decoration: underline;
+  }
+
+  .eca-code {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--eca-border);
+    margin: 0.4rem 0 0.4rem;
+  }
+
+  .eca-code__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.7rem;
+    background: var(--eca-terminal-bg);
+  }
+
+  .eca-code__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .eca-code__dot--red    { background: #ff5f57; }
+  .eca-code__dot--yellow { background: #febc2e; }
+  .eca-code__dot--green  { background: #28c840; }
+
+  .eca-code__title {
+    flex: 1;
+    text-align: center;
+    font-size: 0.68rem;
+    color: var(--eca-terminal-text);
+    font-family: var(--eca-font-mono);
+    font-weight: 500;
+  }
+
+  .eca-code pre {
+    margin: 0;
+    padding: 0.85rem 1rem;
+    background: var(--eca-code-bg);
+    color: var(--eca-code-text);
+    font-family: var(--eca-font-mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .eca-code pre .hl-comm { color: #6a737d; font-style: italic; }
+  .eca-code pre .hl-flag { color: #f9a87c; }
+
+  /* ── 5a. Manual install (secondary, collapsed by default) ── */
+  .eca-install-advanced {
+    padding: 1.25rem 2rem 1.5rem;
+    background: var(--eca-bg-secondary);
+    border-top: 1px solid var(--eca-border);
+  }
+
+  .eca-install-advanced__inner {
+    max-width: 52rem;
+    margin: 0 auto;
+  }
+
+  .eca-install-advanced__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 8px;
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.18s ease;
+  }
+
+  /* Hide the default disclosure triangle across browsers. */
+  .eca-install-advanced__summary::-webkit-details-marker { display: none; }
+  .eca-install-advanced__summary::marker                  { content: ''; }
+
+  .eca-install-advanced__summary:hover {
+    background: var(--eca-bg-card);
+  }
+
+  .eca-install-advanced__summary:focus-visible {
+    outline: 2px solid var(--eca-brand);
+    outline-offset: 2px;
+  }
+
+  .eca-install-advanced__summary-icon {
+    width: 18px;
+    height: 18px;
+    fill: var(--eca-text-muted);
+    flex-shrink: 0;
+  }
+
+  .eca-install-advanced__label {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.65rem;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .eca-install-advanced__kicker {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--eca-text-muted);
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    background: var(--eca-bg-card);
+    border: 1px solid var(--eca-border);
+  }
+
+  .eca-install-advanced__kicker--warning {
+    color: #b3671a;
+    background: rgba(245, 166, 35, 0.12);
+    border-color: rgba(245, 166, 35, 0.4);
+  }
+
+  [data-md-color-scheme="slate"] .eca-install-advanced__kicker--warning {
+    color: #ffa94d;
+    background: rgba(255, 169, 77, 0.1);
+    border-color: rgba(255, 169, 77, 0.3);
+  }
+
+  .eca-install-advanced__title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--eca-text);
+  }
+
+  .eca-install-advanced__chevron {
+    width: 18px;
+    height: 18px;
+    fill: var(--eca-text-muted);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .eca-install-advanced__details[open] .eca-install-advanced__chevron {
+    transform: rotate(180deg);
+  }
+
+  .eca-install-advanced__details[open] .eca-install-advanced__summary {
+    background: var(--eca-bg-card);
+  }
+
+  .eca-install-advanced__content {
+    padding: 1.25rem 0.75rem 0.25rem;
+  }
+
+  .eca-install-advanced__desc {
+    font-size: 0.9rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.6;
+    margin: 0 0 1.25rem;
+    max-width: 40rem;
+  }
+
+  .eca-install-advanced__desc code {
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: var(--eca-bg-secondary);
+    font-family: var(--eca-font-mono);
+    font-size: 0.85em;
+    color: var(--eca-brand);
+  }
+
+  /* ── 5b. Desktop OS picker ── */
+  .eca-install-os {
+    position: relative;
+    margin-top: 0.25rem;
+  }
+
+  .eca-install-os input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .eca-install-os__tabs {
+    display: inline-flex;
+    gap: 0.2rem;
+    padding: 0.25rem;
+    border-radius: 10px;
+    background: var(--eca-bg-secondary);
+    border: 1px solid var(--eca-border);
+    margin-bottom: 1.25rem;
+  }
+
+  .eca-install-os__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 1rem;
+    border-radius: 7px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--eca-text-secondary);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+  }
+
+  .eca-install-os__tab svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+  }
+
+  .eca-install-os__tab:hover {
+    color: var(--eca-text);
+  }
+
+  #eca-desktop-os-linux:checked   ~ .eca-install-os__tabs label[for="eca-desktop-os-linux"],
+  #eca-desktop-os-mac:checked     ~ .eca-install-os__tabs label[for="eca-desktop-os-mac"],
+  #eca-desktop-os-windows:checked ~ .eca-install-os__tabs label[for="eca-desktop-os-windows"] {
+    background: var(--eca-bg-card);
+    color: var(--eca-brand);
+    box-shadow: 0 1px 3px var(--eca-shadow-sm);
+  }
+
+  .eca-install-os__panels {
+    display: grid;
+  }
+
+  .eca-install-os__panel {
+    grid-area: 1 / 1;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  #eca-desktop-os-linux:checked   ~ .eca-install-os__panels .eca-install-os__panel--linux,
+  #eca-desktop-os-mac:checked     ~ .eca-install-os__panels .eca-install-os__panel--mac,
+  #eca-desktop-os-windows:checked ~ .eca-install-os__panels .eca-install-os__panel--windows {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Arch-card grid */
+  .eca-install-download-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+  }
+
+  .eca-install-download {
+    padding: 1rem 1.1rem;
+    border-radius: 10px;
+    border: 1px solid var(--eca-border);
+    background: var(--eca-bg-secondary);
+  }
+
+  .eca-install-download__header {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--eca-text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 0.65rem;
+  }
+
+  .eca-install-download__links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .eca-install-download__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 7px;
+    background: var(--eca-bg-card);
+    border: 1px solid var(--eca-border);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--eca-text);
+    text-decoration: none;
+    transition: all 0.18s ease;
+  }
+
+  .eca-install-download__link:hover {
+    border-color: var(--eca-brand);
+    color: var(--eca-brand);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px var(--eca-brand-shadow);
+  }
+
+  .eca-install-download__link svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+    flex-shrink: 0;
+  }
+
+  .eca-install-download__link--primary {
+    border-color: var(--eca-brand);
+    background: var(--eca-brand-bg);
+    color: var(--eca-brand);
+  }
+
+  .eca-install-download__tag {
+    margin-left: auto;
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--eca-text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .eca-install-download__link--primary .eca-install-download__tag {
+    color: var(--eca-brand);
+  }
+
+  /* Note callout (per-OS hints) */
+  .eca-install-note {
+    margin-top: 1rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 8px;
+    background: var(--eca-bg-secondary);
+    border-left: 3px solid var(--eca-brand);
+    font-size: 0.82rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.55;
+  }
+
+  .eca-install-note strong {
+    color: var(--eca-text);
+    font-weight: 700;
+  }
+
+  .eca-install-note code {
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    background: var(--eca-bg-card);
+    font-family: var(--eca-font-mono);
+    font-size: 0.85em;
+    color: var(--eca-brand);
+  }
+
+  /* Coming soon (Windows) */
+  .eca-install-coming-soon {
+    text-align: center;
+    padding: 2rem 1rem 2.25rem;
+    border-radius: 10px;
+    border: 1.5px dashed var(--eca-border);
+    background: var(--eca-bg-secondary);
+  }
+
+  .eca-install-coming-soon__emoji {
+    font-size: 2rem;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+  }
+
+  .eca-install-coming-soon__title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--eca-text);
+    margin: 0 0 0.35rem;
+  }
+
+  .eca-install-coming-soon__desc {
+    font-size: 0.88rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.55;
+    max-width: 26rem;
+    margin: 0 auto 1rem;
+  }
+
+  .eca-install-panel__footer-note {
+    margin-top: 1.1rem;
+    font-size: 0.82rem;
+    color: var(--eca-text-muted);
+    text-align: center;
+  }
+
+  .eca-install-panel__footer-note a {
+    color: var(--eca-brand);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .eca-install-panel__footer-note a:hover {
+    text-decoration: underline;
+  }
+
+  /* ── 6. Help footer ── */
+  .eca-install-help {
+    padding: 2.5rem 2rem 3rem;
+    background: var(--eca-bg-secondary);
+    border-top: 1px solid var(--eca-border);
+    text-align: center;
+  }
+
+  .eca-install-help__inner {
+    max-width: 44rem;
+    margin: 0 auto;
+  }
+
+  .eca-install-help__title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--eca-text);
+    margin: 0 0 0.5rem;
+  }
+
+  .eca-install-help__desc {
+    font-size: 0.95rem;
+    color: var(--eca-text-secondary);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .eca-install-help__desc a {
+    color: var(--eca-brand);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .eca-install-help__desc a:hover {
+    text-decoration: underline;
+  }
+
+  /* ── 7. Responsive ── */
+  @media (max-width: 900px) {
+    .eca-install-tabs {
+      /* allow tabs to wrap on medium screens */
+      gap: 0;
+    }
+
+    .eca-install-tab {
+      padding: 0.7rem 1rem;
+      font-size: 0.88rem;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .eca-install-intro {
+      padding: 1.5rem 1rem 0.25rem;
+    }
+
+    .eca-install-intro__note {
+      font-size: 0.85rem;
+    }
+
+    .eca-install-intro__callout {
+      font-size: 0.82rem;
+      padding: 0.65rem 0.85rem;
+    }
+
+    .eca-install-picker {
+      padding: 1rem 1rem 2.5rem;
+    }
+
+    .eca-install-picker__question {
+      font-size: 1.55rem;
+    }
+
+    .eca-install-tabs {
+      /* On narrow screens the tabs can wrap to multiple lines — keep the
+         underline indicator consistent and compact. */
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .eca-install-tabs::-webkit-scrollbar { display: none; }
+
+    .eca-install-tab {
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+
+    .eca-install-tab svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .eca-install-panel__body {
+      padding: 1rem 0 0;
+    }
+
+    .eca-install-panel__title {
+      font-size: 1.05rem;
+    }
+
+    .eca-install-panel__meta {
+      display: block;
+      margin: 0.5rem 0 0;
+    }
+
+    .eca-install-subtabs {
+      gap: 0.25rem;
+    }
+
+    .eca-install-subtab {
+      padding: 0.4rem 0.7rem;
+      font-size: 0.76rem;
+    }
+
+    .eca-code pre {
+      font-size: 0.72rem;
+      padding: 0.7rem 0.85rem;
+    }
+
+    .eca-install-os__tabs {
+      display: flex;
+      width: 100%;
+    }
+
+    .eca-install-os__tab {
+      flex: 1;
+      justify-content: center;
+      padding: 0.4rem 0.55rem;
+      font-size: 0.78rem;
+    }
+
+    .eca-install-download-group {
+      grid-template-columns: 1fr;
+    }
+
+    .eca-install-download {
+      padding: 0.85rem 0.95rem;
+    }
+
+    .eca-install-advanced {
+      padding: 2rem 1rem 2.25rem;
+    }
+
+    .eca-install-advanced__title {
+      font-size: 1.05rem;
+    }
+  }
+</style>
+
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ECA - Editor Code Assistant" class="md-header__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
+      
+  <img src="../images/logo.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ECA - Editor Code Assistant
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Install ECA
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/editor-code-assistant/eca" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    editor-code-assistant/eca
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+  
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href=".." class="md-tabs__link">
+          
+  
+  
+  Home
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../features/" class="md-tabs__link">
+          
+  
+  
+  Features
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Install
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../config/introduction/" class="md-tabs__link">
+          
+  
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../protocol/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Protocol
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="https://plugins.eca.dev" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Plugins
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="https://github.com/sponsors/editor-code-assistant" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Support Us
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+
+  
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+  
+
+  <!-- ── Intro (compact, light-themed; replaces the old dark hero) ── -->
+  <section class="eca-install-intro">
+    <div class="eca-install-intro__inner">
+      <p class="eca-install-intro__note">
+        ECA is written in Clojure and compiled into a native binary via GraalVM.
+      </p>
+      <div class="eca-install-intro__callout">
+        <span class="eca-install-intro__callout-icon">ℹ️</span>
+        <div>
+          <strong>Auto install</strong> &mdash; ECA is already downloaded and updated automatically
+          by all official editor plugins, so you don't need to handle it manually. The tabs
+          below are only for users who want to install ECA themselves.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Picker ── -->
+  <section class="eca-install-picker">
+    <div class="eca-install-picker__inner">
+      <h1 class="eca-install-picker__question">Where do you want to use ECA?</h1>
+
+      <!-- Hidden radios drive the CSS-only reveal. The hash-sync script below
+           keeps window.location.hash in sync so tabs are shareable links. -->
+      <input type="radio" name="eca-install" id="eca-install-emacs" checked>
+      <input type="radio" name="eca-install" id="eca-install-vscode">
+      <input type="radio" name="eca-install" id="eca-install-neovim">
+      <input type="radio" name="eca-install" id="eca-install-intellij">
+      <input type="radio" name="eca-install" id="eca-install-desktop">
+
+      <div class="eca-install-tabs" role="tablist">
+        <label for="eca-install-emacs"    class="eca-install-tab" role="tab"><svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 24C5.448 24 .118 18.617.118 12S5.448 0 12 0c6.552 0 11.882 5.383 11.882 12S18.552 24 12 24m0-23.339C5.813.661.779 5.748.779 12s5.034 11.339 11.221 11.339c6.187 0 11.221-5.086 11.221-11.339S18.187.661 12 .661M8.03 20.197s.978.069 2.236-.042c.51-.045 2.444-.235 3.891-.552 0 0 1.764-.377 2.707-.725.987-.364 1.524-.673 1.766-1.11-.011-.09.074-.408-.381-.599-1.164-.488-2.514-.4-5.185-.457-2.962-.102-3.948-.598-4.472-.997-.503-.405-.25-1.526 1.907-2.513 1.086-.526 5.345-1.496 5.345-1.496-1.434-.709-4.109-1.955-4.659-2.224-.482-.236-1.254-.591-1.421-1.021-.19-.413.448-.768.804-.87 1.147-.331 2.766-.536 4.24-.56.741-.012.861-.059.861-.059 1.022-.17 1.695-.869 1.414-1.976-.252-1.13-1.579-1.795-2.84-1.565-1.188.217-4.05 1.048-4.05 1.048 3.539-.031 4.131.028 4.395.398.156.218-.071.518-1.015.672-1.027.168-3.163.37-3.163.37-2.049.122-3.492.13-3.925 1.046-.282.57.303 1.1.559 1.431 1.082 1.204 2.646 1.853 3.652 2.331.379.18 1.49.52 1.49.52-3.265-.18-5.619.823-7.001 1.977-1.562 1.445-.871 3.168 2.33 4.228 1.891.626 2.828.921 5.648.667 1.661-.09 1.923-.036 1.939.1.023.192-1.845.669-2.355.816-1.298.374-4.699 1.129-4.716 1.133z"/></svg>    Emacs</label>
+        <label for="eca-install-vscode"   class="eca-install-tab" role="tab"><svg viewBox="0 0 24 24"><path d="M17.583 2.006l-4.45 4.164L7.29 1.57 2.07 4.122v15.756L7.29 22.43l5.843-4.6 4.45 4.164L21.93 19.2V4.8l-4.347-2.794zM7.29 14.768V9.232L10.824 12 7.29 14.768zm10.293 2.674L13.99 12l3.593-5.442v10.884z"/></svg>   VS Code</label>
+        <label for="eca-install-neovim"   class="eca-install-tab" role="tab"><svg viewBox="0 0 24 24"><path d="M2.214 4.954v13.615L7.2 24V10.314L14.863 19.6h.075l4.848-5.37V2.086l-4.985 5.2V0z"/></svg>   Neovim</label>
+        <label for="eca-install-intellij" class="eca-install-tab" role="tab"><svg viewBox="0 0 24 24"><path d="M3 3h18v18H3V3zm1.5 1.5v15h15v-15h-15zM5.25 18h7.5v1.5h-7.5V18zm0-2.25h4.5V17.25h-4.5V15.75zM5.25 6h1.5v6h-1.5V6zm3 0h3.75c1.6 0 2.62 1.12 2.62 2.62 0 1.5-1.05 2.63-2.62 2.63H9.75V12h-1.5V6zm1.5 1.35v2.55h2.1c.68 0 1.2-.47 1.2-1.27 0-.83-.52-1.28-1.2-1.28H9.75z"/></svg> IntelliJ</label>
+        <label for="eca-install-desktop"  class="eca-install-tab" role="tab"><svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7l-2 3v1h8v-1l-2-3h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 12H3V4h18v10z"/></svg>  Desktop</label>
+      </div>
+
+      <div class="eca-install-panels">
+        <div class="eca-install-panel eca-install-panel--emacs">
+      <div class="eca-install-panel__body">
+        <h3 class="eca-install-panel__title">
+          <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 24C5.448 24 .118 18.617.118 12S5.448 0 12 0c6.552 0 11.882 5.383 11.882 12S18.552 24 12 24m0-23.339C5.813.661.779 5.748.779 12s5.034 11.339 11.221 11.339c6.187 0 11.221-5.086 11.221-11.339S18.187.661 12 .661M8.03 20.197s.978.069 2.236-.042c.51-.045 2.444-.235 3.891-.552 0 0 1.764-.377 2.707-.725.987-.364 1.524-.673 1.766-1.11-.011-.09.074-.408-.381-.599-1.164-.488-2.514-.4-5.185-.457-2.962-.102-3.948-.598-4.472-.997-.503-.405-.25-1.526 1.907-2.513 1.086-.526 5.345-1.496 5.345-1.496-1.434-.709-4.109-1.955-4.659-2.224-.482-.236-1.254-.591-1.421-1.021-.19-.413.448-.768.804-.87 1.147-.331 2.766-.536 4.24-.56.741-.012.861-.059.861-.059 1.022-.17 1.695-.869 1.414-1.976-.252-1.13-1.579-1.795-2.84-1.565-1.188.217-4.05 1.048-4.05 1.048 3.539-.031 4.131.028 4.395.398.156.218-.071.518-1.015.672-1.027.168-3.163.37-3.163.37-2.049.122-3.492.13-3.925 1.046-.282.57.303 1.1.559 1.431 1.082 1.204 2.646 1.853 3.652 2.331.379.18 1.49.52 1.49.52-3.265-.18-5.619.823-7.001 1.977-1.562 1.445-.871 3.168 2.33 4.228 1.891.626 2.828.921 5.648.667 1.661-.09 1.923-.036 1.939.1.023.192-1.845.669-2.355.816-1.298.374-4.699 1.129-4.716 1.133z"/></svg>
+          ECA in Emacs
+        </h3>
+        <p class="eca-install-panel__desc">
+          The <strong>eca-emacs</strong> plugin bundles and keeps the ECA binary up-to-date
+          automatically. Install the plugin for Emacs and you're done &mdash; no separate
+          server install is needed.
+        </p>
+        <a href="https://github.com/editor-code-assistant/eca-emacs" class="eca-install-btn eca-install-btn--primary" target="_blank" rel="noopener">
+          Install eca-emacs plugin
+          <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
+        </a>
+        <span class="eca-install-panel__meta">
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Auto-downloads the ECA server on first launch
+        </span>
+      </div>
+    </div>
+        <div class="eca-install-panel eca-install-panel--vscode">
+      <div class="eca-install-panel__body">
+        <h3 class="eca-install-panel__title">
+          <svg viewBox="0 0 24 24"><path d="M17.583 2.006l-4.45 4.164L7.29 1.57 2.07 4.122v15.756L7.29 22.43l5.843-4.6 4.45 4.164L21.93 19.2V4.8l-4.347-2.794zM7.29 14.768V9.232L10.824 12 7.29 14.768zm10.293 2.674L13.99 12l3.593-5.442v10.884z"/></svg>
+          ECA in VS Code
+        </h3>
+        <p class="eca-install-panel__desc">
+          The <strong>eca-vscode</strong> plugin bundles and keeps the ECA binary up-to-date
+          automatically. Install the plugin for VS Code and you're done &mdash; no separate
+          server install is needed.
+        </p>
+        <a href="https://github.com/editor-code-assistant/eca-vscode" class="eca-install-btn eca-install-btn--primary" target="_blank" rel="noopener">
+          Install eca-vscode plugin
+          <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
+        </a>
+        <span class="eca-install-panel__meta">
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Auto-downloads the ECA server on first launch
+        </span>
+      </div>
+    </div>
+        <div class="eca-install-panel eca-install-panel--neovim">
+      <div class="eca-install-panel__body">
+        <h3 class="eca-install-panel__title">
+          <svg viewBox="0 0 24 24"><path d="M2.214 4.954v13.615L7.2 24V10.314L14.863 19.6h.075l4.848-5.37V2.086l-4.985 5.2V0z"/></svg>
+          ECA in Neovim
+        </h3>
+        <p class="eca-install-panel__desc">
+          The <strong>eca-nvim</strong> plugin bundles and keeps the ECA binary up-to-date
+          automatically. Install the plugin for Neovim and you're done &mdash; no separate
+          server install is needed.
+        </p>
+        <a href="https://github.com/editor-code-assistant/eca-nvim" class="eca-install-btn eca-install-btn--primary" target="_blank" rel="noopener">
+          Install eca-nvim plugin
+          <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
+        </a>
+        <span class="eca-install-panel__meta">
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Auto-downloads the ECA server on first launch
+        </span>
+      </div>
+    </div>
+        <div class="eca-install-panel eca-install-panel--intellij">
+      <div class="eca-install-panel__body">
+        <h3 class="eca-install-panel__title">
+          <svg viewBox="0 0 24 24"><path d="M3 3h18v18H3V3zm1.5 1.5v15h15v-15h-15zM5.25 18h7.5v1.5h-7.5V18zm0-2.25h4.5V17.25h-4.5V15.75zM5.25 6h1.5v6h-1.5V6zm3 0h3.75c1.6 0 2.62 1.12 2.62 2.62 0 1.5-1.05 2.63-2.62 2.63H9.75V12h-1.5V6zm1.5 1.35v2.55h2.1c.68 0 1.2-.47 1.2-1.27 0-.83-.52-1.28-1.2-1.28H9.75z"/></svg>
+          ECA in IntelliJ
+        </h3>
+        <p class="eca-install-panel__desc">
+          The <strong>eca-intellij</strong> plugin bundles and keeps the ECA binary up-to-date
+          automatically. Install the plugin for IntelliJ and you're done &mdash; no separate
+          server install is needed.
+        </p>
+        <a href="https://github.com/editor-code-assistant/eca-intellij" class="eca-install-btn eca-install-btn--primary" target="_blank" rel="noopener">
+          Install eca-intellij plugin
+          <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
+        </a>
+        <span class="eca-install-panel__meta">
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Auto-downloads the ECA server on first launch
+        </span>
+      </div>
+    </div>
+        <!-- Desktop panel: direct GitHub Release download, with Linux/macOS/Windows tabs. -->
+        <div class="eca-install-panel eca-install-panel--desktop">
+          <div class="eca-install-panel__body">
+            <h3 class="eca-install-panel__title">
+              <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7l-2 3v1h8v-1l-2-3h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 12H3V4h18v10z"/></svg>
+              ECA Desktop
+            </h3>
+            <p class="eca-install-panel__desc">
+              A standalone desktop app for ECA, built with Electron. Download the latest
+              release for your platform directly from
+              <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>
+              &mdash; the ECA server is bundled, and supported formats auto-update in place.
+            </p>
+
+            <div class="eca-install-os" id="eca-desktop-os">
+              <input type="radio" name="eca-desktop-os" id="eca-desktop-os-linux" checked>
+              <input type="radio" name="eca-desktop-os" id="eca-desktop-os-mac">
+              <input type="radio" name="eca-desktop-os" id="eca-desktop-os-windows">
+
+              <div class="eca-install-os__tabs">
+                <label for="eca-desktop-os-linux" class="eca-install-os__tab">
+                  <svg viewBox="0 0 24 24"><path d="M12.504 2.004c-1.657 0-3 1.77-3 3.95 0 1.137.346 2.16.908 2.88-.673.517-1.507 1.06-2.254 1.635-.905.696-1.736 1.458-2.352 2.287-.615.83-1.066 1.765-1.066 2.8 0 1.15.836 2.5 2 2.5.62 0 1.005-.41 1.242-.88.34.49 1 .88 1.758.88.647 0 1.215-.25 1.66-.64.445.39 1.013.64 1.66.64.647 0 1.215-.25 1.66-.64.445.39 1.013.64 1.66.64.758 0 1.418-.39 1.758-.88.237.47.622.88 1.242.88 1.164 0 2-1.35 2-2.5 0-1.035-.451-1.97-1.066-2.8-.616-.829-1.447-1.591-2.352-2.287-.747-.575-1.581-1.118-2.254-1.635.562-.72.908-1.743.908-2.88 0-2.18-1.343-3.95-3-3.95zm-1.25 4.25a.8.8 0 0 1 .8.8.8.8 0 0 1-.8.8.8.8 0 0 1-.8-.8.8.8 0 0 1 .8-.8zm2.5 0a.8.8 0 0 1 .8.8.8.8 0 0 1-.8.8.8.8 0 0 1-.8-.8.8.8 0 0 1 .8-.8zM12 8.75c1.1 0 2.25.6 2.25 1.5 0 .45-.35.85-.85 1.15-.4.25-.9.4-1.4.4-.5 0-1-.15-1.4-.4-.5-.3-.85-.7-.85-1.15 0-.9 1.15-1.5 2.25-1.5z"/></svg>
+                  Linux
+                </label>
+                <label for="eca-desktop-os-mac" class="eca-install-os__tab">
+                  <svg viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                  macOS
+                </label>
+                <label for="eca-desktop-os-windows" class="eca-install-os__tab">
+                  <svg viewBox="0 0 24 24"><path d="M3 5.48L10.87 4.4v7.6H3V5.48zM3 18.52L10.87 19.6V12H3v6.52zm8.83 1.22L22 20.94V12h-10.17v7.74zm0-15.48V12H22V3.06l-10.17 1.2z"/></svg>
+                  Windows
+                </label>
+              </div>
+
+              <div class="eca-install-os__panels">
+                <!-- Linux -->
+                <div class="eca-install-os__panel eca-install-os__panel--linux">
+                  <div class="eca-install-download-group">
+                    <div class="eca-install-download">
+                      <div class="eca-install-download__header">x86_64 · Intel / AMD</div>
+                      <div class="eca-install-download__links">
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-x64.AppImage"
+                           class="eca-install-download__link eca-install-download__link--primary"
+                           target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> AppImage
+                          <span class="eca-install-download__tag">Recommended</span>
+                        </a>
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-x64.deb"
+                           class="eca-install-download__link" target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .deb
+                        </a>
+                      </div>
+                    </div>
+                    <div class="eca-install-download">
+                      <div class="eca-install-download__header">arm64 · aarch64</div>
+                      <div class="eca-install-download__links">
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-arm64.AppImage"
+                           class="eca-install-download__link eca-install-download__link--primary"
+                           target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> AppImage
+                          <span class="eca-install-download__tag">Recommended</span>
+                        </a>
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-arm64.deb"
+                           class="eca-install-download__link" target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .deb
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="eca-install-note">
+                    <strong>AppImage</strong> is the recommended format &mdash; it auto-updates
+                    in place via <code>electron-updater</code>. <strong>.deb</strong> does
+                    <em>not</em> auto-update; upgrade by downloading a fresh <code>.deb</code>
+                    when a new release ships.
+                  </p>
+                </div>
+
+                <!-- macOS -->
+                <div class="eca-install-os__panel eca-install-os__panel--mac">
+                  <div class="eca-install-download-group">
+                    <div class="eca-install-download">
+                      <div class="eca-install-download__header">Apple Silicon · M1 / M2 / M3</div>
+                      <div class="eca-install-download__links">
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-mac-arm64.dmg"
+                           class="eca-install-download__link eca-install-download__link--primary"
+                           target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .dmg
+                          <span class="eca-install-download__tag">Recommended</span>
+                        </a>
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-mac-arm64.zip"
+                           class="eca-install-download__link" target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .zip
+                        </a>
+                      </div>
+                    </div>
+                    <div class="eca-install-download">
+                      <div class="eca-install-download__header">Intel · x86_64</div>
+                      <div class="eca-install-download__links">
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-mac-x64.dmg"
+                           class="eca-install-download__link eca-install-download__link--primary"
+                           target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .dmg
+                          <span class="eca-install-download__tag">Recommended</span>
+                        </a>
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-mac-x64.zip"
+                           class="eca-install-download__link" target="_blank" rel="noopener">
+                          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg> .zip
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="eca-install-note">
+                    Both <strong>.dmg</strong> and <strong>.zip</strong> auto-update in place
+                    via <code>electron-updater</code>. If macOS Gatekeeper blocks the app on
+                    first launch (unsigned builds), right-click the app in
+                    <em>Applications</em> and choose <strong>Open</strong>.
+                  </p>
+                </div>
+
+                <!-- Windows -->
+                <div class="eca-install-os__panel eca-install-os__panel--windows">
+                  <div class="eca-install-coming-soon">
+                    <div class="eca-install-coming-soon__emoji">🔮</div>
+                    <h4 class="eca-install-coming-soon__title">Windows builds are planned</h4>
+                    <p class="eca-install-coming-soon__desc">
+                      Native Windows installers aren't shipping yet. In the meantime, you can
+                      run ECA through the VS Code or IntelliJ plugin on Windows, or build
+                      from source.
+                    </p>
+                    <a href="https://github.com/editor-code-assistant/eca-desktop"
+                       class="eca-install-btn eca-install-btn--primary"
+                       target="_blank" rel="noopener">
+                      Watch eca-desktop on GitHub
+                      <svg viewBox="0 0 24 24"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/><path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/></svg>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="eca-install-panel__footer-note">
+              <a href="https://github.com/editor-code-assistant/eca-desktop/releases" target="_blank" rel="noopener">
+                Browse all Desktop releases on GitHub &rarr;
+              </a>
+            </p>
+          </div>
+        </div>
+
+        <!--
+          Install page scripts:
+          1. Primary tab URL-hash sync (shareable links like /install/#neovim).
+          2. Desktop-panel OS auto-detect (matching radio gets `checked` on load).
+          Both fail silently if JS is disabled — HTML `checked` attributes are the fallback.
+        -->
+        <script>
+          (function () {
+            var PRIMARY_TABS = ['emacs', 'vscode', 'neovim', 'intellij', 'desktop'];
+
+            // ── 1. Primary tab ↔ URL hash sync ──
+            function applyHashToPrimaryTab() {
+              var hash = (window.location.hash || '').replace('#', '').toLowerCase();
+              if (PRIMARY_TABS.indexOf(hash) === -1) return;
+              var radio = document.getElementById('eca-install-' + hash);
+              if (radio) radio.checked = true;
+            }
+
+            try { applyHashToPrimaryTab(); } catch (_e) {}
+
+            // Re-sync on back/forward navigation
+            window.addEventListener('hashchange', function () {
+              try { applyHashToPrimaryTab(); } catch (_e) {}
+            });
+
+            // Update the URL hash when the user clicks a tab, without
+            // polluting browser history or triggering a scroll jump.
+            PRIMARY_TABS.forEach(function (tab) {
+              var radio = document.getElementById('eca-install-' + tab);
+              if (!radio) return;
+              radio.addEventListener('change', function () {
+                if (!radio.checked) return;
+                try {
+                  if (window.history && window.history.replaceState) {
+                    window.history.replaceState(null, '', '#' + tab);
+                  } else {
+                    window.location.hash = tab;
+                  }
+                } catch (_e) {}
+              });
+            });
+
+            // ── 2. Desktop panel: auto-select OS based on user-agent ──
+            try {
+              var ua = (navigator.userAgent || navigator.platform || '').toLowerCase();
+              var osId = null;
+              if (/mac|darwin|iphone|ipad/.test(ua))         osId = 'eca-desktop-os-mac';
+              else if (/win/.test(ua))                        osId = 'eca-desktop-os-windows';
+              else if (/linux|x11|bsd|android|cros/.test(ua)) osId = 'eca-desktop-os-linux';
+              if (osId) {
+                var osEl = document.getElementById(osId);
+                if (osEl) osEl.checked = true;
+              }
+            } catch (_e) { /* non-fatal */ }
+          })();
+        </script>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Install manually (secondary, collapsed by default) ── -->
+  <section class="eca-install-advanced">
+    <div class="eca-install-advanced__inner">
+      <details class="eca-install-advanced__details">
+        <summary class="eca-install-advanced__summary">
+          <svg class="eca-install-advanced__summary-icon" viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zM6.5 10.5l1.06-1.06L10.5 12l-2.94 2.56L6.5 13.5 8.38 12 6.5 10.5zM12 14h5.5v1.5H12V14z"/></svg>
+          <span class="eca-install-advanced__label">
+            <span class="eca-install-advanced__kicker">Manual</span>
+            <span class="eca-install-advanced__kicker eca-install-advanced__kicker--warning">Not recommended</span>
+            <span class="eca-install-advanced__title">Install the ECA server manually</span>
+          </span>
+          <svg class="eca-install-advanced__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+        </summary>
+        <div class="eca-install-advanced__content">
+          <p class="eca-install-advanced__desc">
+            Most users don't need this &mdash; editor plugins auto-download the server.
+            Use one of the options below if you want to manage the <code>eca</code> binary
+            yourself, e.g. for scripted setups, CI, containers, or air-gapped machines.
+          </p>
+
+          <div class="eca-install-manual-wrap">
+        <input type="radio" name="eca-manual" id="eca-manual-script" checked>
+        <input type="radio" name="eca-manual" id="eca-manual-brew">
+        <input type="radio" name="eca-manual" id="eca-manual-mise">
+        <input type="radio" name="eca-manual" id="eca-manual-releases">
+
+        <div class="eca-install-subtabs">
+          <label for="eca-manual-script"   class="eca-install-subtab">Install Script</label>
+          <label for="eca-manual-brew"     class="eca-install-subtab">Homebrew</label>
+          <label for="eca-manual-mise"     class="eca-install-subtab">mise</label>
+          <label for="eca-manual-releases" class="eca-install-subtab">GitHub Releases</label>
+        </div>
+
+        <div class="eca-install-subpanels">
+          <!-- Script -->
+          <div class="eca-install-subpanel eca-install-subpanel--script">
+            <p>Stable release:</p>
+            <div class="eca-code">
+              <div class="eca-code__bar">
+                <span class="eca-code__dot eca-code__dot--red"></span>
+                <span class="eca-code__dot eca-code__dot--yellow"></span>
+                <span class="eca-code__dot eca-code__dot--green"></span>
+                <span class="eca-code__title">bash</span>
+              </div>
+<pre>bash &lt;(curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/master/install)</pre>
+            </div>
+            <p>Or if you face permission issues with the command above:</p>
+            <div class="eca-code">
+              <div class="eca-code__bar">
+                <span class="eca-code__dot eca-code__dot--red"></span>
+                <span class="eca-code__dot eca-code__dot--yellow"></span>
+                <span class="eca-code__dot eca-code__dot--green"></span>
+                <span class="eca-code__title">bash</span>
+              </div>
+<pre>curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/master/install | sudo bash</pre>
+            </div>
+            <p>Nightly build:</p>
+            <div class="eca-code">
+              <div class="eca-code__bar">
+                <span class="eca-code__dot eca-code__dot--red"></span>
+                <span class="eca-code__dot eca-code__dot--yellow"></span>
+                <span class="eca-code__dot eca-code__dot--green"></span>
+                <span class="eca-code__title">bash</span>
+              </div>
+<pre>bash &lt;(curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/master/install) <span class="hl-flag">--version</span> nightly <span class="hl-flag">--dir</span> ~/</pre>
+            </div>
+          </div>
+
+          <!-- Homebrew -->
+          <div class="eca-install-subpanel eca-install-subpanel--brew">
+            <p>We publish a custom Homebrew tap with the native compiled binaries:</p>
+            <div class="eca-code">
+              <div class="eca-code__bar">
+                <span class="eca-code__dot eca-code__dot--red"></span>
+                <span class="eca-code__dot eca-code__dot--yellow"></span>
+                <span class="eca-code__dot eca-code__dot--green"></span>
+                <span class="eca-code__title">shell</span>
+              </div>
+<pre>brew install editor-code-assistant/brew/eca</pre>
+            </div>
+          </div>
+
+          <!-- mise -->
+          <div class="eca-install-subpanel eca-install-subpanel--mise">
+            <p>Install using <a href="https://mise.jdx.dev" target="_blank" rel="noopener">mise</a>:</p>
+            <div class="eca-code">
+              <div class="eca-code__bar">
+                <span class="eca-code__dot eca-code__dot--red"></span>
+                <span class="eca-code__dot eca-code__dot--yellow"></span>
+                <span class="eca-code__dot eca-code__dot--green"></span>
+                <span class="eca-code__title">shell</span>
+              </div>
+<pre><span class="hl-comm"># Install the plugin</span>
+mise plugin install eca https://github.com/editor-code-assistant/eca-mise-plugin
+
+<span class="hl-comm"># Install latest version of ECA</span>
+mise install eca
+mise use -g eca
+
+<span class="hl-comm"># Or install and use a specific version</span>
+mise install eca@0.58.0
+mise use -g eca@0.58.0
+
+<span class="hl-comm"># Verify installation</span>
+eca --version</pre>
+            </div>
+          </div>
+
+          <!-- GitHub Releases -->
+          <div class="eca-install-subpanel eca-install-subpanel--releases">
+            <p>
+              You can download the
+              <a href="https://github.com/editor-code-assistant/eca/releases" target="_blank" rel="noopener">native binaries from GitHub Releases</a>
+              directly, although this way it's easy to end up with an outdated ECA &mdash;
+              the install script or a package manager are recommended instead.
+            </p>
+          </div>
+        </div>
+          </div>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ── Help footer ── -->
+  <section class="eca-install-help">
+    <div class="eca-install-help__inner">
+      <h3 class="eca-install-help__title">Something not working?</h3>
+      <p class="eca-install-help__desc">
+        Check the <a href="troubleshooting">Troubleshooting</a> page,
+        browse the <a href="config/introduction">Configuration</a> docs to hook up your first model,
+        or <a href="https://github.com/editor-code-assistant/eca/issues" target="_blank" rel="noopener">open an issue on GitHub</a>.
+      </p>
+    </div>
+  </section>
+
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ECA - Editor Code Assistant" class="md-nav__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
+      
+  <img src="../images/logo.svg" alt="logo">
+
+    </a>
+    ECA - Editor Code Assistant
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/editor-code-assistant/eca" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    editor-code-assistant/eca
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Home
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            Home
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ECA - Free Open Source AI Pair Programming in Any Editor
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Features
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Features
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Features
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workflows
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Install
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Install
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install ECA
+    
+  </span>
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Configuration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Providers / Models
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tools / Approval
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/variants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Variants
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Skills
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Rules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Commands
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Agents / Subagents
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Hooks
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/completion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Completion
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/rewrite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Rewrite
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/context-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Context Management
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/plugins/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Plugins / Marketplace
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Metrics
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/remote/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Remote
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/network/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Network / Enterprise
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    User Examples
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Protocol
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://plugins.eca.dev" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Plugins
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/sponsors/editor-code-assistant" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Support Us
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+                
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" hidden>
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+
+  
+  
+
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+        
+          <div class="md-copyright__highlight">
+            Copyright &copy; 2026 ECA Contributors — Free & Open Source
+          </div>
+        
+      </div>
+      <div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/editor-code-assistant/eca" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M186.1 328.7c0 20.9-10.9 55.1-36.7 55.1s-36.7-34.2-36.7-55.1 10.9-55.1 36.7-55.1 36.7 34.2 36.7 55.1M480 278.2c0 31.9-3.2 65.7-17.5 95-37.9 76.6-142.1 74.8-216.7 74.8-75.8 0-186.2 2.7-225.6-74.8-14.6-29-20.2-63.1-20.2-95 0-41.9 13.9-81.5 41.5-113.6-5.2-15.8-7.7-32.4-7.7-48.8 0-21.5 4.9-32.3 14.6-51.8 45.3 0 74.3 9 108.8 36 29-6.9 58.8-10 88.7-10 27 0 54.2 2.9 80.4 9.2 34-26.7 63-35.2 107.8-35.2 9.8 19.5 14.6 30.3 14.6 51.8 0 16.4-2.6 32.7-7.7 48.2 27.5 32.4 39 72.3 39 114.2m-64.3 50.5c0-43.9-26.7-82.6-73.5-82.6-18.9 0-37 3.4-56 6-14.9 2.3-29.8 3.2-45.1 3.2-15.2 0-30.1-.9-45.1-3.2-18.7-2.6-37-6-56-6-46.8 0-73.5 38.7-73.5 82.6 0 87.8 80.4 101.3 150.4 101.3h48.2c70.3 0 150.6-13.4 150.6-101.3m-82.6-55.1c-25.8 0-36.7 34.2-36.7 55.1s10.9 55.1 36.7 55.1 36.7-34.2 36.7-55.1-10.9-55.1-36.7-55.1"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://clojurians.slack.com/archives/C093426FPUG" target="_blank" rel="noopener" title="clojurians.slack.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M94.12 315.1c0 25.9-21.16 47.06-47.06 47.06S0 341 0 315.1s21.16-47.06 47.06-47.06h47.06zm23.72 0c0-25.9 21.16-47.06 47.06-47.06s47.06 21.16 47.06 47.06v117.84c0 25.9-21.16 47.06-47.06 47.06s-47.06-21.16-47.06-47.06zm47.06-188.98c-25.9 0-47.06-21.16-47.06-47.06S139 32 164.9 32s47.06 21.16 47.06 47.06v47.06zm0 23.72c25.9 0 47.06 21.16 47.06 47.06s-21.16 47.06-47.06 47.06H47.06C21.16 243.96 0 222.8 0 196.9s21.16-47.06 47.06-47.06zm188.98 47.06c0-25.9 21.16-47.06 47.06-47.06S448 171 448 196.9s-21.16 47.06-47.06 47.06h-47.06zm-23.72 0c0 25.9-21.16 47.06-47.06 47.06s-47.06-21.16-47.06-47.06V79.06c0-25.9 21.16-47.06 47.06-47.06s47.06 21.16 47.06 47.06zM283.1 385.88c25.9 0 47.06 21.16 47.06 47.06S309 480 283.1 480s-47.06-21.16-47.06-47.06v-47.06zm0-23.72c-25.9 0-47.06-21.16-47.06-47.06s21.16-47.06 47.06-47.06h117.84c25.9 0 47.06 21.16 47.06 47.06s-21.16 47.06-47.06 47.06z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/sponsors/editor-code-assistant" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="m47.6 300.4 180.7 168.7c7.5 7 17.4 10.9 27.7 10.9s20.2-3.9 27.7-10.9l180.7-168.7c30.4-28.3 47.6-68 47.6-109.5v-5.8c0-69.9-50.5-129.5-119.4-141-45.6-7.6-92 7.3-124.6 39.9l-12 12-12-12c-32.6-32.6-79-47.5-124.6-39.9C50.5 55.6 0 115.2 0 185.1v5.8c0 41.5 17.2 81.2 47.6 109.5"/></svg>
+    </a>
+  
+</div>
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tabs", "navigation.expand", "navigation.sections", "content.code.copy", "content.code.select"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.56ea9cef.min.js"></script>
+      
+    
+  </body>
+</html>

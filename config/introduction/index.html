@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://eca.dev/config/introduction/">
       
       
-        <link rel="prev" href="../../workflows/">
+        <link rel="prev" href="../../install/">
       
       
         <link rel="next" href="../models/">
@@ -249,6 +249,26 @@
   
   
   Features
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../install/" class="md-tabs__link">
+          
+  
+  
+  Install
 
         </a>
       </li>
@@ -575,6 +595,81 @@
       
   
   
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Install
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Install
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install ECA
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -596,10 +691,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -612,8 +707,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Configuration
           </label>
@@ -1296,65 +1391,10 @@
 
 <h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h1>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h2>
-<p>Eca is written in Clojure and compiled into a native binary via graalvm.</p>
-<div class="admonition info">
-<p class="admonition-title">Auto install</p>
-<p>ECA is already automatically downloaded and updated in all editor plugins, so you don't need to handle it manually, even so, if you want that, check the other methods.</p>
-</div>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:5"><input checked="checked" id="editor-recommended" name="__tabbed_1" type="radio" /><input id="script-recommended-if-manual-installing" name="__tabbed_1" type="radio" /><input id="homebrew" name="__tabbed_1" type="radio" /><input id="mise" name="__tabbed_1" type="radio" /><input id="github-releases" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="editor-recommended">Editor (recommended)</label><label for="script-recommended-if-manual-installing">Script (recommended if manual installing)</label><label for="homebrew">Homebrew</label><label for="mise">mise</label><label for="github-releases">Github releases</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<p>ECA is already downloaded automatically by your ECA editor plugin, so you just need to install the plugin for your editor:</p>
-<ul>
-<li><a href="https://github.com/editor-code-assistant/eca-emacs">Emacs</a></li>
-<li><a href="https://github.com/editor-code-assistant/eca-vscode">VsCode</a></li>
-<li><a href="https://github.com/editor-code-assistant/eca-nvim">Vim</a></li>
-<li><a href="https://github.com/editor-code-assistant/eca-intellij">Intellij</a></li>
-<li><a href="https://github.com/editor-code-assistant/eca-desktop">Desktop</a></li>
-</ul>
-</div>
-<div class="tabbed-block">
-<p>Stable release:</p>
-<div class="highlight"><pre><span></span><code>bash<span class="w"> </span>&lt;<span class="o">(</span>curl<span class="w"> </span>-s<span class="w"> </span>https://raw.githubusercontent.com/editor-code-assistant/eca/master/install<span class="o">)</span>
-</code></pre></div>
-<p>Or if facing issues with command above:
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-s<span class="w"> </span>https://raw.githubusercontent.com/editor-code-assistant/eca/master/install<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span>bash
-</code></pre></div></p>
-<p>nightly build:</p>
-<div class="highlight"><pre><span></span><code>bash<span class="w"> </span>&lt;<span class="o">(</span>curl<span class="w"> </span>-s<span class="w"> </span>https://raw.githubusercontent.com/editor-code-assistant/eca/master/install<span class="o">)</span><span class="w"> </span>--version<span class="w"> </span>nightly<span class="w"> </span>--dir<span class="w"> </span>~/
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>We have a custom tap using the native compiled binaries for users that use homebrew:</p>
-<div class="highlight"><pre><span></span><code>brew<span class="w"> </span>install<span class="w"> </span>editor-code-assistant/brew/eca
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>Install using <a href="https://mise.jdx.dev">mise</a> </p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Install the plugin</span>
-mise<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>eca<span class="w"> </span>https://github.com/editor-code-assistant/eca-mise-plugin
-
-<span class="c1"># Install latest version ECA</span>
-mise<span class="w"> </span>install<span class="w"> </span>eca
-mise<span class="w"> </span>use<span class="w"> </span>-g<span class="w"> </span>eca
-
-<span class="c1"># or install and use</span>
-<span class="c1"># desired version</span>
-mise<span class="w"> </span>install<span class="w"> </span>eca@0.58.0
-mise<span class="w"> </span>use<span class="w"> </span>-g<span class="w"> </span>eca@0.58.0
-
-<span class="c1"># Verify installation</span>
-eca<span class="w"> </span>--version
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>You can download the <a href="https://github.com/editor-code-assistant/eca/releases">native binaries from Github Releases</a>, although it's easy to have outdated ECA using this way.</p>
-</div>
-</div>
-</div>
+<p>Installation has moved to its own page. See <strong><a href="../../install/">Install ECA</a></strong> for a guided walkthrough covering editor plugins (Emacs, VS Code, Neovim, IntelliJ), the Desktop app, and manual install methods (script, Homebrew, mise, GitHub Releases).</p>
 <h2 id="ways-to-configure">Ways to configure<a class="headerlink" href="#ways-to-configure" title="Permanent link">#</a></h2>
 <p>There are multiples ways to configure ECA:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:4"><input checked="checked" id="global-config-file" name="__tabbed_2" type="radio" /><input id="local-config-file" name="__tabbed_2" type="radio" /><input id="initializationoptions" name="__tabbed_2" type="radio" /><input id="env-var" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="global-config-file">Global config file</label><label for="local-config-file">Local Config file</label><label for="initializationoptions">InitializationOptions</label><label for="env-var">Env var</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="global-config-file" name="__tabbed_1" type="radio" /><input id="local-config-file" name="__tabbed_1" type="radio" /><input id="initializationoptions" name="__tabbed_1" type="radio" /><input id="env-var" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="global-config-file">Global config file</label><label for="local-config-file">Local Config file</label><label for="initializationoptions">InitializationOptions</label><label for="env-var">Env var</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>Convenient for users and multiple projects</p>
@@ -1500,7 +1540,7 @@ eca<span class="w"> </span>--version
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 22, 2026 13:49:48 UTC">April 22, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 22, 2026 18:49:49 UTC">April 22, 2026</span>
   </span>
 
     
@@ -1531,14 +1571,14 @@ eca<span class="w"> </span>--version
   
   <nav class="md-footer__inner md-grid" aria-label="Footer" >
     
-    <a href="../../workflows/" class="md-footer__link md-footer__link--prev">
+    <a href="../../install/" class="md-footer__link md-footer__link--prev">
       <div class="md-footer__button md-icon">
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
       </div>
       <div class="md-footer__title">
         <span class="md-footer__direction">Previous</span>
-        <span class="md-ellipsis">Workflows</span>
+        <span class="md-ellipsis">Install ECA</span>
       </div>
     </a>
     
