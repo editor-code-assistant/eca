@@ -510,8 +510,9 @@
   .eca-editors__panel {
     grid-area: 1 / 1;
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
-    transition: opacity 0.25s ease;
+    transition: opacity 0.25s ease, visibility 0s linear 0.25s;
   }
 
   #eca-tab-emacs:checked   ~ .eca-editors__panels .eca-editors__panel--emacs,
@@ -520,7 +521,9 @@
   #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij,
   #eca-tab-desktop:checked ~ .eca-editors__panels .eca-editors__panel--desktop {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
+    transition: opacity 0.25s ease, visibility 0s linear 0s;
   }
 
   .eca-editors__panel-frame {
@@ -946,8 +949,9 @@
   .eca-showcase__slide {
     grid-area: 1 / 1;
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2.5rem;
@@ -963,7 +967,9 @@
   #eca-sc-7:checked ~ .eca-showcase__slides .eca-showcase__slide--7,
   #eca-sc-8:checked ~ .eca-showcase__slides .eca-showcase__slide--8 {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
+    transition: opacity 0.3s ease, visibility 0s linear 0s;
   }
 
   .eca-showcase__text {
