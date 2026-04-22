@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.128.2
+
 - Sign and notarize macOS native binaries in release CI.
 - Disable `ask_user` tool for subagents since they run non-interactively. #416
 - Fix low-quality chat titles on 3rd-message retitle (e.g. literal "Understand" on Opus) by flattening the conversation into a single user message so the title model can't mirror prior planning-mode section headers, adding negative rules/examples to the title prompt, and hardening `sanitize-title` to skip a bare leading markdown header when more content follows.
