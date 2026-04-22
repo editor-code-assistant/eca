@@ -481,21 +481,71 @@
         (swap! bg/registry* assoc-in [:jobs job-id :notified] true))
       (bg/evict-notified-jobs!))))
 
+(defn ^:private message-text-content
+  "Extract plain text from a chat message's :content, ignoring non-text parts."
+  [{:keys [content]}]
+  (let [parts (cond
+                (string? content)
+                [content]
+
+                (sequential? content)
+                (into [] (keep (fn [part]
+                                 (when (and (map? part) (#{:text "text"} (:type part)))
+                                   (:text part))))
+                      content)
+
+                :else
+                [])
+        joined (string/join "\n" (remove string/blank? parts))]
+    (when-not (string/blank? joined)
+      joined)))
+
+(defn ^:private conversation->title-transcript
+  "Render user/assistant messages as a plain-text transcript for title generation.
+   Each line is prefixed by role; per-message text is truncated to avoid blowing up
+   the title call for very long chats.
+
+   Flattening the history into a single user message (instead of replaying it as
+   role-structured past-messages) prevents the title model from mirroring the
+   prior assistant's conversational style (e.g. planning-mode '## Understand'
+   headers), which was producing garbage titles on Opus."
+  [messages]
+  (let [max-chars 2000]
+    (->> messages
+         (keep (fn [{:keys [role] :as msg}]
+                 (when-let [text (message-text-content msg)]
+                   (let [truncated (if (> (count text) max-chars)
+                                     (str (subs text 0 max-chars) " …")
+                                     text)]
+                     (str role ": " truncated)))))
+         (string/join "\n\n"))))
+
 (defn ^:private sanitize-title
   "Clean up a chat title: take first meaningful line, strip control chars,
-   markdown header prefixes, collapse whitespace, and truncate to 40 chars."
+   markdown header prefixes, collapse whitespace, and truncate to 40 chars.
+
+   If the first non-blank line is a bare markdown header with nothing else
+   (e.g. '## Understand' — a planning-mode section the title model sometimes
+   mimics), fall through to the next non-blank line when one exists."
   [^String s]
   (when s
-    (-> (string/split s #"\n")
-        (->> (map string/trim)
-             (remove string/blank?)
-             first)
-        (or "")
-        (string/replace #"[\x00-\x1f\x7f]" " ")
-        (string/replace #"^#+\s*" "")
-        (string/replace #"\s+" " ")
-        (string/trim)
-        (as-> t (subs t 0 (min (count t) 40))))))
+    (let [lines (->> (string/split s #"\n")
+                     (map string/trim)
+                     (remove string/blank?))
+          bare-header? (fn [^String line]
+                         (boolean (re-matches #"#+\s+\S.*" line)))
+          picked (or (when-let [first-line (first lines)]
+                       (if (and (bare-header? first-line)
+                                (seq (rest lines)))
+                         (first (rest lines))
+                         first-line))
+                     "")]
+      (-> picked
+          (string/replace #"[\x00-\x1f\x7f]" " ")
+          (string/replace #"^#+\s*" "")
+          (string/replace #"\s+" " ")
+          (string/trim)
+          (as-> t (subs t 0 (min (count t) 40)))))))
 
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
@@ -583,10 +633,24 @@
                                      retitle?))]
         (assert-compatible-apis-between-models! db chat-id provider model config)
         (when generate-title?
-          (let [title-past-messages (when retitle?
-                                     (->> (get-in db [:chats chat-id :messages] [])
-                                          shared/messages-after-last-compact-marker
-                                          (filterv #(contains? #{"user" "assistant"} (:role %)))))]
+          ;; On retitle (3rd prompt), flatten the conversation into a single
+          ;; user message instead of replaying it as role-structured past-messages.
+          ;; This prevents the title model (notably Opus) from mimicking the prior
+          ;; assistant's style and emitting section-header titles like "Understand".
+          (let [title-user-messages
+                (if retitle?
+                  (let [history (->> (get-in db [:chats chat-id :messages] [])
+                                     shared/messages-after-last-compact-marker
+                                     (filterv #(contains? #{"user" "assistant"} (:role %))))
+                        transcript (conversation->title-transcript
+                                    (into (vec history) user-messages))]
+                    [{:role "user"
+                      :content [{:type :text
+                                 :text (str "Summarize the following conversation as a thread title.\n"
+                                            "Follow the rules from the system prompt. Output only the title.\n\n"
+                                            "Conversation:\n"
+                                            transcript)}]}])
+                  user-messages)]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
@@ -594,8 +658,8 @@
                                                  :model-capabilities
                                                  (assoc model-capabilities :reason? false :tools false :web-search false)
                                                  :instructions (f.prompt/chat-title-prompt agent config)
-                                                 :past-messages title-past-messages
-                                                 :user-messages user-messages
+                                                 :past-messages nil
+                                                 :user-messages title-user-messages
                                                  :config config
                                                  :provider-auth provider-auth
                                                  :subagent? true})]

@@ -228,6 +228,13 @@
     (is (= "My Title" (#'f.chat/sanitize-title "### My Title"))))
   (testing "takes first non-blank line"
     (is (= "First Line" (#'f.chat/sanitize-title "\n\n  First Line\nSecond Line"))))
+  (testing "skips a bare markdown header line when more content follows"
+    ;; Regression: Opus in planning mode sometimes answers the title prompt with
+    ;; '## Understand' as the first line. Skip bare headers when a real line follows.
+    (is (= "actual body line" (#'f.chat/sanitize-title "## Understand\n\nactual body line")))
+    (is (= "the real title" (#'f.chat/sanitize-title "# Explore\nthe real title"))))
+  (testing "keeps a single-line header when nothing else follows"
+    (is (= "Only Title" (#'f.chat/sanitize-title "## Only Title"))))
   (testing "strips control characters"
     (is (= "clean text" (#'f.chat/sanitize-title "clean\u0000 \u001ftext"))))
   (testing "collapses whitespace"
@@ -238,6 +245,33 @@
     (is (= "" (#'f.chat/sanitize-title "  \n  \n  "))))
   (testing "returns nil for nil input"
     (is (nil? (#'f.chat/sanitize-title nil)))))
+
+(deftest conversation-title-transcript-test
+  (testing "renders user/assistant messages as a plain-text transcript"
+    (is (= "user: hi\n\nassistant: hello"
+           (#'f.chat/conversation->title-transcript
+            [{:role "user" :content [{:type :text :text "hi"}]}
+             {:role "assistant" :content [{:type :text :text "hello"}]}]))))
+  (testing "ignores non-text parts"
+    (is (= "user: hi"
+           (#'f.chat/conversation->title-transcript
+            [{:role "user" :content [{:type :text :text "hi"}
+                                     {:type :image :url "x"}]}]))))
+  (testing "skips messages with no text content"
+    (is (= "user: hi"
+           (#'f.chat/conversation->title-transcript
+            [{:role "user" :content [{:type :text :text "hi"}]}
+             {:role "assistant" :content []}]))))
+  (testing "truncates very long messages"
+    (let [long-text (apply str (repeat 3000 "x"))
+          out (#'f.chat/conversation->title-transcript
+               [{:role "user" :content [{:type :text :text long-text}]}])]
+      (is (string/ends-with? out " …"))
+      (is (< (count out) 2100))))
+  (testing "accepts string content for robustness"
+    (is (= "user: hi"
+           (#'f.chat/conversation->title-transcript
+            [{:role "user" :content "hi"}])))))
 
 (deftest title-generation-test
   (testing "generates title on first message and re-generates at third with full context"
@@ -278,13 +312,26 @@
             "Should call sync-prompt! again on third message")
         (is (= "Title 2" (get-in (h/db) [:chats chat-id :title])))
         (let [retitle-call (second @sync-prompt-calls*)
-              past-roles (into #{} (map :role) (:past-messages retitle-call))]
+              user-text (get-in (first (:user-messages retitle-call))
+                                [:content 0 :text])]
+          ;; On retitle, history is flattened into a single user message so the
+          ;; title model can't mirror prior assistant styling (e.g. '## Understand').
           (is (= 1 (count (:user-messages retitle-call)))
-              "Third message title should pass only current user message")
-          (is (seq (:past-messages retitle-call))
-              "Third message title should include chat history as past-messages")
-          (is (= #{"user" "assistant"} past-roles)
-              "Past messages should be cleaned of tool_call, tool_call_output, reason and flag entries"))
+              "Retitle should flatten conversation into a single user message")
+          (is (nil? (:past-messages retitle-call))
+              "Retitle should not replay role-structured past-messages")
+          (is (string/includes? user-text "user:")
+              "Flattened transcript should mark user turns")
+          (is (string/includes? user-text "assistant:")
+              "Flattened transcript should mark assistant turns")
+          (is (string/includes? user-text "Help me debug")
+              "Flattened transcript should include first user turn")
+          (is (string/includes? user-text "And add tests")
+              "Flattened transcript should include current user turn")
+          (is (not (string/includes? user-text "internal thoughts"))
+              "Reason/tool/flag entries should be filtered out of the transcript")
+          (is (not (string/includes? user-text "tool_call"))
+              "Reason/tool/flag entries should be filtered out of the transcript"))
 
         ;; Message 4: should NOT re-generate title
         (h/reset-messenger!)
@@ -310,9 +357,17 @@
 
         (h/reset-messenger!)
         (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (let [retitle-call (second @sync-prompt-calls*)]
-          (is (empty? (:past-messages retitle-call))
-              "Past messages before the compact marker should be dropped from title context")))))
+        (let [retitle-call (second @sync-prompt-calls*)
+              user-text (get-in (first (:user-messages retitle-call))
+                                [:content 0 :text])]
+          (is (nil? (:past-messages retitle-call))
+              "Past-messages should be nil on retitle (conversation is flattened into user-messages)")
+          (is (not (string/includes? user-text "Help me debug"))
+              "Pre-compact content must not leak into the title transcript")
+          (is (not (string/includes? user-text "Also refactor"))
+              "Pre-compact content must not leak into the title transcript")
+          (is (string/includes? user-text "And add tests")
+              "Current user message must be in the title transcript")))))
 
   (testing "manual rename suppresses automatic re-titling"
     (h/reset-components!)

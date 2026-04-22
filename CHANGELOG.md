@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Disable `ask_user` tool for subagents since they run non-interactively. #416
-- Add a dedicated guided **Install** page to the docs site (`/install`) with a "Where do you want to use ECA?" picker for editor plugins (Emacs, VS Code, Neovim, IntelliJ), Desktop, and manual methods (script, Homebrew, mise, GitHub Releases).
+- Fix low-quality chat titles on 3rd-message retitle (e.g. literal "Understand" on Opus) by flattening the conversation into a single user message so the title model can't mirror prior planning-mode section headers, adding negative rules/examples to the title prompt, and hardening `sanitize-title` to skip a bare leading markdown header when more content follows.
 
 ## 0.128.1
 
