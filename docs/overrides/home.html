@@ -1424,15 +1424,15 @@
   {%- endmacro %}
 
   {# ── Editor panel macro ── #}
-  {% macro editor_panel(id, title, img_src, img_alt, plugin_url, plugin_name, icon_svg) -%}
+  {% macro editor_panel(id, title, img_src, img_alt, display_name) -%}
     <div class="eca-editors__panel eca-editors__panel--{{ id }}">
       <div class="eca-editors__panel-frame">
         {{ editor_chrome(title) }}
         <img src="{{ img_src }}" alt="{{ img_alt }}">
       </div>
-      <a href="{{ plugin_url }}" class="eca-editors__panel-link" target="_blank">
-        View {{ plugin_name }} plugin
-        {{ icon_external_link() }}
+      <a href="install/#{{ id }}" class="eca-editors__panel-link">
+        Install {{ display_name }}
+        {{ icon_chevron_right() }}
       </a>
     </div>
   {%- endmacro %}
@@ -1526,24 +1526,19 @@
         <div class="eca-editors__panels">
           {{ editor_panel("emacs", "ECA &mdash; Emacs",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-emacs/master/demo.gif",
-             "ECA running in Emacs",
-             "https://github.com/editor-code-assistant/eca-emacs", "eca-emacs") }}
+             "ECA running in Emacs", "Emacs") }}
           {{ editor_panel("vscode", "ECA &mdash; VS Code",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-vscode/master/demo.gif",
-             "ECA running in VS Code",
-             "https://github.com/editor-code-assistant/eca-vscode", "eca-vscode") }}
+             "ECA running in VS Code", "VS Code") }}
           {{ editor_panel("intellij", "ECA &mdash; IntelliJ",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-intellij/master/demo.gif",
-             "ECA running in IntelliJ",
-             "https://github.com/editor-code-assistant/eca-intellij", "eca-intellij") }}
+             "ECA running in IntelliJ", "IntelliJ") }}
           {{ editor_panel("neovim", "ECA &mdash; Neovim",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-nvim/master/demo.png",
-             "ECA running in Neovim",
-             "https://github.com/editor-code-assistant/eca-nvim", "eca-nvim") }}
+             "ECA running in Neovim", "Neovim") }}
           {{ editor_panel("desktop", "ECA &mdash; Desktop",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/master/demo.gif",
-             "ECA running as a Desktop app",
-             "https://github.com/editor-code-assistant/eca-desktop", "eca-desktop") }}
+             "ECA running as a Desktop app", "Desktop") }}
         </div>
       </div>
 
