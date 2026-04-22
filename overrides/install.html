@@ -660,7 +660,7 @@
     pointer-events: auto;
   }
 
-  /* Arch picker (segmented-control style, 2 options + reveal panel) */
+  /* Arch picker — compact segmented control, same visual language as OS tabs */
   .eca-install-arch {
     position: relative;
   }
@@ -671,87 +671,64 @@
     pointer-events: none;
   }
 
-  .eca-install-arch__heading {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--eca-text-muted);
-    margin: 0 0 0.65rem;
-  }
-
-  .eca-install-arch__options {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.65rem;
-    margin-bottom: 1.1rem;
-  }
-
-  .eca-install-arch__option {
-    display: flex;
-    flex-direction: column;
-    gap: 0.18rem;
-    padding: 0.85rem 1rem;
+  .eca-install-arch__toggle {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.3rem;
     border-radius: 10px;
-    border: 1.5px solid var(--eca-border);
-    background: var(--eca-bg-card);
+    background: var(--eca-bg-secondary);
+    border: 1px solid var(--eca-border);
+    margin-bottom: 1.25rem;
+  }
+
+  .eca-install-arch__segment {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    padding: 0.5rem 1.1rem;
+    min-width: 7.5rem;
+    border-radius: 7px;
+    text-align: center;
+    color: var(--eca-text-secondary);
     cursor: pointer;
     transition: all 0.18s ease;
     user-select: none;
-    position: relative;
   }
 
-  .eca-install-arch__option:hover {
-    border-color: var(--eca-brand-light);
-    transform: translateY(-1px);
-    box-shadow: 0 3px 10px var(--eca-brand-shadow);
-  }
-
-  .eca-install-arch__option-title {
-    font-size: 0.92rem;
-    font-weight: 700;
+  .eca-install-arch__segment:hover {
     color: var(--eca-text);
   }
 
-  .eca-install-arch__option-sub {
-    font-size: 0.74rem;
+  .eca-install-arch__segment-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .eca-install-arch__segment-sub {
+    font-size: 0.68rem;
+    font-weight: 500;
     color: var(--eca-text-muted);
-    letter-spacing: 0.01em;
+    letter-spacing: 0.03em;
+    text-transform: none;
   }
 
-  .eca-install-arch__option-check {
-    position: absolute;
-    top: 0.55rem;
-    right: 0.65rem;
-    width: 16px;
-    height: 16px;
-    fill: var(--eca-brand);
-    opacity: 0;
-    transition: opacity 0.18s ease;
-  }
-
-  /* Active state for each of the 4 arch options */
-  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-arm64"],
-  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-x64"],
-  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-x64"],
-  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-arm64"] {
-    border-color: var(--eca-brand);
-    background: var(--eca-brand-bg);
-    box-shadow: 0 3px 10px var(--eca-brand-shadow-md);
-  }
-
-  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-arm64"]   .eca-install-arch__option-title,
-  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-x64"]     .eca-install-arch__option-title,
-  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-x64"]   .eca-install-arch__option-title,
-  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-arm64"] .eca-install-arch__option-title {
+  /* Active state — active segment gets a raised pill, brand-colored text */
+  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__toggle label[for="eca-desktop-arch-mac-arm64"],
+  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__toggle label[for="eca-desktop-arch-mac-x64"],
+  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__toggle label[for="eca-desktop-arch-linux-x64"],
+  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__toggle label[for="eca-desktop-arch-linux-arm64"] {
+    background: var(--eca-bg-card);
     color: var(--eca-brand);
+    box-shadow: 0 2px 6px var(--eca-shadow-sm);
   }
 
-  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-arm64"]   .eca-install-arch__option-check,
-  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__options label[for="eca-desktop-arch-mac-x64"]     .eca-install-arch__option-check,
-  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-x64"]   .eca-install-arch__option-check,
-  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__options label[for="eca-desktop-arch-linux-arm64"] .eca-install-arch__option-check {
-    opacity: 1;
+  #eca-desktop-arch-mac-arm64:checked    ~ .eca-install-arch__toggle label[for="eca-desktop-arch-mac-arm64"]   .eca-install-arch__segment-sub,
+  #eca-desktop-arch-mac-x64:checked      ~ .eca-install-arch__toggle label[for="eca-desktop-arch-mac-x64"]     .eca-install-arch__segment-sub,
+  #eca-desktop-arch-linux-x64:checked    ~ .eca-install-arch__toggle label[for="eca-desktop-arch-linux-x64"]   .eca-install-arch__segment-sub,
+  #eca-desktop-arch-linux-arm64:checked  ~ .eca-install-arch__toggle label[for="eca-desktop-arch-linux-arm64"] .eca-install-arch__segment-sub {
+    color: var(--eca-brand);
+    opacity: 0.75;
   }
 
   /* Download reveal panels — one active at a time, per arch */
@@ -1049,13 +1026,22 @@
       font-size: 0.78rem;
     }
 
-    .eca-install-arch__options {
-      grid-template-columns: 1fr;
-      gap: 0.5rem;
+    .eca-install-arch__toggle {
+      width: 100%;
     }
 
-    .eca-install-arch__option {
-      padding: 0.7rem 0.85rem;
+    .eca-install-arch__segment {
+      flex: 1;
+      min-width: 0;
+      padding: 0.5rem 0.7rem;
+    }
+
+    .eca-install-arch__segment-title {
+      font-size: 0.82rem;
+    }
+
+    .eca-install-arch__segment-sub {
+      font-size: 0.64rem;
     }
 
     .eca-install-advanced {
@@ -1081,9 +1067,6 @@
     <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
   {%- endmacro %}
 
-  {% macro icon_check() -%}
-    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-  {%- endmacro %}
 
   {# ── Editor SVG icons (copied from home.html for consistency).
        No class attribute on the <svg>: styling flows from the parent
@@ -1236,17 +1219,14 @@
                     <input type="radio" name="eca-desktop-arch-linux" id="eca-desktop-arch-linux-x64" checked>
                     <input type="radio" name="eca-desktop-arch-linux" id="eca-desktop-arch-linux-arm64">
 
-                    <p class="eca-install-arch__heading">Choose your architecture</p>
-                    <div class="eca-install-arch__options">
-                      <label for="eca-desktop-arch-linux-x64" class="eca-install-arch__option">
-                        <span class="eca-install-arch__option-title">x86_64</span>
-                        <span class="eca-install-arch__option-sub">Intel / AMD · 64-bit</span>
-                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                    <div class="eca-install-arch__toggle">
+                      <label for="eca-desktop-arch-linux-x64" class="eca-install-arch__segment">
+                        <span class="eca-install-arch__segment-title">x86_64</span>
+                        <span class="eca-install-arch__segment-sub">Intel / AMD</span>
                       </label>
-                      <label for="eca-desktop-arch-linux-arm64" class="eca-install-arch__option">
-                        <span class="eca-install-arch__option-title">arm64</span>
-                        <span class="eca-install-arch__option-sub">aarch64 · Raspberry Pi, ARM servers</span>
-                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                      <label for="eca-desktop-arch-linux-arm64" class="eca-install-arch__segment">
+                        <span class="eca-install-arch__segment-title">arm64</span>
+                        <span class="eca-install-arch__segment-sub">aarch64 · ARM</span>
                       </label>
                     </div>
 
@@ -1292,17 +1272,14 @@
                     <input type="radio" name="eca-desktop-arch-mac" id="eca-desktop-arch-mac-arm64" checked>
                     <input type="radio" name="eca-desktop-arch-mac" id="eca-desktop-arch-mac-x64">
 
-                    <p class="eca-install-arch__heading">Choose your Mac</p>
-                    <div class="eca-install-arch__options">
-                      <label for="eca-desktop-arch-mac-arm64" class="eca-install-arch__option">
-                        <span class="eca-install-arch__option-title">Apple Silicon</span>
-                        <span class="eca-install-arch__option-sub">M1 · M2 · M3 · M4 (arm64)</span>
-                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                    <div class="eca-install-arch__toggle">
+                      <label for="eca-desktop-arch-mac-arm64" class="eca-install-arch__segment">
+                        <span class="eca-install-arch__segment-title">Apple Silicon</span>
+                        <span class="eca-install-arch__segment-sub">arm64 · M1–M4</span>
                       </label>
-                      <label for="eca-desktop-arch-mac-x64" class="eca-install-arch__option">
-                        <span class="eca-install-arch__option-title">Intel</span>
-                        <span class="eca-install-arch__option-sub">x86_64 · pre-2020 Macs</span>
-                        <svg class="eca-install-arch__option-check" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                      <label for="eca-desktop-arch-mac-x64" class="eca-install-arch__segment">
+                        <span class="eca-install-arch__segment-title">Intel</span>
+                        <span class="eca-install-arch__segment-sub">x86_64</span>
                       </label>
                     </div>
 
