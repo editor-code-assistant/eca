@@ -648,6 +648,37 @@
       (swap! db* update :last-config-notified shared/deep-merge config-to-notify)
       (messenger/config-updated messenger config-to-notify))))
 
+(defn notify-selected-model-changed!
+  "Server-initiated equivalent of a client `chat/selectedModelChanged`: aligns
+   the client-side selected model to `full-model`, re-computing the available
+   variants and the suggested selected variant for the default agent. Emits via
+   `notify-fields-changed-only!`, so it is a no-op when nothing changed.
+   Returns nil when `full-model` is missing or no longer in `(:models @db*)`,
+   so a stale persisted model does not bubble to the UI. Used by chat resume
+   flows (`chat/open`, `/resume`) to restore the model each chat was using."
+  [full-model db* messenger config]
+  (when (and full-model (contains? (:models @db*) full-model))
+    (let [default-agent-name (validate-agent-name
+                              (or (:defaultAgent (:chat config))
+                                  (:defaultAgent config))
+                              config)
+          agent-config (get-in config [:agent default-agent-name])
+          [provider model-name] (shared/full-model->provider+model full-model)
+          user-variants (when (and provider model-name)
+                          (get-in config [:providers provider :models model-name :variants]))
+          variants (when (and provider model-name)
+                     (selectable-variant-names
+                      (effective-model-variants config provider model-name user-variants)))
+          agent-variant (:variant agent-config)
+          select-variant (when (and agent-variant variants (some #{agent-variant} variants))
+                           agent-variant)]
+      (notify-fields-changed-only!
+       {:chat {:select-model full-model
+               :variants (or variants [])
+               :select-variant select-variant}}
+       messenger
+       db*))))
+
 (def ^:private config-schema-url "https://eca.dev/config.json")
 
 (defn ^:private flatten-to-paths

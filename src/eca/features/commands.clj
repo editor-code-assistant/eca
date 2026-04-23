@@ -479,6 +479,9 @@
                      (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
                      (swap! db* update-in [:chats] #(dissoc % selected-chat-id))
                      (db/update-workspaces-cache! @db* metrics)
+                     ;; Align the client's selected model with the resumed chat
+                     ;; so the LLM call keeps using the chat's original model. #417
+                     (config/notify-selected-model-changed! (:model chat) db* messenger config)
                      {:type :chat-messages
                       :clear-before? true
                       :chats {chat-id {:title (:title chat)

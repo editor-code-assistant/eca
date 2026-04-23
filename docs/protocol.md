@@ -1821,7 +1821,10 @@ interface ChatSummary {
 A client request to hydrate a previously-persisted chat so it can be rendered
 in the UI. The server replays the chat by emitting `chat/cleared` (messages),
 `chat/opened`, and a sequence of `chat/contentReceived` notifications matching
-the persisted messages — without mutating server state. Typically used after
+the persisted messages. When the persisted chat has a stored model the server
+additionally emits a `config/updated` notification to realign the client's
+selected model (and available variants) with the resumed chat, so the next
+prompt keeps using the chat's original provider/model. Typically used after
 `chat/list` when the user selects a chat that has not been opened in the current
 client session.
 

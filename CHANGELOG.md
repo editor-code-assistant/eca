@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Restore the model used at chat creation when resuming a chat: `chat/open` and the `/resume` slash command now emit `config/updated` to realign the client's selected model to the persisted chat's `:model`, and the next `chat/prompt` prefers that stored model over the agent/global default (stale models still fall through gracefully). #417
 - Fix `rewrite` hanging on large files by windowing the inlined file context around the selection instead of sending the whole file; configurable via `rewrite.fullFileMaxLines` (default 2000). #418
 - Prefix plugin-sourced commands and skills with their plugin name (`/<plugin-name>:<name>`) to avoid collisions across plugins. When the plugin name and the command/skill name are equal the prefix is dropped. #420
 - Fix empty `.sha256` for macOS aarch64 release artifact by using `shasum -a 256` (portable across macOS runners) and enabling `pipefail` so silent pipe failures don't hide.

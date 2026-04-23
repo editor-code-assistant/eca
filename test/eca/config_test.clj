@@ -619,3 +619,45 @@
         (is (nil? (config/effective-model-variants bad-config "openai" "gpt-5.2" nil)))
         (is (= {"fast" {:a 1}}
                (config/effective-model-variants bad-config "openai" "gpt-5.2" {"fast" {:a 1}})))))))
+
+(deftest notify-selected-model-changed-test
+  (testing "Emits config/updated with the given model, its variants and selected variant"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1}
+                                                              "medium" {:a 2}
+                                                              "high" {:a 3}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "medium"}}})
+    (swap! (h/db*) update :models
+           #(merge % {"anthropic/claude-sonnet-4-5" {:tools true}}))
+    (config/notify-selected-model-changed! "anthropic/claude-sonnet-4-5"
+                                           (h/db*) (h/messenger) (h/config))
+    (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-sonnet-4-5"
+                                          :variants ["high" "low" "medium"]
+                                          :select-variant "medium"}}]}
+                (h/messages))))
+
+  (testing "No-op when model is missing from (:models db*) (stale persisted model)"
+    (h/reset-components!)
+    (config/notify-selected-model-changed! "anthropic/claude-opus-4"
+                                           (h/db*) (h/messenger) (h/config))
+    (is (nil? (:config-updated (h/messages)))))
+
+  (testing "No-op when model is nil"
+    (h/reset-components!)
+    (swap! (h/db*) update :models
+           #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+    (config/notify-selected-model-changed! nil (h/db*) (h/messenger) (h/config))
+    (is (nil? (:config-updated (h/messages)))))
+
+  (testing "Provider without matching variants emits empty variants list"
+    (h/reset-components!)
+    (swap! (h/db*) update :models
+           #(merge % {"custom-provider/plain-model" {:tools true}}))
+    (config/notify-selected-model-changed! "custom-provider/plain-model"
+                                           (h/db*) (h/messenger) (h/config))
+    (is (match? {:config-updated [{:chat {:select-model "custom-provider/plain-model"
+                                          :variants []
+                                          :select-variant nil}}]}
+                (h/messages)))))

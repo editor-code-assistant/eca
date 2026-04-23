@@ -55,9 +55,20 @@
                                              :mime-type :string}]}}
    :chats {"<chat-id>" {:id :string
                         :title (or :string nil)
+                        :title-custom? :boolean ;; user manually renamed the chat
                         :status (or :idle :running :stopping :login)
                         :created-at :number
+                        :updated-at :number
                         :login-provider :string
+                        :model :string ;; last full model id used for this chat, e.g. "anthropic/claude-sonnet-4-6"
+                        :last-api :keyword
+                        :trust :boolean
+                        :prompt-id :uuid
+                        :user-prompt-count :number
+                        :subagent :boolean
+                        :parent-chat-id :string
+                        :startup-context :string
+                        :prompt-cache ::any-map
                         :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason" "compact_marker" "flag" "server_tool_use" "server_tool_result")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
                                     :content-id :string}]

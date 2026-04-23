@@ -1085,4 +1085,105 @@
         (is (string/ends-with? (second @captured*) "/plan")
             "Second prompt's cache key should be suffixed by /plan")))))
 
+(defn ^:private capturing-api-mock
+  "Returns an api-mock that writes the incoming sync-or-async-prompt! params
+   to `captured*` and emits a minimal finish event."
+  [captured*]
+  (fn [{:keys [on-first-response-received on-message-received] :as params}]
+    (reset! captured* params)
+    (on-first-response-received {:type :text :text "x"})
+    (on-message-received {:type :text :text "x"})
+    (on-message-received {:type :finish})))
+
+(deftest resume-preserves-stored-model-test
+  (testing "Stored chat :model wins over default when no explicit model is sent (#417)"
+    (h/reset-components!)
+    (let [captured* (atom nil)
+          chat-id "opus-chat"]
+      (swap! (h/db*) update :models
+             #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+      ;; Pre-seed a chat as if it were resumed — stored model is opus.
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :model "anthropic/claude-opus-4"
+              :messages [{:role "user" :content [{:type :text :text "prior"}]}
+                         {:role "assistant" :content [{:type :text :text "ok"}]}]})
+      (prompt! {:message "follow up" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock (capturing-api-mock captured*)})
+      (is (= "anthropic" (:provider @captured*)))
+      (is (= "claude-opus-4" (:model @captured*)))
+      (is (= "anthropic/claude-opus-4" (get-in (h/db) [:chats chat-id :model])))))
+
+  (testing "Explicit request :model overrides stored chat :model"
+    (h/reset-components!)
+    (let [captured* (atom nil)
+          chat-id "opus-chat"]
+      (swap! (h/db*) update :models
+             #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :model "anthropic/claude-opus-4"
+              :messages [{:role "user" :content [{:type :text :text "prior"}]}]})
+      (prompt! {:message "switch" :chat-id chat-id :model "openai/gpt-5.2"}
+               {:all-tools-mock (constantly [])
+                :api-mock (capturing-api-mock captured*)})
+      (is (= "openai" (:provider @captured*)))
+      (is (= "gpt-5.2" (:model @captured*)))))
+
+  (testing "Stale stored :model (missing from (:models db)) falls through to default-model"
+    (h/reset-components!)
+    (let [captured* (atom nil)
+          chat-id "opus-chat"]
+      ;; Only gpt-5.2 is configured (by `prompt!` helper); opus is no longer
+      ;; available (e.g. provider removed).
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :model "anthropic/claude-opus-4"
+              :messages [{:role "user" :content [{:type :text :text "prior"}]}]})
+      (prompt! {:message "follow up" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock (capturing-api-mock captured*)})
+      (is (= "openai" (:provider @captured*)))
+      (is (= "gpt-5.2" (:model @captured*))))))
+
+(deftest open-chat-restores-selected-model-test
+  (testing "Opening a chat with a stored :model emits config/updated select-model (#417)"
+    (h/reset-components!)
+    (let [chat-id "resumed"]
+      (swap! (h/db*) update :models
+             #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :title "My Opus thread"
+              :model "anthropic/claude-opus-4"
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (let [result (f.chat/open-chat! {:chat-id chat-id}
+                                      (h/db*) (h/messenger) (h/config))]
+        (is (match? {:found? true :chat-id chat-id :title "My Opus thread"} result))
+        (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-opus-4"
+                                              :variants []
+                                              :select-variant nil}}]}
+                    (h/messages))))))
+
+  (testing "Opening a chat with no stored :model does not emit config/updated"
+    (h/reset-components!)
+    (let [chat-id "no-model"]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (nil? (:config-updated (h/messages))))))
+
+  (testing "Opening a chat with a stale stored :model does not emit config/updated"
+    (h/reset-components!)
+    (let [chat-id "stale-model"]
+      ;; Opus not in (:models db), so the UI dropdown must not jump to a ghost.
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :model "anthropic/claude-opus-4"
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (nil? (:config-updated (h/messages)))))))
+
 

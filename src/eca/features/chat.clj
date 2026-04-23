@@ -1058,13 +1058,23 @@
               (swap! db* assoc-in [:chat-start-fired chat-id] true)))
         ;; Re-read DB after potential chatStart modifications
         db @db*
-        ;; Respect explicit model; otherwise, if agent default is missing from
-        ;; available models, fallback to deterministic default-model resolution.
+        ;; Respect explicit model; otherwise prefer the chat's stored model
+        ;; (so resumed chats keep the provider/model they started with, #417);
+        ;; then fall back to the agent default if it resolves to an available
+        ;; model; finally, deterministic default-model resolution.
         full-model (or model
-                       (let [agent-default-model (:defaultModel agent-config)]
-                         (if (and agent-default-model
-                                  (contains? (:models db) agent-default-model))
+                       (let [stored-model (get-in db [:chats chat-id :model])
+                             agent-default-model (:defaultModel agent-config)]
+                         (cond
+                           (and stored-model
+                                (contains? (:models db) stored-model))
+                           stored-model
+
+                           (and agent-default-model
+                                (contains? (:models db) agent-default-model))
                            agent-default-model
+
+                           :else
                            (default-model db config))))
         rules (f.rules/all config (:workspace-folders db))
         all-tools (f.tools/all-tools chat-id agent @db* config)
@@ -1451,10 +1461,13 @@
 (defn open-chat!
   "Replay a persisted chat over the wire so a freshly-started client can render
    it. Emits `chat/cleared` (messages) followed by `chat/opened` and streams each
-   persisted message via `send-chat-contents!`. Performs no DB mutation.
+   persisted message via `send-chat-contents!`. Also re-aligns the client's
+   selected model to the resumed chat's stored `:model` via a `config/updated`
+   notification, so an Opus-started chat keeps using Opus on the next prompt
+   (#417). Performs no DB mutation otherwise.
    Returns `{:found? false}` when the chat does not exist or is a subagent,
    otherwise `{:found? true :chat-id ... :title ...}`."
-  [{:keys [chat-id]} db* messenger]
+  [{:keys [chat-id]} db* messenger config]
   (let [chat (get-in @db* [:chats chat-id])]
     (if (or (nil? chat) (:subagent chat))
       {:found? false}
@@ -1465,4 +1478,5 @@
         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
         (send-chat-contents! messages chat-ctx)
         (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
+        (config/notify-selected-model-changed! (:model chat) db* messenger config)
         {:found? true :chat-id chat-id :title title}))))
