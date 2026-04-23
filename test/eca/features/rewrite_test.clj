@@ -1,5 +1,6 @@
 (ns eca.features.rewrite-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
@@ -145,6 +146,72 @@
                      {:content {:type :text :text "(+ 1 2)"}}
                      {:content {:type :finished :total-time-ms number?}}]
                     msgs))))))
+
+(deftest prompt-windows-large-file-context-test
+  (testing "When target file exceeds rewrite.fullFileMaxLines, inlines a window centered on the selection with a truncation marker"
+    (h/reset-components!)
+    (let [total 5000
+          max-lines 2000
+          file-content (string/join "\n" (map #(str "line-" (inc %)) (range total)))
+          captured-args* (atom nil)]
+      (with-redefs [llm-api/sync-or-async-prompt!
+                    (fn [opts]
+                      ((:on-first-response-received opts) {:type :text})
+                      ((:on-message-received opts) {:type :finish}))
+                    f.prompt/build-rewrite-instructions
+                    (fn [_text _path full-text _range _all-tools _cfg _db]
+                      (reset! captured-args* {:full-text full-text})
+                      "INSTR")
+                    f.login/maybe-renew-auth-token! (fn [& _] nil)
+                    llm-api/refine-file-context (fn [_ _] file-content)
+                    llm-api/default-model (constantly "openai/gpt-4.1")]
+        (h/config! {:env "test" :rewrite {:fullFileMaxLines max-lines}})
+        (f.rewrite/prompt {:id "rw-window"
+                           :prompt "Improve"
+                           :text "t"
+                           :path "/tmp/big.clj"
+                           :range {:start {:line 2500 :character 0}
+                                   :end {:line 2500 :character 1}}}
+                          (h/db*) (h/config) (h/messenger) (h/metrics)))
+      (let [full-text (:full-text @captured-args*)
+            lines (string/split-lines full-text)]
+        (is (string? full-text))
+        ;; marker line + max-lines content lines
+        (is (= (inc max-lines) (count lines)))
+        ;; selection at 2500, half = 1000 -> window [1500..3499]
+        (is (= ";; [File truncated: showing lines 1500-3499 of 5000]" (first lines)))
+        (is (= "line-1500" (second lines)))
+        (is (= "line-3499" (last lines)))))))
+
+(deftest prompt-preserves-small-file-context-test
+  (testing "When target file fits rewrite.fullFileMaxLines, inlines the full file unchanged"
+    (h/reset-components!)
+    (let [total 500
+          max-lines 2000
+          file-content (string/join "\n" (map #(str "line-" (inc %)) (range total)))
+          captured-args* (atom nil)]
+      (with-redefs [llm-api/sync-or-async-prompt!
+                    (fn [opts]
+                      ((:on-first-response-received opts) {:type :text})
+                      ((:on-message-received opts) {:type :finish}))
+                    f.prompt/build-rewrite-instructions
+                    (fn [_text _path full-text _range _all-tools _cfg _db]
+                      (reset! captured-args* {:full-text full-text})
+                      "INSTR")
+                    f.login/maybe-renew-auth-token! (fn [& _] nil)
+                    llm-api/refine-file-context (fn [_ _] file-content)
+                    llm-api/default-model (constantly "openai/gpt-4.1")]
+        (h/config! {:env "test" :rewrite {:fullFileMaxLines max-lines}})
+        (f.rewrite/prompt {:id "rw-small"
+                           :prompt "Improve"
+                           :text "t"
+                           :path "/tmp/small.clj"
+                           :range {:start {:line 50 :character 0}
+                                   :end {:line 50 :character 1}}}
+                          (h/db*) (h/config) (h/messenger) (h/metrics)))
+      (let [full-text (:full-text @captured-args*)]
+        (is (= file-content full-text))
+        (is (not (string/includes? full-text "[File truncated")))))))
 
 (deftest prompt-default-model-and-auth-renew-test
   (testing "Falls back to default model when rewrite.model not set and calls auth renew with provider"

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix `rewrite` hanging on large files by windowing the inlined file context around the selection instead of sending the whole file; configurable via `rewrite.fullFileMaxLines` (default 2000). #418
 - Prefix plugin-sourced commands and skills with their plugin name (`/<plugin-name>:<name>`) to avoid collisions across plugins. When the plugin name and the command/skill name are equal the prefix is dropped. #420
 - Fix empty `.sha256` for macOS aarch64 release artifact by using `shasum -a 256` (portable across macOS runners) and enabling `pipefail` so silent pipe failures don't hide.
 - Fix install page `eca-desktop` download buttons navigating to the wrong artifact (e.g. Linux/x86_64 AppImage leading to `eca-mac-arm64.dmg`) caused by hidden OS/arch panels still intercepting clicks on top of the visible panel; hidden primary tab and OS panels now use `display: none` so their nested `:checked` rules can't re-activate and leak clicks.

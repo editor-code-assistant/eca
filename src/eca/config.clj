@@ -160,6 +160,7 @@
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:title true}
+   :rewrite {:fullFileMaxLines 2000}
    :hooks {}
    :rules []
    :commands []

@@ -1,5 +1,6 @@
 (ns eca.features.rewrite
   (:require
+   [clojure.string :as string]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
@@ -18,6 +19,27 @@
    {:rewrite-id (:rewrite-id ctx)
     :content content}))
 
+(defn ^:private rewrite-file-context
+  "Returns the file content to inline in the rewrite prompt.
+  When the file has more than `max-lines` lines, returns a window of
+  `max-lines` lines centered on the selection's start line, prefixed with a
+  one-line truncation marker. Otherwise returns the full content."
+  [path range max-lines]
+  (when path
+    (when-let [content (llm-api/refine-file-context path nil)]
+      (let [lines (string/split-lines content)
+            total (count lines)]
+        (if (or (not (pos-int? max-lines)) (<= total max-lines))
+          content
+          (let [sel-line (max 1 (or (some-> range :start :line) 1))
+                half (quot max-lines 2)
+                raw-start (- sel-line half)
+                start (max 1 (min (inc (- total max-lines)) raw-start))
+                end (min total (dec (+ start max-lines)))
+                windowed (string/join "\n" (subvec lines (dec start) end))]
+            (str (format ";; [File truncated: showing lines %d-%d of %d]\n" start end total)
+                 windowed)))))))
+
 (defn prompt
   [{:keys [id prompt text path range]} db* config messenger metrics]
   (let [db @db*
@@ -27,7 +49,8 @@
             (throw (ex-info llm-api/no-available-model-error-msg {})))
         [provider model] (shared/full-model->provider+model full-model)
         model-capabilities (get-in db [:models full-model])
-        full-text (when path (llm-api/refine-file-context path nil))
+        max-file-lines (get-in config [:rewrite :fullFileMaxLines])
+        full-text (rewrite-file-context path range max-file-lines)
         start-time (System/currentTimeMillis)
         all-tools (f.tools/all-tools nil nil @db* config)
         instructions (f.prompt/build-rewrite-instructions text path full-text range all-tools config db)
