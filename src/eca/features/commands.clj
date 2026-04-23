@@ -34,6 +34,15 @@
 (defn ^:private normalize-command-name [f]
   (string/lower-case (fs/strip-ext (fs/file-name f))))
 
+(defn ^:private prefixed-command-name
+  "Builds the user-invocation name for a plugin-sourced command.
+   Returns just the plugin name when it equals the command name (dedup),
+   otherwise 'plugin:command'."
+  [plugin-name command-name]
+  (if (= plugin-name command-name)
+    plugin-name
+    (str plugin-name ":" command-name)))
+
 (defn ^:private global-file-commands []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
                             (io/file (config/get-property "user.home") ".config"))
@@ -63,21 +72,26 @@
 (defn ^:private config-commands [config roots]
   (->> (get config :commands)
        (map
-        (fn [{:keys [path]}]
-          (let [path (str (fs/expand-home path))]
+        (fn [{:keys [path plugin]}]
+          (let [path (str (fs/expand-home path))
+                effective-name (fn [file]
+                                 (let [base (normalize-command-name file)]
+                                   (if plugin (prefixed-command-name plugin base) base)))]
             (if (fs/absolute? path)
               (when (fs/exists? path)
-                {:name (normalize-command-name path)
-                 :path path
-                 :type :user-config
-                 :content (slurp path)})
+                (cond-> {:name (effective-name path)
+                         :path path
+                         :type :user-config
+                         :content (slurp path)}
+                  plugin (assoc :plugin plugin)))
               (keep (fn [{:keys [uri]}]
                       (let [f (fs/file (shared/uri->filename uri) path)]
                         (when (fs/exists? f)
-                          {:name (normalize-command-name f)
-                           :path (str (fs/canonicalize f))
-                           :type :user-config
-                           :content (slurp f)})))
+                          (cond-> {:name (effective-name f)
+                                   :path (str (fs/canonicalize f))
+                                   :type :user-config
+                                   :content (slurp f)}
+                            plugin (assoc :plugin plugin)))))
                     roots)))))
        (flatten)
        (remove nil?)))

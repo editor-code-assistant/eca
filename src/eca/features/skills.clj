@@ -43,13 +43,30 @@
                      (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))
        (keep skill-file->skill)))
 
+(defn ^:private prefixed-skill-name
+  "Builds the user-invocation name for a plugin skill.
+   Returns just the plugin name when it equals the skill name (dedup),
+   otherwise 'plugin:skill'."
+  [plugin-name skill-name]
+  (if (= plugin-name skill-name)
+    plugin-name
+    (str plugin-name ":" skill-name)))
+
 (defn ^:private plugin-skills [plugin-skill-dirs]
   (->> plugin-skill-dirs
-       (mapcat (fn [dir]
-                 (let [dir (if (string? dir) (fs/file dir) dir)]
-                   (when (fs/exists? dir)
-                     (fs/glob dir "**/SKILL.md" {:follow-links true})))))
-       (keep skill-file->skill)))
+       (mapcat (fn [entry]
+                 (let [{:keys [dir plugin]} (if (string? entry)
+                                              {:dir entry}
+                                              entry)
+                       dir-file (fs/file dir)]
+                   (when (and dir (fs/exists? dir-file))
+                     (->> (fs/glob dir-file "**/SKILL.md" {:follow-links true})
+                          (map (fn [f] {:file f :plugin plugin})))))))
+       (keep (fn [{:keys [file plugin]}]
+               (when-let [skill (skill-file->skill file)]
+                 (cond-> skill
+                   plugin (assoc :plugin plugin
+                                 :name (prefixed-skill-name plugin (:name skill)))))))))
 
 (defn all [config roots]
   (concat []

@@ -90,4 +90,51 @@
              (m/embeds [{:name "quoted-skill"
                          :description "Single quoted description"
                          :body "Body"}])
-             (f.skills/all {} roots)))))))
+             (f.skills/all {} roots))))))
+
+  (testing "plugin skills are prefixed with plugin name"
+    (with-redefs [config/get-env (constantly nil)
+                  config/get-property (constantly (h/file-path "/home/someuser"))
+                  fs/exists? (fn [p] (= (h/file-path "/plugins/ui/skills") (str p)))
+                  fs/glob (constantly [(fs/path (h/file-path "/plugins/ui/skills/button/SKILL.md"))])
+                  fs/canonicalize identity
+                  fs/parent (constantly (fs/path (h/file-path "/plugins/ui/skills/button")))
+                  clojure.core/slurp (constantly "---\nname: button\ndescription: Button skill\n---\nButton body")]
+      (let [config {:pureConfig true
+                    :pluginSkillDirs [{:plugin "ui" :dir (h/file-path "/plugins/ui/skills")}]}]
+        (is (match?
+             (m/embeds [{:name "ui:button"
+                         :plugin "ui"
+                         :description "Button skill"}])
+             (f.skills/all config []))))))
+
+  (testing "plugin skill with same name as plugin drops the prefix"
+    (with-redefs [config/get-env (constantly nil)
+                  config/get-property (constantly (h/file-path "/home/someuser"))
+                  fs/exists? (fn [p] (= (h/file-path "/plugins/tdd/skills") (str p)))
+                  fs/glob (constantly [(fs/path (h/file-path "/plugins/tdd/skills/tdd/SKILL.md"))])
+                  fs/canonicalize identity
+                  fs/parent (constantly (fs/path (h/file-path "/plugins/tdd/skills/tdd")))
+                  clojure.core/slurp (constantly "---\nname: tdd\ndescription: TDD skill\n---\nTDD body")]
+      (let [config {:pureConfig true
+                    :pluginSkillDirs [{:plugin "tdd" :dir (h/file-path "/plugins/tdd/skills")}]}]
+        (is (match?
+             (m/embeds [{:name "tdd"
+                         :plugin "tdd"
+                         :description "TDD skill"}])
+             (f.skills/all config []))))))
+
+  (testing "plugin skill dirs given as bare strings stay unprefixed (legacy)"
+    (with-redefs [config/get-env (constantly nil)
+                  config/get-property (constantly (h/file-path "/home/someuser"))
+                  fs/exists? (fn [p] (= (h/file-path "/plugins/legacy/skills") (str p)))
+                  fs/glob (constantly [(fs/path (h/file-path "/plugins/legacy/skills/old/SKILL.md"))])
+                  fs/canonicalize identity
+                  fs/parent (constantly (fs/path (h/file-path "/plugins/legacy/skills/old")))
+                  clojure.core/slurp (constantly "---\nname: old\ndescription: Legacy\n---\nOld body")]
+      (let [config {:pureConfig true
+                    :pluginSkillDirs [(h/file-path "/plugins/legacy/skills")]}]
+        (is (match?
+             (m/embeds [{:name "old"
+                         :description "Legacy"}])
+             (f.skills/all config [])))))))

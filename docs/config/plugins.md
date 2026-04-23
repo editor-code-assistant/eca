@@ -188,6 +188,17 @@ plugins/code-review/
 
 All paths are optional — include only what your plugin needs.
 
+### User-invocation naming: plugin prefix
+
+Commands and skills provided by a plugin are exposed to the user under a `<plugin-name>:<name>` namespace. This avoids collisions between plugins and makes it obvious which plugin a command or skill comes from.
+
+- A command `deploy.md` inside plugin `ui-doomer` is invoked as `/ui-doomer:deploy`.
+- A skill named `button` inside plugin `ui-doomer` is invoked as `/ui-doomer:button`.
+- When the plugin name equals the command or skill name, the prefix is dropped: a skill named `ui-doomer` inside plugin `ui-doomer` is just `/ui-doomer` (not `/ui-doomer:ui-doomer`).
+- User-local and user-global commands/skills (from `~/.config/eca/commands/` or `.eca/commands/`) are not prefixed.
+
+If a plugin's prefixed command name happens to collide with an MCP prompt of the form `server:prompt`, the plugin command takes precedence.
+
 === "Skill-only plugin"
 
     ```

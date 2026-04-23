@@ -1,5 +1,6 @@
 (ns eca.features.commands-test
   (:require
+   [babashka.fs :as fs]
    [clojure.test :refer [deftest is testing]]
    [eca.features.commands :as f.commands]
    [eca.test-helper :as h]))
@@ -67,6 +68,38 @@
   (testing "replaces both $ARGn and $n placeholders"
     (is (= "A:x B:x"
            (#'f.commands/substitute-args "A:$ARG1 B:$1" ["x"])))))
+
+(deftest config-commands-plugin-prefix-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (testing "plugin commands get prefixed with plugin name"
+        (let [cmd-file (fs/file tmp-dir "deploy.md")]
+          (spit cmd-file "Plugin command body")
+          (let [config {:commands [{:path (str cmd-file) :plugin "ui"}]}
+                result (vec (#'f.commands/config-commands config []))]
+            (is (= 1 (count result)))
+            (is (= "ui:deploy" (:name (first result))))
+            (is (= "ui" (:plugin (first result)))))))
+
+      (testing "plugin command with same name as plugin drops the prefix"
+        (let [cmd-file (fs/file tmp-dir "tdd.md")]
+          (spit cmd-file "TDD body")
+          (let [config {:commands [{:path (str cmd-file) :plugin "tdd"}]}
+                result (vec (#'f.commands/config-commands config []))]
+            (is (= 1 (count result)))
+            (is (= "tdd" (:name (first result))))
+            (is (= "tdd" (:plugin (first result)))))))
+
+      (testing "user-config commands without a plugin stay unprefixed"
+        (let [cmd-file (fs/file tmp-dir "plain.md")]
+          (spit cmd-file "Plain body")
+          (let [config {:commands [{:path (str cmd-file)}]}
+                result (vec (#'f.commands/config-commands config []))]
+            (is (= 1 (count result)))
+            (is (= "plain" (:name (first result))))
+            (is (not (contains? (first result) :plugin))))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
 
 (deftest all-commands-include-model-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]

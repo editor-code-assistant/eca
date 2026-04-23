@@ -362,25 +362,31 @@
          (vec))))
 
 (defn ^:private message->decision [message db config]
-  (let [all-command-names (->> (f.commands/all-commands db config)
-                               (map :name)
-                               set)
+  (let [;; Build a name->command map. `into {}` keeps the last entry on key
+        ;; collisions, and `all-commands` places plugin/custom entries after
+        ;; MCP prompts, so a plugin command wins over an MCP prompt with the
+        ;; same prefixed name.
+        cmds-by-name (into {} (map (juxt :name identity)) (f.commands/all-commands db config))
         slash? (string/starts-with? message "/")
         possible-command (when slash? (subs message 1))
         [command-name & args] (when possible-command
                                 (let [toks (tokenize-args possible-command)] (if (seq toks) toks [""])))
         args (vec args)
-        command? (contains? all-command-names command-name)]
-    (if command?
-      (if (and command-name (string/includes? command-name ":"))
-        (let [[server prompt] (string/split command-name #":" 2)]
-          {:type :mcp-prompt
-           :server server
-           :prompt prompt
-           :args args})
-        {:type :eca-command
-         :command command-name
+        matched (get cmds-by-name command-name)]
+    (cond
+      (= :mcpPrompt (:type matched))
+      (let [[server prompt] (string/split command-name #":" 2)]
+        {:type :mcp-prompt
+         :server server
+         :prompt prompt
          :args args})
+
+      matched
+      {:type :eca-command
+       :command command-name
+       :args args}
+
+      :else
       {:type :prompt-message
        :message message})))
 

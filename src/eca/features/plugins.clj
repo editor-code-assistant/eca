@@ -199,15 +199,18 @@
            (into {})))))
 
 (defn ^:private read-commands
-  "Reads commands/*.md from a plugin directory and returns a vector of {:path ...} entries."
-  [^java.io.File plugin-dir]
+  "Reads commands/*.md from a plugin directory and returns a vector of
+   {:path ... :plugin <plugin-name>} entries. `plugin-name` may be nil
+   (e.g. for tests calling discover-components without a name)."
+  [^java.io.File plugin-dir plugin-name]
   (let [commands-dir (io/file plugin-dir "commands")]
     (when (fs/exists? commands-dir)
       (->> (fs/glob commands-dir "**" {:follow-links true})
            (keep (fn [file]
                    (when (and (not (fs/directory? file))
                               (string/ends-with? (str (fs/file-name file)) ".md"))
-                     {:path (str (fs/canonicalize file))})))
+                     (cond-> {:path (str (fs/canonicalize file))}
+                       plugin-name (assoc :plugin plugin-name)))))
            vec))))
 
 (defn ^:private read-rules
@@ -222,34 +225,40 @@
            vec))))
 
 (defn ^:private read-skill-dirs
-  "Returns skill directories from a plugin directory."
-  [^java.io.File plugin-dir]
+  "Returns skill directories from a plugin directory as a vector of
+   {:dir <absolute-path> :plugin <plugin-name>} entries. `plugin-name` may be nil."
+  [^java.io.File plugin-dir plugin-name]
   (let [skills-dir (io/file plugin-dir "skills")]
     (when (fs/exists? skills-dir)
-      [(str (fs/canonicalize skills-dir))])))
+      [(cond-> {:dir (str (fs/canonicalize skills-dir))}
+         plugin-name (assoc :plugin plugin-name))])))
 
 ;; -- Discovery and resolution --
 
 (defn ^:private discover-components
   "Walks a plugin directory and discovers all components.
+   `plugin-name` is the marketplace name of the plugin and is attached to
+   components that support user-invocation namespacing (commands, skill dirs).
    Returns a config-ready map:
    {:config-fragment {...}  — deep-mergeable into ECA config (mcpServers, hooks, pluginSkillDirs, eca.json overrides)
     :agents {...}           — agent-name -> agent-config map (merged alongside markdown agents)
-    :commands [{:path ...}] — appended to :commands config vector
+    :commands [{:path ... :plugin ...}] — appended to :commands config vector
     :rules [{:path ...}]}   — appended to :rules config vector"
-  [^java.io.File plugin-dir]
-  (let [mcp-servers (read-mcp-servers plugin-dir)
-        hooks (read-hooks plugin-dir)
-        eca-config (read-eca-config plugin-dir)
-        skill-dirs (read-skill-dirs plugin-dir)
-        config-fragment (cond-> (or eca-config {})
-                          (seq mcp-servers) (assoc :mcpServers mcp-servers)
-                          (seq hooks) (assoc :hooks hooks)
-                          (seq skill-dirs) (update :pluginSkillDirs (fnil into []) skill-dirs))]
-    {:config-fragment config-fragment
-     :agents (read-agents plugin-dir)
-     :commands (read-commands plugin-dir)
-     :rules (read-rules plugin-dir)}))
+  ([^java.io.File plugin-dir]
+   (discover-components plugin-dir nil))
+  ([^java.io.File plugin-dir plugin-name]
+   (let [mcp-servers (read-mcp-servers plugin-dir)
+         hooks (read-hooks plugin-dir)
+         eca-config (read-eca-config plugin-dir)
+         skill-dirs (read-skill-dirs plugin-dir plugin-name)
+         config-fragment (cond-> (or eca-config {})
+                           (seq mcp-servers) (assoc :mcpServers mcp-servers)
+                           (seq hooks) (assoc :hooks hooks)
+                           (seq skill-dirs) (update :pluginSkillDirs (fnil into []) skill-dirs))]
+     {:config-fragment config-fragment
+      :agents (read-agents plugin-dir)
+      :commands (read-commands plugin-dir plugin-name)
+      :rules (read-rules plugin-dir)})))
 
 (defn ^:private merge-components
   "Merges components from multiple plugins into a single map.
@@ -319,7 +328,7 @@
                                               "in" (str source-dir)))
                                plugin-dir)]
                  (do (logger/info logger-tag "Loading plugin:" plugin-name "from" source-name)
-                     (discover-components plugin-dir))))]
+                     (discover-components plugin-dir plugin-name))))]
           (merge-components components))))))
 
 (defn list-marketplace-plugins

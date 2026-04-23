@@ -100,6 +100,18 @@
           (is (= 1 (count (:commands result))))
           (is (string? (:path (first (:commands result)))))))
 
+      (testing "attaches plugin name to commands when provided"
+        (let [result (#'plugins/discover-components (fs/file plugin-dir) "my-plugin")]
+          (is (match? (m/embeds [{:plugin "my-plugin"
+                                  :path string?}])
+                      (:commands result)))))
+
+      (testing "attaches plugin name to skill dirs when provided"
+        (let [result (#'plugins/discover-components (fs/file plugin-dir) "my-plugin")]
+          (is (match? (m/embeds [{:plugin "my-plugin"
+                                  :dir string?}])
+                      (get-in result [:config-fragment :pluginSkillDirs])))))
+
       (testing "discovers rules as path entries"
         (fs/create-dirs (fs/file plugin-dir "rules"))
         (spit (fs/file plugin-dir "rules" "my-rule.mdc")
@@ -175,10 +187,14 @@
                         {"my-source" {:source (str source-dir)}
                          "install" ["my-plugin"]})]
             (is (= 1 (count (get-in result [:config-fragment :pluginSkillDirs]))))
+            (is (match? (m/embeds [{:plugin "my-plugin" :dir string?}])
+                        (get-in result [:config-fragment :pluginSkillDirs])))
             (is (match? {:test-mcp {:url "https://example.com/mcp"}}
                         (get-in result [:config-fragment :mcpServers])))
             (is (match? {"helper" {:description "Helps"}} (:agents result)))
-            (is (= 1 (count (:commands result)))))))
+            (is (= 1 (count (:commands result))))
+            (is (match? (m/embeds [{:plugin "my-plugin" :path string?}])
+                        (:commands result))))))
 
       (testing "returns empty for nil config"
         (let [result (plugins/resolve-all! nil)]
