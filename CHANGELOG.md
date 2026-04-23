@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.129.1
+
 - Fix token usage not being reported in the UI for Google/Gemini (and other strict OpenAI-compat providers) by opting into `stream_options.include_usage` on streaming chat completion requests. #414
 
 ## 0.129.0
