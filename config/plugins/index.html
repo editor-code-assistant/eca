@@ -1134,6 +1134,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#user-invocation-naming-plugin-prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      User-invocation naming: plugin prefix
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1449,6 +1458,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#user-invocation-naming-plugin-prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      User-invocation naming: plugin prefix
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1670,6 +1688,15 @@
 </tbody>
 </table>
 <p>All paths are optional — include only what your plugin needs.</p>
+<h3 id="user-invocation-naming-plugin-prefix">User-invocation naming: plugin prefix<a class="headerlink" href="#user-invocation-naming-plugin-prefix" title="Permanent link">#</a></h3>
+<p>Commands and skills provided by a plugin are exposed to the user under a <code>&lt;plugin-name&gt;:&lt;name&gt;</code> namespace. This avoids collisions between plugins and makes it obvious which plugin a command or skill comes from.</p>
+<ul>
+<li>A command <code>deploy.md</code> inside plugin <code>ui-doomer</code> is invoked as <code>/ui-doomer:deploy</code>.</li>
+<li>A skill named <code>button</code> inside plugin <code>ui-doomer</code> is invoked as <code>/ui-doomer:button</code>.</li>
+<li>When the plugin name equals the command or skill name, the prefix is dropped: a skill named <code>ui-doomer</code> inside plugin <code>ui-doomer</code> is just <code>/ui-doomer</code> (not <code>/ui-doomer:ui-doomer</code>).</li>
+<li>User-local and user-global commands/skills (from <code>~/.config/eca/commands/</code> or <code>.eca/commands/</code>) are not prefixed.</li>
+</ul>
+<p>If a plugin's prefixed command name happens to collide with an MCP prompt of the form <code>server:prompt</code>, the plugin command takes precedence.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="2:4"><input checked="checked" id="skill-only-plugin" name="__tabbed_2" type="radio" /><input id="hooks--mcp-plugin" name="__tabbed_2" type="radio" /><input id="config-overrides-only" name="__tabbed_2" type="radio" /><input id="full-plugin" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="skill-only-plugin">Skill-only plugin</label><label for="hooks--mcp-plugin">Hooks + MCP plugin</label><label for="config-overrides-only">Config overrides only</label><label for="full-plugin">Full plugin</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -1732,7 +1759,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 23, 2026 13:51:42 UTC">April 23, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 23, 2026 14:28:44 UTC">April 23, 2026</span>
   </span>
 
     
