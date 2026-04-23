@@ -1,8 +1,8 @@
 (ns eca.features.tools.custom-test
   (:require
-   [babashka.process :as p]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.tools.custom :as f.tools.custom]))
+   [eca.features.tools.custom :as f.tools.custom]
+   [eca.features.tools.shell :as f.tools.shell]))
 
 (deftest definitions-test
   (testing "when a valid tool is configured"
@@ -13,9 +13,10 @@
                                                          "pattern"   {:type "string"}}
                                             :required    ["directory" "pattern"]}}}]
       (testing "and the command executes successfully"
-        (with-redefs [p/shell (fn [_opts _bash command]
-                                (is (= "find /tmp -name *.clj" command))
-                                {:out "mocked-output" :exit 0})]
+        (with-redefs [f.tools.shell/start-shell-process!
+                      (fn [{:keys [script]}]
+                        (is (= "find /tmp -name *.clj" script))
+                        (delay {:out "mocked-output" :exit 0}))]
           (let [config {:customTools mock-custom-tools}
                 custom-defs (f.tools.custom/definitions config)
                 custom-tool-def (get custom-defs "file-search")]
@@ -31,11 +32,13 @@
                              {:description "Echoes a message"
                               :command "echo {{message}}"
                               :schema {:properties {"message" {:type "string"}} :required ["message"]}}}]
-      (with-redefs [p/shell (fn [_opts _bash command]
-                              (condp = command
-                                "git status" {:out "On branch main" :exit 0}
-                                "echo Hello World" {:out "Hello World" :exit 0}
-                                (is false "Unexpected command received by mock p/sh")))]
+      (with-redefs [f.tools.shell/start-shell-process!
+                    (fn [{:keys [script]}]
+                      (delay (condp = script
+                               "git status" {:out "On branch main" :exit 0}
+                               "echo Hello World" {:out "Hello World" :exit 0}
+                               (do (is false "Unexpected command received by mock start-shell-process!")
+                                   {:exit 1}))))]
         (let [config {:customTools mock-custom-tools}
               custom-defs (f.tools.custom/definitions config)
               git-status-handler (get-in custom-defs ["git-status" :handler])
@@ -44,6 +47,21 @@
           (is (some? echo-handler) "Echo message tool should be loaded.")
           (is (= {:contents [{:text "Stdout:\nOn branch main", :type :text}], :error false} (git-status-handler {} {})))
           (is (= {:contents [{:text "Stdout:\nHello World", :type :text}], :error false} (echo-handler {"message" "Hello World"} {})))))))
+
+  (testing "honors toolCall.shellCommand overrides from config"
+    (let [mock-custom-tools {"ls" {:description "List files." :command "ls"}}
+          captured (atom nil)]
+      (with-redefs [f.tools.shell/start-shell-process!
+                    (fn [opts]
+                      (reset! captured opts)
+                      (delay {:out "" :exit 0}))]
+        (let [custom-defs (f.tools.custom/definitions {:customTools mock-custom-tools})
+              handler (get-in custom-defs ["ls" :handler])
+              ctx {:config {:toolCall {:shellCommand {:path "/custom/sh" :args ["-lc"]}}}}]
+          (handler {} ctx)
+          (is (= "/custom/sh" (:shell-path @captured)))
+          (is (= ["-lc"] (:shell-args @captured)))
+          (is (= "ls" (:script @captured)))))))
 
   (testing "when the custom tools config is empty or missing"
     (testing "with an empty map"
