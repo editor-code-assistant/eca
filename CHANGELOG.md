@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix token usage not being reported in the UI for Google/Gemini (and other strict OpenAI-compat providers) by opting into `stream_options.include_usage` on streaming chat completion requests. #414
+
 ## 0.129.0
 
 - Restore the model used at chat creation when resuming a chat: `chat/open` and the `/resume` slash command now emit `config/updated` to realign the client's selected model to the persisted chat's `:model`, and the next `chat/prompt` prefers that stored model over the agent/global default (stale models still fall through gracefully). #417

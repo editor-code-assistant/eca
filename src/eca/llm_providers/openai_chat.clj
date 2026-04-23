@@ -453,7 +453,11 @@
                 :stream stream?
                 :max_completion_tokens 32000}
                :temperature temperature
-               :tools (when (seq tools) (->tools tools)))
+               :tools (when (seq tools) (->tools tools))
+               ;; Required by the OpenAI streaming spec to receive a final
+               ;; chunk with `usage`. Strict OpenAI-compat servers (e.g. Gemini
+               ;; via `/v1beta/openai`) omit usage without this flag.
+               :stream_options (when stream? {:include_usage true}))
               extra-payload)
 
         ;; Atom to accumulate tool call data from streaming chunks.

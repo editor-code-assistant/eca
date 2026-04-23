@@ -8,6 +8,10 @@
 
 (def ^:dynamic *thinking-tag* "think")
 
+;; Matches the real OpenAI streaming contract: a `usage` chunk is only emitted
+;; when the request opted in via `stream_options.include_usage = true`.
+(def ^:dynamic *include-usage?* false)
+
 (defn set-thinking-tag! [tag]
   (alter-var-root #'*thinking-tag* (constantly tag)))
 
@@ -15,6 +19,12 @@
   "Send a single SSE data line with a JSON payload, followed by a blank line."
   [ch m]
   (hk/send! ch (str "data: " (json/generate-string m) "\n\n") false))
+
+(defn ^:private send-usage!
+  "Send a usage SSE chunk only when the client requested it."
+  [ch payload]
+  (when *include-usage?*
+    (send-sse! ch {:usage payload})))
 
 (defn ^:private messages->normalized-input
   "Transforms OpenAI Chat messages into the canonical ECA :input + :instructions format
@@ -49,13 +59,13 @@
   ;; Stream two content chunks, then a usage chunk, then a finish chunk
   (send-sse! ch {:choices [{:delta {:content "Knock"}}]})
   (send-sse! ch {:choices [{:delta {:content " knock!"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 10 :completion_tokens 20}})
+  (send-usage! ch {:prompt_tokens 10 :completion_tokens 20})
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
 (defn ^:private simple-text-1 [ch]
   (send-sse! ch {:choices [{:delta {:content "Foo"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 10 :completion_tokens 5}})
+  (send-usage! ch {:prompt_tokens 10 :completion_tokens 5})
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
@@ -64,7 +74,7 @@
   (send-sse! ch {:choices [{:delta {:content " bar!"}}]})
   (send-sse! ch {:choices [{:delta {:content "\n\n"}}]})
   (send-sse! ch {:choices [{:delta {:content "Ha!"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 15}})
+  (send-usage! ch {:prompt_tokens 5 :completion_tokens 15})
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
@@ -75,7 +85,7 @@
   (send-sse! ch {:choices [{:delta {:content (str "</" *thinking-tag* ">")}}]})
   (send-sse! ch {:choices [{:delta {:content "hello"}}]})
   (send-sse! ch {:choices [{:delta {:content " there!"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 10 :completion_tokens 20}})
+  (send-usage! ch {:prompt_tokens 10 :completion_tokens 20})
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
@@ -86,7 +96,7 @@
   (send-sse! ch {:choices [{:delta {:content (str "</" *thinking-tag* ">")}}]})
   (send-sse! ch {:choices [{:delta {:content "I'm "}}]})
   (send-sse! ch {:choices [{:delta {:content " fine"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 10 :completion_tokens 20}})
+  (send-usage! ch {:prompt_tokens 10 :completion_tokens 20})
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
@@ -115,7 +125,7 @@
                                                    :function {:arguments "{\"pat"}}]}}]})
   (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
                                                    :function {:arguments (str "h\":\"" (h/json-escape-path path) "\"}")}}]}}]})
-  (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 30}})
+  (send-usage! ch {:prompt_tokens 5 :completion_tokens 30})
   (send-sse! ch {:choices [{:delta {} :finish_reason "tool_calls"}]})
   (hk/close ch))
 
@@ -123,7 +133,7 @@
   ;; Second stage response after tool output
   (send-sse! ch {:choices [{:delta {:content "The files I see:\n"}}]})
   (send-sse! ch {:choices [{:delta {:content "file1\nfile2\n"}}]})
-  (send-sse! ch {:usage {:prompt_tokens 5 :completion_tokens 30}})
+  (send-usage! ch {:prompt_tokens 5 :completion_tokens 30})
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
@@ -132,34 +142,36 @@
   (let [body (some-> (slurp (:body req)) (json/parse-string true))
         messages (:messages body)
         normalized (messages->normalized-input messages)
-        normalized-body (merge normalized (select-keys body [:tools]))]
+        normalized-body (merge normalized (select-keys body [:tools]))
+        include-usage? (boolean (get-in body [:stream_options :include_usage]))]
     (hk/as-channel
      req
      {:on-open (fn [ch]
+                 (binding [*include-usage?* include-usage?]
                   ;; Send initial response headers for SSE
-                 (hk/send! ch {:status 200
-                               :headers {"Content-Type" "text/event-stream; charset=utf-8"
-                                         "Cache-Control" "no-cache"
-                                         "Connection" "keep-alive"}}
-                           false)
-                 (if (string/includes? (:content (first (:messages body))) llm.mocks/chat-title-generator-str)
-                   (chat-title-text-0 ch)
-                   (do
-                     (llm.mocks/set-req-body! llm.mocks/*case* normalized-body)
-                     (llm.mocks/set-raw-messages! llm.mocks/*case* messages)
-                     (let [has-tool-message? (some #(= "tool" (:role %)) messages)]
-                       (case llm.mocks/*case*
-                         :simple-text-0 (simple-text-0 ch)
-                         :simple-text-1 (simple-text-1 ch)
-                         :simple-text-2 (simple-text-2 ch)
-                         :reasoning-0 (reasoning-text-0 ch)
-                         :reasoning-1 (reasoning-text-1 ch)
-                         :tool-calling-with-thought-signature-0
-                         (if has-tool-message?
-                           (tool-calling-with-thought-signature-1 ch)
-                           (tool-calling-with-thought-signature-0 ch (h/project-path->canon-path "resources")))
-                         ;; default fallback
-                         (do
-                           (send-sse! ch {:choices [{:delta {:content "hello"}}]})
-                           (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
-                           (hk/close ch)))))))})))
+                   (hk/send! ch {:status 200
+                                 :headers {"Content-Type" "text/event-stream; charset=utf-8"
+                                           "Cache-Control" "no-cache"
+                                           "Connection" "keep-alive"}}
+                             false)
+                   (if (string/includes? (:content (first (:messages body))) llm.mocks/chat-title-generator-str)
+                     (chat-title-text-0 ch)
+                     (do
+                       (llm.mocks/set-req-body! llm.mocks/*case* normalized-body)
+                       (llm.mocks/set-raw-messages! llm.mocks/*case* messages)
+                       (let [has-tool-message? (some #(= "tool" (:role %)) messages)]
+                         (case llm.mocks/*case*
+                           :simple-text-0 (simple-text-0 ch)
+                           :simple-text-1 (simple-text-1 ch)
+                           :simple-text-2 (simple-text-2 ch)
+                           :reasoning-0 (reasoning-text-0 ch)
+                           :reasoning-1 (reasoning-text-1 ch)
+                           :tool-calling-with-thought-signature-0
+                           (if has-tool-message?
+                             (tool-calling-with-thought-signature-1 ch)
+                             (tool-calling-with-thought-signature-0 ch (h/project-path->canon-path "resources")))
+                           ;; default fallback
+                           (do
+                             (send-sse! ch {:choices [{:delta {:content "hello"}}]})
+                             (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+                             (hk/close ch))))))))})))
