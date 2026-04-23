@@ -251,6 +251,12 @@
             "openai/gpt-4.1",
             "github-copilot/gpt-4.1"
           ]
+        },
+        "fullFileMaxLines": {
+          "type": "integer",
+          "description": "Maximum number of lines of the target file to inline as context in the rewrite prompt. When the file exceeds this, a window of this many lines centered on the selection is used instead.",
+          "markdownDescription": "Maximum number of lines of the target file to inline as context in the rewrite prompt. When the file exceeds this, a window of this many lines centered on the selection is used instead.",
+          "default": 2000
         }
       }
     },
