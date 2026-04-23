@@ -4164,7 +4164,10 @@ default, falling back to <code>createdAt</code> when <code>updatedAt</code> is m
 <p>A client request to hydrate a previously-persisted chat so it can be rendered
 in the UI. The server replays the chat by emitting <code>chat/cleared</code> (messages),
 <code>chat/opened</code>, and a sequence of <code>chat/contentReceived</code> notifications matching
-the persisted messages — without mutating server state. Typically used after
+the persisted messages. When the persisted chat has a stored model the server
+additionally emits a <code>config/updated</code> notification to realign the client's
+selected model (and available variants) with the resumed chat, so the next
+prompt keeps using the chat's original provider/model. Typically used after
 <code>chat/list</code> when the user selects a chat that has not been opened in the current
 client session.</p>
 <p><em>Request:</em></p>
@@ -5213,7 +5216,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 23, 2026 14:41:29 UTC">April 23, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 23, 2026 15:23:19 UTC">April 23, 2026</span>
   </span>
 
     
