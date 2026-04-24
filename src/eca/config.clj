@@ -183,7 +183,7 @@
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
                      ".*opus[-._]4[-._]7" {:variants anthropic-v2-variants}
-                     ".*gpt[-._]5(?:[-._](?:2|4)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
+                     ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                             :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
