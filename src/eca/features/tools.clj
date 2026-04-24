@@ -9,6 +9,7 @@
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.custom :as f.tools.custom]
    [eca.features.tools.editor :as f.tools.editor]
+   [eca.features.tools.fetch-rule :as f.tools.fetch-rule]
    [eca.features.tools.filesystem :as f.tools.filesystem]
    [eca.features.tools.git :as f.tools.git]
    [eca.features.tools.mcp :as f.mcp]
@@ -21,8 +22,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
-   [eca.shared :refer [assoc-some]]
-   [selmer.parser :as selmer])
+   [eca.shared :refer [assoc-some] :as shared])
   (:import
    [java.util Map]))
 
@@ -140,34 +140,40 @@
   (walk/postwalk
    (fn [x]
      (if (string? x)
-       (selmer/render x vars)
+       (shared/safe-selmer-render x vars "tool-config")
        x))
    m))
 
-(defn ^:private native-definitions [db config]
+(defn ^:private native-definitions
+  [chat-id agent-name db config]
   (into
-   {}
-   (map (fn [[name tool]]
-          [name (-> tool
-                    (assoc :name name)
-                    (replace-string-values-with-vars
-                     {:workspaceRoots (tools.util/workspace-roots-strs db)
-                      :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
-   (merge {}
-          f.tools.filesystem/definitions
-          f.tools.shell/definitions
-          f.tools.git/definitions
-          f.tools.editor/definitions
-          f.tools.chat/definitions
-          f.tools.skill/definitions
-          f.tools.task/definitions
-          f.tools.background/definitions
-          f.tools.ask-user/definitions
-          (f.tools.agent/definitions config db)
-          (f.tools.custom/definitions config))))
+    {}
+    (map (fn [[name tool]]
+           [name (-> tool
+                     (assoc :name name)
+                     (replace-string-values-with-vars
+                       {:workspaceRoots   (tools.util/workspace-roots-strs db)
+                        :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
+    (merge {}
+           f.tools.filesystem/definitions
+           f.tools.shell/definitions
+           f.tools.git/definitions
+           f.tools.editor/definitions
+           f.tools.chat/definitions
+           f.tools.skill/definitions
+           f.tools.task/definitions
+           f.tools.background/definitions
+           f.tools.ask-user/definitions
+           (f.tools.agent/definitions config db)
+           (f.tools.custom/definitions config)
+           (f.tools.fetch-rule/definitions config db chat-id agent-name))))
 
-(defn native-tools [db config]
-  (mapv #(assoc % :server {:name "eca"}) (vals (native-definitions db config))))
+(defn native-tools
+  ([db config]
+   (native-tools nil nil db config))
+  ([chat-id agent-name db config]
+   (mapv #(assoc % :server {:name "eca"})
+         (vals (native-definitions chat-id agent-name db config)))))
 
 (defn ^:private filter-subagent-tools
   "Filter tools for subagent execution.
@@ -188,7 +194,7 @@
   (let [disabled-tools (get-disabled-tools config agent-name)
         subagent (get-in db [:chats chat-id :subagent])
         all-tools (->> (concat
-                        (mapv #(assoc % :origin :native) (native-tools db config))
+                        (mapv #(assoc % :origin :native) (native-tools chat-id agent-name db config))
                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
                        (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                        (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
@@ -238,7 +244,7 @@
       (let [result (-> (if required-args-error
                          required-args-error
                          (if-let [native-tool-handler (and (= "eca" server-name)
-                                                           (get-in (native-definitions db config) [tool-name :handler]))]
+                                                           (get-in (native-definitions chat-id agent-name db config) [tool-name :handler]))]
                            (native-tool-handler arguments {:db db
                                                            :db* db*
                                                            :config config
@@ -246,6 +252,7 @@
                                                            :agent agent-name
                                                            :metrics metrics
                                                            :chat-id chat-id
+                                                           :all-tools all-tools
                                                            :tool-call-id tool-call-id
                                                            :call-state-fn call-state-fn
                                                            :state-transition-fn state-transition-fn

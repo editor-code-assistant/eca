@@ -10,8 +10,10 @@
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
+   [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
+   [eca.features.tools.util :as tools.util]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
@@ -160,6 +162,10 @@
                       {:name "repo-map-show"
                        :type :native
                        :description "Actual repoMap of current session."
+                       :arguments []}
+                      {:name "rules"
+                       :type :native
+                       :description "List available rules and their filtering metadata (agent, model, paths)."
                        :arguments []}
                       {:name "prompt-show"
                        :type :native
@@ -325,6 +331,34 @@
                        ""
                        existing-files))
                  "Credential files: None found"))))
+
+(defn ^:private rules-msg [config roots agent full-model all-tools]
+  (let [{static :static path-scoped :path-scoped} (f.rules/all-rules config roots agent full-model)
+        visible-path-scoped (when (tools.util/tool-available? all-tools "eca__fetch_rule")
+                              path-scoped)
+        format-content-preview (fn [content]
+                                 (let [content (or content "")
+                                       preview (subs content 0 (min 120 (count content)))]
+                                   (str preview (when (> (count content) 120) "..."))))
+        format-rule (fn [{rule-name :name :keys [scope path agents models paths content]} include-content?]
+                      (str "### " rule-name " (" (some-> scope name) ")\n"
+                           "Source: " path "\n"
+                           "Agent filter: " (if agents (string/join ", " agents) "all") "\n"
+                           "Model filter: " (if models (string/join ", " models) "all") "\n"
+                           (when paths
+                             (str "Path filter: " (string/join ", " paths) "\n"))
+                           (when include-content?
+                             (str "Content preview: " (format-content-preview content) "\n"))
+                           "\n"))]
+    (if (or (seq static) (seq visible-path-scoped))
+      (str
+       (when (seq static)
+         (str "Static rules (full content is included directly in the system prompt):\n\n"
+              (reduce (fn [s rule] (str s (format-rule rule true))) "" static)))
+       (when (seq visible-path-scoped)
+         (str "Path-scoped rules (only a catalog is included in the system prompt; load full content with fetch_rule using the rule id and target path):\n\n"
+              (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
+      "No rules available for the current agent and model.")))
 
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
   (let [db @db*
@@ -547,6 +581,10 @@
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}}
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
+      "rules" (let [roots (:workspace-folders db)
+                    msg (rules-msg config roots agent full-model all-tools)]
+                {:type :chat-messages
+                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "prompt-show" (let [full-prompt (str "Instructions:\n" instructions "\n"
                                            "Prompt:\n" (reduce
                                                         (fn [s {:keys [content]}]

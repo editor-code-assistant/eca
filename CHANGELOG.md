@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improve rules with frontmatter filters, condition variables, path-scoped loading, enforcement support, and clearer documentation. #222
 - Add support for gpt-5.5 variants
 
 ## 0.129.1

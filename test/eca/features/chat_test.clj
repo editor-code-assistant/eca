@@ -1186,4 +1186,64 @@
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (nil? (:config-updated (h/messages)))))))
 
+(deftest prompt-cache-agent-and-model-switch-test
+  (testing "local static prompt cache is reused only when both agent and model match"
+    (h/reset-components!)
+    (h/config! {:env "test"
+                :agent {"code" {:mode "primary"}
+                        "plan" {:mode "primary"}}})
+    (swap! (h/db*) update :models
+           (fn [models]
+             (merge {"openai/gpt-5.2" {:tools true}
+                     "openai/gpt-4.1" {:tools true}}
+                    (or models {}))))
+    (let [build-calls* (atom 0)
+          api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          call-prompt! (fn [params]
+                         (with-redefs [llm-api/sync-or-async-prompt! api-mock
+                                       llm-api/sync-prompt! (constantly nil)
+                                       f.tools/call-tool! (constantly nil)
+                                       f.tools/all-tools (constantly [])
+                                       f.tools/approval (constantly :allow)
+                                       config/await-plugins-resolved! (constantly true)
+                                       f.prompt/build-chat-instructions (fn [& _]
+                                                                          (swap! build-calls* inc)
+                                                                          {:static (str "static-" @build-calls*)
+                                                                           :dynamic "dynamic"})]
+                           (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics))))
+          resp (call-prompt! {:message "Hello"
+                              :agent "code"
+                              :model "openai/gpt-5.2"})
+          chat-id (:chat-id resp)]
+      (is (match? {:chat-id string? :status :prompting} resp))
+      (is (= 1 @build-calls*) "First call should build instructions")
+
+      (h/reset-messenger!)
+      (call-prompt! {:message "Hello again"
+                     :chat-id chat-id
+                     :agent "code"
+                     :model "openai/gpt-5.2"})
+      (is (= 1 @build-calls*) "Same agent and model should reuse cached static instructions")
+
+      (h/reset-messenger!)
+      (call-prompt! {:message "Switch agent"
+                     :chat-id chat-id
+                     :agent "plan"
+                     :model "openai/gpt-5.2"})
+      (is (= 2 @build-calls*) "Changing agent should rebuild instructions")
+
+      (h/reset-messenger!)
+      (call-prompt! {:message "Switch model"
+                     :chat-id chat-id
+                     :agent "plan"
+                     :model "openai/gpt-4.1"})
+      (is (= 3 @build-calls*) "Changing model should rebuild instructions")
+      (is (= {:static "static-3"
+              :agent "plan"
+              :model "openai/gpt-4.1"}
+             (get-in (h/db) [:chats chat-id :prompt-cache]))))))
+
 
