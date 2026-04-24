@@ -1,6 +1,5 @@
 (ns eca.features.tools.util
   (:require
-   [babashka.fs :as fs]
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
@@ -57,6 +56,10 @@
    :contents [{:type :text
                :text text}]})
 
+(defn tool-available?
+  [all-tools full-name]
+  (boolean (some #(= full-name (:full-name %)) all-tools)))
+
 (defn workspace-roots-strs [db]
   (->> (:workspace-folders db)
        (map #(shared/uri->filename (:uri %)))
@@ -70,13 +73,13 @@
 (defn path-outside-workspace?
   "Returns true if `path` is outside any workspace root in `db`.
    Paths inside the ECA tool-call-outputs cache dir are always considered 'inside'.
-   Works for existing or non-existing paths by absolutizing."
+   Uses shared path normalization so existing and non-existing paths behave consistently."
   [db path]
-  (let [p (when path (str (fs/absolutize path)))
+  (let [p (shared/normalize-path path)
         roots (workspace-root-paths db)]
     (and p
-         (not (fs/starts-with? p (str (cache/tool-call-outputs-dir))))
-         (not-any? #(fs/starts-with? p %) roots))))
+         (not (shared/path-inside-root? p (cache/tool-call-outputs-dir)))
+         (not-any? #(shared/path-inside-root? p %) roots))))
 
 (defn require-approval-when-outside-workspace
   "Returns a function suitable for tool `:require-approval-fn` that triggers

@@ -4,13 +4,13 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.logger :as logger]
+   [selmer.parser :as selmer]
    [hato.client :as http]
    [ring.adapter.jetty :as jetty]
    [ring.middleware.keyword-params :refer [wrap-keyword-params]]
    [ring.middleware.params :refer [wrap-params]]
    [ring.util.codec :as ring.util]
-   [ring.util.response :as response]
-   [selmer.parser :as selmer])
+   [ring.util.response :as response])
   (:import
    [java.nio.charset StandardCharsets]
    [java.security KeyStore MessageDigest SecureRandom]
@@ -252,19 +252,19 @@
                                        (:client_id (:body res))))))
                  {:keys [challenge verifier]} (generate-pkce)
                  client-id (or configured-client-id new-client-id eca-client-id)
-                scope (when-let [scopes (:scopes_supported meta)]
-                        (if (coll? scopes)
-                          (string/join " " scopes)
-                          scopes))
-                query-params (ring.util/form-encode
-                              (cond-> {:response_type "code"
-                                       :client_id client-id
-                                       :code_challenge_method "S256"
-                                       :code_challenge challenge
-                                       :state verifier
-                                       :redirect_uri redirect-uri
-                                       :resource url}
-                                scope (assoc :scope scope)))]
+                 scope (when-let [scopes (:scopes_supported meta)]
+                         (if (coll? scopes)
+                           (string/join " " scopes)
+                           scopes))
+                 query-params (ring.util/form-encode
+                               (cond-> {:response_type "code"
+                                        :client_id client-id
+                                        :code_challenge_method "S256"
+                                        :code_challenge challenge
+                                        :state verifier
+                                        :redirect_uri redirect-uri
+                                        :resource url}
+                                 scope (assoc :scope scope)))]
             (cond-> {:callback-port callback-port
                      :token-endpoint (or (:token_endpoint meta)
                                          (str auth-server "/access_token"))

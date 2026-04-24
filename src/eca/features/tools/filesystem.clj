@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.diff :as diff]
    [eca.features.index :as f.index]
+   [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.smart-edit :as smart-edit]
    [eca.features.tools.text-match :as text-match]
    [eca.features.tools.util :as tools.util]
@@ -20,11 +21,11 @@
 (def ^:private directory-tree-max-depth 10)
 
 (defn ^:private path->root-filename [db path]
-  (let [path (str (fs/canonicalize path))]
+  (let [path (shared/normalize-path path)]
     (->> (:workspace-folders db)
          (map :uri)
          (map shared/uri->filename)
-         (filter #(fs/starts-with? path %))
+         (filter #(shared/path-inside-root? path %))
          (sort-by count >)
          first)))
 
@@ -66,30 +67,32 @@
                 summary (format "%d directories, %d files" @dir-count* @file-count*)]
             (tools.util/single-text-content (str body "\n\n" summary)))))))
 
-(defn ^:private read-file [arguments {:keys [config]}]
+(defn ^:private read-file [arguments {:keys [config] :as ctx}]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]
                                                        ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
-      (let [line-offset (or (get arguments "line_offset") 0)
-            limit (->> [(get arguments "limit")
-                        (get-in config [:toolCall :readFile :maxLines])]
-                       (filter number?)
-                       (apply min))
-            full-content-lines (string/split-lines (slurp (fs/file (fs/canonicalize (get arguments "path")))))
-            maybe-truncated-content-lines (cond-> full-content-lines
-                                            line-offset (->> (drop line-offset))
-                                            limit (->> (take limit)))
-            was-truncated? (not= (- (count full-content-lines) line-offset)
-                                 (count maybe-truncated-content-lines))
-            content (string/join "\n" maybe-truncated-content-lines)]
-        (tools.util/single-text-content (if was-truncated?
-                                          (str content "\n\n"
-                                               "[CONTENT TRUNCATED] Showing lines " (if line-offset (inc line-offset) 1)
-                                               " to " (+ (or line-offset 0) limit)
-                                               " of " (count full-content-lines) " total lines. "
-                                               "Use line_offset=" (+ (or line-offset 0) limit)
-                                               " parameter to read more content.")
-                                          content)))))
+      (let [path (get arguments "path")]
+        (or (f.tools.path-rules/require-fetched-path-scoped-rules-for-read path ctx)
+            (let [line-offset (or (get arguments "line_offset") 0)
+                  limit (->> [(get arguments "limit")
+                              (get-in config [:toolCall :readFile :maxLines])]
+                             (filter number?)
+                             (apply min))
+                  full-content-lines (string/split-lines (slurp (fs/file (fs/canonicalize path))))
+                  maybe-truncated-content-lines (cond-> full-content-lines
+                                                  line-offset (->> (drop line-offset))
+                                                  limit (->> (take limit)))
+                  was-truncated? (not= (- (count full-content-lines) line-offset)
+                                       (count maybe-truncated-content-lines))
+                  content (string/join "\n" maybe-truncated-content-lines)]
+              (tools.util/single-text-content (if was-truncated?
+                                                (str content "\n\n"
+                                                     "[CONTENT TRUNCATED] Showing lines " (if line-offset (inc line-offset) 1)
+                                                     " to " (+ (or line-offset 0) limit)
+                                                     " of " (count full-content-lines) " total lines. "
+                                                     "Use line_offset=" (+ (or line-offset 0) limit)
+                                                     " parameter to read more content.")
+                                                content)))))))
 
 (defn ^:private read-file-summary [{:keys [args config]}]
   (if-let [path (get args "path")]
@@ -105,15 +108,20 @@
                          (+ line-offset limit))))))
     "Reading file"))
 
-(defn ^:private write-file [arguments _]
+(defn ^:private require-path-rule-fetch
+  [target-path ctx]
+  (f.tools.path-rules/require-fetched-path-scoped-rules target-path ctx))
+
+(defn ^:private write-file [arguments ctx]
   (let [path (get arguments "path")
-        content (get arguments "content")
-        old-content (try (slurp path) (catch Exception _ nil))]
-    (fs/create-dirs (fs/parent (fs/path path)))
-    (spit path content)
-    (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
-           :rollback-changes [{:path path
-                               :content old-content}])))
+        content (get arguments "content")]
+    (or (require-path-rule-fetch path ctx)
+        (let [old-content (try (slurp path) (catch Exception _ nil))]
+          (fs/create-dirs (fs/parent (fs/path path)))
+          (spit path content)
+          (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
+                 :rollback-changes [{:path path
+                                     :content old-content}])))))
 
 (defn ^:private write-file-summary [{:keys [args]}]
   (if (get args "path")
@@ -307,30 +315,31 @@
     (text-match/apply-content-change-to-string file-content original-content new-content all? path)
     (smart-edit/apply-smart-edit file-content original-content new-content path)))
 
-(defn ^:private edit-file [arguments {:keys [_db]}]
+(defn ^:private edit-file [arguments ctx]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
-      (let [path (get arguments "path")
-            original-content (get arguments "original_content")
-            new-content (get arguments "new_content")
-            all? (boolean (get arguments "all_occurrences"))
-            initial-content (slurp path)
-            result (apply-file-edit-strategy initial-content original-content new-content all? path)
-            write! (fn [res]
-                     (spit path (:new-full-content res))
-                     (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
-                         (assoc :rollback-changes [{:path path
-                                                    :content initial-content}])))]
-        (if (:new-full-content result)
-          (let [current-content (slurp path)]
-            (if (= current-content (:original-full-content result))
-              (write! result)
-                         ;; Optimistic retry once against latest content
-              (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
-                (if (:new-full-content retry)
-                  (write! retry)
-                  (handle-file-change-result {:error :conflict} path nil)))))
-          (handle-file-change-result result path nil)))))
+      (let [path (get arguments "path")]
+        (or (require-path-rule-fetch path ctx)
+            (let [original-content (get arguments "original_content")
+                  new-content (get arguments "new_content")
+                  all? (boolean (get arguments "all_occurrences"))
+                  initial-content (slurp path)
+                  result (apply-file-edit-strategy initial-content original-content new-content all? path)
+                  write! (fn [res]
+                           (spit path (:new-full-content res))
+                           (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                               (assoc :rollback-changes [{:path path
+                                                          :content initial-content}])))]
+              (if (:new-full-content result)
+                (let [current-content (slurp path)]
+                  (if (= current-content (:original-full-content result))
+                    (write! result)
+                           ;; Optimistic retry once against latest content
+                    (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
+                      (if (:new-full-content retry)
+                        (write! retry)
+                        (handle-file-change-result {:error :conflict} path nil)))))
+                (handle-file-change-result result path nil)))))))
 
 (defn ^:private preview-file-change [arguments _]
   (let [path (get arguments "path")

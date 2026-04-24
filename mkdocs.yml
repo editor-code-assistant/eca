@@ -15,6 +15,7 @@ nav:
     - install.md
   - Configuration:
     - Introduction: config/introduction.md
+    - Templates: config/template.md
     - Providers / Models: config/models.md
     - Tools / Approval: config/tools.md
     - Variants: config/variants.md

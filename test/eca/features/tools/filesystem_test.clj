@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools.filesystem :as f.tools.filesystem]
+   [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.util :as tools.util]
    [eca.shared :refer [multi-str]]
    [eca.test-helper :as h]
@@ -127,7 +128,26 @@
     (let [require-approval-fn (get-in f.tools.filesystem/definitions ["write_file" :require-approval-fn])
           args {"path" (h/file-path "/foo/qux/new_file.clj")}
           db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "bar"}]}]
-      (is (true? (require-approval-fn args {:db db}))))))
+      (is (true? (require-approval-fn args {:db db})))))
+
+  (testing "Path-scoped rules are skipped when fetch_rule is unavailable"
+    (let [writes* (atom {})
+          path (h/file-path "/project/foo/src/new_file.clj")]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text (format "Successfully wrote to %s" path)}]}
+           (with-redefs [fs/create-dirs (constantly nil)
+                         spit (fn [f content] (swap! writes* assoc f content))]
+             ((get-in f.tools.filesystem/definitions ["write_file" :handler])
+              {"path" path
+               "content" "(ns new-file)"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+               :config {}
+               :chat-id "chat-1"
+               :agent "code"
+               :all-tools []}))))
+      (is (= "(ns new-file)" (get @writes* path))))))
 
 (deftest grep-test
   (testing "invalid pattern"
@@ -278,6 +298,26 @@
              "original_content" "notfound"
              "new_content" "new"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}})))))
+
+  (testing "Blocks edits until matching path-scoped rules were fetched"
+    (let [path (h/file-path "/project/foo/src/my_file.clj")]
+      (is (match?
+           {:error true
+            :contents [{:type :text
+                        :text "fetch rules first"}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         f.tools.path-rules/require-fetched-path-scoped-rules (fn [_ _]
+                                                                                (tools.util/single-text-content "fetch rules first" :error))]
+             ((get-in f.tools.filesystem/definitions ["edit_file" :handler])
+              {"path" path
+               "original_content" "old"
+               "new_content" "new"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+               :config {}
+               :chat-id "chat-1"
+               :agent "code"
+               :all-tools [{:full-name "eca__fetch_rule"}]}))))))
 
   (testing "Replace first occurrence only"
     (let [file-content* (atom {})]

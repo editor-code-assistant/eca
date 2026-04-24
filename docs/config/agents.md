@@ -55,7 +55,7 @@ This is useful when you want a variant of a built-in or custom agent with small 
 
 ## Custom agents and prompts
 
-You can create an agent and define its prompt, tool call approval and default model.
+You can create an agent and define its prompt, tool call approval and default model. Custom prompts can use [template variables](template.md#condition-variables).
 
 === "Example: my-agent"
 

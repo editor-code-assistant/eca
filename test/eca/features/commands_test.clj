@@ -1,8 +1,10 @@
 (ns eca.features.commands-test
   (:require
    [babashka.fs :as fs]
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.commands :as f.commands]
+   [eca.features.rules :as f.rules]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
@@ -107,7 +109,7 @@
                    :type :native
                    :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
                    :arguments [{:name "full-model"}]}
-                 %)
+                  %)
               commands))))
 
 (deftest handle-model-command-test
@@ -178,3 +180,115 @@
                                               :metrics (h/metrics)})]
       (is (re-find #"Unknown model: `bad/model`"
                    (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))))
+
+(deftest rules-command-test
+  (testing "/rules shows static and path-scoped rules separately with filter metadata"
+    (with-redefs [f.rules/all-rules (fn [_config _roots agent full-model]
+                                      (is (= "code" agent))
+                                      (is (= "anthropic/claude-sonnet-4-20250514" full-model))
+                                      {:static [{:name "coding-style.md"
+                                                 :scope :project
+                                                 :path "/repo/.eca/rules/coding-style.md"
+                                                 :agents ["code"]
+                                                 :models ["claude-sonnet-4.*"]
+                                                 :content "Prefer small functions."}]
+                                       :path-scoped [{:name "format.md"
+                                                      :scope :project
+                                                      :path "/repo/.eca/rules/format.md"
+                                                      :agents ["code"]
+                                                      :models ["claude-sonnet-4.*"]
+                                                      :paths ["src/**/*.clj"]
+                                                      :content "Run formatter before saving."}]})]
+      (let [db* (atom {:workspace-folders []
+                       :chats {"chat-1" {:agent "code"
+                                         :model "anthropic/claude-sonnet-4-20250514"}}})
+            result (#'f.commands/handle-command! "rules"
+                                                 []
+                                                 {:chat-id "chat-1"
+                                                  :db* db*
+                                                  :config {}
+                                                  :messenger (h/messenger)
+                                                  :full-model "anthropic/claude-sonnet-4-20250514"
+                                                  :agent "code"
+                                                  :all-tools [{:full-name "eca__fetch_rule"}]
+                                                  :instructions "ignored"
+                                                  :user-messages []
+                                                  :metrics (h/metrics)})
+            text (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
+        (is (string/includes? text "Static rules (full content is included directly in the system prompt):"))
+        (is (string/includes? text "Path-scoped rules (only a catalog is included in the system prompt; load full content with fetch_rule using the rule id and target path):"))
+        (is (string/includes? text "### coding-style.md (project)"))
+        (is (string/includes? text "Agent filter: code"))
+        (is (string/includes? text "Model filter: claude-sonnet-4.*"))
+        (is (string/includes? text "Content preview: Prefer small functions."))
+        (is (string/includes? text "### format.md (project)"))
+        (is (string/includes? text "Path filter: src/**/*.clj"))
+        (is (not (string/includes? text "Content preview: Run formatter before saving."))))))
+
+  (testing "/rules falls back to all when filters are omitted in rule metadata"
+    (with-redefs [f.rules/all-rules (fn [& _]
+                                      {:static [{:name "global.md"
+                                                 :scope :global
+                                                 :path "/home/user/.config/eca/rules/global.md"
+                                                 :content "Always active."}]
+                                       :path-scoped []})]
+      (let [result (#'f.commands/handle-command! "rules"
+                                                 []
+                                                 {:chat-id "chat-1"
+                                                  :db* (atom {:workspace-folders []
+                                                              :chats {"chat-1" {:agent "code"
+                                                                                :model "openai/gpt-4o"}}})
+                                                  :config {}
+                                                  :messenger (h/messenger)
+                                                  :full-model "openai/gpt-4o"
+                                                  :agent "code"
+                                                  :all-tools []
+                                                  :instructions "ignored"
+                                                  :user-messages []
+                                                  :metrics (h/metrics)})
+            text (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
+        (is (string/includes? text "Agent filter: all"))
+        (is (string/includes? text "Model filter: all")))))
+
+  (testing "/rules hides path-scoped rules when fetch_rule is unavailable"
+    (with-redefs [f.rules/all-rules (constantly {:static []
+                                                 :path-scoped [{:name "format.md"
+                                                                :scope :project
+                                                                :path "/repo/.eca/rules/format.md"
+                                                                :paths ["src/**/*.clj"]
+                                                                :content "Run formatter before saving."}]})]
+      (let [result (#'f.commands/handle-command! "rules"
+                                                 []
+                                                 {:chat-id "chat-1"
+                                                  :db* (atom {:workspace-folders []
+                                                              :chats {"chat-1" {:agent "code"
+                                                                                :model "openai/gpt-4o"}}})
+                                                  :config {}
+                                                  :messenger (h/messenger)
+                                                  :full-model "openai/gpt-4o"
+                                                  :agent "code"
+                                                  :all-tools []
+                                                  :instructions "ignored"
+                                                  :user-messages []
+                                                  :metrics (h/metrics)})
+            text (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
+        (is (= "No rules available for the current agent and model." text)))))
+
+  (testing "/rules reports when there are no available rules"
+    (with-redefs [f.rules/all-rules (constantly {:static [] :path-scoped []})]
+      (let [result (#'f.commands/handle-command! "rules"
+                                                 []
+                                                 {:chat-id "chat-1"
+                                                  :db* (atom {:workspace-folders []
+                                                              :chats {"chat-1" {:agent "code"
+                                                                                :model "openai/gpt-4o"}}})
+                                                  :config {}
+                                                  :messenger (h/messenger)
+                                                  :full-model "openai/gpt-4o"
+                                                  :agent "code"
+                                                  :all-tools []
+                                                  :instructions "ignored"
+                                                  :user-messages []
+                                                  :metrics (h/metrics)})
+            text (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
+        (is (= "No rules available for the current agent and model." text))))))
