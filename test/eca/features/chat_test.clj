@@ -1163,19 +1163,21 @@
         (is (match? {:found? true :chat-id chat-id :title "My Opus thread"} result))
         (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-opus-4"
                                               :variants []
-                                              :select-variant nil}}]}
+                                              :select-variant nil}}
+                                      {:chat {:select-trust false}}]}
                     (h/messages))))))
 
-  (testing "Opening a chat with no stored :model does not emit config/updated"
+  (testing "Opening a chat with no stored :model only emits trust config/updated"
     (h/reset-components!)
     (let [chat-id "no-model"]
       (swap! (h/db*) assoc-in [:chats chat-id]
              {:id chat-id
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (nil? (:config-updated (h/messages))))))
+      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+                  (h/messages)))))
 
-  (testing "Opening a chat with a stale stored :model does not emit config/updated"
+  (testing "Opening a chat with a stale stored :model only emits trust config/updated"
     (h/reset-components!)
     (let [chat-id "stale-model"]
       ;; Opus not in (:models db), so the UI dropdown must not jump to a ghost.
@@ -1184,6 +1186,44 @@
               :model "anthropic/claude-opus-4"
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (nil? (:config-updated (h/messages)))))))
+      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+                  (h/messages))))))
+
+(deftest open-chat-restores-selected-trust-test
+  (testing "Opening a trusted chat emits config/updated select-trust true (#426)"
+    (h/reset-components!)
+    (let [chat-id "trusted"]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :title "YOLO thread"
+              :trust true
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (match? {:config-updated [{:chat {:select-trust true}}]}
+                  (h/messages)))))
+
+  (testing "Opening a non-trusted chat emits config/updated select-trust false (#426)"
+    (h/reset-components!)
+    (let [chat-id "secured"]
+      ;; Pre-seed last-config-notified so the diff actually picks up false.
+      (swap! (h/db*) assoc :last-config-notified {:chat {:select-trust true}})
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :trust false
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+                  (h/messages)))))
+
+  (testing "Opening a chat with no :trust key normalizes to false (#426)"
+    (h/reset-components!)
+    (let [chat-id "legacy"]
+      (swap! (h/db*) assoc :last-config-notified {:chat {:select-trust true}})
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+                  (h/messages))))))
 
 

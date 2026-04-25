@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add support for gpt-5.5 variants
+- Restore trust mode on chat resume: `chat/open` and the `/resume` slash command now emit `config/updated` with `selectTrust` reflecting the resumed chat's persisted trust toggle, so the client indicator stays in sync with the server's auto-approval behavior. #426
 
 ## 0.129.1
 
