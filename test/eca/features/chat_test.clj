@@ -280,64 +280,64 @@
           call-count* (atom 0)
           sync-mock (fn [params]
                       (swap! sync-prompt-calls* conj params)
-                      {:output-text (str "Title " (swap! call-count* inc))})]
+                      {:output-text (str "Title " (swap! call-count* inc))})
+          {:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
       ;; Message 1: should generate title
-      (let [{:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
-        (is (= 1 (count @sync-prompt-calls*))
-            "Should call sync-prompt! on first message")
-        (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
-        (is (= 1 (count (:user-messages (first @sync-prompt-calls*))))
-            "First title uses only the current user message")
+      (is (= 1 (count @sync-prompt-calls*))
+          "Should call sync-prompt! on first message")
+      (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
+      (is (= 1 (count (:user-messages (first @sync-prompt-calls*))))
+          "First title uses only the current user message")
 
         ;; Message 2: should NOT re-generate title
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "Also refactor" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (is (= 1 (count @sync-prompt-calls*))
-            "Should NOT call sync-prompt! on second message")
-        (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "Also refactor" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+      (is (= 1 (count @sync-prompt-calls*))
+          "Should NOT call sync-prompt! on second message")
+      (is (= "Title 1" (get-in (h/db) [:chats chat-id :title])))
 
         ;; Inject noisy entries into history before the retitle fires, to
         ;; exercise the role/content cleanup applied to :past-messages.
-        (swap! (h/db*) update-in [:chats chat-id :messages]
-               (fnil into [])
-               [{:role "reason" :content "internal thoughts"}
-                {:role "tool_call" :content {:name "read_file"}}
-                {:role "tool_call_output" :content "file contents"}
-                {:role "flag" :content {:text "ui-only"}}])
+      (swap! (h/db*) update-in [:chats chat-id :messages]
+             (fnil into [])
+             [{:role "reason" :content "internal thoughts"}
+              {:role "tool_call" :content {:name "read_file"}}
+              {:role "tool_call_output" :content "file contents"}
+              {:role "flag" :content {:text "ui-only"}}])
 
         ;; Message 3: should re-generate title with full conversation context
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (is (= 2 (count @sync-prompt-calls*))
-            "Should call sync-prompt! again on third message")
-        (is (= "Title 2" (get-in (h/db) [:chats chat-id :title])))
-        (let [retitle-call (second @sync-prompt-calls*)
-              user-text (get-in (first (:user-messages retitle-call))
-                                [:content 0 :text])]
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+      (is (= 2 (count @sync-prompt-calls*))
+          "Should call sync-prompt! again on third message")
+      (is (= "Title 2" (get-in (h/db) [:chats chat-id :title])))
+      (let [retitle-call (second @sync-prompt-calls*)
+            user-text (get-in (first (:user-messages retitle-call))
+                              [:content 0 :text])]
           ;; On retitle, history is flattened into a single user message so the
           ;; title model can't mirror prior assistant styling (e.g. '## Understand').
-          (is (= 1 (count (:user-messages retitle-call)))
-              "Retitle should flatten conversation into a single user message")
-          (is (nil? (:past-messages retitle-call))
-              "Retitle should not replay role-structured past-messages")
-          (is (string/includes? user-text "user:")
-              "Flattened transcript should mark user turns")
-          (is (string/includes? user-text "assistant:")
-              "Flattened transcript should mark assistant turns")
-          (is (string/includes? user-text "Help me debug")
-              "Flattened transcript should include first user turn")
-          (is (string/includes? user-text "And add tests")
-              "Flattened transcript should include current user turn")
-          (is (not (string/includes? user-text "internal thoughts"))
-              "Reason/tool/flag entries should be filtered out of the transcript")
-          (is (not (string/includes? user-text "tool_call"))
-              "Reason/tool/flag entries should be filtered out of the transcript"))
+        (is (= 1 (count (:user-messages retitle-call)))
+            "Retitle should flatten conversation into a single user message")
+        (is (nil? (:past-messages retitle-call))
+            "Retitle should not replay role-structured past-messages")
+        (is (string/includes? user-text "user:")
+            "Flattened transcript should mark user turns")
+        (is (string/includes? user-text "assistant:")
+            "Flattened transcript should mark assistant turns")
+        (is (string/includes? user-text "Help me debug")
+            "Flattened transcript should include first user turn")
+        (is (string/includes? user-text "And add tests")
+            "Flattened transcript should include current user turn")
+        (is (not (string/includes? user-text "internal thoughts"))
+            "Reason/tool/flag entries should be filtered out of the transcript")
+        (is (not (string/includes? user-text "tool_call"))
+            "Reason/tool/flag entries should be filtered out of the transcript"))
 
         ;; Message 4: should NOT re-generate title
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "One more thing" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (is (= 2 (count @sync-prompt-calls*))
-            "Should NOT call sync-prompt! after third message"))))
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "One more thing" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+      (is (= 2 (count @sync-prompt-calls*))
+          "Should NOT call sync-prompt! after third message")))
 
   (testing "retitle respects the last compact marker, dropping pre-compaction history"
     (h/reset-components!)
@@ -345,53 +345,53 @@
           call-count* (atom 0)
           sync-mock (fn [params]
                       (swap! sync-prompt-calls* conj params)
-                      {:output-text (str "Title " (swap! call-count* inc))})]
-      (let [{:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "Also refactor" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+                      {:output-text (str "Title " (swap! call-count* inc))})
+          {:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "Also refactor" :chat-id chat-id} {:sync-prompt-mock sync-mock})
 
         ;; Insert a compact_marker so earlier history is treated as pre-compaction
         ;; and must not reach the title LLM.
-        (swap! (h/db*) update-in [:chats chat-id :messages]
-               (fnil conj []) {:role "compact_marker" :content {:auto? false}})
+      (swap! (h/db*) update-in [:chats chat-id :messages]
+             (fnil conj []) {:role "compact_marker" :content {:auto? false}})
 
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (let [retitle-call (second @sync-prompt-calls*)
-              user-text (get-in (first (:user-messages retitle-call))
-                                [:content 0 :text])]
-          (is (nil? (:past-messages retitle-call))
-              "Past-messages should be nil on retitle (conversation is flattened into user-messages)")
-          (is (not (string/includes? user-text "Help me debug"))
-              "Pre-compact content must not leak into the title transcript")
-          (is (not (string/includes? user-text "Also refactor"))
-              "Pre-compact content must not leak into the title transcript")
-          (is (string/includes? user-text "And add tests")
-              "Current user message must be in the title transcript")))))
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "And add tests" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+      (let [retitle-call (second @sync-prompt-calls*)
+            user-text (get-in (first (:user-messages retitle-call))
+                              [:content 0 :text])]
+        (is (nil? (:past-messages retitle-call))
+            "Past-messages should be nil on retitle (conversation is flattened into user-messages)")
+        (is (not (string/includes? user-text "Help me debug"))
+            "Pre-compact content must not leak into the title transcript")
+        (is (not (string/includes? user-text "Also refactor"))
+            "Pre-compact content must not leak into the title transcript")
+        (is (string/includes? user-text "And add tests")
+            "Current user message must be in the title transcript"))))
 
   (testing "manual rename suppresses automatic re-titling"
     (h/reset-components!)
     (let [sync-prompt-calls* (atom [])
           sync-mock (fn [params]
                       (swap! sync-prompt-calls* conj params)
-                      {:output-text "Auto Title"})]
+                      {:output-text "Auto Title"})
+          {:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
       ;; Message 1: generates initial title
-      (let [{:keys [chat-id]} (prompt-with-title! {:message "Help me debug"} {:sync-prompt-mock sync-mock})]
-        (is (= 1 (count @sync-prompt-calls*)))
+      (is (= 1 (count @sync-prompt-calls*)))
 
         ;; Manual rename
-        (f.chat/update-chat {:chat-id chat-id :title "My Custom Title"} (h/db*) (h/messenger) (h/metrics))
-        (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))
-        (is (true? (get-in (h/db) [:chats chat-id :title-custom?])))
+      (f.chat/update-chat {:chat-id chat-id :title "My Custom Title"} (h/db*) (h/messenger) (h/metrics))
+      (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))
+      (is (true? (get-in (h/db) [:chats chat-id :title-custom?])))
 
         ;; Messages 2 and 3: should NOT re-generate because of manual rename
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "Second msg" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (h/reset-messenger!)
-        (prompt-with-title! {:message "Third msg" :chat-id chat-id} {:sync-prompt-mock sync-mock})
-        (is (= 1 (count @sync-prompt-calls*))
-            "Should NOT re-title after manual rename")
-        (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title]))))))
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "Second msg" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+      (h/reset-messenger!)
+      (prompt-with-title! {:message "Third msg" :chat-id chat-id} {:sync-prompt-mock sync-mock})
+      (is (= 1 (count @sync-prompt-calls*))
+          "Should NOT re-title after manual rename")
+      (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))))
 
   (testing "title disabled in config skips all generation"
     (h/reset-components!)
@@ -399,13 +399,13 @@
           sync-mock (fn [params]
                       (swap! sync-prompt-calls* conj params)
                       {:output-text "Should not appear"})
-          disabled-mocks {:sync-prompt-mock sync-mock :config {:chat {:title false}}}]
-      (let [{:keys [chat-id]} (prompt-with-title! {:message "Hello"} disabled-mocks)]
-        (prompt-with-title! {:message "Second" :chat-id chat-id} disabled-mocks)
-        (prompt-with-title! {:message "Third" :chat-id chat-id} disabled-mocks)
-        (is (zero? (count @sync-prompt-calls*))
-            "Should never call sync-prompt! when title is disabled")
-        (is (nil? (get-in (h/db) [:chats chat-id :title])))))))
+          disabled-mocks {:sync-prompt-mock sync-mock :config {:chat {:title false}}}
+          {:keys [chat-id]} (prompt-with-title! {:message "Hello"} disabled-mocks)]
+      (prompt-with-title! {:message "Second" :chat-id chat-id} disabled-mocks)
+      (prompt-with-title! {:message "Third" :chat-id chat-id} disabled-mocks)
+      (is (zero? (count @sync-prompt-calls*))
+          "Should never call sync-prompt! when title is disabled")
+      (is (nil? (get-in (h/db) [:chats chat-id :title]))))))
 
 (deftest update-chat-trust-test
   (testing "update-chat stores trust in chat state"
@@ -452,7 +452,7 @@
             :auto-compact
             (assoc chat-ctx :auto-compacted? true)))}
         (fn []
-          (let [{:keys [chat-id]}
+          (let [{:keys [_chat-id]}
                 (prompt!
                  {:message "Do something"}
                  {:all-tools-mock (constantly [])

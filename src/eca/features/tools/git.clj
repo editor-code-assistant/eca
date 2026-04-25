@@ -96,7 +96,7 @@
                                            :description "The git operation being performed."
                                            :enum ["status" "diff" "log" "add" "commit" "push"
                                                   "branch" "checkout" "merge" "rebase" "stash"
-                                                  "pr_create" "pr_view" "pr_comment" "gh_other"]}
+                                                  "pr_create" "pr_view" "pr_comment" "gh"]}
                               "summary" {:type "string"
                                          :description "Concise 2-3 word description of what is being done (e.g. \"staged changes\", \"all test files\")."}}
                  :required ["command" "operation"]}

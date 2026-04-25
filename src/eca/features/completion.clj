@@ -29,8 +29,6 @@
     (->> (assoc lines line-idx updated-line)
          (string/join "\n"))))
 
-
-
 (defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
   (let [full-model (get-in config [:completion :model])
         [provider model] (shared/full-model->provider+model full-model)
