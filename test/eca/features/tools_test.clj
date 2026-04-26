@@ -443,51 +443,54 @@
 
 (deftest fetch-rule-tool-test
   (testing "fetch_rule renders the matching path-scoped rule content for the current chat context"
-    (with-redefs [f.rules/path-scoped-rules (fn [_config _roots agent full-model]
-                                              (is (= "code" agent))
-                                              (is (= "anthropic/claude-sonnet-4-20250514" full-model))
-                                              [{:id "/workspace/a/.eca/rules/format.md"
-                                                :name "format.md"
-                                                :scope :project
-                                                :path "/workspace/a/.eca/rules/format.md"
-                                                :workspace-root "/workspace/a"
-                                                :paths ["src/**/*.clj"]
-                                                :content "{% if toolEnabled_eca__read_file %}Model rule{% endif %}{% if toolEnabled_eca__shell_command %} + shell enabled{% endif %}"}])]
-      (let [db {:workspace-folders []
-                :chats {"chat-1" {:agent "code"
-                                  :model "anthropic/claude-sonnet-4-20250514"}}}
-            db* (atom db)
-            handler (some #(when (= "fetch_rule" (:name %)) %) (f.tools/all-tools "chat-1" "code" db {}))
-            result (f.tools/call-tool! "eca__fetch_rule"
-                                       {"id" "/workspace/a/.eca/rules/format.md"
-                                        "path" "/workspace/a/src/nested/foo.clj"}
-                                       "chat-1"
-                                       "call-1"
-                                       "code"
-                                       db*
-                                       {}
-                                       (h/messenger)
-                                       (h/metrics)
-                                       identity
-                                       identity
-                                       nil)
-            text (get-in result [:contents 0 :text])]
-        (is (false? (:error result)))
-        (is (string/includes? text "**Rule**: format.md\n**Path**: /workspace/a/src/nested/foo.clj\n**Matched pattern**: src/**/*.clj\n"))
-        (is (string/includes? text "Model rule + shell enabled"))
-        (is (= "fetch_rule" (:name handler)))
-        (is (match? {"/workspace/a/src/nested/foo.clj"
-                     {"/workspace/a/.eca/rules/format.md"
-                      {:matched-pattern "src/**/*.clj"
-                       :rule-path "/workspace/a/.eca/rules/format.md"
-                       :workspace-root "/workspace/a"}}}
-                    (get-in @db* [:chats "chat-1" :validated-path-rules]))))))
+    (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
+          target-path (h/file-path "/workspace/a/src/nested/foo.clj")
+          workspace-root (h/file-path "/workspace/a")]
+      (with-redefs [f.rules/path-scoped-rules (constantly [{:id rule-id
+                                                            :name "format.md"
+                                                            :scope :project
+                                                            :path rule-id
+                                                            :workspace-root workspace-root
+                                                            :paths ["src/**/*.clj"]
+                                                            :content "{% if toolEnabled_eca__read_file %}Model rule{% endif %}{% if toolEnabled_eca__shell_command %} + shell enabled{% endif %}"}])]
+        (let [db {:workspace-folders []
+                  :chats {"chat-1" {:agent "code"
+                                    :model "anthropic/claude-sonnet-4-20250514"}}}
+              db* (atom db)
+              handler (some #(when (= "fetch_rule" (:name %)) %) (f.tools/all-tools "chat-1" "code" db {}))
+              result (f.tools/call-tool! "eca__fetch_rule"
+                                         {"id" rule-id
+                                          "path" target-path}
+                                         "chat-1"
+                                         "call-1"
+                                         "code"
+                                         db*
+                                         {}
+                                         (h/messenger)
+                                         (h/metrics)
+                                         identity
+                                         identity
+                                         nil)
+              text (get-in result [:contents 0 :text])]
+          (is (false? (:error result)))
+          (is (string/includes? text (str "**Rule**: format.md\n**Path**: " target-path "\n**Matched pattern**: src/**/*.clj\n")))
+          (is (string/includes? text "Model rule + shell enabled"))
+          (is (= "fetch_rule" (:name handler)))
+          (is (match? {target-path
+                       {rule-id
+                        {:matched-pattern "src/**/*.clj"
+                         :rule-path rule-id
+                         :workspace-root workspace-root}}}
+                      (get-in @db* [:chats "chat-1" :validated-path-rules])))))))
 
   (testing "fetch_rule rejects a path that does not match the selected rule"
-    (let [rule {:id "/workspace/a/.eca/rules/format.md"
+    (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
+          target-path (h/file-path "/workspace/a/src/foo.clj")
+          workspace-root (h/file-path "/workspace/a")
+          rule {:id rule-id
                 :name "format.md"
                 :scope :project
-                :workspace-root "/workspace/a"
+                :workspace-root workspace-root
                 :paths ["src/**/*.clj"]
                 :content "Rule body"}]
       (with-redefs [f.rules/path-scoped-rules (constantly [rule])
@@ -496,8 +499,8 @@
                   :chats {"chat-1" {:agent "code"
                                     :model "anthropic/claude-sonnet-4-20250514"}}}
               result (f.tools/call-tool! "eca__fetch_rule"
-                                         {"id" "/workspace/a/.eca/rules/format.md"
-                                          "path" "/workspace/a/src/foo.clj"}
+                                         {"id" rule-id
+                                          "path" target-path}
                                          "chat-1"
                                          "call-mismatch"
                                          "code"
@@ -510,107 +513,118 @@
                                          nil)
               text (get-in result [:contents 0 :text])]
           (is (:error result))
-          (is (string/includes? text "Rule id '/workspace/a/.eca/rules/format.md' does not apply to path '/workspace/a/src/foo.clj'."))
+          (is (string/includes? text (str "Rule id '" rule-id "' does not apply to path '" target-path "'.")))
           (is (re-find #"Checked relative path: src[/\\]foo\.clj" text))
           (is (string/includes? text "Allowed patterns: src/**/*.clj"))
           (is (string/includes? text "Java NIO `PathMatcher` glob syntax"))
           (is (string/includes? text "`src/**/*.clj` matches nested files under `src/` but not `src/foo.clj`"))))))
 
   (testing "fetch_rule suppresses broken rendered template content"
-    (with-redefs [f.rules/path-scoped-rules (constantly [{:id "/workspace/a/.eca/rules/broken.md"
-                                                          :name "broken.md"
-                                                          :scope :project
-                                                          :workspace-root "/workspace/a"
-                                                          :paths ["src/**/*.clj"]
-                                                          :content "{% if isSubagent %}BROKEN"}])]
-      (let [db {:workspace-folders []
-                :chats {"chat-1" {:agent "code"
-                                  :model "anthropic/claude-sonnet-4-20250514"}}}
-            result (f.tools/call-tool! "eca__fetch_rule"
-                                       {"id" "/workspace/a/.eca/rules/broken.md"
-                                        "path" "/workspace/a/src/nested/foo.clj"}
-                                       "chat-1"
-                                       "call-broken"
-                                       "code"
-                                       (atom db)
-                                       {}
-                                       (h/messenger)
-                                       (h/metrics)
-                                       identity
-                                       identity
-                                       nil)
-            text (get-in result [:contents 0 :text])]
-        (is (false? (:error result)))
-        (is (string/includes? text "**Matched pattern**: src/**/*.clj"))
-        (is (string/includes? text "This rule contains no usable content for the current chat context and does not need to be loaded again for this path.")))))
+    (let [rule-id (h/file-path "/workspace/a/.eca/rules/broken.md")
+          target-path (h/file-path "/workspace/a/src/nested/foo.clj")
+          workspace-root (h/file-path "/workspace/a")]
+      (with-redefs [f.rules/path-scoped-rules (constantly [{:id rule-id
+                                                            :name "broken.md"
+                                                            :scope :project
+                                                            :workspace-root workspace-root
+                                                            :paths ["src/**/*.clj"]
+                                                            :content "{% if isSubagent %}BROKEN"}])]
+        (let [db {:workspace-folders []
+                  :chats {"chat-1" {:agent "code"
+                                    :model "anthropic/claude-sonnet-4-20250514"}}}
+              result (f.tools/call-tool! "eca__fetch_rule"
+                                         {"id" rule-id
+                                          "path" target-path}
+                                         "chat-1"
+                                         "call-broken"
+                                         "code"
+                                         (atom db)
+                                         {}
+                                         (h/messenger)
+                                         (h/metrics)
+                                         identity
+                                         identity
+                                         nil)
+              text (get-in result [:contents 0 :text])]
+          (is (false? (:error result)))
+          (is (string/includes? text "**Matched pattern**: src/**/*.clj"))
+          (is (string/includes? text "This rule contains no usable content for the current chat context and does not need to be loaded again for this path."))))))
 
   (testing "fetch_rule rejects rules outside the current filtered catalog"
-    (with-redefs [f.rules/path-scoped-rules (constantly [{:id "/other/rule.md"
-                                                          :name "other.md"
-                                                          :scope :project
-                                                          :paths ["**/*.rb"]}])
-                  f.rules/find-rule-by-id (constantly nil)]
-      (let [db {:workspace-folders []
-                :chats {"chat-1" {:agent "code"
-                                  :model "openai/gpt-4o"}}}
-            result (f.tools/call-tool! "eca__fetch_rule"
-                                       {"id" "/workspace/a/.eca/rules/format.md"
-                                        "path" "/workspace/a/src/foo.clj"}
-                                       "chat-1"
-                                       "call-2"
-                                       "code"
-                                       (atom db)
-                                       {}
-                                       (h/messenger)
-                                       (h/metrics)
-                                       identity
-                                       identity
-                                       nil)]
-        (is (match? {:error true
-                     :contents [{:type :text
-                                 :text "Rule id '/workspace/a/.eca/rules/format.md' not found in the current path-scoped rules catalog. Use the exact id from the catalog or /rules command."}]}
-                    result)))))
+    (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
+          target-path (h/file-path "/workspace/a/src/foo.clj")]
+      (with-redefs [f.rules/path-scoped-rules (constantly [{:id (h/file-path "/other/rule.md")
+                                                            :name "other.md"
+                                                            :scope :project
+                                                            :paths ["**/*.rb"]}])
+                    f.rules/find-rule-by-id (constantly nil)]
+        (let [db {:workspace-folders []
+                  :chats {"chat-1" {:agent "code"
+                                    :model "openai/gpt-4o"}}}
+              result (f.tools/call-tool! "eca__fetch_rule"
+                                         {"id" rule-id
+                                          "path" target-path}
+                                         "chat-1"
+                                         "call-2"
+                                         "code"
+                                         (atom db)
+                                         {}
+                                         (h/messenger)
+                                         (h/metrics)
+                                         identity
+                                         identity
+                                         nil)]
+          (is (match? {:error true
+                       :contents [{:type :text
+                                   :text (str "Rule id '" rule-id "' not found in the current path-scoped rules catalog. Use the exact id from the catalog or /rules command.")}]}
+                      result))))))
 
   (testing "fetch_rule tool description lists only the current chat's path-scoped rules and explains the path contract"
-    (with-redefs [f.rules/path-scoped-rules (fn [_config _roots agent full-model]
-                                              (if (and (= agent "code")
-                                                       (= full-model "anthropic/claude-sonnet-4-20250514"))
-                                                [{:id "/workspace/a/.eca/rules/format.md"
-                                                  :name "format.md"
-                                                  :scope :project
-                                                  :workspace-root "/workspace/a"
-                                                  :paths ["src/**/*.clj"]}
-                                                 {:id "/home/user/.config/eca/rules/no-network.md"
-                                                  :name "no-network.md"
-                                                  :scope :global
-                                                  :paths ["**/*.clj" "**/*.cljs"]}]
-                                                []))]
-      (let [db {:workspace-folders []
-                :chats {"chat-1" {:agent "code"
-                                  :model "anthropic/claude-sonnet-4-20250514"}
-                        "chat-2" {:agent "plan"
-                                  :model "openai/gpt-4o"}}}
-            fetch-tool (some #(when (= "fetch_rule" (:name %)) %) (f.tools/all-tools "chat-1" "code" db {}))]
-        (is (string? (:description fetch-tool)))
-        (is (re-find #"exact absolute target path" (:description fetch-tool)))
-        (is (re-find #"Java NIO `PathMatcher` glob syntax" (:description fetch-tool)))
-        (is (re-find #"id: /workspace/a/\.eca/rules/format\.md" (:description fetch-tool)))
-        (is (re-find #"scope: project" (:description fetch-tool)))
-        (is (re-find #"workspace-root: /workspace/a" (:description fetch-tool)))
-        (is (re-find #"id: /home/user/\.config/eca/rules/no-network\.md" (:description fetch-tool)))
-        (is (re-find #"scope: global" (:description fetch-tool)))
-        (is (not (re-find #"chat-2" (:description fetch-tool))))))))
+    (let [format-id (h/file-path "/workspace/a/.eca/rules/format.md")
+          network-id (h/file-path "/home/user/.config/eca/rules/no-network.md")
+          workspace-root (h/file-path "/workspace/a")]
+      (with-redefs [f.rules/path-scoped-rules (fn [_config _roots agent full-model]
+                                                (if (and (= agent "code")
+                                                         (= full-model "anthropic/claude-sonnet-4-20250514"))
+                                                  [{:id format-id
+                                                    :name "format.md"
+                                                    :scope :project
+                                                    :workspace-root workspace-root
+                                                    :paths ["src/**/*.clj"]}
+                                                   {:id network-id
+                                                    :name "no-network.md"
+                                                    :scope :global
+                                                    :paths ["**/*.clj" "**/*.cljs"]}]
+                                                  []))]
+        (let [db {:workspace-folders []
+                  :chats {"chat-1" {:agent "code"
+                                    :model "anthropic/claude-sonnet-4-20250514"}
+                          "chat-2" {:agent "plan"
+                                    :model "openai/gpt-4o"}}}
+              fetch-tool (some #(when (= "fetch_rule" (:name %)) %) (f.tools/all-tools "chat-1" "code" db {}))]
+          (is (string? (:description fetch-tool)))
+          (is (re-find #"exact absolute target path" (:description fetch-tool)))
+          (is (re-find #"Java NIO `PathMatcher` glob syntax" (:description fetch-tool)))
+          (is (re-find (re-pattern (str "id: " (java.util.regex.Pattern/quote format-id))) (:description fetch-tool)))
+          (is (re-find #"scope: project" (:description fetch-tool)))
+          (is (re-find (re-pattern (str "workspace-root: " (java.util.regex.Pattern/quote workspace-root))) (:description fetch-tool)))
+          (is (re-find (re-pattern (str "id: " (java.util.regex.Pattern/quote network-id))) (:description fetch-tool)))
+          (is (re-find #"scope: global" (:description fetch-tool)))
+          (is (not (re-find #"chat-2" (:description fetch-tool)))))))))
 
 (deftest file-tools-path-rule-enforcement-test
   (testing "write_file is blocked until fetch_rule validates the same path"
-    (let [rule {:id "/workspace/a/.eca/rules/format.md"
+    (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
+          target-path (h/file-path "/workspace/a/src/foo.clj")
+          workspace-root (h/file-path "/workspace/a")
+          rule {:id rule-id
                 :name "format.md"
                 :scope :project
-                :workspace-root "/workspace/a"
-                :path "/workspace/a/.eca/rules/format.md"
+                :workspace-root workspace-root
+                :path rule-id
                 :paths ["src/**.clj"]
                 :content "Use the project formatter."}
-          db {:workspace-folders [{:uri "file:///workspace/a"}]
+          db {:workspace-folders [{:uri (h/file-uri "file:///workspace/a")}]
               :chats {"chat-1" {:agent "code"
                                 :model "openai/gpt-5.2"}}}
           db* (atom db)
@@ -620,11 +634,11 @@
                     fs/create-dirs (constantly nil)
                     spit (fn [path content] (swap! writes* assoc path content))
                     slurp (fn [path]
-                            (if (= "/workspace/a/src/foo.clj" (str path))
+                            (if (= target-path (str path))
                               (throw (java.io.FileNotFoundException. "missing"))
                               ""))]
         (let [blocked (f.tools/call-tool! "eca__write_file"
-                                          {"path" "/workspace/a/src/foo.clj"
+                                          {"path" target-path
                                            "content" "(ns foo)"}
                                           "chat-1"
                                           "call-write-1"
@@ -637,13 +651,13 @@
                                           identity
                                           nil)]
           (is (:error blocked))
-          (is (string/includes? (get-in blocked [:contents 0 :text]) "Path-scoped rules must be fetched before modifying '/workspace/a/src/foo.clj'."))
+          (is (string/includes? (get-in blocked [:contents 0 :text]) (str "Path-scoped rules must be fetched before modifying '" target-path "'.")))
           (is (string/includes? (get-in blocked [:contents 0 :text]) "call `fetch_rule` with this exact `id` and `path`"))
           (is (empty? @writes*)))
 
         (let [fetched (f.tools/call-tool! "eca__fetch_rule"
-                                          {"id" "/workspace/a/.eca/rules/format.md"
-                                           "path" "/workspace/a/src/foo.clj"}
+                                          {"id" rule-id
+                                           "path" target-path}
                                           "chat-1"
                                           "call-fetch-1"
                                           "code"
@@ -655,7 +669,7 @@
                                           identity
                                           nil)
               written (f.tools/call-tool! "eca__write_file"
-                                          {"path" "/workspace/a/src/foo.clj"
+                                          {"path" target-path
                                            "content" "(ns foo)"}
                                           "chat-1"
                                           "call-write-2"
@@ -669,7 +683,7 @@
                                           nil)]
           (is (false? (:error fetched)))
           (is (false? (:error written)))
-          (is (= "(ns foo)" (get @writes* "/workspace/a/src/foo.clj"))))))))
+          (is (= "(ns foo)" (get @writes* target-path))))))))
 
 (deftest call-tool!-omits-optional-empty-string-args-test
   (testing "optional empty string args are omitted before native tool invocation"

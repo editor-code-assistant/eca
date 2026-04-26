@@ -35,6 +35,7 @@
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}
                        {:name "repo-map-show" :arguments []}
+                       {:name "rules" :arguments []}
                        {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
                        {:name "subagents" :arguments []}
                        {:name "plugins" :arguments []}

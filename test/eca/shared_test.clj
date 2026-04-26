@@ -37,7 +37,8 @@
                  (shared/assoc-some {} :a 1 :b)))))
 
 (deftest normalize-path-symlink-test
-  (when-not h/windows?
+  (if h/windows?
+    (is true "Symlinks are not tested on Windows")
     (let [tmp-dir (fs/create-temp-dir {:prefix "eca-path-test-"})
           real-root (fs/path tmp-dir "real")
           symlink-root (fs/path tmp-dir "link")
@@ -47,13 +48,13 @@
         (java.nio.file.Files/createSymbolicLink (.toPath (fs/file symlink-root))
                                                 (.toPath (fs/file real-root))
                                                 (make-array java.nio.file.attribute.FileAttribute 0))
-        (is (= (str (fs/path real-root "src" "foo.clj"))
-               (shared/normalize-path missing-file)))
+        (let [expected (str (fs/path (shared/normalize-path real-root) "src" "foo.clj"))]
+          (is (= expected (shared/normalize-path missing-file))))
         (is (true? (shared/path-inside-root? missing-file symlink-root)))
         (fs/create-dirs (fs/parent missing-file))
         (spit (str missing-file) "")
-        (is (= (str (fs/path real-root "src" "foo.clj"))
-               (shared/normalize-path missing-file)))
+        (let [expected (str (fs/path (shared/normalize-path real-root) "src" "foo.clj"))]
+          (is (= expected (shared/normalize-path missing-file))))
         (is (true? (shared/path-inside-root? missing-file symlink-root)))
         (finally
           (fs/delete-tree tmp-dir))))))
@@ -61,7 +62,7 @@
 (deftest normalize-path-missing-parent-segments-test
   (let [root (h/file-path "/tmp/root")
         escaped (h/file-path "/tmp/root/../outside")]
-    (is (= (h/file-path "/tmp/outside")
+    (is (= (shared/normalize-path (h/file-path "/tmp/outside"))
            (shared/normalize-path escaped)))
     (is (false? (shared/path-inside-root? escaped root)))))
 

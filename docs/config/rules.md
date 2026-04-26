@@ -8,6 +8,11 @@ Rules let you influence how the model behaves without changing an agent prompt. 
 
 A rule is a Markdown file. By default, rule content is rendered into the system prompt for every chat where the rule matches. Add YAML frontmatter when a rule should apply only to specific agents, models, or paths.
 
+## Rules vs Skills
+
+- Use rules to make ECA automatically follow project conventions, safety constraints, or guidance for matching paths.
+- Use [skills](./skills.md) to teach ECA reusable workflows, tools, or domain knowledge it can load on demand for specific tasks.
+
 ## Rule locations
 
 ECA loads rules from 3 sources:

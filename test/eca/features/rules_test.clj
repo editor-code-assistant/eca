@@ -430,12 +430,12 @@
 
 (deftest matching-path-scoped-rules-test
   (testing "returns every matching path-scoped rule with match details"
-    (with-redefs [f.rules/path-scoped-rules (constantly [{:id "/workspace-a/.eca/rules/format.md"
+    (with-redefs [f.rules/path-scoped-rules (constantly [{:id (h/file-path "/workspace-a/.eca/rules/format.md")
                                                           :name "format.md"
                                                           :scope :project
                                                           :workspace-root (h/file-path "/workspace-a")
                                                           :paths ["src/**.clj"]}
-                                                         {:id "/workspace-a/.eca/rules/notes.md"
+                                                         {:id (h/file-path "/workspace-a/.eca/rules/notes.md")
                                                           :name "notes.md"
                                                           :scope :project
                                                           :workspace-root (h/file-path "/workspace-a")
@@ -563,26 +563,27 @@
         (fs/create-dirs (fs/parent target-file))
         (spit rule-file "---\nagent: code\nmodel: \"openai/.*\"\npaths: \"src/**/*.clj\"\nenforce:\n  - read\n  - modify\n---\n\nUse project Clojure style.")
         (spit target-file "(ns foo)")
-        (let [workspace-root (shared/normalize-path tmp-dir)
-              roots [{:uri (shared/filename->uri (str tmp-dir))}]
-              rules (f.rules/path-scoped-rules {} roots "code" "openai/gpt-5.2")
-              rule (first rules)]
-          (is (= 1 (count rules)))
-          (is (match? {:name "clojure.md"
-                       :scope :project
-                       :workspace-root workspace-root
-                       :content "Use project Clojure style."
-                       :agents ["code"]
-                       :models ["openai/.*"]
-                       :paths ["src/**/*.clj"]
-                       :enforce ["read" "modify"]}
-                      rule))
-          (is (match? {:match? true
-                       :reason nil
-                       :workspace-root workspace-root
-                       :relative-path (str (fs/path "src" "nested" "foo.clj"))
-                       :matched-pattern "src/**/*.clj"}
-                      (f.rules/match-path-scoped-rule rule roots (str target-file)))))
+        (with-redefs [config/get-env (constantly (str (fs/path tmp-dir "no-global-config")))]
+          (let [workspace-root (shared/normalize-path tmp-dir)
+                roots [{:uri (shared/filename->uri (str tmp-dir))}]
+                rules (f.rules/path-scoped-rules {} roots "code" "openai/gpt-5.2")
+                rule (first rules)]
+            (is (= 1 (count rules)))
+            (is (match? {:name "clojure.md"
+                         :scope :project
+                         :workspace-root workspace-root
+                         :content "Use project Clojure style."
+                         :agents ["code"]
+                         :models ["openai/.*"]
+                         :paths ["src/**/*.clj"]
+                         :enforce ["read" "modify"]}
+                        rule))
+            (is (match? {:match? true
+                         :reason nil
+                         :workspace-root workspace-root
+                         :relative-path (str (fs/path "src" "nested" "foo.clj"))
+                         :matched-pattern "src/**/*.clj"}
+                        (f.rules/match-path-scoped-rule rule roots (str target-file))))))
         (finally
           (fs/delete-tree tmp-dir))))))
 
