@@ -682,6 +682,19 @@
        messenger
        db*))))
 
+(defn notify-selected-trust-changed!
+  "Server-initiated equivalent of a client-side trust toggle: aligns the
+   client-side trust indicator with the chat's persisted `:trust` value.
+   Emits via `notify-fields-changed-only!`, so it is a no-op when nothing
+   changed. Used by chat resume flows (`chat/open`, `/resume`) so the icon
+   the client shows matches the auto-approval behavior the server is about
+   to apply (#426)."
+  [trust db* messenger]
+  (notify-fields-changed-only!
+   {:chat {:select-trust (boolean trust)}}
+   messenger
+   db*))
+
 (def ^:private config-schema-url "https://eca.dev/config.json")
 
 (defn ^:private flatten-to-paths

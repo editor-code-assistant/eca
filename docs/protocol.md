@@ -1824,9 +1824,11 @@ in the UI. The server replays the chat by emitting `chat/cleared` (messages),
 the persisted messages. When the persisted chat has a stored model the server
 additionally emits a `config/updated` notification to realign the client's
 selected model (and available variants) with the resumed chat, so the next
-prompt keeps using the chat's original provider/model. Typically used after
-`chat/list` when the user selects a chat that has not been opened in the current
-client session.
+prompt keeps using the chat's original provider/model. The same notification
+also carries `selectTrust` reflecting the resumed chat's trust toggle, so the
+client indicator stays in sync with the auto-approval behavior the server will
+apply. Typically used after `chat/list` when the user selects a chat that has
+not been opened in the current client session.
 
 _Request:_
 
@@ -2299,6 +2301,17 @@ interface ConfigUpdatedParams {
          * null means no variant should be selected (e.g. model has no variants).
          */
         selectVariant?: string | null;
+
+        /**
+         * The trust toggle state for the active chat. When present clients
+         * should forcefully update the chat trust indicator (and any
+         * derived UI like a shield/flame icon) to match this value.
+         *
+         * Server returns this on chat resume (`chat/open`, `/resume`) so the
+         * client's indicator matches the auto-approval behavior the server
+         * will apply for subsequent tool calls in the resumed chat.
+         */
+        selectTrust?: boolean;
 
         /**
         * Message to show when starting a new chat.

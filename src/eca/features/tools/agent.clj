@@ -91,23 +91,6 @@
            sort
            vec))
 
-(defn ^:private available-variant-names
-  "Returns a sorted union of all variant names across all available models."
-  [config db]
-  (let [model-keys (keys (:models db))]
-    (when (seq model-keys)
-      (let [all-variants (->> model-keys
-                              (mapcat (fn [^String full-model]
-                                        (let [idx (.indexOf full-model "/")]
-                                          (when (pos? idx)
-                                            (let [provider (subs full-model 0 idx)
-                                                  model (subs full-model (inc idx))
-                                                  user-variants (get-in config [:providers provider :models model :variants])]
-                                              (config/selectable-variant-names (config/effective-model-variants config provider model user-variants)))))))
-                              (into (sorted-set)))]
-        (when (seq all-variants)
-          (vec all-variants))))))
-
 (defn ^:private model-variant-names
   "Returns sorted variant names for a specific full model string (e.g. \"anthropic/claude-sonnet-4-6\")."
   [config ^String full-model]
@@ -270,7 +253,7 @@
     (str base-description agents-section)))
 
 (defn definitions
-  [config db]
+  [config _db]
   {"spawn_agent"
    {:description (build-description config)
     :parameters  {:type       "object"

@@ -546,6 +546,16 @@
         trusted? (= :trust/allow approval)
         effective-approval (if trusted? :allow approval)
 
+        ;; ask_user always blocks waiting for the user regardless of trust/auto-allow.
+        ;; Surface that as :ask to preToolCall hooks so notification hooks
+        ;; (e.g. matching .approval == "ask") also fire when the chat is blocked on
+        ;; a user question. Only override when allowed; explicit deny is preserved.
+        hook-approval (if (and (= "eca" server-name)
+                               (= "ask_user" name)
+                               (= :allow effective-approval))
+                        :ask
+                        effective-approval)
+
         ;; 2. Run hooks to collect modifications and approval overrides
         hook-state* (atom {:hook-results []
                            :approval-override nil
@@ -560,7 +570,7 @@
                   {:tool-name name
                    :server server-name
                    :tool-input arguments
-                   :approval effective-approval})
+                   :approval hook-approval})
            {:on-before-action on-before-hook-action
             :on-after-action (fn [result]
                                (on-after-hook-action result)
