@@ -102,6 +102,12 @@ To reject a tool call, either output `{"approval": "deny"}` or exit with code `2
     }
     ```
 
+    The same hook also fires for the native `ask_user` tool: it always blocks
+    waiting for a user answer (regardless of trust mode), so `preToolCall`
+    receives `approval: "ask"` for it. This means a single `'.approval == "ask"'`
+    hook covers both "tool call needs approval" and "assistant is waiting on a
+    user question".
+
 === "Inject context on chat start"
 
     ```javascript title="~/.config/eca/config.json"

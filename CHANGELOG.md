@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `preToolCall` hooks now receive `approval: "ask"` for the native `ask_user` tool so notification hooks (e.g. matching `.approval == "ask"`) also fire when the chat is blocked waiting for a user answer, regardless of trust mode.
+
 ## 0.129.2
 
 - Add support for gpt-5.5 variants

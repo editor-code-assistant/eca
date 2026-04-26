@@ -276,7 +276,78 @@
                        :approval-override nil
                        :hook-rejected? false
                        :arguments-modified? true}
-                      plan)))))))
+                      plan))))))
+
+  (testing "ask_user with allowed config sends :ask to preToolCall hook"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__ask_user"
+                     :arguments {"question" "Why?"}}
+          all-tools [{:name "ask_user"
+                      :full-name "eca__ask_user"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config)
+          agent-name :default
+          chat-id "test-chat"
+          hook-data* (atom nil)]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event data _ _ _]
+                                                  (when (= event :preToolCall)
+                                                    (reset! hook-data* data)))]
+        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+          (is (= :ask (:approval @hook-data*))
+              "preToolCall hook receives :ask so notification hooks fire while waiting on user")
+          (is (match? {:decision :allow
+                       :hook-rejected? false}
+                      plan)
+              "tool actually executes (:allow) so the question still reaches the user")))))
+
+  (testing "ask_user with denied config keeps :deny in preToolCall hook"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__ask_user"
+                     :arguments {"question" "Why?"}}
+          all-tools [{:name "ask_user"
+                      :full-name "eca__ask_user"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config)
+          agent-name :default
+          chat-id "test-chat"
+          hook-data* (atom nil)]
+      (with-redefs [f.tools/approval (constantly :deny)
+                    f.hooks/trigger-if-matches! (fn [event data _ _ _]
+                                                  (when (= event :preToolCall)
+                                                    (reset! hook-data* data)))]
+        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+          (is (= :deny (:approval @hook-data*))
+              "explicit :deny is preserved, not overridden to :ask")
+          (is (= :deny (:decision plan)))))))
+
+  (testing "non ask_user tool keeps :allow in preToolCall hook (regression)"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config)
+          agent-name :default
+          chat-id "test-chat"
+          hook-data* (atom nil)]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event data _ _ _]
+                                                  (when (= event :preToolCall)
+                                                    (reset! hook-data* data)))]
+        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)
+        (is (= :allow (:approval @hook-data*))
+            "ask_user override does not leak to other tools")))))
 
 (deftest on-tools-called!-returns-provider-auth-test
   (testing "returns refreshed provider auth in result after token is renewed during tool execution"
