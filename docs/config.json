@@ -234,6 +234,20 @@
             "openai/gpt-4.1",
             "github-copilot/gpt-4.1"
           ]
+        },
+        "windowRadius": {
+          "type": "integer",
+          "description": "Number of lines above and below the cursor included in the editable window sent to the model when computing region-replace inline completions. The model rewrites this window and the server diffs it back to a precise edit range. Larger values give more context but slower/larger requests.",
+          "markdownDescription": "Number of lines above and below the cursor included in the editable window sent to the model when computing region-replace inline completions. The model rewrites this window and the server diffs it back to a precise edit range. Larger values give more context but slower/larger requests.",
+          "default": 6,
+          "minimum": 0
+        },
+        "requestTimeoutMs": {
+          "type": "integer",
+          "description": "Timeout in milliseconds for a single completion/inline request to the model.",
+          "markdownDescription": "Timeout in milliseconds for a single `completion/inline` request to the model.",
+          "default": 30000,
+          "minimum": 1
         }
       }
     },
@@ -1089,8 +1103,13 @@
         },
         "completion": {
           "type": "string",
-          "description": "System prompt for inline completions.",
-          "markdownDescription": "System prompt for inline completions."
+          "description": "System prompt for inline completions in legacy single-tag mode (clients that do NOT advertise `codeAssistant.completionCapabilities.regionReplace`).",
+          "markdownDescription": "System prompt for inline completions in legacy single-tag mode (clients that do NOT advertise `codeAssistant.completionCapabilities.regionReplace`)."
+        },
+        "completionRegionReplace": {
+          "type": "string",
+          "description": "System prompt for inline completions when the client advertises `codeAssistant.completionCapabilities.regionReplace`. The model receives the document with an editable window delimited by `<ECA_WINDOW_START>`/`<ECA_WINDOW_END>` and a `<ECA_CURSOR>` marker, and rewrites the window contents.",
+          "markdownDescription": "System prompt for inline completions when the client advertises `codeAssistant.completionCapabilities.regionReplace`. The model receives the document with an editable window delimited by `<ECA_WINDOW_START>`/`<ECA_WINDOW_END>` and a `<ECA_CURSOR>` marker, and rewrites the window contents."
         },
         "rewrite": {
           "type": "string",

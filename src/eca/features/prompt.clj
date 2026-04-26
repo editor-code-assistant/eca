@@ -282,6 +282,16 @@
       :else
       (load-builtin-prompt (some-> legacy-config-file-prompt (string/replace-first #"prompts/" ""))))))
 
+(defn inline-completion-region-replace-prompt
+  "Resolve the system prompt for region-replace inline completions (Format B).
+
+  Falls back to `inline-completion-prompt` only when the user explicitly
+  cleared `prompts.completionRegionReplace`; otherwise the focused
+  rewrite-window prompt is used."
+  [config]
+  (or (get-config-prompt :completionRegionReplace nil config)
+      (inline-completion-prompt config)))
+
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))
   (try

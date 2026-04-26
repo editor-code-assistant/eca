@@ -22,7 +22,8 @@
                  :version :string}
    :workspace-folders [{:name :string :uri :string}]
    :client-capabilities {:code-assistant {:editor {:diagnostics :boolean}
-                                          :chat-capabilities {:ask-question :boolean}}}
+                                          :chat-capabilities {:ask-question :boolean}
+                                          :completion-capabilities {:region-replace :boolean}}}
    :config-hash :string
    :providers-config-hash :string
    :last-config-notified ::any-map

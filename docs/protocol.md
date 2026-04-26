@@ -224,6 +224,23 @@ interface ClientCapabilities {
              */
             askQuestion?: boolean;
         }
+
+        /**
+         * Inline-completion capabilities beyond the basic rewrite/chat flags.
+         */
+        completionCapabilities?: {
+            /**
+             * Whether client supports replacing an arbitrary buffer range when
+             * applying a `completion/inline` item — i.e. `range.start` may
+             * precede the cursor and/or `range.end` may follow it, and the
+             * range may span multiple lines.
+             *
+             * When `false` or absent, the server falls back to the legacy
+             * contract of inserting `text` at the cursor (zero-width range at
+             * the cursor position).
+             */
+            regionReplace?: boolean;
+        }
     }
 }
 
@@ -2093,7 +2110,8 @@ interface CompletionInlineResponse {
 
 interface CompletionInlineItem {
     /**
-     * The item text
+     * The replacement text. The client should replace the buffer text
+     * spanned by `range` with this string atomically.
      */
     text: string;
 
@@ -2101,9 +2119,22 @@ interface CompletionInlineItem {
      * The item doc-version
      */
     docVersion: number;
-    
+
     /**
-     * The range of this new text in the document
+     * The buffer range that `text` replaces.
+     *
+     * Semantics:
+     * - When the client advertises `codeAssistant.completionCapabilities.regionReplace`,
+     *   the server may emit a range that starts before the cursor, ends after
+     *   the cursor and/or spans multiple lines. The client MUST replace the
+     *   text inside the range with `text`.
+     * - Otherwise the server falls back to a zero-width range at the cursor
+     *   position (i.e. `start == end == cursor`) and `text` is inserted at the
+     *   cursor — preserving backward compatibility with legacy clients.
+     *
+     * `additionalEdits` is reserved for a future revision to support multiple
+     * disjoint edits within a single suggestion (e.g. Cursor's "Tab" / next
+     * edit experience).
      */
     range: Range;
 }

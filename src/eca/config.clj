@@ -158,6 +158,7 @@
              :init "${classpath:prompts/init.md}"
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
+             :completionRegionReplace "${classpath:prompts/inline_completion_region_replace.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:title true}
    :rewrite {:fullFileMaxLines 2000}
@@ -205,7 +206,9 @@
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}
-   :completion {:model "openai/gpt-4.1"}
+   :completion {:model "openai/gpt-4.1"
+                :windowRadius 6
+                :requestTimeoutMs 30000}
    :netrcFile nil
    :autoCompactPercentage 75
    :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
