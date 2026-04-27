@@ -77,8 +77,8 @@
       (testing "plugin commands get prefixed with plugin name"
         (let [cmd-file (fs/file tmp-dir "deploy.md")]
           (spit cmd-file "Plugin command body")
-          (let [config {:commands [{:path (str cmd-file) :plugin "ui"}]}
-                result (vec (#'f.commands/config-commands config []))]
+          (let [config {:pureConfig true :commands [{:path (str cmd-file) :plugin "ui"}]}
+                result (vec (#'f.commands/custom-commands config []))]
             (is (= 1 (count result)))
             (is (= "ui:deploy" (:name (first result))))
             (is (= "ui" (:plugin (first result)))))))
@@ -86,8 +86,8 @@
       (testing "plugin command with same name as plugin drops the prefix"
         (let [cmd-file (fs/file tmp-dir "tdd.md")]
           (spit cmd-file "TDD body")
-          (let [config {:commands [{:path (str cmd-file) :plugin "tdd"}]}
-                result (vec (#'f.commands/config-commands config []))]
+          (let [config {:pureConfig true :commands [{:path (str cmd-file) :plugin "tdd"}]}
+                result (vec (#'f.commands/custom-commands config []))]
             (is (= 1 (count result)))
             (is (= "tdd" (:name (first result))))
             (is (= "tdd" (:plugin (first result)))))))
@@ -95,11 +95,24 @@
       (testing "user-config commands without a plugin stay unprefixed"
         (let [cmd-file (fs/file tmp-dir "plain.md")]
           (spit cmd-file "Plain body")
-          (let [config {:commands [{:path (str cmd-file)}]}
-                result (vec (#'f.commands/config-commands config []))]
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                result (vec (#'f.commands/custom-commands config []))]
             (is (= 1 (count result)))
             (is (= "plain" (:name (first result))))
             (is (not (contains? (first result) :plugin))))))
+
+      (testing "user-config command directories load markdown files recursively"
+        (let [cmd-dir (fs/file tmp-dir "commands")
+              nested-dir (fs/file cmd-dir "nested")]
+          (fs/create-dirs nested-dir)
+          (spit (fs/file cmd-dir "review.md") "Review body")
+          (spit (fs/file nested-dir "ship.md") "Ship body")
+          (spit (fs/file nested-dir "ignore.txt") "Ignored")
+          (let [config {:pureConfig true :commands [{:path (str cmd-dir)}]}
+                result (vec (#'f.commands/custom-commands config []))]
+            (is (= #{"review" "ship"} (set (map :name result))))
+            (is (= #{"Review body" "Ship body"} (set (map :content result)))))))
+
       (finally
         (fs/delete-tree tmp-dir)))))
 

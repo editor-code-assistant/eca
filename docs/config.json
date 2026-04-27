@@ -85,8 +85,8 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Path to a rule file (relative to workspace root or absolute).",
-            "markdownDescription": "Path to a rule file (relative to workspace root or absolute)."
+            "description": "Path to a rule file or directory (relative to workspace root or absolute). Directories are loaded recursively.",
+            "markdownDescription": "Path to a rule file or directory (relative to workspace root or absolute). Directories are loaded recursively."
           }
         },
         "required": [
@@ -112,8 +112,27 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Path to a command prompt markdown file.",
-            "markdownDescription": "Path to a command prompt markdown file."
+            "description": "Path to a command prompt markdown file or directory. Directories load markdown files recursively.",
+            "markdownDescription": "Path to a command prompt markdown file or directory. Directories load markdown files recursively."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "skills": {
+      "type": "array",
+      "description": "Skill files or directories to load.",
+      "markdownDescription": "Skill files or directories to load.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to a skill file or directory. Directories load SKILL.md files recursively.",
+            "markdownDescription": "Path to a skill file or directory. Directories load SKILL.md files recursively."
           }
         },
         "required": [

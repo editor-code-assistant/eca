@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add configurable skill paths and recursive directory loading for configured rules, commands, and skills; local skills are also discovered from `.agents/skills`. #423
+
 ## 0.130.0
 
 - Improve rules with frontmatter filters, condition variables, path-scoped loading, enforcement support, and clearer documentation. #222

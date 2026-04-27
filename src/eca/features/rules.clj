@@ -129,33 +129,33 @@
      :matched-pattern matched-pattern
      :paths (:paths rule)}))
 
+(defn ^:private rule-files [path]
+  (cond
+    (not (fs/exists? path)) []
+    (fs/directory? path) (remove fs/directory? (fs/glob path "**" {:follow-links true}))
+    :else [path]))
+
+(defn ^:private rule-file [type file opts]
+  (rule-file->rule type
+                   (fs/canonicalize file)
+                   (slurp (str file))
+                   {:workspace-root (:workspace-root opts)}))
+
 (defn ^:private global-file-rules []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
                             (io/file (config/get-property "user.home") ".config"))
         rules-dir (io/file xdg-config-home "eca" "rules")]
-    (when (fs/exists? rules-dir)
-      (keep (fn [file]
-              (when-not (fs/directory? file)
-                (rule-file->rule :user-global-file
-                                 (fs/canonicalize file)
-                                 (slurp (fs/file file)))))
-            (fs/glob rules-dir "**" {:follow-links true})))))
+    (keep #(rule-file :user-global-file % {})
+          (rule-files rules-dir))))
 
 (defn ^:private local-file-rules [roots]
   (->> roots
        (mapcat (fn [{:keys [uri]}]
-                 (let [workspace-root (shared/normalize-path (shared/uri->filename uri))
-                       rules-dir (fs/file workspace-root ".eca" "rules")]
-                   (when (fs/exists? rules-dir)
-                     (keep (fn [file]
-                             (when-not (fs/directory? file)
-                               (rule-file->rule :user-local-file
-                                                (fs/canonicalize file)
-                                                (slurp (fs/file file))
-                                                {:workspace-root workspace-root})))
-                           (fs/glob rules-dir "**" {:follow-links true}))))))))
+                 (let [workspace-root (shared/normalize-path (shared/uri->filename uri))]
+                   (keep #(rule-file :user-local-file % {:workspace-root workspace-root})
+                         (rule-files (fs/file workspace-root ".eca" "rules"))))))))
 
-(defn ^:private config-rule-candidates
+(defn ^:private config-rule-paths
   [roots path]
   (if (fs/absolute? path)
     [{:path path
@@ -163,20 +163,16 @@
     (map (fn [{:keys [uri]}]
            (let [workspace-root (shared/normalize-path (shared/uri->filename uri))]
              {:path (fs/file workspace-root path)
-              :workspace-root workspace-root
-              :canonicalize? true}))
+              :workspace-root workspace-root}))
          roots)))
 
 (defn ^:private config-rules [config roots]
   (->> (get config :rules)
        (mapcat (fn [{:keys [path]}]
-                 (config-rule-candidates roots path)))
-       (keep (fn [{:keys [path workspace-root canonicalize?]}]
-               (when (fs/exists? path)
-                 (rule-file->rule :user-config
-                                  (cond-> path canonicalize? fs/canonicalize)
-                                  (slurp path)
-                                  {:workspace-root workspace-root}))))))
+                 (config-rule-paths roots (str (fs/expand-home path)))))
+       (mapcat (fn [{:keys [path workspace-root]}]
+                 (keep #(rule-file :user-config % {:workspace-root workspace-root})
+                       (rule-files path))))))
 
 (defn ^:private loaded-rules
   [config roots]
