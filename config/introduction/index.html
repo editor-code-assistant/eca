@@ -1455,7 +1455,13 @@
 <li><code>env</code>: <code>${env:MY_ENV}</code> to get a system env value with support for default values: <code>${env:MY_ENV:foo}</code></li>
 <li><code>classpath</code>: <code>${classpath:path/to/eca/file}</code> to get a file content from <a href="https://github.com/editor-code-assistant/eca/tree/master/resources">ECA's classpath</a></li>
 <li><code>netrc</code>: Support Unix RC <a href="../models/#credential-file-authentication">credential files</a></li>
+<li><code>cmd</code>: <code>${cmd:some command}</code> to run a command via the platform shell (<code>bash -c</code> on POSIX, PowerShell on Windows) and use its trimmed stdout — useful for password managers like <code>${cmd:pass show eca/api-key}</code> or <code>${cmd:op read op://vault/Item/credential}</code>. On non-zero exit/timeout the value falls back to an empty string and a warning is logged. The command itself cannot contain <code>}</code> (the closing brace ends the placeholder); for commands like <code>awk '{print $1}' …</code>, wrap them in a small script or shell function.</li>
 </ul>
+<div class="admonition info">
+<p class="admonition-title">macOS GUI launches</p>
+<p>When ECA runs from Finder/Dock (e.g. via ECA Desktop) the inherited <code>PATH</code> is minimal and Homebrew, <code>mise</code>/<code>asdf</code> shims, etc. are not visible. To fix this, on macOS the <code>cmd</code> backend spawns the user's interactive login shell once (<code>$SHELL -ilc '…'</code>) and reuses the captured <code>$PATH</code> for subsequent <code>${cmd:...}</code> resolutions — so anything sourced from <code>.zshrc</code>/<code>.zprofile</code>/<code>.bash_profile</code> is picked up automatically. If the shell query fails or your shell isn't bash/zsh/sh/dash/ksh, ECA falls back to prepending <code>/opt/homebrew/bin</code>, <code>/usr/local/bin</code> and <code>~/.local/bin</code>. As a last resort, use an absolute path (e.g. <code>${cmd:/opt/custom/bin/my-tool ...}</code>).</p>
+<p>Linux GUI launches can have a similar (less severe) <code>PATH</code> gap, but shell-<code>PATH</code> discovery is currently macOS-only — Linux users with the same problem should use absolute paths in <code>${cmd:...}</code> for now.</p>
+</div>
 <div class="admonition info markdown support">
 <p class="admonition-title">Info</p>
 <p>This is supported in markdown configurations of agents and skills as well, giving flexibility to template it.</p>
@@ -1563,7 +1569,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 27, 2026 14:43:11 UTC">April 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 27, 2026 15:11:20 UTC">April 27, 2026</span>
   </span>
 
     
