@@ -482,8 +482,8 @@
         },
         "url": {
           "type": "string",
-          "description": "Base URL for the provider's API. Supports dynamic strings like ${env:VAR}.",
-          "markdownDescription": "Base URL for the provider's API. Supports dynamic strings like ${env:VAR}.",
+          "description": "Base URL for the provider's API. Supports dynamic strings like ${env:VAR} or ${cmd:command}.",
+          "markdownDescription": "Base URL for the provider's API. Supports dynamic strings like `${env:VAR}` or `${cmd:command}`.",
           "format": "uri"
         },
         "key": {
@@ -491,8 +491,8 @@
             "string",
             "null"
           ],
-          "description": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}.",
-          "markdownDescription": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}."
+          "description": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}, ${netrc:host} or ${cmd:pass show eca/api-key}.",
+          "markdownDescription": "API key for authentication. Supports dynamic strings like `${env:MY_API_KEY}`, `${netrc:host}` or `${cmd:pass show eca/api-key}`."
         },
         "keyRc": {
           "type": "string",

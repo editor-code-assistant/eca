@@ -314,8 +314,8 @@ Schema:
 | Option                            | Type    | Description                                                                                                  | Required |
 |-----------------------------------|---------|--------------------------------------------------------------------------------------------------------------|----------|
 | `api`                             | string  | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
-| `url`                             | string  | API URL (with support for env like `${env:MY_URL}`)                                                          | No*      |
-| `key`                             | string  | API key (with support for `${env:MY_KEY}` or `{netrc:api.my-provider.com}`                                   | No*      |
+| `url`                             | string  | API URL (with support for dynamic strings like `${env:MY_URL}` or `${cmd:...}`)                              | No*      |
+| `key`                             | string  | API key (with support for dynamic strings like `${env:MY_KEY}`, `${netrc:api.my-provider.com}` or `${cmd:pass show eca/key}`) | No*      |
 | `completionUrlRelativePath`       | string  | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |
 | `thinkTagStart`                   | string  | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
 | `thinkTagEnd`                     | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |

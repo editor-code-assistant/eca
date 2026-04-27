@@ -469,7 +469,7 @@
       (is (= "password1 and password2"
              (interpolation/replace-dynamic-strings "${netrc:api1.example.com} and ${netrc:api2.example.com}" "/tmp" {})))))
 
-  (testing "handles mixed env, file, classpath, and netrc patterns"
+  (testing "handles mixed env, file, classpath, netrc and cmd patterns"
     (with-redefs [interpolation/get-env (fn [env-var]
                                    (when (= env-var "TEST_VAR") "env-value"))
                   fs/expand-home identity
@@ -485,9 +485,11 @@
                   secrets/get-credential (fn [key-rc _]
                                            (when (= key-rc "api.example.com")
                                              "netrc-password"))
+                  interpolation/resolve-cmd (fn [cmd-string]
+                                              (when (= cmd-string "echo cmd-value") "cmd-value"))
                   logger/warn (fn [& _] nil)]
-      (is (= "env-value and file-value and classpath-value and netrc-password"
-             (interpolation/replace-dynamic-strings "${env:TEST_VAR} and ${file:/file.txt} and ${classpath:resource.txt} and ${netrc:api.example.com}" "/tmp" {})))))
+      (is (= "env-value and file-value and classpath-value and netrc-password and cmd-value"
+             (interpolation/replace-dynamic-strings "${env:TEST_VAR} and ${file:/file.txt} and ${classpath:resource.txt} and ${netrc:api.example.com} and ${cmd:echo cmd-value}" "/tmp" {})))))
 
   (testing "handles netrc pattern within longer strings"
     (with-redefs [secrets/get-credential (fn [key-rc _]
@@ -508,7 +510,45 @@
                                              "api_service.example.com" "password2"
                                              nil))]
       (is (= "password1" (interpolation/replace-dynamic-strings "${netrc:api-gateway.example-corp.com}" "/tmp" {})))
-      (is (= "password2" (interpolation/replace-dynamic-strings "${netrc:api_service.example.com}" "/tmp" {}))))))
+      (is (= "password2" (interpolation/replace-dynamic-strings "${netrc:api_service.example.com}" "/tmp" {})))))
+
+  (testing "replaces cmd pattern with the resolver result"
+    (with-redefs [interpolation/resolve-cmd (fn [cmd-string]
+                                              (case cmd-string
+                                                "pass show eca/api-key" "sk-abc123"
+                                                "echo hello" "hello"
+                                                ""))]
+      (is (= "sk-abc123" (interpolation/replace-dynamic-strings "${cmd:pass show eca/api-key}" "/tmp" {})))
+      (is (= "Bearer sk-abc123" (interpolation/replace-dynamic-strings "Bearer ${cmd:pass show eca/api-key}" "/tmp" {})))))
+
+  (testing "cmd pattern supports values with `://` (1Password op references)"
+    (with-redefs [interpolation/resolve-cmd (fn [cmd-string]
+                                              (when (= cmd-string "op read op://vault/Item/credential")
+                                                "op-secret"))]
+      (is (= "op-secret"
+             (interpolation/replace-dynamic-strings "${cmd:op read op://vault/Item/credential}" "/tmp" {})))))
+
+  (testing "cmd pattern returns empty string when resolver returns nil/empty"
+    (with-redefs [interpolation/resolve-cmd (constantly "")]
+      (is (= "" (interpolation/replace-dynamic-strings "${cmd:false}" "/tmp" {})))
+      (is (= "prefix  suffix"
+             (interpolation/replace-dynamic-strings "prefix ${cmd:false} suffix" "/tmp" {})))))
+
+  (testing "cmd pattern returns empty string when resolver throws"
+    (with-redefs [logger/warn (fn [& _] nil)
+                  interpolation/resolve-cmd (fn [_] (throw (ex-info "boom" {})))]
+      (is (= "" (interpolation/replace-dynamic-strings "${cmd:explode}" "/tmp" {})))
+      (is (= "prefix  suffix"
+             (interpolation/replace-dynamic-strings "prefix ${cmd:explode} suffix" "/tmp" {})))))
+
+  (testing "handles multiple cmd patterns in one string"
+    (with-redefs [interpolation/resolve-cmd (fn [cmd-string]
+                                              (case cmd-string
+                                                "echo a" "value-a"
+                                                "echo b" "value-b"
+                                                ""))]
+      (is (= "value-a and value-b"
+             (interpolation/replace-dynamic-strings "${cmd:echo a} and ${cmd:echo b}" "/tmp" {}))))))
 
 (deftest config-schema-test
   (testing "docs/config.json is a valid JSON schema"

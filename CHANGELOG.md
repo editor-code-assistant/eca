@@ -4,6 +4,7 @@
 
 - Improve rules with frontmatter filters, condition variables, path-scoped loading, enforcement support, and clearer documentation. #222
 - `preToolCall` hooks now receive `approval: "ask"` for the native `ask_user` tool so notification hooks (e.g. matching `.approval == "ask"`) also fire when the chat is blocked waiting for a user answer, regardless of trust mode.
+- New `${cmd:some command}` dynamic string backend that resolves to the trimmed stdout of a shell command, useful for password managers like `pass` or `op`. On macOS the user's interactive shell `$PATH` is queried once so GUI-launched ECA picks up Homebrew, `mise`/`asdf` shims, etc. #430
 
 ## 0.129.2
 
