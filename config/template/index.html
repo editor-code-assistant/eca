@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Get started with ECA: installation, initial setup, and configuration guide for connecting any LLM to your editor.">
+        <meta name="description" content="Use templates and condition variables in ECA configuration files, prompts, and rules.">
       
       
       
-        <link rel="canonical" href="https://eca.dev/config/introduction/">
+        <link rel="canonical" href="https://eca.dev/config/template/">
       
       
-        <link rel="prev" href="../../install/">
+        <link rel="prev" href="../introduction/">
       
       
-        <link rel="next" href="../template/">
+        <link rel="next" href="../models/">
       
       
       <link rel="icon" href="../../images/logo.svg">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Introduction - ECA - Editor Code Assistant</title>
+        <title>Templates - ECA - Editor Code Assistant</title>
       
     
     
@@ -78,9 +78,9 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Introduction - ECA - Editor Code Assistant" />
-  <meta property="og:description" content="Get started with ECA: installation, initial setup, and configuration guide for connecting any LLM to your editor." />
-  <meta property="og:url" content="https://eca.dev/config/introduction/" />
+  <meta property="og:title" content="Templates - ECA - Editor Code Assistant" />
+  <meta property="og:description" content="Use templates and condition variables in ECA configuration files, prompts, and rules." />
+  <meta property="og:url" content="https://eca.dev/config/template/" />
   <meta property="og:image" content="https://eca.dev/images/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -88,8 +88,8 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Introduction - ECA - Editor Code Assistant" />
-  <meta name="twitter:description" content="Get started with ECA: installation, initial setup, and configuration guide for connecting any LLM to your editor." />
+  <meta name="twitter:title" content="Templates - ECA - Editor Code Assistant" />
+  <meta name="twitter:description" content="Use templates and condition variables in ECA configuration files, prompts, and rules." />
   <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
   </head>
@@ -104,7 +104,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#configuration" class="md-skip">
+        <a href="#templates" class="md-skip">
           Skip to content
         </a>
       
@@ -137,7 +137,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Introduction
+              Templates
             
           </span>
         </div>
@@ -286,7 +286,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+        <a href="../introduction/" class="md-tabs__link">
           
   
   
@@ -718,6 +718,29 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -735,7 +758,7 @@
   
   
   <span class="md-ellipsis">
-    Introduction
+    Templates
     
   </span>
   
@@ -748,7 +771,7 @@
   
   
   <span class="md-ellipsis">
-    Introduction
+    Templates
     
   </span>
   
@@ -771,51 +794,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
+  <a href="#condition-variables" class="md-nav__link">
     <span class="md-ellipsis">
-      Installation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#ways-to-configure" class="md-nav__link">
-    <span class="md-ellipsis">
-      Ways to configure
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Ways to configure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#dynamic-string-contents" class="md-nav__link">
-    <span class="md-ellipsis">
-      Dynamic string contents
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#schema" class="md-nav__link">
-    <span class="md-ellipsis">
-      Schema
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#default-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      Default config
+      Condition variables
     </span>
   </a>
   
@@ -825,29 +806,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../template/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Templates
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -1343,51 +1301,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
+  <a href="#condition-variables" class="md-nav__link">
     <span class="md-ellipsis">
-      Installation
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#ways-to-configure" class="md-nav__link">
-    <span class="md-ellipsis">
-      Ways to configure
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Ways to configure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#dynamic-string-contents" class="md-nav__link">
-    <span class="md-ellipsis">
-      Dynamic string contents
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#schema" class="md-nav__link">
-    <span class="md-ellipsis">
-      Schema
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#default-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      Default config
+      Condition variables
     </span>
   </a>
   
@@ -1412,137 +1328,51 @@
   
 
 
-<h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h1>
-<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h2>
-<p>Installation has moved to its own page. See <strong><a href="../../install/">Install ECA</a></strong> for a guided walkthrough covering editor plugins (Emacs, VS Code, Neovim, IntelliJ), the Desktop app, and manual install methods (script, Homebrew, mise, GitHub Releases).</p>
-<h2 id="ways-to-configure">Ways to configure<a class="headerlink" href="#ways-to-configure" title="Permanent link">#</a></h2>
-<p>There are multiples ways to configure ECA:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="global-config-file" name="__tabbed_1" type="radio" /><input id="local-config-file" name="__tabbed_1" type="radio" /><input id="initializationoptions" name="__tabbed_1" type="radio" /><input id="env-var" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="global-config-file">Global config file</label><label for="local-config-file">Local Config file</label><label for="initializationoptions">InitializationOptions</label><label for="env-var">Env var</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<p>Convenient for users and multiple projects</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
-<span class="p">}</span>
+<h1 id="templates">Templates<a class="headerlink" href="#templates" title="Permanent link">#</a></h1>
+<p>ECA supports templating in configurable prompts and rules, so instructions can adapt to the current chat context.</p>
+<p>For loading files, environment variables, classpath resources, or netrc credentials in config strings, see <a href="../introduction/#dynamic-string-contents">Dynamic string contents</a>.</p>
+<h2 id="condition-variables">Condition variables<a class="headerlink" href="#condition-variables" title="Permanent link">#</a></h2>
+<p>Custom agent prompts and <a href="../rules/">rules</a> are rendered with <a href="https://github.com/yogthos/Selmer">Selmer</a>. Use condition variables when one prompt or rule should behave differently depending on the current chat.</p>
+<p>Available variables:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>isSubagent</code></td>
+<td>boolean</td>
+<td><code>true</code> when the chat is running as a subagent</td>
+</tr>
+<tr>
+<td><code>workspaceRoots</code></td>
+<td>string</td>
+<td>The current workspace root paths</td>
+</tr>
+<tr>
+<td><code>toolEnabled_&lt;tool-name&gt;</code></td>
+<td>boolean</td>
+<td><code>true</code> when a tool is enabled, using its exact full name, e.g. <code>toolEnabled_eca__shell_command</code></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><span class="filename">Prompt or rule</span><pre><span></span><code>{% if isSubagent %}
+Be concise and return only the final result.
+{% else %}
+Explain important trade-offs and assumptions.
+{% endif %}
+
+{% if toolEnabled_eca__shell_command %}
+You can run shell commands to verify your work.
+{% endif %}
+
+Current workspace roots: {{ workspaceRoots }}
 </code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>Convenient for users</p>
-<div class="highlight"><span class="filename">.eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
-<span class="p">}</span>
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>Convenient for editors but uncommon</p>
-<p>Client editors can pass custom settings when sending the <code>initialize</code> request via the <code>initializationOptions</code> object:</p>
-<div class="highlight"><pre><span></span><code><span class="s2">&quot;initializationOptions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;plan&quot;</span>
-<span class="p">}</span>
-</code></pre></div>
-</div>
-<div class="tabbed-block">
-<p>Via env var during server process spawn:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">ECA_CONFIG</span><span class="o">=</span><span class="s1">&#39;{&quot;myConfig&quot;: &quot;my_value&quot;}&#39;</span><span class="w"> </span>eca<span class="w"> </span>server
-</code></pre></div>
-</div>
-</div>
-</div>
-<h3 id="dynamic-string-contents">Dynamic string contents<a class="headerlink" href="#dynamic-string-contents" title="Permanent link">#</a></h3>
-<p>It's possible to retrieve content of any configs with a string value using the <code>${key:value}</code> approach, being <code>key</code>:</p>
-<ul>
-<li><code>file</code>: <code>${file:/path/to/my-file}</code> or <code>${file:../rel-path/to/my-file}</code> to get a file content</li>
-<li><code>env</code>: <code>${env:MY_ENV}</code> to get a system env value with support for default values: <code>${env:MY_ENV:foo}</code></li>
-<li><code>classpath</code>: <code>${classpath:path/to/eca/file}</code> to get a file content from <a href="https://github.com/editor-code-assistant/eca/tree/master/resources">ECA's classpath</a></li>
-<li><code>netrc</code>: Support Unix RC <a href="../models/#credential-file-authentication">credential files</a></li>
-</ul>
-<div class="admonition info markdown support">
-<p class="admonition-title">Info</p>
-<p>This is supported in markdown configurations of agents and skills as well, giving flexibility to template it.</p>
-</div>
-<h2 id="schema">Schema<a class="headerlink" href="#schema" title="Permanent link">#</a></h2>
-<p>ECA has a <a href="../../config.json">config.json schema</a> to validate and autocomplete in your editor.</p>
-<h2 id="default-config">Default config<a class="headerlink" href="#default-config" title="Permanent link">#</a></h2>
-<p>By default ECA consider the following as the base configuration: </p>
-<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;openai&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.openai.com&quot;</span><span class="p">},</span>
-<span class="w">          </span><span class="s2">&quot;anthropic&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.anthropic.com&quot;</span><span class="p">},</span>
-<span class="w">          </span><span class="s2">&quot;github-copilot&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.githubcopilot.com&quot;</span><span class="p">},</span>
-<span class="w">          </span><span class="s2">&quot;google&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://generativelanguage.googleapis.com/v1beta/openai&quot;</span><span class="p">},</span>
-<span class="w">          </span><span class="s2">&quot;ollama&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;http://localhost:11434&quot;</span><span class="p">}</span>
-<span class="w">      </span><span class="p">},</span>
-<span class="w">      </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="c1">// let ECA decides the default model.</span>
-<span class="w">      </span><span class="s2">&quot;netrcFile&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="c1">// search ~/.netrc or ~/_netrc when null.</span>
-<span class="w">      </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">      </span><span class="s2">&quot;rules&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">      </span><span class="s2">&quot;commands&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">      </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
-<span class="w">      </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ask&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;eca__directory_tree&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">                    </span><span class="s2">&quot;eca__read_file&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">                    </span><span class="s2">&quot;eca__grep&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">                    </span><span class="s2">&quot;eca__preview_file_change&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">                    </span><span class="s2">&quot;eca__editor_diagnostics&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}},</span>
-<span class="w">          </span><span class="s2">&quot;ask&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">          </span><span class="s2">&quot;deny&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
-<span class="w">        </span><span class="p">},</span>
-<span class="w">        </span><span class="s2">&quot;readFile&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;maxLines&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">2000</span>
-<span class="w">        </span><span class="p">},</span>
-<span class="w">        </span><span class="s2">&quot;shellCommand&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;summaryMaxLength&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">30</span>
-<span class="w">        </span><span class="p">}</span>
-<span class="w">      </span><span class="p">},</span>
-<span class="w">      </span><span class="s2">&quot;mcpTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">60</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;lspTimeoutSeconds&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">30</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;mcpServers&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
-<span class="w">      </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/code_agent.md}&quot;</span><span class="p">},</span>
-<span class="w">                 </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;preview_file_change&quot;</span><span class="p">]},</span>
-<span class="w">        </span><span class="s2">&quot;plan&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/plan_agent.md}&quot;</span><span class="p">},</span>
-<span class="w">                  </span><span class="s2">&quot;disabledTools&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;edit_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;write_file&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;move_file&quot;</span><span class="p">],</span>
-<span class="w">                  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;deny&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;eca__shell_command&quot;</span><span class="o">:</span>
-<span class="w">                                                     </span><span class="p">{</span><span class="s2">&quot;argsMatchers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;command&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*[12&amp;]?&gt;&gt;?\\s*(?!/dev/null($|\\s))(?!&amp;\\d+($|\\s))\\S+.*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*\\|\\s*(tee|dd|xargs).*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*\\b(sed|awk|perl)\\s+.*-i.*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*\\b(rm|mv|cp|touch|mkdir)\\b.*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*git\\s+(add|commit|push).*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*npm\\s+install.*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*-c\\s+[\&quot;&#39;].*open.*[\&quot;&#39;]w[\&quot;&#39;].*&quot;</span><span class="p">,</span>
-<span class="w">                                                                                  </span><span class="s2">&quot;.*bash.*-c.*[12&amp;]?&gt;&gt;?\\s*(?!/dev/null($|\\s))(?!&amp;\\d+($|\\s))\\S+.*&quot;</span><span class="p">]}}}}}}</span>
-<span class="w">      </span><span class="p">},</span>
-<span class="w">      </span><span class="s2">&quot;defaultAgent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;code&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;welcomeMessage&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Welcome to ECA!\n\nType &#39;/&#39; for commands\n\n&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;autoCompactPercentage&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">85</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;index&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;ignoreFiles&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;type&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;gitignore&quot;</span>
-<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="p">],</span>
-<span class="w">        </span><span class="s2">&quot;repoMap&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">          </span><span class="s2">&quot;maxTotalEntries&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">800</span><span class="p">,</span>
-<span class="w">          </span><span class="s2">&quot;maxEntriesPerDir&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">50</span>
-<span class="w">        </span><span class="p">}</span>
-<span class="w">      </span><span class="p">},</span>
-<span class="w">      </span><span class="s2">&quot;prompts&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/code_agent.md}&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// default to code agent</span>
-<span class="w">        </span><span class="s2">&quot;chatTitle&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/title.md}&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="s2">&quot;compact&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/compact.md}&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="s2">&quot;init&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/init.md}&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="s2">&quot;completion&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/inline_completion.md}&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="s2">&quot;rewrite&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${classpath:prompts/rewrite.md}&quot;</span>
-<span class="w">      </span><span class="p">},</span>
-<span class="w">      </span><span class="s2">&quot;completion&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;model&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai/gpt-4.1&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-</code></pre></div>
-<div class="admonition info">
-<p class="admonition-title">Network / Enterprise</p>
-<p>For more details about configuring eca with mTLS or custom CA certificates, check <a href="../network/">network page</a></p>
-</div>
+<p>If a rule renders to an empty string, ECA skips it and does not add an empty rule block to the system prompt.</p>
 
 
 
@@ -1594,22 +1424,22 @@
   
   <nav class="md-footer__inner md-grid" aria-label="Footer" >
     
-    <a href="../../install/" class="md-footer__link md-footer__link--prev">
+    <a href="../introduction/" class="md-footer__link md-footer__link--prev">
       <div class="md-footer__button md-icon">
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
       </div>
       <div class="md-footer__title">
         <span class="md-footer__direction">Previous</span>
-        <span class="md-ellipsis">Install ECA</span>
+        <span class="md-ellipsis">Introduction</span>
       </div>
     </a>
     
     
-    <a href="../template/" class="md-footer__link md-footer__link--next">
+    <a href="../models/" class="md-footer__link md-footer__link--next">
       <div class="md-footer__title">
         <span class="md-footer__direction">Next</span>
-        <span class="md-ellipsis">Templates</span>
+        <span class="md-ellipsis">Providers / Models</span>
       </div>
       <div class="md-footer__button md-icon">
         
