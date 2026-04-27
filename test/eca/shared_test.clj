@@ -1,5 +1,6 @@
 (ns eca.shared-test
   (:require
+   [babashka.fs :as fs]
    [clojure.test :refer [deftest is testing]]
    [eca.shared :as shared]
    [eca.test-helper :as h]
@@ -34,6 +35,61 @@
   (testing "throws on uneven kvs"
     (is (thrown? IllegalArgumentException
                  (shared/assoc-some {} :a 1 :b)))))
+
+(deftest normalize-path-symlink-test
+  (if h/windows?
+    (is true "Symlinks are not tested on Windows")
+    (let [tmp-dir (fs/create-temp-dir {:prefix "eca-path-test-"})
+          real-root (fs/path tmp-dir "real")
+          symlink-root (fs/path tmp-dir "link")
+          missing-file (fs/path symlink-root "src" "foo.clj")]
+      (try
+        (fs/create-dirs real-root)
+        (java.nio.file.Files/createSymbolicLink (.toPath (fs/file symlink-root))
+                                                (.toPath (fs/file real-root))
+                                                (make-array java.nio.file.attribute.FileAttribute 0))
+        (let [expected (str (fs/path (shared/normalize-path real-root) "src" "foo.clj"))]
+          (is (= expected (shared/normalize-path missing-file))))
+        (is (true? (shared/path-inside-root? missing-file symlink-root)))
+        (fs/create-dirs (fs/parent missing-file))
+        (spit (str missing-file) "")
+        (let [expected (str (fs/path (shared/normalize-path real-root) "src" "foo.clj"))]
+          (is (= expected (shared/normalize-path missing-file))))
+        (is (true? (shared/path-inside-root? missing-file symlink-root)))
+        (finally
+          (fs/delete-tree tmp-dir))))))
+
+(deftest normalize-path-missing-parent-segments-test
+  (let [root (h/file-path "/tmp/root")
+        escaped (h/file-path "/tmp/root/../outside")]
+    (is (= (shared/normalize-path (h/file-path "/tmp/outside"))
+           (shared/normalize-path escaped)))
+    (is (false? (shared/path-inside-root? escaped root)))))
+
+(deftest safe-selmer-render-fallback-test
+  (testing "defaults to raw template fallback for non-rule call sites"
+    (is (= "{% if broken %}"
+           (shared/safe-selmer-render "{% if broken %}" {} "label"))))
+
+  (testing "supports explicit nil fallback for rule-like callers"
+    (is (nil? (shared/safe-selmer-render "{% if broken %}" {} "label" nil)))))
+
+(deftest parse-md-invalid-frontmatter-test
+  (testing "throws on unclosed frontmatter"
+    (let [result (try
+                   (shared/parse-md "---\nagent: code\npaths: src/**/*.clj")
+                   :no-error
+                   (catch clojure.lang.ExceptionInfo e
+                     (ex-message e)))]
+      (is (= "Unclosed YAML frontmatter" result))))
+
+  (testing "throws when frontmatter is not a mapping"
+    (let [result (try
+                   (shared/parse-md "---\n- one\n- two\n---\nBody")
+                   :no-error
+                   (catch clojure.lang.ExceptionInfo e
+                     (ex-message e)))]
+      (is (= "YAML frontmatter must be a mapping" result)))))
 
 (deftest tokens->cost-test
   (let [model-capabilities {:input-token-cost 0.01
@@ -203,6 +259,18 @@
   (testing "returns nil when base is blank"
     (is (nil? (shared/join-api-url "   " "/chat/completions")))))
 
+(deftest compact-side-effect-clears-validated-path-rules-test
+  (let [db* (atom {:chats {"chat-1" {:last-summary "Short summary"
+                                      :messages []
+                                      :validated-path-rules {"/workspace/a/src/foo.clj"
+                                                             {"/workspace/a/.eca/rules/format.md" {:matched-pattern "src/**.clj"}}}}}})]
+    (shared/compact-side-effect! {:chat-id "chat-1"
+                                  :full-model "openai/gpt-5.2"
+                                  :db* db*
+                                  :messenger (h/messenger)}
+                                 false)
+    (is (nil? (get-in @db* [:chats "chat-1" :validated-path-rules])))))
+
 (deftest messages-after-last-compact-marker-test
   (testing "returns all messages when no compact_marker exists"
     (let [messages [{:role "user" :content [{:type :text :text "hello"}]}
@@ -236,5 +304,3 @@
 
   (testing "handles empty messages"
     (is (= [] (shared/messages-after-last-compact-marker [])))))
-
-

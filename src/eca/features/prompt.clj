@@ -5,9 +5,9 @@
    [clojure.string :as string]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
+   [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.shared :refer [multi-str] :as shared]
-   [selmer.parser :as selmer])
+   [eca.shared :refer [multi-str] :as shared])
   (:import
    [java.util Map]))
 
@@ -92,7 +92,7 @@
      (str "\n<additionalContext from=\"chatStart\">\n" startup-ctx "\n</additionalContext>\n\n"))
    "</contexts>"))
 
-(defn ^:private ->base-selmer-ctx
+(defn ->base-selmer-ctx
   ([all-tools db]
    (->base-selmer-ctx all-tools nil db))
   ([all-tools chat-id db]
@@ -130,24 +130,96 @@
   "Context types that change between turns and belong in the dynamic prompt block."
   #{:cursor :mcpResource})
 
+(defn ^:private rule-section
+  [tag description rendered-rules]
+  (when (seq rendered-rules)
+    [(format "<%s description=\"%s\">" tag description)
+     (string/join "\n" rendered-rules)
+     (format "</%s>" tag)
+     ""]))
+
+(defn ^:private path-scoped-rule-attrs
+  [{rule-name :name :keys [id paths enforce scope workspace-root]}]
+  (let [attr (fn [[k v]]
+               (when v
+                 (str " " k "=\"" v "\"")))]
+    (->> [["id" id]
+          ["name" rule-name]
+          ["scope" (name scope)]
+          ["workspace-root" workspace-root]
+          ["paths" (string/join "," paths)]
+          ["enforce" (string/join "," (or enforce ["modify"]))]]
+         (keep attr)
+         string/join)))
+
+(defn ^:private path-scoped-rule-catalog-entry
+  [rule]
+  (str "<rule" (path-scoped-rule-attrs rule) "/>"))
+
+(defn ^:private path-scoped-rule-sections
+  [path-scoped-rules render-entry]
+  (let [global-rules (filter #(= :global (:scope %)) path-scoped-rules)
+        project-rules (filter #(= :project (:scope %)) path-scoped-rules)]
+    (multi-str
+     (when (seq global-rules)
+       ["<global-path-scoped-rules description=\"Path-scoped rules loaded outside the current workspace.\">"
+        (->> global-rules
+             (map render-entry)
+             (string/join "\n"))
+        "</global-path-scoped-rules>"])
+     (->> project-rules
+          (group-by :workspace-root)
+          (sort-by first)
+          (map (fn [[workspace-root rules]]
+                 (str "<workspace-path-scoped-rules root=\"" workspace-root "\">\n"
+                      (->> rules
+                           (map render-entry)
+                           (string/join "\n"))
+                      "\n</workspace-path-scoped-rules>")))))))
+
+(defn ^:private path-scoped-rule-catalog
+  [path-scoped-rules]
+  (path-scoped-rule-sections path-scoped-rules path-scoped-rule-catalog-entry))
+
 (defn build-static-instructions
   "Builds the stable portion of the system prompt: agent prompt, rules, skills,
-   stable contexts, and additional system info. Stable within a session — callers
-   should cache the result in [:chats chat-id :prompt-cache :static]."
-  [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
+   stable contexts, and additional system info. Volatile contexts and MCP server
+   instructions are handled by build-dynamic-instructions."
+  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
   (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)
-        stable-contexts (remove #(volatile-context-types (:type %)) refined-contexts)]
+        stable-contexts (remove #(volatile-context-types (:type %)) refined-contexts)
+        rendered-static-rules (keep (fn [{:keys [name content scope]}]
+                                      (when-let [rendered (shared/safe-selmer-render content selmer-ctx (str "rule:" name) nil)]
+                                        (when-not (string/blank? rendered)
+                                          {:scope (if (= :global scope) :global :project)
+                                           :content (format "<rule name=\"%s\">%s</rule>" name rendered)})))
+                                    static-rules)
+        fetch-rule-available? (tools.util/tool-available? all-tools "eca__fetch_rule")
+        global-rules (->> rendered-static-rules
+                          (filter #(= :global (:scope %)))
+                          (map :content))
+        project-rules (->> rendered-static-rules
+                           (remove #(= :global (:scope %)))
+                           (map :content))
+        path-scoped-section (when (and fetch-rule-available? (seq path-scoped-rules))
+                              ["<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per target path.\">"
+                               (path-scoped-rule-catalog path-scoped-rules)
+                               "</path-scoped-rules>"])
+        has-static-rules? (seq rendered-static-rules)]
     (multi-str
-     (selmer/render (eca-chat-prompt agent-name config) selmer-ctx)
-     (when (seq rules)
+     (shared/safe-selmer-render (eca-chat-prompt agent-name config)
+                                selmer-ctx "chat-prompt")
+     (when (or has-static-rules? path-scoped-section)
        ["## Rules"
         ""
-        "<rules description=\"Rules defined by user\">\n"
-        (reduce
-         (fn [rule-str {:keys [name content]}]
-           (str rule-str (format "<rule name=\"%s\">%s</rule>\n" name content)))
-         ""
-         rules)
+        "<rules description=\"Rules defined by user. Follow them as closely as possible.\">"
+        (rule-section "global-rules"
+                      "Broader rules loaded outside the current workspace. Project rules below are more specific if guidance conflicts."
+                      global-rules)
+        (rule-section "project-rules"
+                      "Rules loaded from the current workspace. Prefer these when they conflict with broader global rules."
+                      project-rules)
+        path-scoped-section
         "</rules>"
         ""])
      (when (seq skills)
@@ -166,7 +238,8 @@
         ""
         (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
      ""
-     (selmer/render (load-builtin-prompt "additional_system_info.md") selmer-ctx))))
+     (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
+                                selmer-ctx "additional-system-info"))))
 
 (defn build-dynamic-instructions
   "Builds the volatile portion of the system prompt: cursor/MCP resource contexts
@@ -181,12 +254,11 @@
 
 (defn build-chat-instructions
   "Returns {:static \"...\" :dynamic \"...\"}.
-   Static content (agent prompt, rules, skills, stable contexts) is stable within a session.
-   Dynamic content (cursor, MCP resources, MCP instructions) is recomputed every turn.
-   Callers should cache :static in [:chats chat-id :prompt-cache :static] for
-   Anthropic API cache prefix stability across turns."
-  [refined-contexts rules skills repo-map* agent-name config chat-id all-tools db]
-  {:static (build-static-instructions refined-contexts rules skills repo-map*
+   Static content (agent prompt, rules, skills, stable contexts) can be cached
+   when unchanged across turns.
+   Dynamic content (cursor, MCP resources, MCP instructions) is recomputed every turn."
+  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills repo-map*
                                       agent-name config chat-id all-tools db)
    :dynamic (build-dynamic-instructions refined-contexts db)})
 
@@ -216,43 +288,46 @@
                      ;; Resource path
                      :else
                      (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))]
-    (selmer/render prompt-str
-                   (merge
-                    (->base-selmer-ctx all-tools db)
-                    {:text text
-                     :path (when path
-                             (str "- File path: " path))
-                     :rangeText (multi-str
-                                 (str "- Start line: " (-> range :start :line))
-                                 (str "- Start character: " (-> range :start :character))
-                                 (str "- End line: " (-> range :end :line))
-                                 (str "- End character: " (-> range :end :character)))
-                     :fullText (when full-text
-                                 (multi-str
-                                  "- Full file content"
-                                  "```"
-                                  full-text
-                                  "```"))}))))
+    (shared/safe-selmer-render prompt-str
+                               (merge
+                                (->base-selmer-ctx all-tools db)
+                                {:text text
+                                 :path (when path
+                                         (str "- File path: " path))
+                                 :rangeText (multi-str
+                                             (str "- Start line: " (-> range :start :line))
+                                             (str "- Start character: " (-> range :start :character))
+                                             (str "- End line: " (-> range :end :line))
+                                             (str "- End character: " (-> range :end :character)))
+                                 :fullText (when full-text
+                                             (multi-str
+                                              "- Full file content"
+                                              "```"
+                                              full-text
+                                              "```"))})
+                               "rewrite-prompt")))
 
 (defn init-prompt [all-tools agent-name db config]
-  (selmer/render
+  (shared/safe-selmer-render
    (get-config-prompt :init agent-name config)
-   (->base-selmer-ctx all-tools db)))
+   (->base-selmer-ctx all-tools db)
+   "init-prompt"))
 
 (defn skill-create-prompt [skill-name user-prompt all-tools agent-name db config]
-  (selmer/render
+  (shared/safe-selmer-render
    (get-config-prompt :skillCreate agent-name config)
    (merge
     (->base-selmer-ctx all-tools db)
     {:skillFilePath (str (fs/file (f.skills/global-skills-dir) skill-name "SKILL.md"))
      :skillName skill-name
-     :userPrompt user-prompt})))
+     :userPrompt user-prompt})
+   "skill-create-prompt"))
 
 (defn chat-title-prompt [agent-name config]
   (get-config-prompt :chatTitle agent-name config))
 
 (defn compact-prompt [additional-input all-tools agent-name config db]
-  (selmer/render
+  (shared/safe-selmer-render
    (or (:compactPrompt config) ;; legacy
        (get-config-prompt :compact agent-name config)
        (compact-prompt-template (:compactPromptFile config)) ;; legacy
@@ -261,7 +336,8 @@
     (->base-selmer-ctx all-tools db)
     {:additionalUserInput (if additional-input
                             (format "You MUST respect this user input in the summarization: %s." additional-input)
-                            "")})))
+                            "")})
+   "compact-prompt"))
 
 (defn inline-completion-prompt [config]
   (let [legacy-config-file-prompt (get-in config [:completion :systemPromptFile])

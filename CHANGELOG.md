@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improve rules with frontmatter filters, condition variables, path-scoped loading, enforcement support, and clearer documentation. #222
 - `preToolCall` hooks now receive `approval: "ask"` for the native `ask_user` tool so notification hooks (e.g. matching `.approval == "ask"`) also fire when the chat is blocked waiting for a user answer, regardless of trust mode.
 
 ## 0.129.2

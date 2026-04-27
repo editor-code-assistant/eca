@@ -1076,7 +1076,14 @@
 
                            :else
                            (default-model db config))))
-        rules (f.rules/all config (:workspace-folders db))
+        _ (when (seq contexts)
+            (lifecycle/send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
+                                                                                      :state :running
+                                                                                      :text "Parsing given context"}))
+        refined-contexts (concat
+                          (f.context/agents-file-contexts db)
+                          (f.context/raw-contexts->refined contexts db))
+        {static-rules :static path-scoped-rules :path-scoped} (f.rules/all-rules config (:workspace-folders db) agent full-model)
         all-tools (f.tools/all-tools chat-id agent @db* config)
         skills (->> (f.skills/all config (:workspace-folders db))
                     (remove
@@ -1087,25 +1094,20 @@
                                                   db
                                                   config
                                                   agent)))))
-        _ (when (seq contexts)
-            (lifecycle/send-content! {:messenger messenger :chat-id chat-id} :system {:type :progress
-                                                                                      :state :running
-                                                                                      :text "Parsing given context"}))
-        refined-contexts (concat
-                          (f.context/agents-file-contexts db)
-                          (f.context/raw-contexts->refined contexts db))
         repo-map* (delay (f.index/repo-map db config {:as-string? true}))
         prompt-cache (get-in db [:chats chat-id :prompt-cache])
-        cached-static (when (= (:agent prompt-cache) agent)
-                        (:static prompt-cache))
-        instructions (if cached-static
-                       {:static cached-static
+        instructions (if (and prompt-cache
+                              (= (:agent prompt-cache) agent)
+                              (= (:model prompt-cache) full-model))
+                       {:static (:static prompt-cache)
                         :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)}
                        (let [result (f.prompt/build-chat-instructions
-                                     refined-contexts rules skills repo-map*
+                                     refined-contexts static-rules path-scoped-rules skills repo-map*
                                      agent config chat-id all-tools db)]
-                         (swap! db* update-in [:chats chat-id :prompt-cache]
-                                assoc :static (:static result) :agent agent)
+                         (swap! db* assoc-in [:chats chat-id :prompt-cache]
+                                {:static (:static result)
+                                 :agent agent
+                                 :model full-model})
                          result))
         image-contents (->> refined-contexts
                             (filter #(= :image (:type %))))
@@ -1355,7 +1357,6 @@
         :messenger messenger}))
     {}))
 
-
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both
    :content-id (user messages) and [:content :id] (tool calls, etc)."
@@ -1446,7 +1447,7 @@
                    (remove :subagent)
                    (sort-by (fn [c] (or (get c primary) (get c secondary) 0)) >)
                    (mapv (fn [{:keys [id title status created-at updated-at model messages]}]
-                           (shared/assoc-some
+                           (assoc-some
                             {:id id
                              :title title
                              :status (or status :idle)

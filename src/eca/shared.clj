@@ -1,12 +1,15 @@
 (ns eca.shared
   (:require
+   [babashka.fs :as fs]
    [camel-snake-kebab.core :as csk]
    [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.cache :as cache]
-   [eca.messenger :as messenger])
+   [eca.logger :as logger]
+   [eca.messenger :as messenger]
+   [selmer.parser :as selmer])
   (:import
    [java.net URI]
    [java.nio.file Paths]
@@ -32,22 +35,65 @@
   "Parses YAML frontmatter and body from a markdown string.
    Frontmatter must be delimited by --- at the start and end.
    Uses SnakeYAML to handle nested structures (maps, lists).
-   Returns a map with parsed YAML keys (as keywords) and :body (content after frontmatter)."
+   Returns a map with parsed YAML keys (as keywords) and :body (content after frontmatter).
+   Throws when frontmatter is unclosed, invalid YAML, or not a YAML mapping."
   [content]
   (let [lines (string/split-lines content)]
     (if (and (seq lines)
              (= "---" (string/trim (first lines))))
       (let [after-opening (rest lines)
-            metadata-lines (take-while #(not= "---" (string/trim %)) after-opening)
-            body-lines (rest (drop-while #(not= "---" (string/trim %)) after-opening))
-            yaml-str (string/join "\n" metadata-lines)
-            yaml (Yaml.)
-            parsed (.load yaml ^String yaml-str)
-            metadata (when (instance? java.util.Map parsed)
-                       (into {} (map (fn [[k v]] [(keyword k) (java->clj v)]))
-                             parsed))]
-        (assoc (or metadata {}) :body (string/trim (string/join "\n" body-lines))))
+            closing-idx (some (fn [[idx line]]
+                                (when (= "---" (string/trim line))
+                                  idx))
+                              (map-indexed vector after-opening))]
+        (when-not (some? closing-idx)
+          (throw (ex-info "Unclosed YAML frontmatter" {})))
+        (let [metadata-lines (take closing-idx after-opening)
+              body-lines (drop (inc closing-idx) after-opening)
+              yaml-str (string/join "\n" metadata-lines)
+              yaml (Yaml.)
+              parsed (.load yaml ^String yaml-str)
+              metadata (cond
+                         (nil? parsed) {}
+                         (instance? java.util.Map parsed)
+                         (into {} (map (fn [[k v]] [(keyword k) (java->clj v)]))
+                               parsed)
+                         :else
+                         (throw (ex-info "YAML frontmatter must be a mapping" {:parsed-type (type parsed)})))]
+          (assoc metadata :body (string/trim (string/join "\n" body-lines)))))
       {:body (string/trim content)})))
+
+;; Walks up from a non-existing path to find the nearest existing ancestor,
+;; canonicalizes it (resolving symlinks), then re-attaches the missing segments.
+;; This is needed because workspace roots can be symlinks — for write_file
+;; creating a new file inside a symlinked workspace, the path must resolve
+;; through the symlink to match the canonicalized root in path-inside-root?.
+;; A simple fs/absolutize would not resolve symlinks, breaking prefix matching
+;; when the root is canonicalized.
+(defn ^:private normalize-missing-path
+  [path]
+  (let [reattach (fn [base segments]
+                   (str (fs/normalize (reduce #(fs/path %1 %2) base (rseq segments)))))]
+    (loop [current (fs/absolutize (fs/file path))
+           segments []]
+      (cond
+        (fs/exists? current)
+        (reattach (fs/canonicalize current) segments)
+
+        (fs/parent current)
+        (recur (fs/parent current)
+               (conj segments (str (.getFileName (.toPath (fs/file current))))))
+
+        :else
+        (reattach current segments)))))
+
+(defn normalize-path
+  [path]
+  (when path
+    (let [path (fs/absolutize (fs/file path))]
+      (if (fs/exists? path)
+        (str (fs/canonicalize path))
+        (normalize-missing-path path)))))
 
 (defn global-config-dir
   "Returns the global ECA config directory as a java.io.File.
@@ -106,6 +152,15 @@
                                      string/upper-case
                                      string/lower-case))
              (string/replace ":" "%3A")))))
+
+(defn path-inside-root?
+  [path root]
+  (let [path (normalize-path path)
+        root (normalize-path root)]
+    (and path
+         root
+         (or (= path root)
+             (fs/starts-with? path root)))))
 
 (defn workspaces-as-str [db]
   (string/join ", " (map (comp uri->filename :uri) (:workspace-folders db))))
@@ -348,8 +403,8 @@
                                              :text (str "The conversation was compacted/summarized, consider this summary:\n"
                                                         summary)}]})))))
 
-  ;; Zero chat usage
-  (swap! db* update-in [:chats chat-id] dissoc :usage)
+  ;; Zero chat usage and clear transient per-chat rule validations.
+  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules)
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id
@@ -384,3 +439,16 @@
 (defn full-model->provider+model
   [full-model]
   (string/split full-model #"/" 2))
+
+(defn safe-selmer-render
+  "Render a Selmer template string, returning `fallback` on failure.
+   Defaults to the raw template so callers keep the previous behavior unless
+   they explicitly opt into skipping broken templates."
+  ([^String template context ^String label]
+   (safe-selmer-render template context label template))
+  ([^String template context ^String label fallback]
+   (try
+     (selmer/render template context)
+     (catch Exception e
+       (logger/warn "[SELMER]" (format "Failed to render template '%s': %s" label (ex-message e)))
+       fallback))))

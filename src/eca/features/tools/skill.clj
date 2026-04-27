@@ -33,6 +33,8 @@
                                       :description "The skill identifier from available skills to load (e.g. review-pr)"}}
                  :required ["name"]}
     :handler #'skill
+    :enabled-fn (fn [{:keys [db config]}]
+                  (seq (f.skills/all config (:workspace-folders db))))
     :summary-fn (fn [{:keys [args]}]
                   (if-let [name (get args "name")]
                     (format "Loading skill '%s'" name)
