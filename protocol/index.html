@@ -2891,7 +2891,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> */</span>
 <span class="kr">type</span><span class="w"> </span><span class="nx">Model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
-<span class="kr">type</span><span class="w"> </span><span class="nx">ChatContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">DirectoryContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WebContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">RepoMapContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">CursorContext</span><span class="w"> </span><span class="o">|</span><span class="nx">McpResourceContext</span><span class="p">;</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">ChatContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">DirectoryContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WebContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">RepoMapContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">CursorContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">McpResourceContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">ImageContext</span><span class="p">;</span>
 
 <span class="cm">/**</span>
 <span class="cm"> * Context related to a file in the workspace</span>
@@ -2934,6 +2934,28 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     * URL of the web content</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * Inline image context supplied by the client.</span>
+<span class="cm"> *</span>
+<span class="cm"> * Use this when the client cannot supply a filesystem path the server can</span>
+<span class="cm"> * read (e.g. web ECA). For filesystem-capable clients (vscode, intellij,</span>
+<span class="cm"> * emacs, …) a `FileContext` pointing at a `.png/.jpg/.jpeg/.gif/.webp`</span>
+<span class="cm"> * file is equivalent and can keep being used.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ImageContext</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;image&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * MIME type of the image bytes (e.g. &#39;image/png&#39;, &#39;image/jpeg&#39;).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">mediaType</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Raw base64-encoded image bytes (no `data:` URL prefix).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">base64</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -3060,6 +3082,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="kr">type</span><span class="w"> </span><span class="nx">ChatContent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span>
 <span class="w">    </span><span class="nx">ChatTextContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatURLContent</span><span class="w"> </span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatImageContent</span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatProgressContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatUsageContent</span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonStartedContent</span><span class="w"> </span>
@@ -3238,6 +3261,28 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     * The URL link</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">url</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * Image content from the assistant, produced by a server-side image</span>
+<span class="cm"> * generation tool (e.g. OpenAI&#39;s `image_generation` Responses-API tool).</span>
+<span class="cm"> *</span>
+<span class="cm"> * The image bytes are delivered inline as base64 so that web/remote ECA</span>
+<span class="cm"> * clients (e.g. web.eca.dev) can render without filesystem access.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatImageContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;image&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The MIME type of the image bytes (e.g. &#39;image/png&#39;).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">mediaType</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Raw base64-encoded image bytes (no `data:` URL prefix).</span>
+<span class="cm">     * Clients should decode and render or wrap in a data URL as needed.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">base64</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -5252,7 +5297,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 28, 2026 20:43:52 UTC">April 28, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 28, 2026 21:17:10 UTC">April 28, 2026</span>
   </span>
 
     
