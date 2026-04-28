@@ -758,14 +758,7 @@
                                                                        {:media-type (:media-type msg)
                                                                         :base64 (:base64 msg)}
                                                                        :id (:id msg))]
-                                                  ;; Persist as image_generation_call so OpenAI's Responses
-                                                  ;; API can replay it as a STANDALONE input item on
-                                                  ;; subsequent turns. Wrapping under assistant role would
-                                                  ;; serialize to {role:"assistant" content:[input_image]}
-                                                  ;; which the API rejects (assistant content only allows
-                                                  ;; output_text / refusal). For other providers the role
-                                                  ;; is converted back to user-role image in their
-                                                  ;; normalize-messages so the model can still see it.
+                                                  ;; Provider normalize-messages converts this role back to a user-role image for replay.
                                                   (add-to-history! {:role "image_generation_call"
                                                                     :content history-content})
                                                   (lifecycle/send-content! chat-ctx :assistant client-content))

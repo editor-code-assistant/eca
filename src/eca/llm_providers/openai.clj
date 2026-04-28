@@ -112,14 +112,9 @@
             {:type "function_call_output"
              :call_id (:id content)
              :output (llm-util/stringfy-tool-result content)}
-            ;; Replays a previously-generated image as a USER-role input_image,
-            ;; symmetric with how user-attached ImageContext images flow. The
-            ;; alternative standalone {type:"image_generation_call",id,result}
-            ;; shape is rejected by the Responses API when :store is false (the
-            ;; id triggers a server-side lookup that 404s), and assistant-role
-            ;; input_image is rejected outright. Wrapping under user-role makes
-            ;; the prior generation visible to the model regardless of :store
-            ;; mode, and avoids any provider-specific replay semantics.
+            ;; Replay prior generations as user-role input_image: assistant-role
+            ;; input_image is rejected, and the standalone image_generation_call
+            ;; shape requires :store true (the id 404s otherwise).
             "image_generation_call" (when (and supports-image? (:base64 content))
                                       {:role "user"
                                        :content [{:type "input_image"
@@ -236,11 +231,7 @@
                 "image_generation_call" (let [base64 (-> data :item :result)
                                               id (-> data :item :id)]
                                           (when (and base64 on-message-received)
-                                            ;; Include :id so chat.clj can persist this as an
-                                            ;; image_generation_call history entry for replay
-                                            ;; on subsequent turns (OpenAI Responses API rejects
-                                            ;; input_image under assistant role; the canonical
-                                            ;; shape is a standalone image_generation_call item).
+                                            ;; :id retained for forward-compat with :store true mode (currently unused on the wire).
                                             (on-message-received (cond-> {:type :image
                                                                           :media-type "image/png"
                                                                           :base64 base64}
