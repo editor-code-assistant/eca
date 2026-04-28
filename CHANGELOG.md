@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Bugfix: avoid `Divide by zero` crash in chat auto-compact when models.dev reports `0` for a model's context/output limits (e.g. `openai/chatgpt-image-latest`); such limits are now normalized to `nil` and `auto-compact?` skips models without a known positive context window.
+- Fix inline completion crash when renewing auth tokens before completion requests. #437
 
 ## 0.130.1
 

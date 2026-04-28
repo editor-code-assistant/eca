@@ -34,7 +34,7 @@
         [provider model] (shared/full-model->provider+model full-model)
         _ (f.login/maybe-renew-auth-token!
            {:provider provider
-            :on-renewing identity
+            :on-renewing (fn [] nil)
             :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
            {:db* db*
             :messenger messenger
