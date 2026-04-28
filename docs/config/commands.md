@@ -37,7 +37,7 @@ You can configure in multiple different ways:
 
 === "Config"
 
-    Just add to your config the `commands` pointing to `.md` files that will be searched from the workspace root if not an absolute path:
+    Add to your config the `commands` key. `path` can point to a single `.md` file or a directory. Directories load markdown files recursively. Relative paths are searched from each workspace root if not an absolute path:
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -45,4 +45,9 @@ You can configure in multiple different ways:
     }
     ```
 
-    ECA will make available a `/my-custom-prompt` command after creating that file.
+    ```javascript title="~/.config/eca/config.json"
+    // Load all command files from a directory recursively
+    {
+      "commands": [{"path": "/home/user/commands"}]
+    }
+    ```

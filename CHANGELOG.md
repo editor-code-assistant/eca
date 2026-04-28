@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add configurable skill paths and recursive directory loading for configured rules, commands, and skills; local skills are also discovered from `.agents/skills`. #423
 - Bugfix: `/prompt-show` now renders the system instructions as plain text instead of a raw `{:static :dynamic}` map.
 
 ## 0.130.0

@@ -38,65 +38,59 @@
 
 (defn ^:private prefixed-command-name
   "Builds the user-invocation name for a plugin-sourced command.
-   Returns just the plugin name when it equals the command name (dedup),
+   Returns just the plugin name when it equals the command name,
    otherwise 'plugin:command'."
   [plugin-name command-name]
   (if (= plugin-name command-name)
     plugin-name
     (str plugin-name ":" command-name)))
 
+(defn ^:private markdown-file? [file]
+  (and (not (fs/directory? file))
+       (string/ends-with? (string/lower-case (str file)) ".md")))
+
+(defn ^:private configured-command-files [path]
+  (cond
+    (not (fs/exists? path)) []
+    (fs/directory? path) (filter markdown-file? (fs/glob path "**" {:follow-links true}))
+    :else [path]))
+
+(defn ^:private command-file->command [type file opts]
+  (let [base (normalize-command-name file)]
+    (cond-> {:name (if-let [plugin (:plugin opts)]
+                     (prefixed-command-name plugin base)
+                     base)
+             :path (str (fs/canonicalize file))
+             :type type
+             :content (slurp (str file))}
+      (:plugin opts) (assoc :plugin (:plugin opts)))))
+
 (defn ^:private global-file-commands []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
                             (io/file (config/get-property "user.home") ".config"))
         commands-dir (io/file xdg-config-home "eca" "commands")]
-    (when (fs/exists? commands-dir)
-      (keep (fn [file]
-              (when-not (fs/directory? file)
-                {:name (normalize-command-name file)
-                 :path (str (fs/canonicalize file))
-                 :type :user-global-file
-                 :content (slurp (fs/file file))}))
-            (fs/glob commands-dir "**" {:follow-links true})))))
+    (map #(command-file->command :user-global-file % {})
+         (configured-command-files commands-dir))))
 
 (defn ^:private local-file-commands [roots]
   (->> roots
        (mapcat (fn [{:keys [uri]}]
-                 (let [commands-dir (fs/file (shared/uri->filename uri) ".eca" "commands")]
-                   (when (fs/exists? commands-dir)
-                     (fs/glob commands-dir "**" {:follow-links true})))))
-       (keep (fn [file]
-               (when-not (fs/directory? file)
-                 {:name (normalize-command-name file)
-                  :path (str (fs/canonicalize file))
-                  :type :user-local-file
-                  :content (slurp (fs/file file))})))))
+                 (configured-command-files (fs/file (shared/uri->filename uri) ".eca" "commands"))))
+       (map #(command-file->command :user-local-file % {}))))
 
 (defn ^:private config-commands [config roots]
   (->> (get config :commands)
-       (map
+       (mapcat
         (fn [{:keys [path plugin]}]
           (let [path (str (fs/expand-home path))
-                effective-name (fn [file]
-                                 (let [base (normalize-command-name file)]
-                                   (if plugin (prefixed-command-name plugin base) base)))]
-            (if (fs/absolute? path)
-              (when (fs/exists? path)
-                (cond-> {:name (effective-name path)
-                         :path path
-                         :type :user-config
-                         :content (slurp path)}
-                  plugin (assoc :plugin plugin)))
-              (keep (fn [{:keys [uri]}]
-                      (let [f (fs/file (shared/uri->filename uri) path)]
-                        (when (fs/exists? f)
-                          (cond-> {:name (effective-name f)
-                                   :path (str (fs/canonicalize f))
-                                   :type :user-config
-                                   :content (slurp f)}
-                            plugin (assoc :plugin plugin)))))
-                    roots)))))
-       (flatten)
-       (remove nil?)))
+                opts (cond-> {}
+                       plugin (assoc :plugin plugin))]
+            (->> (if (fs/absolute? path)
+                   (configured-command-files path)
+                   (mapcat (fn [{:keys [uri]}]
+                             (configured-command-files (fs/file (shared/uri->filename uri) path)))
+                           roots))
+                 (map #(command-file->command :user-config % opts))))))))
 
 (defn ^:private custom-commands [config roots]
   (concat (config-commands config roots)
@@ -394,72 +388,72 @@
                 {:type :new-chat-status
                  :status :login})
       "model" (let [selected-model (first args)
-                     current-model (or (get-in db [:chats chat-id :model])
-                                       full-model
-                                       (llm-api/default-model db config))
-                     available-models (sort (keys (:models db)))
-                     chat-message (fn [text]
-                                    {:type :chat-messages
-                                     :chats {chat-id {:messages [{:role "system"
-                                                                  :content [{:type :text
-                                                                             :text text}]}]}}})]
-                 (cond
-                   (string/blank? selected-model)
-                   (if (seq available-models)
-                     (chat-message
-                      (multi-str (str "Current model: `" current-model "`")
-                                 ""
-                                 "Available models:"
-                                 (string/join "\n" (map #(str "- `" % "`") available-models))
-                                 ""
-                                 "Run `/model <provider/model>` to switch chat model."))
-                     (chat-message
-                      (multi-str "No models available."
-                                 ""
-                                 "Sync models or login first, for example `/login anthropic`.")))
+                    current-model (or (get-in db [:chats chat-id :model])
+                                      full-model
+                                      (llm-api/default-model db config))
+                    available-models (sort (keys (:models db)))
+                    chat-message (fn [text]
+                                   {:type :chat-messages
+                                    :chats {chat-id {:messages [{:role "system"
+                                                                 :content [{:type :text
+                                                                            :text text}]}]}}})]
+                (cond
+                  (string/blank? selected-model)
+                  (if (seq available-models)
+                    (chat-message
+                     (multi-str (str "Current model: `" current-model "`")
+                                ""
+                                "Available models:"
+                                (string/join "\n" (map #(str "- `" % "`") available-models))
+                                ""
+                                "Run `/model <provider/model>` to switch chat model."))
+                    (chat-message
+                     (multi-str "No models available."
+                                ""
+                                "Sync models or login first, for example `/login anthropic`.")))
 
-                   (not (contains? (:models db) selected-model))
-                   (chat-message
-                    (multi-str (str "Unknown model: `" selected-model "`")
-                               ""
-                               (when (seq available-models)
-                                 (str "Available models:\n"
-                                      (string/join "\n" (map #(str "- `" % "`") available-models))))))
+                  (not (contains? (:models db) selected-model))
+                  (chat-message
+                   (multi-str (str "Unknown model: `" selected-model "`")
+                              ""
+                              (when (seq available-models)
+                                (str "Available models:\n"
+                                     (string/join "\n" (map #(str "- `" % "`") available-models))))))
 
-                   :else
-                   (do
-                     (swap! db* update-in [:chats chat-id] assoc :model selected-model :variant nil)
-                     (config/notify-fields-changed-only!
-                      {:chat {:select-model selected-model
-                              :variants []
-                              :select-variant nil}}
-                      messenger
-                      db*)
-                     (chat-message
-                      (multi-str (str "Selected model: `" selected-model "`")
-                                 "Using model defaults.")))))
+                  :else
+                  (do
+                    (swap! db* update-in [:chats chat-id] assoc :model selected-model :variant nil)
+                    (config/notify-fields-changed-only!
+                     {:chat {:select-model selected-model
+                             :variants []
+                             :select-variant nil}}
+                     messenger
+                     db*)
+                    (chat-message
+                     (multi-str (str "Selected model: `" selected-model "`")
+                                "Using model defaults.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
-                    new-id (str (random-uuid))
-                    now (System/currentTimeMillis)
-                    new-title (fork-title (:title chat))
-                    new-chat {:id new-id
-                              :title new-title
-                              :status :idle
-                              :created-at now
-                              :updated-at now
-                              :model (:model chat)
-                              :last-api (:last-api chat)
-                              :messages (vec (:messages chat))
-                              :prompt-finished? true}]
-                (swap! db* assoc-in [:chats new-id] new-chat)
-                (db/update-workspaces-cache! @db* metrics)
-                (messenger/chat-opened messenger {:chat-id new-id :title new-title})
-                {:type :chat-messages
-                 :chats {new-id {:messages (:messages chat)
-                                 :title new-title}
-                         chat-id {:messages [{:role "system"
-                                              :content [{:type :text
-                                                         :text (str "Chat forked to: " new-title)}]}]}}})
+                   new-id (str (random-uuid))
+                   now (System/currentTimeMillis)
+                   new-title (fork-title (:title chat))
+                   new-chat {:id new-id
+                             :title new-title
+                             :status :idle
+                             :created-at now
+                             :updated-at now
+                             :model (:model chat)
+                             :last-api (:last-api chat)
+                             :messages (vec (:messages chat))
+                             :prompt-finished? true}]
+               (swap! db* assoc-in [:chats new-id] new-chat)
+               (db/update-workspaces-cache! @db* metrics)
+               (messenger/chat-opened messenger {:chat-id new-id :title new-title})
+               {:type :chat-messages
+                :chats {new-id {:messages (:messages chat)
+                                :title new-title}
+                        chat-id {:messages [{:role "system"
+                                             :content [{:type :text
+                                                        :text (str "Chat forked to: " new-title)}]}]}}})
       "resume" (let [chats (into {}
                                  (filter #(and (not= chat-id (first %))
                                                (not (:subagent (second %)))))
@@ -652,7 +646,7 @@
         (if-let [skill (first (filter #(= command (:name %)) skills))]
           {:type :send-prompt
            :prompt (if (seq args)
-                    (substitute-args (:body skill) args)
-                    (str "Load skill: " (:name skill)))}
+                     (substitute-args (:body skill) args)
+                     (str "Load skill: " (:name skill)))}
           {:type :text
            :text (str "Unknown command: " command)})))))

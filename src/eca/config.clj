@@ -166,6 +166,7 @@
    :hooks {}
    :rules []
    :commands []
+   :skills []
    :disabledTools []
    :toolCall {:approval {:byDefault "ask"
                          :allow {"eca__compact_chat" {}
