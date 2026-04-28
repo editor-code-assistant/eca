@@ -174,7 +174,7 @@
     @response*))
 
 (defn ^:private normalize-messages [past-messages supports-image?]
-  (mapv (fn [{:keys [role content] :as msg}]
+  (keep (fn [{:keys [role content] :as msg}]
           (case role
             "tool_call" {:role "assistant"
                          :content [{:type "tool_use"
@@ -187,6 +187,17 @@
              :content [{:type "tool_result"
                         :tool_use_id (:id content)
                         :content (llm-util/stringfy-tool-result content)}]}
+
+            ;; OpenAI-emitted image_generation_call history entries are
+            ;; replayed for Anthropic as user-role image blocks (Anthropic
+            ;; doesn't have an analogous tool, but it accepts inline base64
+            ;; images, so the model can still see prior generations).
+            "image_generation_call" (when supports-image?
+                                      {:role "user"
+                                       :content [{:type "image"
+                                                  :source {:data (:base64 content)
+                                                           :media_type (:media-type content)
+                                                           :type "base64"}}]})
             "reason"
             {:role "assistant"
              :content [(if (:redacted? content)

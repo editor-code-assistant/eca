@@ -112,6 +112,15 @@
             {:type "function_call_output"
              :call_id (:id content)
              :output (llm-util/stringfy-tool-result content)}
+            ;; Replay prior generations as user-role input_image: assistant-role
+            ;; input_image is rejected, and the standalone image_generation_call
+            ;; shape requires :store true (the id 404s otherwise).
+            "image_generation_call" (when (and supports-image? (:base64 content))
+                                      {:role "user"
+                                       :content [{:type "input_image"
+                                                  :image_url (format "data:%s;base64,%s"
+                                                                     (or (:media-type content) "image/png")
+                                                                     (:base64 content))}]})
             "reason" {:type "reasoning"
                       :id (:id content)
                       :summary (if (string/blank? (:text content))
@@ -142,7 +151,7 @@
                                            c)))))))
         messages))
 
-(defn ^:private ->tools [tools web-search codex?]
+(defn ^:private ->tools [tools web-search image-generation codex?]
   (cond->
    (mapv (fn [tool]
            {:type "function"
@@ -150,16 +159,18 @@
             :description (:description tool)
             :parameters (:parameters tool)})
          tools)
-    (and web-search (not codex?)) (conj {:type "web_search_preview"})))
+    (and web-search (not codex?)) (conj {:type "web_search_preview"})
+    (and image-generation (not codex?)) (conj {:type "image_generation" :output_format "png"})))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
-                                max-output-tokens past-messages tools web-search extra-payload extra-headers auth-type account-id http-client
-                                prompt-cache-key]}
-                        {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search] :as callbacks}]
+                                max-output-tokens past-messages tools web-search image-generation extra-payload extra-headers
+                                auth-type account-id http-client prompt-cache-key]}
+                        {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+                                on-server-web-search on-server-image-generation] :as callbacks}]
   (let [codex? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
-        tools (->tools tools web-search codex?)
+        tools (->tools tools web-search image-generation codex?)
         body (merge
               (assoc-some
                {:model model
@@ -217,6 +228,17 @@
                 "web_search_call" (on-server-web-search {:status :finished
                                                          :id (-> data :item :id)
                                                          :output nil})
+                "image_generation_call" (let [base64 (-> data :item :result)
+                                              id (-> data :item :id)]
+                                          (when (and base64 on-message-received)
+                                            ;; :id retained for forward-compat with :store true mode (currently unused on the wire).
+                                            (on-message-received (cond-> {:type :image
+                                                                          :media-type "image/png"
+                                                                          :base64 base64}
+                                                                   id (assoc :id id))))
+                                          (on-server-image-generation {:status :finished
+                                                                       :id id
+                                                                       :output nil}))
                 nil)
 
               ;; URL mentioned
@@ -256,6 +278,10 @@
                                                          :id (-> data :item :id)
                                                          :name "web_search"
                                                          :input nil})
+                "image_generation_call" (on-server-image-generation {:status :started
+                                                                     :id (-> data :item :id)
+                                                                     :name "image_generation"
+                                                                     :input nil})
                 nil)
 
               ;; done
@@ -295,7 +321,7 @@
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
                                    :input (normalize-messages new-messages supports-image?)
-                                   :tools (->tools tools web-search codex?))
+                                   :tools (->tools tools web-search image-generation codex?))
                       :api-url api-url
                       :url-relative-path url-relative-path
                       :api-key (or fresh-api-key api-key)

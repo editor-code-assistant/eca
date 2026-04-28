@@ -413,7 +413,7 @@ interface ChatPromptParams {
  */
 type Model = string;
 
-type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext |McpResourceContext;
+type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext | McpResourceContext | ImageContext;
 
 /**
  * Context related to a file in the workspace
@@ -456,6 +456,28 @@ interface WebContext {
      * URL of the web content
      */
     url: string;
+}
+
+/**
+ * Inline image context supplied by the client.
+ *
+ * Use this when the client cannot supply a filesystem path the server can
+ * read (e.g. web ECA). For filesystem-capable clients (vscode, intellij,
+ * emacs, …) a `FileContext` pointing at a `.png/.jpg/.jpeg/.gif/.webp`
+ * file is equivalent and can keep being used.
+ */
+interface ImageContext {
+    type: 'image';
+
+    /**
+     * MIME type of the image bytes (e.g. 'image/png', 'image/jpeg').
+     */
+    mediaType: string;
+
+    /**
+     * Raw base64-encoded image bytes (no `data:` URL prefix).
+     */
+    base64: string;
 }
 
 /**
@@ -589,6 +611,7 @@ interface ChatContentReceivedParams {
 type ChatContent = 
     ChatTextContent 
     | ChatURLContent 
+    | ChatImageContent
     | ChatProgressContent 
     | ChatUsageContent
     | ChatReasonStartedContent 
@@ -767,6 +790,28 @@ interface ChatURLContent {
      * The URL link
      */
     url: string;
+}
+
+/**
+ * Image content from the assistant, produced by a server-side image
+ * generation tool (e.g. OpenAI's `image_generation` Responses-API tool).
+ *
+ * The image bytes are delivered inline as base64 so that web/remote ECA
+ * clients (e.g. web.eca.dev) can render without filesystem access.
+ */
+interface ChatImageContent {
+    type: 'image';
+
+    /**
+     * The MIME type of the image bytes (e.g. 'image/png').
+     */
+    mediaType: string;
+
+    /**
+     * Raw base64-encoded image bytes (no `data:` URL prefix).
+     * Clients should decode and render or wrap in a data URL as needed.
+     */
+    base64: string;
 }
 
 /**

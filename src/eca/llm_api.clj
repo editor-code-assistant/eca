@@ -171,7 +171,8 @@
 
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
-           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
+           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-server-web-search on-server-image-generation
            past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
@@ -179,6 +180,7 @@
         reason? (:reason? model-capabilities)
         supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)
+        image-generation (:image-generation? model-capabilities)
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
@@ -198,7 +200,8 @@
                      :on-tools-called on-tools-called
                      :on-reason on-reason
                      :on-usage-updated on-usage-updated
-                     :on-server-web-search on-server-web-search})]
+                     :on-server-web-search on-server-web-search
+                     :on-server-image-generation on-server-image-generation})]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
@@ -213,6 +216,7 @@
           :past-messages past-messages
           :tools tools
           :web-search web-search
+          :image-generation image-generation
           :extra-payload (merge {:parallel_tool_calls true}
                                 extra-payload)
           :extra-headers extra-headers
@@ -274,6 +278,7 @@
             (handler
              (assoc base-opts
                     :web-search web-search
+                    :image-generation image-generation
                     :extra-headers (fn [{:keys [body]}]
                                      (copilot-headers (and (not subagent?)
                                                            (= "user" (-> body :input last :role))))))
@@ -334,6 +339,7 @@
             :user-messages user-messages
             :max-output-tokens max-output-tokens
             :web-search web-search
+            :image-generation image-generation
             :reason? reason?
             :supports-image? supports-image?
             :past-messages past-messages
@@ -357,7 +363,8 @@
 
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
-           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated on-server-web-search
+           on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-server-web-search on-server-image-generation
            past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent? prompt-cache-key]
     :or {on-first-response-received identity
          on-message-received identity
@@ -367,6 +374,7 @@
          on-reason identity
          on-usage-updated identity
          on-server-web-search identity
+         on-server-image-generation identity
          cancelled? (constantly false)}}]
   (let [first-response-received* (atom false)
         emit-first-message-fn (fn [& args]
@@ -385,6 +393,9 @@
         on-server-web-search-wrapper (fn [& args]
                                        (apply emit-first-message-fn args)
                                        (apply on-server-web-search args))
+        on-server-image-generation-wrapper (fn [& args]
+                                             (apply emit-first-message-fn args)
+                                             (apply on-server-image-generation args))
         on-error-wrapper (fn [{:keys [exception] :as args}]
                            (when-not (:silent? (ex-data exception))
                              (logger/error args)
@@ -495,6 +506,7 @@
                 :on-tools-called on-tools-called
                 :on-usage-updated on-usage-updated
                 :on-server-web-search on-server-web-search-wrapper
+                :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper
                 :on-error (fn [error-data]
                             (if (:silent? (ex-data (:exception error-data)))

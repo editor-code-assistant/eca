@@ -3,8 +3,11 @@
 ## Unreleased
 
 - Add `${plugin:root}` dynamic interpolation for plugin-provided config, hooks, commands, and rules.
-- Bugfix: avoid `Divide by zero` crash in chat auto-compact when models.dev reports `0` for a model's context/output limits (e.g. `openai/chatgpt-image-latest`); such limits are now normalized to `nil` and `auto-compact?` skips models without a known positive context window.
+- Support OpenAI built-in `image_generation` tool via the Responses API for capable models (`openai/gpt-5.x`, `openai/gpt-4.1`). Generated images are streamed back as a new `image` chat content carrying `mediaType` + base64. Available on every provider whose api is `openai-responses` (`openai`, `github-copilot` responses-api models, `litellm`, custom providers).
+- Support image edits via the same `image_generation` tool: assistant-generated images now persist to chat history so subsequent turns can iterate ("now make it blue, smaller, with a red border"), resumed chats replay previously generated images, and clients can attach source images either by file path (existing `FileContext`) or via a new inline base64 `ImageContext` request type for clients without filesystem access.
 - Fix inline completion crash when renewing auth tokens before completion requests. #437
+- Bugfix: avoid `Divide by zero` crash in chat auto-compact when models.dev reports `0` for a model's context/output limits (e.g. `openai/chatgpt-image-latest`); such limits are now normalized to `nil` and `auto-compact?` skips models without a known positive context window.
+- Bugfix: image edit follow-up turns no longer fail on the OpenAI Responses API when prior generations are replayed; generated images are now persisted under a dedicated `image_generation_call` history role and replayed as a user-role `input_image` data URL across providers.
 
 ## 0.130.1
 

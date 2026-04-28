@@ -353,5 +353,19 @@
                   {})]
       (is (match?
            ["unknown-provider/unknown-model"
-            {:tools true :reason? true :web-search false :model-name "unknown-model"}]
-           result)))))
+            {:tools true :reason? true :web-search false :image-generation? false :model-name "unknown-model"}]
+           result))))
+
+  (testing "Image-generation capability flows through from known models"
+    (let [all-models {"openai/gpt-5.2" {:tools true :reason? true :web-search true :image-generation? true}
+                      "openai/gpt-4.1" {:tools true :reason? false :web-search true :image-generation? true}
+                      "anthropic/claude-sonnet-4-6" {:tools true :reason? true :web-search true :image-generation? false}}]
+      (is (match?
+           ["openai/gpt-5.2" {:image-generation? true}]
+           (#'models/build-model-capabilities all-models "openai" "gpt-5.2" {})))
+      (is (match?
+           ["openai/gpt-4.1" {:image-generation? true}]
+           (#'models/build-model-capabilities all-models "openai" "gpt-4.1" {})))
+      (is (match?
+           ["anthropic/claude-sonnet-4-6" {:image-generation? false}]
+           (#'models/build-model-capabilities all-models "anthropic" "claude-sonnet-4-6" {}))))))

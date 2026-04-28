@@ -119,16 +119,29 @@
   (case role
     ("user"
      "system"
-     "assistant") [{:role role
-                    :content (reduce
-                              (fn [m content]
-                                (case (:type content)
-                                  :text (assoc m
-                                               :type :text
-                                               :text (str (:text m) "\n" (:text content)))
-                                  m))
-                              (assoc-some {} :content-id content-id)
-                              message-content)}]
+     "assistant") (let [text-content (reduce
+                                      (fn [m content]
+                                        (case (:type content)
+                                          :text (assoc m
+                                                       :type :text
+                                                       :text (str (:text m) "\n" (:text content)))
+                                          m))
+                                      (assoc-some {} :content-id content-id)
+                                      message-content)
+                       image-entries (keep
+                                      (fn [content]
+                                        (when (= :image (:type content))
+                                          {:role role
+                                           :content {:type :image
+                                                     :media-type (:media-type content)
+                                                     :base64 (:base64 content)}}))
+                                      message-content)
+                       ;; Drop the text entry when there's no actual text and no image-only content
+                       ;; would have produced an empty `{}` content map.
+                       text-entries (if (:type text-content)
+                                      [{:role role :content text-content}]
+                                      [])]
+                   (vec (concat text-entries image-entries)))
     "tool_call" [{:role :assistant
                   :content {:type :toolCallPrepare
                             :origin (:origin message-content)
@@ -170,6 +183,10 @@
                                    :error (:error message-content)
                                    :id (:id message-content)
                                    :outputs (:contents (:output message-content))}}]
+    "image_generation_call" [{:role :assistant
+                              :content {:type :image
+                                        :media-type (:media-type message-content)
+                                        :base64 (:base64 message-content)}}]
     "server_tool_use" [{:role :assistant
                         :content {:type :toolCallPrepare
                                   :origin :server
@@ -734,6 +751,17 @@
                                          :text (do (swap! received-msgs* str (:text msg))
                                                    (lifecycle/send-content! chat-ctx :assistant {:type :text :text (:text msg)}))
                                          :url (lifecycle/send-content! chat-ctx :assistant {:type :url :title (:title msg) :url (:url msg)})
+                                         :image (let [client-content {:type :image
+                                                                       :media-type (:media-type msg)
+                                                                       :base64 (:base64 msg)}
+                                                      history-content (assoc-some
+                                                                       {:media-type (:media-type msg)
+                                                                        :base64 (:base64 msg)}
+                                                                       :id (:id msg))]
+                                                  ;; Provider normalize-messages converts this role back to a user-role image for replay.
+                                                  (add-to-history! {:role "image_generation_call"
+                                                                    :content history-content})
+                                                  (lifecycle/send-content! chat-ctx :assistant client-content))
                                          :limit-reached (do (lifecycle/send-content!
                                                              chat-ctx
                                                              :system
@@ -897,6 +925,56 @@
                                                         (tc/transition-tool-call! db* chat-ctx id :cleanup-finished
                                                                                   {:name (get-in (tc/get-tool-call-state @db* chat-id id) [:name] "web_search")}))
                                             nil)))
+                :on-server-image-generation (fn [{:keys [status id name]}]
+                                              (lifecycle/assert-chat-not-stopped! chat-ctx)
+                                              (let [summary "Generating image"]
+                                                (case status
+                                                  :started (do
+                                                             (swap! server-tool-times* assoc id (System/currentTimeMillis))
+                                                             (tc/transition-tool-call! db* chat-ctx id :tool-prepare
+                                                                                       {:name name
+                                                                                        :server :llm
+                                                                                        :origin :server
+                                                                                        :arguments-text ""
+                                                                                        :summary summary})
+                                                             (tc/transition-tool-call! db* chat-ctx id :tool-run
+                                                                                       {:approved?* (promise)
+                                                                                        :future-cleanup-complete?* (promise)
+                                                                                        :name name
+                                                                                        :server :llm
+                                                                                        :origin :server
+                                                                                        :arguments {}
+                                                                                        :manual-approval false
+                                                                                        :summary summary})
+                                                             (tc/transition-tool-call! db* chat-ctx id :approval-allow
+                                                                                       {:reason :server-tool})
+                                                             (tc/transition-tool-call! db* chat-ctx id :execution-start
+                                                                                       {:delayed-future (delay nil)
+                                                                                        :origin :server
+                                                                                        :name name
+                                                                                        :server :llm
+                                                                                        :arguments {}
+                                                                                        :start-time (System/currentTimeMillis)
+                                                                                        :summary summary
+                                                                                        :progress-text "Generating image"}))
+                                                  :finished (let [start-time (get @server-tool-times* id)
+                                                                  total-time-ms (if start-time
+                                                                                  (- (System/currentTimeMillis) start-time)
+                                                                                  0)
+                                                                  resolved-name (get-in (tc/get-tool-call-state @db* chat-id id) [:name] "image_generation")]
+                                                              (tc/transition-tool-call! db* chat-ctx id :execution-end
+                                                                                        {:origin :server
+                                                                                         :name resolved-name
+                                                                                         :server :llm
+                                                                                         :arguments {}
+                                                                                         :error false
+                                                                                         :outputs [{:type :text :text "Generated image (png)"}]
+                                                                                         :total-time-ms total-time-ms
+                                                                                         :progress-text "Generating"
+                                                                                         :summary summary})
+                                                              (tc/transition-tool-call! db* chat-ctx id :cleanup-finished
+                                                                                        {:name resolved-name}))
+                                                  nil)))
                 :on-error (fn [{:keys [message exception] :as error-data}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
