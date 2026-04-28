@@ -14,6 +14,7 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.features.agents :as agents]
+   [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -149,24 +150,28 @@
 ;; -- Component readers --
 
 (defn ^:private read-hooks
-  "Reads hooks/hooks.json from a plugin directory. Expects ECA native hook format."
+  "Reads hooks/hooks.json from a plugin directory. Expects ECA native hook format.
+   Applies dynamic string interpolation after JSON parsing."
   [^java.io.File plugin-dir]
   (let [hooks-file (io/file plugin-dir "hooks" "hooks.json")]
     (when (fs/exists? hooks-file)
       (try
-        (json/parse-string (slurp hooks-file) true)
+        (-> (json/parse-string (slurp hooks-file) true)
+            (interpolation/replace-dynamic-strings-in-data (str (fs/parent hooks-file)) nil))
         (catch Exception e
           (logger/warn logger-tag "Failed to parse hooks.json:" (str hooks-file)
                        (.getMessage e))
           nil)))))
 
 (defn ^:private read-mcp-servers
-  "Reads .mcp.json from a plugin directory and returns mcpServers map."
+  "Reads .mcp.json from a plugin directory and returns mcpServers map.
+   Applies dynamic string interpolation after JSON parsing."
   [^java.io.File plugin-dir]
   (let [mcp-file (io/file plugin-dir ".mcp.json")]
     (when (fs/exists? mcp-file)
       (try
-        (let [content (json/parse-string (slurp mcp-file) true)]
+        (let [content (-> (json/parse-string (slurp mcp-file) true)
+                          (interpolation/replace-dynamic-strings-in-data (str plugin-dir) nil))]
           (:mcpServers content))
         (catch Exception e
           (logger/warn logger-tag "Failed to parse .mcp.json:" (str mcp-file)
@@ -174,12 +179,14 @@
           nil)))))
 
 (defn ^:private read-eca-config
-  "Reads eca.json from a plugin directory for arbitrary ECA config overrides."
+  "Reads eca.json from a plugin directory for arbitrary ECA config overrides.
+   Applies dynamic string interpolation after JSON parsing."
   [^java.io.File plugin-dir]
   (let [config-file (io/file plugin-dir "eca.json")]
     (when (fs/exists? config-file)
       (try
-        (json/parse-string (slurp config-file) true)
+        (-> (json/parse-string (slurp config-file) true)
+            (interpolation/replace-dynamic-strings-in-data (str plugin-dir) nil))
         (catch Exception e
           (logger/warn logger-tag "Failed to parse eca.json:" (str config-file)
                        (.getMessage e))
@@ -328,6 +335,7 @@
                                               "in" (str source-dir)))
                                plugin-dir)]
                  (do (logger/info logger-tag "Loading plugin:" plugin-name "from" source-name)
+                     (interpolation/register-plugin-dir! (str plugin-dir))
                      (discover-components plugin-dir plugin-name))))]
           (merge-components components))))))
 

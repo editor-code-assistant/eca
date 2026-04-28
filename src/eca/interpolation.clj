@@ -18,12 +18,42 @@
    [babashka.process :as p]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [clojure.walk :as walk]
    [eca.logger :as logger]
+   [eca.shared :as shared]
    [eca.secrets :as secrets]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[INTERPOLATION]")
+
+(defonce ^:private plugin-dirs*
+  (atom #{}))
+
+(defn register-plugin-dir!
+  "Registers a plugin directory path for `${plugin:root}` resolution.
+   Called by the plugin system when loading plugins."
+  [^String dir]
+  (swap! plugin-dirs* conj (shared/normalize-path dir)))
+
+(defn reset-plugin-dirs!
+  "Clears all registered plugin directories. Test helper."
+  []
+  (reset! plugin-dirs* #{}))
+
+(defn ^:private matching-plugin-dir
+  "Given a file path (the cwd of the file being interpolated), returns the
+   plugin directory that contains it, or nil if the file is not inside any
+   registered plugin directory."
+  [^String file-path]
+  (when (and file-path (seq @plugin-dirs*))
+    (let [normalized (shared/normalize-path file-path)
+          separator (System/getProperty "file.separator")]
+      (->> @plugin-dirs*
+           (some (fn [dir]
+                   (when (or (= normalized dir)
+                             (string/starts-with? normalized (str dir separator)))
+                     dir)))))))
 
 (defn get-env [env] (System/getenv env))
 
@@ -206,9 +236,17 @@
   - `${file:/some/path}`: Replace with a file content checking from cwd if relative
   - `${classpath:path/to/file}`: Replace with a file content found checking classpath
   - `${netrc:api.provider.com}`: Replace with the content from Unix net RC [credential files](https://eca.dev/config/models/#credential-file-authentication)
-  - `${cmd:some command}`: Replace with the trimmed stdout of an arbitrary shell command"
+  - `${cmd:some command}`: Replace with the trimmed stdout of an arbitrary shell command
+  - `${plugin:root}`: Replace with the absolute path of the plugin directory containing
+    the file being interpolated. Resolved by checking `cwd` against registered plugin dirs.
+    If the file is not inside a plugin, the placeholder is replaced with an empty string."
   [s cwd config]
   (some-> s
+          (string/replace #"\$\{plugin:root\}"
+                          (fn [_match]
+                            (or (matching-plugin-dir (some-> cwd str))
+                                (do (logger/warn logger-tag "No plugin directory found for ${plugin:root} in:" (str cwd))
+                                    ""))))
           (string/replace #"\$\{env:([^:}]+)(?::([^}]*))?\}"
                           (fn [[_match env-var default-value]]
                             (or (get-env env-var) default-value "")))
@@ -245,3 +283,13 @@
                               (catch Exception e
                                 (logger/warn logger-tag "Error executing cmd:" (.getMessage e))
                                 ""))))))
+
+(defn replace-dynamic-strings-in-data
+  "Walks data and applies dynamic string interpolation to every string value."
+  [data cwd config]
+  (walk/postwalk
+   (fn [x]
+     (if (string? x)
+       (replace-dynamic-strings x cwd config)
+       x))
+   data))

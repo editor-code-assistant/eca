@@ -2,11 +2,22 @@
   (:require
    [babashka.fs :as fs]
    [cheshire.core :as json]
-   [clojure.test :refer [deftest is testing]]
+   [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.config :as config]
+   [eca.features.commands :as commands]
    [eca.features.plugins :as plugins]
+   [eca.features.rules :as rules]
+   [eca.interpolation :as interpolation]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
+
+(use-fixtures :each
+  (fn [t]
+    (interpolation/reset-plugin-dirs!)
+    (try
+      (t)
+      (finally
+        (interpolation/reset-plugin-dirs!)))))
 
 (deftest sanitize-source-url-test
   (testing "HTTPS URL"
@@ -216,6 +227,61 @@
                         {"src" {:source (str source-dir)}
                          "install" ["does-not-exist"]})]
             (is (empty? (:agents result))))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest plugin-root-interpolation-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (let [source-dir (fs/file tmp-dir "repo")
+            plugin-dir (fs/file source-dir "plugins" "test" "demo")
+            secret "line \"quoted\"\nbackslash \\ ok"]
+        (fs/create-dirs (fs/file source-dir ".eca-plugin"))
+        (fs/create-dirs (fs/file plugin-dir "hooks"))
+        (fs/create-dirs (fs/file plugin-dir "commands"))
+        (fs/create-dirs (fs/file plugin-dir "rules"))
+        (spit (fs/file source-dir ".eca-plugin" "marketplace.json")
+              (json/generate-string
+               {:plugins [{:name "demo"
+                           :description "Demo"
+                           :source "./plugins/test/demo"}]}))
+        (spit (fs/file plugin-dir "secret.txt") secret)
+        (spit (fs/file plugin-dir ".mcp.json")
+              (json/generate-string
+               {:mcpServers {"local" {:command "${plugin:root}/bin/server"}}}))
+        (spit (fs/file plugin-dir "eca.json")
+              (json/generate-string
+               {:pluginRoot "${plugin:root}"
+                :quotedSecret "${file:secret.txt}"}))
+        (spit (fs/file plugin-dir "hooks" "hooks.json")
+              (json/generate-string
+               {:PostToolUse [{:hooks [{:type "command"
+                                         :command "node ${plugin:root}/hooks/check.js"}]}]}))
+        (spit (fs/file plugin-dir "commands" "where.md")
+              "Plugin command: ${plugin:root}")
+        (spit (fs/file plugin-dir "rules" "where.md")
+              "Plugin rule: ${plugin:root}")
+        (let [plugin-root (str (fs/canonicalize plugin-dir))
+              result (plugins/resolve-all!
+                      {"local" {:source (str source-dir)}
+                       "install" ["demo"]})]
+          (is (= (str plugin-root "/bin/server")
+                 (get-in result [:config-fragment :mcpServers :local :command])))
+          (is (= plugin-root
+                 (get-in result [:config-fragment :pluginRoot])))
+          (is (= secret
+                 (get-in result [:config-fragment :quotedSecret])))
+          (is (= (str "node " plugin-root "/hooks/check.js")
+                 (get-in result [:config-fragment :hooks :PostToolUse 0 :hooks 0 :command])))
+          (let [loaded-commands (vec (#'commands/custom-commands
+                                      {:pureConfig true
+                                       :commands (:commands result)}
+                                      []))]
+            (is (= [(str "Plugin command: " plugin-root)]
+                   (mapv :content loaded-commands))))
+          (let [loaded-rules (vec (#'rules/config-rules {:rules (:rules result)} []))]
+            (is (= [(str "Plugin rule: " plugin-root)]
+                   (mapv :content loaded-rules))))))
       (finally
         (fs/delete-tree tmp-dir)))))
 

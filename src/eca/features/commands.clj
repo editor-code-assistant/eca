@@ -14,6 +14,7 @@
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.util :as tools.util]
+   [eca.interpolation :as interpolation]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
@@ -56,13 +57,14 @@
     :else [path]))
 
 (defn ^:private command-file->command [type file opts]
-  (let [base (normalize-command-name file)]
+  (let [base (normalize-command-name file)
+        content (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)]
     (cond-> {:name (if-let [plugin (:plugin opts)]
                      (prefixed-command-name plugin base)
                      base)
              :path (str (fs/canonicalize file))
              :type type
-             :content (slurp (str file))}
+             :content content}
       (:plugin opts) (assoc :plugin (:plugin opts)))))
 
 (defn ^:private global-file-commands []
