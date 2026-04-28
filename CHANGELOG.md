@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: `/prompt-show` now renders the system instructions as plain text instead of a raw `{:static :dynamic}` map.
+
 ## 0.130.0
 
 - Improve rules with frontmatter filters, condition variables, path-scoped loading, enforcement support, and clearer documentation. #222

@@ -69,7 +69,9 @@
            resp))
 
       (match-content chat-id "user" {:type "text" :text "/prompt-show\n"})
-      (match-content chat-id "system" {:type "text" :text (m/pred #(string/includes? % "You are ECA"))})
+      (match-content chat-id "system" {:type "text" :text (m/pred #(and (string/includes? % "You are ECA")
+                                                                        (not (string/includes? % ":static"))
+                                                                        (not (string/includes? % ":dynamic"))))})
       (match-content chat-id "system" {:type "progress" :state "finished"}))))
 
 (deftest mcp-prompts

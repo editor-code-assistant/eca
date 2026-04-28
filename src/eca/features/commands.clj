@@ -589,7 +589,7 @@
                     msg (rules-msg config roots agent full-model all-tools)]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "prompt-show" (let [full-prompt (str "Instructions:\n" instructions "\n"
+      "prompt-show" (let [full-prompt (str "Instructions:\n" (f.prompt/instructions->str instructions) "\n"
                                            "Prompt:\n" (reduce
                                                         (fn [s {:keys [content]}]
                                                           (str
