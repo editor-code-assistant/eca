@@ -1,17 +1,37 @@
 (ns eca.interpolation-test
   (:require
+   [babashka.fs :as fs]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]))
 
-;; Reset the shell-PATH cache before every test so cache state never leaks
-;; between tests. Tests that exercise the shell query path mock run-process!
-;; (which short-circuits the query to nil via missing-delimiter parse failure)
-;; or stub user-shell-path / query-user-shell-path directly.
+;; Reset process-wide interpolation caches before every test so state never
+;; leaks between tests. Tests that exercise the shell query path mock
+;; run-process! (which short-circuits the query to nil via missing-delimiter
+;; parse failure) or stub user-shell-path / query-user-shell-path directly.
 (use-fixtures :each
   (fn [t]
     (interpolation/reset-shell-path-cache!)
-    (t)))
+    (interpolation/reset-plugin-dirs!)
+    (try
+      (t)
+      (finally
+        (interpolation/reset-plugin-dirs!)))))
+
+(deftest plugin-root-interpolation-test
+  (let [tmp-dir (fs/create-temp-dir)
+        plugin-dir (fs/file tmp-dir "plugin")
+        nested-dir (fs/file plugin-dir "commands")]
+    (try
+      (fs/create-dirs nested-dir)
+      (let [plugin-root (str (fs/canonicalize plugin-dir))]
+        (interpolation/register-plugin-dir! (str plugin-dir))
+        (is (= (str "root=" plugin-root)
+               (interpolation/replace-dynamic-strings "root=${plugin:root}" plugin-dir nil)))
+        (is (= (str "root=" plugin-root)
+               (interpolation/replace-dynamic-strings "root=${plugin:root}" nested-dir nil))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
 
 (deftest augment-path-test
   (testing "non-mac OS: existing PATH returned unchanged"

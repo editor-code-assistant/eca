@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [babashka.fs :as fs]
    [eca.config :as config]
+   [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared :refer [assoc-some]])
   (:import
@@ -136,10 +137,11 @@
     :else [path]))
 
 (defn ^:private rule-file [type file opts]
-  (rule-file->rule type
-                   (fs/canonicalize file)
-                   (slurp (str file))
-                   {:workspace-root (:workspace-root opts)}))
+  (let [content (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)]
+    (rule-file->rule type
+                     (fs/canonicalize file)
+                     content
+                     {:workspace-root (:workspace-root opts)})))
 
 (defn ^:private global-file-rules []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
