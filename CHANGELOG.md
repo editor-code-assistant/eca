@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: avoid `Divide by zero` crash in chat auto-compact when models.dev reports `0` for a model's context/output limits (e.g. `openai/chatgpt-image-latest`); such limits are now normalized to `nil` and `auto-compact?` skips models without a known positive context window.
+
 ## 0.130.1
 
 - Add configurable skill paths and recursive directory loading for configured rules, commands, and skills; local skills are also discovered from `.agents/skills`. #423

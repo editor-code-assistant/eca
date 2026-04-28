@@ -62,6 +62,14 @@
 
 (def ^:private one-million 1000000)
 
+(defn ^:private pos-num
+  "Return n when n is a positive number, otherwise nil. Used to drop
+   meaningless 0/non-positive limits coming from upstream catalogs (e.g.
+   models.dev returning 0 for image-only models like
+   `openai/chatgpt-image-latest`)."
+  [n]
+  (when (and (number? n) (pos? n)) n))
+
 (def ^:private models-with-web-search-support
   #{"openai/gpt-4.1"
     "openai/gpt-5.2"
@@ -101,9 +109,9 @@
                         ;; maybe fixed after web-search toolcall is implemented
                         :web-search (contains? models-with-web-search-support (str provider "/" model))
                         :tools (get model-config "tool_call")
-                        :max-output-tokens (get-in model-config ["limit" "output"])}
-                       :limit {:context (get-in model-config ["limit" "context"])
-                               :output (get-in model-config ["limit" "output"])}
+                        :max-output-tokens (pos-num (get-in model-config ["limit" "output"]))}
+                       :limit {:context (pos-num (get-in model-config ["limit" "context"]))
+                               :output (pos-num (get-in model-config ["limit" "output"]))}
                        :input-token-cost (some-> (get-in model-config ["cost" "input"]) float (/ one-million))
                        :output-token-cost (some-> (get-in model-config ["cost" "output"]) float (/ one-million))
                        :input-cache-creation-token-cost (some-> (get-in model-config ["cost" "cache_write"]) float (/ one-million))

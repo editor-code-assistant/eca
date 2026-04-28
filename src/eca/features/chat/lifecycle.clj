@@ -19,9 +19,13 @@
              (not (get-in db [:chats chat-id :auto-compacting?])))
     (let [compact-threshold (or (get-in config [:agent agent-name :autoCompactPercentage])
                                 (get-in config [:autoCompactPercentage]))
-          {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)]
-      (when (and compact-threshold session-tokens (:context limit))
-        (let [current-percentage (* (/ session-tokens (:context limit)) 100)]
+          {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
+          context-limit (:context limit)]
+      (when (and compact-threshold
+                 session-tokens
+                 (number? context-limit)
+                 (pos? context-limit))
+        (let [current-percentage (* (/ session-tokens context-limit) 100)]
           (>= current-percentage compact-threshold))))))
 
 (defn send-content! [{:keys [messenger chat-id parent-chat-id]} role content]
