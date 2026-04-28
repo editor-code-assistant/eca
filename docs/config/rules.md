@@ -35,11 +35,18 @@ ECA loads rules from 3 sources:
 
 === "Config"
 
-    Paths listed in the `rules` config key. Relative paths are searched from each workspace root. Absolute paths inside a workspace behave as project rules; absolute paths outside workspaces behave as global rules.
+    Paths listed in the `rules` config key. `path` can point to a single rule file or a directory. Directories are loaded recursively, loading all files within. Relative paths are searched from each workspace root. Absolute paths inside a workspace behave as project rules; absolute paths outside workspaces behave as global rules.
 
     ```javascript title="~/.config/eca/config.json"
     {
       "rules": [{"path": "my-rule.md"}]
+    }
+    ```
+
+    ```javascript title="~/.config/eca/config.json"
+    // Load all rules from a directory recursively
+    {
+      "rules": [{"path": "/home/user/rules"}]
     }
     ```
 

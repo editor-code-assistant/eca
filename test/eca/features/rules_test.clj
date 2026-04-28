@@ -64,10 +64,28 @@
                          :content "MY_RULE_CONTENT"}])
              (:static (f.rules/all-rules config roots nil nil)))))))
 
+  (testing "config rule directories load files recursively"
+    (let [tmp-dir (fs/create-temp-dir)
+          rules-dir (fs/file tmp-dir "rules")
+          nested-dir (fs/file rules-dir "nested")]
+      (try
+        (fs/create-dirs nested-dir)
+        (spit (fs/file rules-dir "root.md") "Root rule")
+        (spit (fs/file nested-dir "child.mdc") "Child rule")
+        (let [config {:rules [{:path (str rules-dir)}]}
+              result (filter #(contains? #{"root.md" "child.mdc"} (:name %))
+                             (:static (f.rules/all-rules config [] nil nil)))]
+          (is (= #{"root.md" "child.mdc"} (set (map :name result))))
+          (is (= #{"Root rule" "Child rule"} (set (map :content result)))))
+        (finally
+          (fs/delete-tree tmp-dir)))))
+
+
   (testing "local file rules load as project-scoped static rules"
     (with-redefs [fs/exists? #(contains? #{(h/file-path "/my/project/.eca/rules")
                                            (h/file-path "/my/project")
                                            (h/file-path "/my/project/.eca/rules/cool.md")} (str %))
+                  fs/directory? #(= (h/file-path "/my/project/.eca/rules") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/my/project/.eca/rules/cool.md"))])
                   fs/canonicalize identity
                   fs/file-name (constantly "cool-name")
@@ -88,6 +106,7 @@
                                            (h/file-path "/home/someuser/.config/eca/rules/cool.md")
                                            (h/file-path "/home/someuser/.config")
                                            (h/file-path "/home/someuser/.config/eca")} (str %))
+                  fs/directory? #(= (h/file-path "/home/someuser/.config/eca/rules") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/home/someuser/.config/eca/rules/cool.md"))])
                   fs/canonicalize identity
                   fs/file-name (constantly "cool-name")

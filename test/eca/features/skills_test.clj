@@ -4,6 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.skills :as f.skills]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -13,6 +14,7 @@
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? #(= (h/file-path "/my/project/.eca/skills") (str %))
+                  fs/directory? #(= (h/file-path "/my/project/.eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/my/project/.eca/skills/my-skill/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/my/project/.eca/skills/my-skill")))
@@ -28,6 +30,7 @@
   (testing "global skills"
     (with-redefs [config/get-env (constantly (h/file-path "/home/someuser/.config"))
                   fs/exists? #(= (h/file-path "/home/someuser/.config/eca/skills") (str %))
+                  fs/directory? #(= (h/file-path "/home/someuser/.config/eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/home/someuser/.config/eca/skills/global-skill/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/home/someuser/.config/eca/skills/global-skill")))
@@ -44,6 +47,7 @@
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? #(= (h/file-path "/home/someuser/.config/eca/skills") (str %))
+                  fs/directory? #(= (h/file-path "/home/someuser/.config/eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/home/someuser/.config/eca/skills/fallback-skill/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/home/someuser/.config/eca/skills/fallback-skill")))
@@ -55,6 +59,37 @@
                          :body "Fallback body"
                          :dir (h/file-path "/home/someuser/.config/eca/skills/fallback-skill")}])
              (f.skills/all {} roots))))))
+
+  (testing "config skill directories load SKILL.md files recursively"
+    (let [tmp-dir (fs/create-temp-dir)
+          skills-dir (fs/file tmp-dir "skills")
+          skill-dir (fs/file skills-dir "configured")]
+      (try
+        (fs/create-dirs skill-dir)
+        (spit (fs/file skill-dir "SKILL.md") "---\nname: configured\ndescription: Configured skill\n---\nConfigured body")
+        (spit (fs/file skills-dir "ignored.md") "Ignored")
+        (let [config {:pureConfig true :skills [{:path (str skills-dir)}]}
+              result (vec (f.skills/all config []))]
+          (is (= ["configured"] (mapv :name result)))
+          (is (= ["Configured skill"] (mapv :description result))))
+        (finally
+          (fs/delete-tree tmp-dir)))))
+
+  (testing "local .agents skills"
+    (let [tmp-dir (fs/create-temp-dir)
+          skill-dir (fs/file tmp-dir ".agents" "skills" "agent-skill")]
+      (try
+        (fs/create-dirs skill-dir)
+        (spit (fs/file skill-dir "SKILL.md") "---\nname: agent-skill\ndescription: Agent skill\n---\nAgent body")
+        (let [roots [{:uri (shared/filename->uri (str tmp-dir))}]]
+          (is (match?
+               (m/embeds [{:name "agent-skill"
+                           :description "Agent skill"
+                           :body "Agent body"}])
+               (f.skills/all {:pureConfig true} roots))))
+        (finally
+          (fs/delete-tree tmp-dir)))))
+
 
   (testing "resolves dynamic strings in skill markdown"
     (let [tmp-dir (fs/create-temp-dir)
@@ -81,6 +116,7 @@
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? #(= (h/file-path "/my/project/.eca/skills") (str %))
+                  fs/directory? #(= (h/file-path "/my/project/.eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/my/project/.eca/skills/quoted-skill/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/my/project/.eca/skills/quoted-skill")))
@@ -96,6 +132,7 @@
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? (fn [p] (= (h/file-path "/plugins/ui/skills") (str p)))
+                  fs/directory? #(= (h/file-path "/plugins/ui/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/plugins/ui/skills/button/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/plugins/ui/skills/button")))
@@ -112,6 +149,7 @@
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? (fn [p] (= (h/file-path "/plugins/tdd/skills") (str p)))
+                  fs/directory? #(= (h/file-path "/plugins/tdd/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/plugins/tdd/skills/tdd/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/plugins/tdd/skills/tdd")))
@@ -128,6 +166,7 @@
     (with-redefs [config/get-env (constantly nil)
                   config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? (fn [p] (= (h/file-path "/plugins/legacy/skills") (str p)))
+                  fs/directory? #(= (h/file-path "/plugins/legacy/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/plugins/legacy/skills/old/SKILL.md"))])
                   fs/canonicalize identity
                   fs/parent (constantly (fs/path (h/file-path "/plugins/legacy/skills/old")))

@@ -29,47 +29,68 @@
                             (io/file (config/get-property "user.home") ".config"))]
     (io/file xdg-config-home "eca" "skills")))
 
-(defn ^:private global-skills []
-  (let [skills-dir (global-skills-dir)]
-    (when (fs/exists? skills-dir)
-      (keep skill-file->skill
-            (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))
+(defn ^:private skill-file? [file]
+  (and (not (fs/directory? file))
+       (= "SKILL.md" (fs/file-name file))))
 
-(defn ^:private local-skills [roots]
-  (->> roots
-       (mapcat (fn [{:keys [uri]}]
-                 (let [skills-dir (fs/file (shared/uri->filename uri) ".eca" "skills")]
-                   (when (fs/exists? skills-dir)
-                     (fs/glob skills-dir "**/SKILL.md" {:follow-links true})))))
-       (keep skill-file->skill)))
+(defn ^:private skill-files [path]
+  (cond
+    (not (fs/exists? path)) []
+    (fs/directory? path) (filter skill-file? (fs/glob path "**" {:follow-links true}))
+    :else [path]))
 
 (defn ^:private prefixed-skill-name
   "Builds the user-invocation name for a plugin skill.
-   Returns just the plugin name when it equals the skill name (dedup),
+   Returns just the plugin name when it equals the skill name,
    otherwise 'plugin:skill'."
   [plugin-name skill-name]
   (if (= plugin-name skill-name)
     plugin-name
     (str plugin-name ":" skill-name)))
 
+(defn ^:private plugin-skill [plugin file]
+  (when-let [skill (skill-file->skill file)]
+    (cond-> skill
+      plugin (assoc :plugin plugin
+                    :name (prefixed-skill-name plugin (:name skill))))))
+
+(defn ^:private global-skills []
+  (keep skill-file->skill
+        (skill-files (global-skills-dir))))
+
+(defn ^:private local-skills [roots]
+  (->> roots
+       (mapcat (fn [{:keys [uri]}]
+                 (let [root (shared/uri->filename uri)]
+                   (mapcat skill-files
+                           [(fs/file root ".eca" "skills")
+                            (fs/file root ".agents" "skills")]))))
+       (keep skill-file->skill)))
+
 (defn ^:private plugin-skills [plugin-skill-dirs]
   (->> plugin-skill-dirs
        (mapcat (fn [entry]
                  (let [{:keys [dir plugin]} (if (string? entry)
                                               {:dir entry}
-                                              entry)
-                       dir-file (fs/file dir)]
-                   (when (and dir (fs/exists? dir-file))
-                     (->> (fs/glob dir-file "**/SKILL.md" {:follow-links true})
-                          (map (fn [f] {:file f :plugin plugin})))))))
-       (keep (fn [{:keys [file plugin]}]
-               (when-let [skill (skill-file->skill file)]
-                 (cond-> skill
-                   plugin (assoc :plugin plugin
-                                 :name (prefixed-skill-name plugin (:name skill)))))))))
+                                              entry)]
+                   (when dir
+                     (keep #(plugin-skill plugin %)
+                           (skill-files (fs/file dir)))))))))
+
+(defn ^:private config-skills [config roots]
+  (->> (get config :skills)
+       (mapcat
+        (fn [{:keys [path]}]
+          (let [path (str (fs/expand-home path))]
+            (if (fs/absolute? path)
+              (skill-files path)
+              (mapcat (fn [{:keys [uri]}]
+                        (skill-files (fs/file (shared/uri->filename uri) path)))
+                      roots)))))
+       (keep skill-file->skill)))
 
 (defn all [config roots]
-  (concat []
+  (concat (config-skills config roots)
           (when-not (:pureConfig config)
             (global-skills))
           (plugin-skills (:pluginSkillDirs config))
