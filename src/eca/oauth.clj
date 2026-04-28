@@ -109,15 +109,24 @@
      :challenge (-> verifier str->sha256 ->base64 ->base64url (string/replace "=" ""))}))
 
 (defn ^:private oauth-handler [request on-success on-error]
-  (let [{:keys [code error error_description error_uri state]} (:params request)]
+  ;; The HTML response is built and returned synchronously, but on-success/on-error
+  ;; run on a background thread after a brief delay so Jetty has time to flush the
+  ;; page to the browser. This lets callers safely call stop-oauth-server! from
+  ;; their callbacks without racing the response write.
+  (let [{:keys [code error error_description error_uri state]} (:params request)
+        defer-callback! (fn [f]
+                          (future
+                            (Thread/sleep 500)
+                            (try (f)
+                                 (catch Exception e
+                                   (logger/error logger-tag "OAuth callback error:" (ex-message e))))))]
     (if code
       (do
-        (on-success {:code code
-                     :state state})
+        (defer-callback! #(on-success {:code code :state state}))
         (-> (response/response (render-oauth-page {:success? true}))
             (response/content-type "text/html")))
       (do
-        (on-error error)
+        (defer-callback! #(on-error error))
         (-> (response/response (render-oauth-page {:success? false
                                                    :error-code error
                                                    :error-description error_description

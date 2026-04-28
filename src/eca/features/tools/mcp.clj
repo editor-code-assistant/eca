@@ -519,6 +519,8 @@
         (oauth/start-oauth-server!
          {:port callback-port
           :ssl? ssl?
+          ;; Callbacks run on a background thread after the OAuth HTML page has been
+          ;; flushed to the browser, so synchronous stop-oauth-server! is safe here.
           :on-success (fn [{:keys [code]}]
                         (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
                           (swap! db* assoc-in [:mcp-auth name] {:type :auth/oauth

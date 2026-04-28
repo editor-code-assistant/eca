@@ -4,6 +4,7 @@
 
 - Add configurable skill paths and recursive directory loading for configured rules, commands, and skills; local skills are also discovered from `.agents/skills`. #423
 - Bugfix: `/prompt-show` now renders the system instructions as plain text instead of a raw `{:static :dynamic}` map.
+- Fix MCP OAuth success/error page never rendering in the browser by sending the local-callback HTML response before invoking caller-supplied `on-success`/`on-error` hooks; previously the MCP callback synchronously stopped the Jetty server inside `on-success`, racing the response flush.
 
 ## 0.130.0
 
