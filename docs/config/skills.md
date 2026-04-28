@@ -7,7 +7,7 @@ description: "Configure ECA skills: structured knowledge units that teach the LL
 ![](../images/features/skills.png)
 
 Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
-Following the [agentskills](https://agentskills.io/) standard, ECA search for skills following `~/.config/eca/skills/some-skill/SKILL.md` and `.eca/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
+Following the [agentskills](https://agentskills.io/) standard, ECA searches for skills following `~/.config/eca/skills/some-skill/SKILL.md`, `.eca/skills/some-skill/SKILL.md`, and `.agents/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
 
 When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request.
 
@@ -72,6 +72,16 @@ Check the examples:
           }
         }
       }
+    }
+    ```
+
+=== "Config"
+
+    Add to your config the `skills` key. `path` can point to a single skill directory (containing `SKILL.md`) or a directory containing multiple skill subdirectories. Directories load `SKILL.md` files recursively. Relative paths are searched from each workspace root if not an absolute path:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "skills": [{"path": "/home/user/skills"}]
     }
     ```
 
