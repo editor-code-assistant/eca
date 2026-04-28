@@ -142,7 +142,8 @@
                      :capabilities {:reason (:reason? caps false)
                                     :vision (:image-input? caps false)
                                     :tools (:tools caps false)
-                                    :web-search (:web-search caps false)}}
+                                    :web-search (:web-search caps false)
+                                    :image-generation (:image-generation? caps false)}}
                     :cost (when (or (:input-token-cost caps) (:output-token-cost caps))
                             {:input (:input-token-cost caps)
                              :output (:output-token-cost caps)})

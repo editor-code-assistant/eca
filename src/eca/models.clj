@@ -70,13 +70,47 @@
   [n]
   (when (and (number? n) (pos? n)) n))
 
-(def ^:private models-with-web-search-support
+(def ^:private models-with-image-generation-support
+  "Mainline OpenAI chat models that support the built-in `image_generation`
+   tool on the Responses API. Sourced from OpenAI's image-generation tool
+   guide (explicit list: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini,
+   gpt-5, gpt-5.5, o3) plus the published guide rule: \"gpt-5 and newer
+   models should support the image generation tool\". Codex variants are
+   deliberately excluded — OpenAI restricts them to function calling,
+   structured outputs, streaming, and prompt caching."
   #{"openai/gpt-4.1"
-    "openai/gpt-5.2"
-    "openai/gpt-5.1"
+    "openai/gpt-4.1-mini"
+    "openai/gpt-4.1-nano"
+    "openai/gpt-4o-mini"
     "openai/gpt-5"
     "openai/gpt-5-mini"
     "openai/gpt-5-nano"
+    "openai/gpt-5.1"
+    "openai/gpt-5.2"
+    "openai/gpt-5.4"
+    "openai/gpt-5.5"
+    "openai/o3"})
+
+(def ^:private models-with-web-search-support
+  "Models that support a built-in web-search tool. OpenAI portion sourced
+   from the web-search tool guide; explicit denylist names only
+   `gpt-4.1-nano` and `gpt-5 with minimal reasoning` (the latter is a
+   runtime config, not a model id, so `gpt-5` itself stays in the set).
+   Codex variants are deliberately excluded."
+  #{"openai/gpt-4.1"
+    "openai/gpt-4.1-mini"
+    "openai/gpt-4o"
+    "openai/gpt-4o-mini"
+    "openai/gpt-5"
+    "openai/gpt-5-mini"
+    "openai/gpt-5-nano"
+    "openai/gpt-5.1"
+    "openai/gpt-5.2"
+    "openai/gpt-5.4"
+    "openai/gpt-5.5"
+    "openai/o3"
+    "openai/o3-mini"
+    "openai/o4-mini"
     "anthropic/claude-sonnet-4-5"
     "anthropic/claude-sonnet-4-6"
     "anthropic/claude-opus-4.1"
@@ -108,6 +142,7 @@
                         ;; TODO how to check for web-search mode dynamically,
                         ;; maybe fixed after web-search toolcall is implemented
                         :web-search (contains? models-with-web-search-support (str provider "/" model))
+                        :image-generation? (contains? models-with-image-generation-support (str provider "/" model))
                         :tools (get model-config "tool_call")
                         :max-output-tokens (pos-num (get-in model-config ["limit" "output"]))}
                        :limit {:context (pos-num (get-in model-config ["limit" "context"]))
@@ -327,7 +362,8 @@
                                   (get all-models found-full-model))
                                 {:tools true
                                  :reason? true
-                                 :web-search false})
+                                 :web-search false
+                                 :image-generation? false})
                             {:model-name real-model-name})]
     [full-model model-capabilities]))
 

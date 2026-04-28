@@ -210,7 +210,53 @@
          (#'llm-providers.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "Check diagnostics"}]}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__editor_diagnostics" :arguments nil}}]
-          true)))))
+          true))))
+  (testing "User message with text + image (supports-image? true) emits input_text and input_image data URL"
+    (is (match?
+         [{:role "user"
+           :content [{:type "input_text" :text "edit this"}
+                     {:type "input_image"
+                      :image_url "data:image/png;base64,AAA"}]}]
+         (#'llm-providers.openai/normalize-messages
+          [{:role "user" :content [{:type :text :text "edit this"}
+                                   {:type :image :media-type "image/png" :base64 "AAA"}]}]
+          true))))
+  (testing "User message with image and supports-image? false drops the image part"
+    (let [normalized (#'llm-providers.openai/normalize-messages
+                      [{:role "user" :content [{:type :text :text "edit this"}
+                                               {:type :image :media-type "image/png" :base64 "AAA"}]}]
+                      false)]
+      (is (= 1 (count normalized)))
+      (is (= 1 (count (:content (first normalized))))
+          "image part should be dropped, leaving only the text part")
+      (is (= "input_text" (:type (first (:content (first normalized))))))))
+  (testing "image_generation_call role replays as a USER-role input_image data URL"
+    ;; OpenAI rejects input_image under assistant role. The standalone
+    ;; {type:"image_generation_call",id,result} shape requires :store true
+    ;; (the id triggers a server-side lookup, 404s with :store false). Most
+    ;; reliable replay path: convert to a user-role input_image, symmetric
+    ;; with how user-attached ImageContext images are serialized.
+    (is (match?
+         [{:role "user"
+           :content [{:type "input_image"
+                      :image_url "data:image/png;base64,DDD"}]}]
+         (#'llm-providers.openai/normalize-messages
+          [{:role "image_generation_call"
+            :content {:id "ig_xyz" :media-type "image/png" :base64 "DDD"}}]
+          true))))
+  (testing "image_generation_call role defaults to image/png when :media-type missing"
+    (is (match?
+         [{:role "user"
+           :content [{:type "input_image"
+                      :image_url "data:image/png;base64,DDD"}]}]
+         (#'llm-providers.openai/normalize-messages
+          [{:role "image_generation_call" :content {:base64 "DDD"}}]
+          true))))
+  (testing "image_generation_call role drops the entry entirely when supports-image? is false"
+    (is (= []
+           (#'llm-providers.openai/normalize-messages
+            [{:role "image_generation_call" :content {:base64 "DDD"}}]
+            false)))))
 
 (defn- base-provider-params []
   {:model "gpt-test"
@@ -228,18 +274,20 @@
    :auth-type :auth/api-key
    :account-id nil})
 
-(defn- base-callbacks [{:keys [on-prepare-tool-call on-tools-called on-message-received on-error]
+(defn- base-callbacks [{:keys [on-prepare-tool-call on-tools-called on-message-received on-error on-server-image-generation]
                         :or {on-prepare-tool-call (fn [_])
                              on-tools-called (fn [_] {:new-messages [] :tools []})
                              on-message-received (fn [_])
-                             on-error (fn [e] (throw (ex-info "unexpected error in test" e)))}}]
+                             on-error (fn [e] (throw (ex-info "unexpected error in test" e)))
+                             on-server-image-generation (fn [_])}}]
   {:on-message-received on-message-received
    :on-error on-error
    :on-prepare-tool-call on-prepare-tool-call
    :on-tools-called on-tools-called
    :on-reason (fn [_])
    :on-usage-updated (fn [_])
-   :on-server-web-search (fn [_])})
+   :on-server-web-search (fn [_])
+   :on-server-image-generation on-server-image-generation})
 
 (deftest create-response-tool-calls-via-output-test
   (testing "tool calls in response.completed output trigger callbacks correctly"
@@ -290,6 +338,96 @@
                       :arguments {"command" "ls"}}]
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
+
+(deftest ->tools-image-generation-test
+  (testing "image_generation tool is appended when flag is on and not on codex path"
+    (is (match?
+         [{:type "image_generation" :output_format "png"}]
+         (#'llm-providers.openai/->tools [] false true false))))
+  (testing "image_generation tool is NOT appended when flag is off"
+    (is (= []
+           (#'llm-providers.openai/->tools [] false false false))))
+  (testing "image_generation tool is NOT appended on codex path even if flag is on"
+    (is (= []
+           (#'llm-providers.openai/->tools [] false true true))))
+  (testing "image_generation tool sits alongside web_search and function tools"
+    (is (match?
+         [{:type "function" :name "eca__foo"}
+          {:type "web_search_preview"}
+          {:type "image_generation" :output_format "png"}]
+         (#'llm-providers.openai/->tools
+          [{:full-name "eca__foo" :description "d" :parameters {}}]
+          true true false)))))
+
+(deftest create-response-image-generation-tool-on-request-test
+  (testing "request body includes image_generation tool when :image-generation is true"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params) :image-generation true)
+         (base-callbacks {}))
+        (is (= 1 (count @requests*)))
+        (is (some #(= {:type "image_generation" :output_format "png"} %)
+                  (get-in (first @requests*) [:body :tools]))
+            "tools array should include the image_generation built-in tool"))))
+  (testing "request body excludes image_generation tool when :image-generation is false"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks {}))
+        (is (= 1 (count @requests*)))
+        (is (not-any? #(= "image_generation" (:type %))
+                      (get-in (first @requests*) [:body :tools]))
+            "tools array should NOT include image_generation when flag is off")))))
+
+(deftest create-response-image-generation-streaming-test
+  (testing "image_generation_call streaming events trigger callbacks with base64 payload"
+    (let [server-events* (atom [])
+          received-msgs* (atom [])
+          requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (on-stream "response.output_item.added"
+                                 {:item {:type "image_generation_call"
+                                         :id "img-1"}})
+                      (on-stream "response.output_item.done"
+                                 {:item {:type "image_generation_call"
+                                         :id "img-1"
+                                         :result "BASE64DATAHERE"}})
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params) :image-generation true)
+         (base-callbacks
+          {:on-message-received (fn [m] (swap! received-msgs* conj m))
+           :on-server-image-generation (fn [m] (swap! server-events* conj m))}))
+        (is (match?
+             [{:status :started :id "img-1" :name "image_generation"}
+              {:status :finished :id "img-1"}]
+             @server-events*)
+            "should emit a started event followed by a finished event")
+        (is (some (fn [m] (and (= :image (:type m))
+                               (= "image/png" (:media-type m))
+                               (= "BASE64DATAHERE" (:base64 m))
+                               (= "img-1" (:id m))))
+                  @received-msgs*)
+            "should emit an :image message with base64 payload AND :id (used by chat.clj to persist as image_generation_call for replay)")))))
 
 (deftest create-response-prompt-cache-key-test
   (testing "prompt_cache_key uses the provided :prompt-cache-key verbatim"

@@ -94,7 +94,7 @@
     (logger/warn logger-tag "File not found or unreadable at" path)))
 
 (defn raw-contexts->refined [contexts db]
-  (mapcat (fn [{:keys [type path lines-range position uri]}]
+  (mapcat (fn [{:keys [type path lines-range position uri media-type mediaType base64]}]
             (case (name type)
               "file" (if-let [ctx (file->refined-context path lines-range)]
                        [ctx]
@@ -104,6 +104,13 @@
                                (keep (fn [path]
                                        (let [filename (str (fs/canonicalize path))]
                                          (file->refined-context filename nil)))))
+              "image" (let [mt (or media-type mediaType)]
+                        (if (and mt base64)
+                          [{:type :image
+                            :media-type mt
+                            :base64 base64}]
+                          (do (logger/warn logger-tag "Image context missing mediaType or base64; ignoring")
+                              [])))
               "repoMap" [{:type :repoMap}]
               "cursor" [{:type :cursor
                          :path path

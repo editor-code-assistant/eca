@@ -4,6 +4,7 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
+   [eca.llm-providers.openai :as llm-providers.openai]
    [eca.secrets :as secrets]
    [eca.test-helper :as h]))
 
@@ -158,6 +159,49 @@
                   :uri "/v1/chat/completions"}
                  (select-keys @req* [:method :uri])))
           (is (= "hi" (:output-text response))))))))
+
+(deftest prompt-passes-image-generation-to-openai-handler-test
+  (testing "openai branch forwards :image-generation true to create-response! when capability is on"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-5.2"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :image-generation? true
+                               :model-name "gpt-5.2"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :past-messages []
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
+          :sync? false}))
+      (is (= true (:image-generation @captured*))
+          "openai handler should receive :image-generation true")))
+
+  (testing "openai branch forwards :image-generation false (or nil) when capability is off"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-4-legacy"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :image-generation? false
+                               :model-name "gpt-4-legacy"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :past-messages []
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
+          :sync? false}))
+      (is (not (true? (:image-generation @captured*)))
+          "openai handler should NOT receive :image-generation true when capability is off"))))
 
 (deftest retry-delay-ms-test
   ;; Formula: (quot capped 2) + rand(0, capped)

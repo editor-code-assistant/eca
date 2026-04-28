@@ -1286,4 +1286,60 @@
               :model "openai/gpt-4.1"}
              (get-in (h/db) [:chats chat-id :prompt-cache]))))))
 
+(deftest message-content->chat-content-image-test
+  (testing "image_generation_call role replays as a single :image ChatContent under assistant"
+    ;; Mirrors the shape persisted by the `:image` branch of `:on-message-received`:
+    ;; {:role "image_generation_call" :content {:id ... :media-type ... :base64 ...}}
+    ;; (single-map content, similar to tool_call). This is the role used for
+    ;; OpenAI-emitted images and is the canonical history shape for replay.
+    (is (match?
+         [{:role :assistant
+           :content {:type :image
+                     :media-type "image/png"
+                     :base64 "AAA"}}]
+         (#'f.chat/message-content->chat-content
+          "image_generation_call"
+          {:id "ig_1" :media-type "image/png" :base64 "AAA"}
+          nil))))
+  (testing "User-role :image content (e.g. attached via ImageContext) replays as a single :image ChatContent"
+    ;; ImageContext attachments (clients without filesystem access) flow as
+    ;; {:role "user" :content [{:type :image ...}]} and must still surface
+    ;; as ChatImageContent on chat replay.
+    (is (match?
+         [{:role "user"
+           :content {:type :image
+                     :media-type "image/png"
+                     :base64 "BBB"}}]
+         (#'f.chat/message-content->chat-content
+          "user"
+          [{:type :image :media-type "image/png" :base64 "BBB"}]
+          nil))))
+  (testing "User-role mixed text + image history collapses text and emits one image content"
+    (let [result (#'f.chat/message-content->chat-content
+                  "user"
+                  [{:type :text :text "look at this:"}
+                   {:type :image :media-type "image/png" :base64 "CCC"}]
+                  nil)]
+      (is (= 2 (count result)))
+      (is (= :text (get-in (first result) [:content :type])))
+      (is (= :image (get-in (second result) [:content :type])))
+      (is (= "CCC" (get-in (second result) [:content :base64])))))
+  (testing "Multiple user-role images each emit their own ChatContent"
+    (is (match?
+         [{:role "user" :content {:type :image :base64 "X"}}
+          {:role "user" :content {:type :image :base64 "Y"}}]
+         (#'f.chat/message-content->chat-content
+          "user"
+          [{:type :image :media-type "image/png" :base64 "X"}
+           {:type :image :media-type "image/png" :base64 "Y"}]
+          nil))))
+  (testing "Pure text history entry still produces one collapsed text ChatContent (no regression)"
+    (is (match?
+         [{:role "user"
+           :content {:type :text}}]
+         (#'f.chat/message-content->chat-content
+          "user"
+          [{:type :text :text "hello"}]
+          nil)))))
+
 

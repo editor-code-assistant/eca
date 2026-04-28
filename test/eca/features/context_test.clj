@@ -378,3 +378,35 @@
              :path (h/file-path "/path/to/folder/bar.s")
              :content "Some content"}]
            (f.context/contexts-str-from-prompt "check @/path/to/folder" (h/db)))))))
+
+(deftest raw-contexts->refined-image-test
+  (testing "Inline image context is refined into the canonical {:type :image ...} shape"
+    (h/reset-components!)
+    (is (match?
+         [{:type :image
+           :media-type "image/png"
+           :base64 "AAA"}]
+         (f.context/raw-contexts->refined
+          [{:type "image" :mediaType "image/png" :base64 "AAA"}]
+          (h/db)))))
+  (testing "Accepts kebab-case :media-type as well"
+    (h/reset-components!)
+    (is (match?
+         [{:type :image
+           :media-type "image/jpeg"
+           :base64 "BBB"}]
+         (f.context/raw-contexts->refined
+          [{:type "image" :media-type "image/jpeg" :base64 "BBB"}]
+          (h/db)))))
+  (testing "Drops image context that is missing base64"
+    (h/reset-components!)
+    (is (= []
+           (f.context/raw-contexts->refined
+            [{:type "image" :mediaType "image/png"}]
+            (h/db)))))
+  (testing "Drops image context that is missing mediaType"
+    (h/reset-components!)
+    (is (= []
+           (f.context/raw-contexts->refined
+            [{:type "image" :base64 "CCC"}]
+            (h/db))))))
