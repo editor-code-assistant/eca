@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.131.0
+
 - Add `${plugin:root}` dynamic interpolation for plugin-provided config, hooks, commands, and rules.
 - Support OpenAI built-in `image_generation` tool via the Responses API for capable models (`openai/gpt-5.x`, `openai/gpt-4.1`). Generated images are streamed back as a new `image` chat content carrying `mediaType` + base64. Available on every provider whose api is `openai-responses` (`openai`, `github-copilot` responses-api models, `litellm`, custom providers).
 - Support image edits via the same `image_generation` tool: assistant-generated images now persist to chat history so subsequent turns can iterate ("now make it blue, smaller, with a red border"), resumed chats replay previously generated images, and clients can attach source images either by file path (existing `FileContext`) or via a new inline base64 `ImageContext` request type for clients without filesystem access.
