@@ -181,7 +181,7 @@ Use this rule of thumb:
 - Add `enforce: read` or `enforce: modify` when the model must fetch the matching rule before using the corresponding builtin file tool.
 - Use `agent` and `model` filters when the rule is only relevant for specific chat modes or model families.
 
-Path-scoped rules keep the base prompt smaller while still making file-specific guidance available. When the model calls `fetch_rule`, ECA validates the exact rule id and absolute target path, renders the rule content, and records that the rule was fetched for that path in the current chat. You can also use this to influence behavior for a specific provider. For example, if you want more tool calls instead of user prompts, you can do something like:
+Path-scoped rules keep the base prompt smaller while still making file-specific guidance available. When the model calls `fetch_rule`, ECA validates the exact rule id and absolute target path, renders the rule content, and records that the rule was fetched in the current chat. You can also use this to influence behavior for a specific provider. For example, if you want more tool calls instead of user prompts, you can do something like:
 ```markdown title=".eca/rules/copilot-ask-user.md"
 ---
 model: "github-copilot/.*"

@@ -476,11 +476,7 @@
           (is (string/includes? text (str "**Rule**: format.md\n**Path**: " target-path "\n**Matched pattern**: src/**/*.clj\n")))
           (is (string/includes? text "Model rule + shell enabled"))
           (is (= "fetch_rule" (:name handler)))
-          (is (match? {target-path
-                       {rule-id
-                        {:matched-pattern "src/**/*.clj"
-                         :rule-path rule-id
-                         :workspace-root workspace-root}}}
+          (is (match? #{rule-id}
                       (get-in @db* [:chats "chat-1" :validated-path-rules])))))))
 
   (testing "fetch_rule rejects a path that does not match the selected rule"
@@ -548,7 +544,7 @@
               text (get-in result [:contents 0 :text])]
           (is (false? (:error result)))
           (is (string/includes? text "**Matched pattern**: src/**/*.clj"))
-          (is (string/includes? text "This rule contains no usable content for the current chat context and does not need to be loaded again for this path."))))))
+          (is (string/includes? text "This rule contains no usable content for the current chat context and does not need to be loaded again in this chat."))))))
 
   (testing "fetch_rule rejects rules outside the current filtered catalog"
     (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
@@ -613,77 +609,124 @@
           (is (not (re-find #"chat-2" (:description fetch-tool)))))))))
 
 (deftest file-tools-path-rule-enforcement-test
-  (testing "write_file is blocked until fetch_rule validates the same path"
-    (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
-          target-path (h/file-path "/workspace/a/src/foo.clj")
-          workspace-root (h/file-path "/workspace/a")
-          rule {:id rule-id
-                :name "format.md"
-                :scope :project
-                :workspace-root workspace-root
-                :path rule-id
-                :paths ["src/**.clj"]
-                :content "Use the project formatter."}
-          db {:workspace-folders [{:uri (h/file-uri "file:///workspace/a")}]
-              :chats {"chat-1" {:agent "code"
-                                :model "openai/gpt-5.2"}}}
-          db* (atom db)
-          writes* (atom {})]
-      (with-redefs [f.rules/path-scoped-rules (constantly [rule])
-                    f.rules/find-rule-by-id (constantly rule)
-                    fs/create-dirs (constantly nil)
-                    spit (fn [path content] (swap! writes* assoc path content))
-                    slurp (fn [path]
-                            (if (= target-path (str path))
-                              (throw (java.io.FileNotFoundException. "missing"))
-                              ""))]
-        (let [blocked (f.tools/call-tool! "eca__write_file"
-                                          {"path" target-path
-                                           "content" "(ns foo)"}
-                                          "chat-1"
-                                          "call-write-1"
-                                          "code"
-                                          db*
-                                          {}
-                                          (h/messenger)
-                                          (h/metrics)
-                                          identity
-                                          identity
-                                          nil)]
-          (is (:error blocked))
-          (is (string/includes? (get-in blocked [:contents 0 :text]) (str "Path-scoped rules must be fetched before modifying '" target-path "'.")))
-          (is (string/includes? (get-in blocked [:contents 0 :text]) "call `fetch_rule` with this exact `id` and `path`"))
-          (is (empty? @writes*)))
+  (let [workspace-root (h/file-path "/workspace/a")
+        db {:workspace-folders [{:uri (h/file-uri "file:///workspace/a")}]
+            :chats {"chat-1" {:agent "code"
+                              :model "openai/gpt-5.2"}}}
+        call-tool! (fn [db* call-id tool-name args]
+                     (f.tools/call-tool! tool-name
+                                         args
+                                         "chat-1"
+                                         call-id
+                                         "code"
+                                         db*
+                                         {}
+                                         (h/messenger)
+                                         (h/metrics)
+                                         identity
+                                         identity
+                                         nil))
+        fetch-rule! (fn [db* call-id rule-id path]
+                      (call-tool! db* call-id "eca__fetch_rule" {"id" rule-id
+                                                                  "path" path}))
+        write-file! (fn [db* call-id path content]
+                      (call-tool! db* call-id "eca__write_file" {"path" path
+                                                                  "content" content}))]
+    (testing "write_file is blocked until fetch_rule validates the same path"
+      (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
+            target-path (h/file-path "/workspace/a/src/foo.clj")
+            rule {:id rule-id
+                  :name "format.md"
+                  :scope :project
+                  :workspace-root workspace-root
+                  :path rule-id
+                  :paths ["src/**.clj"]
+                  :content "Use the project formatter."}
+            db* (atom db)
+            writes* (atom {})]
+        (with-redefs [f.rules/path-scoped-rules (constantly [rule])
+                      f.rules/find-rule-by-id (constantly rule)
+                      fs/create-dirs (constantly nil)
+                      spit (fn [path content] (swap! writes* assoc path content))
+                      slurp (fn [path]
+                              (if (= target-path (str path))
+                                (throw (java.io.FileNotFoundException. "missing"))
+                                ""))]
+          (let [blocked (write-file! db* "call-write-1" target-path "(ns foo)")]
+            (is (:error blocked))
+            (is (string/includes? (get-in blocked [:contents 0 :text]) (str "Path-scoped rules must be fetched before modifying '" target-path "'.")))
+            (is (string/includes? (get-in blocked [:contents 0 :text]) "call `fetch_rule` with this exact `id` and `path`"))
+            (is (empty? @writes*)))
 
-        (let [fetched (f.tools/call-tool! "eca__fetch_rule"
-                                          {"id" rule-id
-                                           "path" target-path}
-                                          "chat-1"
-                                          "call-fetch-1"
-                                          "code"
-                                          db*
-                                          {}
-                                          (h/messenger)
-                                          (h/metrics)
-                                          identity
-                                          identity
-                                          nil)
-              written (f.tools/call-tool! "eca__write_file"
-                                          {"path" target-path
-                                           "content" "(ns foo)"}
-                                          "chat-1"
-                                          "call-write-2"
-                                          "code"
-                                          db*
-                                          {}
-                                          (h/messenger)
-                                          (h/metrics)
-                                          identity
-                                          identity
-                                          nil)]
-          (is (false? (:error fetched)))
-          (is (false? (:error written)))
-          (is (= "(ns foo)" (get @writes* target-path))))))))
+          (let [fetched (fetch-rule! db* "call-fetch-1" rule-id target-path)
+                written (write-file! db* "call-write-2" target-path "(ns foo)")]
+            (is (false? (:error fetched)))
+            (is (false? (:error written)))
+            (is (= "(ns foo)" (get @writes* target-path)))))))
+
+    (testing "fetching a matching rule once satisfies modify enforcement for another matching path"
+      (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
+            fetched-path (h/file-path "/workspace/a/src/a/foo.clj")
+            second-path (h/file-path "/workspace/a/src/b/bar.clj")
+            rule {:id rule-id
+                  :name "format.md"
+                  :scope :project
+                  :workspace-root workspace-root
+                  :path rule-id
+                  :paths ["src/**/*.clj"]
+                  :content "Use the project formatter."}
+            db* (atom db)
+            writes* (atom {})]
+        (with-redefs [f.rules/path-scoped-rules (constantly [rule])
+                      f.rules/find-rule-by-id (constantly rule)
+                      fs/create-dirs (constantly nil)
+                      spit (fn [path content] (swap! writes* assoc path content))
+                      slurp (constantly "")]
+          (let [fetched (fetch-rule! db* "call-fetch-cross-path" rule-id fetched-path)
+                written (write-file! db* "call-write-cross-path" second-path "(ns bar)")]
+            (is (false? (:error fetched)))
+            (is (false? (:error written)))
+            (is (= "(ns bar)" (get @writes* second-path)))))))
+
+    (testing "rules with the same path but different enforce values remain independently required"
+      (let [read-rule-id (h/file-path "/workspace/a/.eca/rules/read.md")
+            modify-rule-id (h/file-path "/workspace/a/.eca/rules/modify.md")
+            target-path (h/file-path "/workspace/a/src/a/foo.clj")
+            read-rule {:id read-rule-id
+                       :name "read.md"
+                       :scope :project
+                       :workspace-root workspace-root
+                       :path read-rule-id
+                       :paths ["src/**/*.clj"]
+                       :enforce ["read"]
+                       :content "Read guidance."}
+            modify-rule {:id modify-rule-id
+                         :name "modify.md"
+                         :scope :project
+                         :workspace-root workspace-root
+                         :path modify-rule-id
+                         :paths ["src/**/*.clj"]
+                         :enforce ["modify"]
+                         :content "Modify guidance."}
+            rules [read-rule modify-rule]
+            db* (atom db)
+            writes* (atom {})]
+        (with-redefs [f.rules/path-scoped-rules (constantly rules)
+                      f.rules/find-rule-by-id (fn [_config _roots rule-id _agent _full-model]
+                                                (first (filter #(= rule-id (:id %)) rules)))
+                      fs/create-dirs (constantly nil)
+                      spit (fn [path content] (swap! writes* assoc path content))
+                      slurp (constantly "")]
+          (let [read-fetched (fetch-rule! db* "call-fetch-read-rule" read-rule-id target-path)
+                blocked-write (write-file! db* "call-write-before-modify-rule" target-path "(ns foo)")
+                modify-fetched (fetch-rule! db* "call-fetch-modify-rule" modify-rule-id target-path)
+                written (write-file! db* "call-write-after-modify-rule" target-path "(ns foo)")]
+            (is (false? (:error read-fetched)))
+            (is (:error blocked-write))
+            (is (string/includes? (get-in blocked-write [:contents 0 :text]) modify-rule-id))
+            (is (false? (:error modify-fetched)))
+            (is (false? (:error written)))
+            (is (= "(ns foo)" (get @writes* target-path)))))))))
 
 (deftest call-tool!-omits-optional-empty-string-args-test
   (testing "optional empty string args are omitted before native tool invocation"

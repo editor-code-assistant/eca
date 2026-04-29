@@ -262,8 +262,7 @@
 (deftest compact-side-effect-clears-validated-path-rules-test
   (let [db* (atom {:chats {"chat-1" {:last-summary "Short summary"
                                       :messages []
-                                      :validated-path-rules {"/workspace/a/src/foo.clj"
-                                                             {"/workspace/a/.eca/rules/format.md" {:matched-pattern "src/**.clj"}}}}}})]
+                                      :validated-path-rules #{"/workspace/a/.eca/rules/format.md"}}}})]
     (shared/compact-side-effect! {:chat-id "chat-1"
                                   :full-model "openai/gpt-5.2"
                                   :db* db*

@@ -70,10 +70,10 @@
        :contents [{:type :text
                    :text (path-mismatch-message rule match-info)}]}
 
-      (f.tools.path-rules/validated-rule? db chat-id (:path match-info) rule-id)
+      (f.tools.path-rules/validated-rule? db chat-id rule-id)
       {:error false
        :contents [{:type :text
-                   :text (str "**" (:name rule) "** — already loaded for this path, reuse the previously fetched content.")}]}
+                   :text (str "**" (:name rule) "** — already loaded in this chat, reuse the previously fetched content.")}]}
 
       :else
       (do
@@ -87,7 +87,7 @@
                          :text (str header "\n" content)}]}
             {:error false
              :contents [{:type :text
-                         :text (str header "\nThis rule contains no usable content for the current chat context and does not need to be loaded again for this path.")}]}))))))
+                         :text (str header "\nThis rule contains no usable content for the current chat context and does not need to be loaded again in this chat.")}]}))))))
 
 (defn ^:private describe-rule
   [{rule-name :name :keys [id paths enforce scope workspace-root]}]

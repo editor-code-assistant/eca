@@ -14,17 +14,12 @@
   (tools.util/tool-available? all-tools "eca__fetch_rule"))
 
 (defn record-validated-rule!
-  [db* chat-id rule match-info]
-  (when-let [path (some-> (:path match-info) shared/normalize-path)]
-    (swap! db* assoc-in [:chats chat-id validated-path-rules-key path (:id rule)]
-           {:matched-pattern (:matched-pattern match-info)
-            :rule-path (:path rule)
-            :workspace-root (:workspace-root match-info)})))
+  [db* chat-id rule _match-info]
+  (swap! db* update-in [:chats chat-id validated-path-rules-key] (fnil conj #{}) (:id rule)))
 
 (defn validated-rule?
-  [db chat-id target-path rule-id]
-  (boolean
-   (get-in db [:chats chat-id validated-path-rules-key (shared/normalize-path target-path) rule-id])))
+  [db chat-id rule-id]
+  (contains? (get-in db [:chats chat-id validated-path-rules-key] #{}) rule-id))
 
 (defn enforce-on-modify?
   "Returns true if the rule should be enforced before file modification.
@@ -57,7 +52,7 @@
     (when target-path
       (->> (applicable-path-scoped-rules config db chat-id agent all-tools target-path)
            (filter (fn [{:keys [rule]}] (enforce? rule)))
-           (remove (fn [{:keys [rule]}] (validated-rule? db chat-id target-path (:id rule))))
+           (remove (fn [{:keys [rule]}] (validated-rule? db chat-id (:id rule))))
            vec
            not-empty))))
 
