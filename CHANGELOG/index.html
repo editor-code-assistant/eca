@@ -4208,7 +4208,12 @@
 <li>Support image edits via the same <code>image_generation</code> tool: assistant-generated images now persist to chat history so subsequent turns can iterate ("now make it blue, smaller, with a red border"), resumed chats replay previously generated images, and clients can attach source images either by file path (existing <code>FileContext</code>) or via a new inline base64 <code>ImageContext</code> request type for clients without filesystem access.</li>
 <li>Fix inline completion crash when renewing auth tokens before completion requests. #437</li>
 <li>Bugfix: avoid <code>Divide by zero</code> crash in chat auto-compact when models.dev reports <code>0</code> for a model's context/output limits (e.g. <code>openai/chatgpt-image-latest</code>); such limits are now normalized to <code>nil</code> and <code>auto-compact?</code> skips models without a known positive context window.</li>
-<li>Bugfix: image edit follow-up turns no longer fail on the OpenAI Responses API when prior generations are replayed; generated images are now persisted under a dedicated <code>image_generation_call</code> history role and replayed as a user-role <code>input_image</code> data URL across providers.</li>
+<li>
+<p>Bugfix: image edit follow-up turns no longer fail on the OpenAI Responses API when prior generations are replayed; generated images are now persisted under a dedicated <code>image_generation_call</code> history role and replayed as a user-role <code>input_image</code> data URL across providers.</p>
+</li>
+<li>
+<p>Support regex patterns in markdown agent tool entries (e.g. <code>eca__shell_command(npm run .*)</code>) for fine-grained tool approval, currently limited to <code>eca__shell_command</code>.</p>
+</li>
 </ul>
 <h2 id="01301">0.130.1<a class="headerlink" href="#01301" title="Permanent link">#</a></h2>
 <ul>
@@ -5899,7 +5904,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 28, 2026 21:17:39 UTC">April 28, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 29, 2026 13:02:08 UTC">April 29, 2026</span>
   </span>
 
     
