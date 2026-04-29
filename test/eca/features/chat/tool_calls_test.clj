@@ -455,3 +455,45 @@
               "rejection path must also return fresh api-key so the next subagent request uses the renewed token")
           (is (= (:api-key renewed-provider-auth) (:api-key (:provider-auth result)))
               "rejection path must also return refreshed provider-auth"))))))
+
+(deftest send-toolCalled-image-content-emission-test
+  (testing "image outputs are split into separate ChatImageContent events"
+    (h/reset-components!)
+    (let [chat-ctx {:chat-id "chat-1" :messenger (h/messenger)}
+          event-data {:name "create-image"
+                      :origin :mcp
+                      :server "openai-image"
+                      :arguments {:prompt "knight"}
+                      :total-time-ms 1234
+                      :outputs [{:type :text :text "ok"}
+                                {:type :image :media-type "image/png" :base64 "AAAA"}
+                                {:type :image :media-type "image/jpeg" :base64 "BBBB"}]}]
+      (#'tc/execute-action! :send-toolCalled (h/db*) chat-ctx "call-42" event-data)
+      (let [events (->> (h/messages) :chat-content-received (mapv :content))]
+        (is (= 3 (count events))
+            "expects 1 toolCalled + 2 image events")
+        (is (match? {:type :toolCalled
+                     :id "call-42"
+                     :outputs [{:type :text :text "ok"}]}
+                    (first events))
+            "toolCalled :outputs is text-only per protocol")
+        (is (match? {:type :image :media-type "image/png" :base64 "AAAA"}
+                    (second events)))
+        (is (match? {:type :image :media-type "image/jpeg" :base64 "BBBB"}
+                    (nth events 2))))))
+
+  (testing "no images preserves prior single-event behavior"
+    (h/reset-components!)
+    (let [chat-ctx {:chat-id "chat-1" :messenger (h/messenger)}
+          event-data {:name "shell_command"
+                      :origin :native
+                      :server "eca"
+                      :arguments {}
+                      :total-time-ms 7
+                      :outputs [{:type :text :text "done"}]}]
+      (#'tc/execute-action! :send-toolCalled (h/db*) chat-ctx "call-43" event-data)
+      (let [events (->> (h/messages) :chat-content-received (mapv :content))]
+        (is (= 1 (count events)))
+        (is (match? {:type :toolCalled
+                     :outputs [{:type :text :text "done"}]}
+                    (first events)))))))

@@ -307,19 +307,41 @@
                               :summary (:summary event-data)))
 
     :send-toolCalled
-    (lifecycle/send-content! chat-ctx :assistant
-                             (assoc-some
-                              {:type :toolCalled
-                               :id tool-call-id
-                               :origin (:origin event-data)
-                               :name (:name event-data)
-                               :server (:server event-data)
-                               :arguments (:arguments event-data)
-                               :error (:error event-data)
-                               :total-time-ms (:total-time-ms event-data)
-                               :outputs (:outputs event-data)}
-                              :details (:details event-data)
-                              :summary (:summary event-data)))
+    ;; Tool results may include image content blocks (e.g. from MCP image
+    ;; tools). The protocol declares toolCalled :outputs as text-only, so we
+    ;; partition: text outputs go into the toolCalled event, images are
+    ;; emitted as separate ChatImageContent events tagged :assistant. This
+    ;; reuses the same wire shape produced by the OpenAI Responses-API
+    ;; built-in image_generation tool (see chat.clj on-message-received
+    ;; :image branch).
+    ;; Only partition when outputs is a sequence containing image content
+    ;; maps; otherwise pass it through unchanged. This preserves
+    ;; pre-existing behaviors where :outputs can be nil or a plain string
+    ;; (used by some non-MCP code paths and tests).
+    (let [outputs (:outputs event-data)
+          image? #(and (map? %) (= :image (:type %)))
+          image-outputs (when (sequential? outputs) (filter image? outputs))
+          text-outputs (if (seq image-outputs)
+                         (vec (remove image? outputs))
+                         outputs)]
+      (lifecycle/send-content! chat-ctx :assistant
+                               (assoc-some
+                                {:type :toolCalled
+                                 :id tool-call-id
+                                 :origin (:origin event-data)
+                                 :name (:name event-data)
+                                 :server (:server event-data)
+                                 :arguments (:arguments event-data)
+                                 :error (:error event-data)
+                                 :total-time-ms (:total-time-ms event-data)
+                                 :outputs text-outputs}
+                                :details (:details event-data)
+                                :summary (:summary event-data)))
+      (doseq [img image-outputs]
+        (lifecycle/send-content! chat-ctx :assistant
+                                 {:type :image
+                                  :media-type (:media-type img)
+                                  :base64 (:base64 img)})))
 
     :send-toolCallRejected
     (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)

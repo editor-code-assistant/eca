@@ -102,54 +102,78 @@
                      :message (format "%s: %s" prefix msg)}))))))
 
 (defn ^:private normalize-messages [messages supports-image?]
-  (keep (fn [{:keys [role content] :as msg}]
-          (case role
-            "tool_call" {:type "function_call"
-                         :name (:full-name content)
-                         :call_id (:id content)
-                         :arguments (json/generate-string (or (:arguments content) {}))}
-            "tool_call_output"
-            {:type "function_call_output"
-             :call_id (:id content)
-             :output (llm-util/stringfy-tool-result content)}
-            ;; Replay prior generations as user-role input_image: assistant-role
-            ;; input_image is rejected, and the standalone image_generation_call
-            ;; shape requires :store true (the id 404s otherwise).
-            "image_generation_call" (when (and supports-image? (:base64 content))
-                                      {:role "user"
-                                       :content [{:type "input_image"
-                                                  :image_url (format "data:%s;base64,%s"
-                                                                     (or (:media-type content) "image/png")
-                                                                     (:base64 content))}]})
-            "reason" {:type "reasoning"
-                      :id (:id content)
-                      :summary (if (string/blank? (:text content))
-                                 []
-                                 [{:type "summary_text"
-                                   :text (:text content)}])
-                      :encrypted_content (:external-id content)}
-            (-> msg
-                (dissoc :content-id)
-                (update :content (fn [c]
-                                   (if (string? c)
-                                     c
-                                     (keep #(case (name (:type %))
+  ;; Each history entry maps to one or more provider messages. Switched from
+  ;; `keep` to `mapcat` so a single history role can emit multiple messages
+  ;; (e.g. `tool_call_output` carrying image content emits a
+  ;; `function_call_output` plus a synthetic user-role `input_image`).
+  (mapcat (fn [{:keys [role content] :as msg}]
+            (case role
+              "tool_call" [{:type "function_call"
+                            :name (:full-name content)
+                            :call_id (:id content)
+                            :arguments (json/generate-string (or (:arguments content) {}))}]
 
-                                              "text"
-                                              (assoc % :type (if (= "user" role)
-                                                               "input_text"
-                                                               "output_text"))
+              "tool_call_output"
+              (let [contents (-> content :output :contents)
+                    image-contents (when supports-image?
+                                     (seq (filter #(= :image (:type %)) contents)))]
+                (cond-> [{:type "function_call_output"
+                          :call_id (:id content)
+                          :output (llm-util/stringfy-tool-result content)}]
+                  ;; When the tool returned image content and the model
+                  ;; supports image input, follow the function_call_output
+                  ;; with a synthetic user-role input_image. The Responses
+                  ;; API `function_call_output.output` is text-only, so a
+                  ;; separate user message is the documented way to feed
+                  ;; the bytes back to the model (mirrors the
+                  ;; image_generation_call replay branch below).
+                  image-contents
+                  (conj {:role "user"
+                         :content (mapv (fn [img]
+                                          {:type "input_image"
+                                           :image_url (format "data:%s;base64,%s"
+                                                              (or (:media-type img) "image/png")
+                                                              (:base64 img))})
+                                        image-contents)})))
 
-                                              "image"
-                                              (when supports-image?
-                                                {:type "input_image"
-                                                 :image_url (format "data:%s;base64,%s"
-                                                                    (:media-type %)
-                                                                    (:base64 %))})
+              ;; Replay prior generations as user-role input_image: assistant-role
+              ;; input_image is rejected, and the standalone image_generation_call
+              ;; shape requires :store true (the id 404s otherwise).
+              "image_generation_call" (when (and supports-image? (:base64 content))
+                                        [{:role "user"
+                                          :content [{:type "input_image"
+                                                     :image_url (format "data:%s;base64,%s"
+                                                                        (or (:media-type content) "image/png")
+                                                                        (:base64 content))}]}])
+              "reason" [{:type "reasoning"
+                         :id (:id content)
+                         :summary (if (string/blank? (:text content))
+                                    []
+                                    [{:type "summary_text"
+                                      :text (:text content)}])
+                         :encrypted_content (:external-id content)}]
+              [(-> msg
+                   (dissoc :content-id)
+                   (update :content (fn [c]
+                                      (if (string? c)
+                                        c
+                                        (keep #(case (name (:type %))
 
-                                              %)
-                                           c)))))))
-        messages))
+                                                 "text"
+                                                 (assoc % :type (if (= "user" role)
+                                                                  "input_text"
+                                                                  "output_text"))
+
+                                                 "image"
+                                                 (when supports-image?
+                                                   {:type "input_image"
+                                                    :image_url (format "data:%s;base64,%s"
+                                                                       (:media-type %)
+                                                                       (:base64 %))})
+
+                                                 %)
+                                              c)))))]))
+          messages))
 
 (defn ^:private ->tools [tools web-search image-generation codex?]
   (cond->

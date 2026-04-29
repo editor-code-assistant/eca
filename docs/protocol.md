@@ -793,8 +793,12 @@ interface ChatURLContent {
 }
 
 /**
- * Image content from the assistant, produced by a server-side image
- * generation tool (e.g. OpenAI's `image_generation` Responses-API tool).
+ * Image content from the assistant. Produced either by a server-side
+ * image generation tool (e.g. OpenAI's `image_generation` Responses-API
+ * tool) or by an MCP tool whose result includes an `image` content block
+ * (e.g. an MCP image-generation/edit server). In both cases, ECA emits
+ * one `ChatImageContent` per image so clients can render without
+ * inspecting tool-call outputs.
  *
  * The image bytes are delivered inline as base64 so that web/remote ECA
  * clients (e.g. web.eca.dev) can render without filesystem access.

@@ -151,38 +151,57 @@
                             :details (:details message-content)
                             :arguments-text ""
                             :id (:id message-content)}}]
-    "tool_call_output" [{:role :assistant
-                         :content (assoc-some
-                                   {:type :toolCallRun
-                                    :id (:id message-content)
-                                    :name (:name message-content)
-                                    :server (:server message-content)
-                                    :origin (:origin message-content)
-                                    :arguments (:arguments message-content)}
-                                   :details (:details message-content)
-                                   :summary (:summary message-content))}
-                        {:role :assistant
-                         :content (assoc-some
-                                   {:type :toolCallRunning
-                                    :id (:id message-content)
-                                    :name (:name message-content)
-                                    :server (:server message-content)
-                                    :origin (:origin message-content)
-                                    :arguments (:arguments message-content)}
-                                   :details (:details message-content)
-                                   :summary (:summary message-content))}
-                        {:role :assistant
-                         :content {:type :toolCalled
-                                   :origin (:origin message-content)
-                                   :name (:name message-content)
-                                   :server (:server message-content)
-                                   :arguments (:arguments message-content)
-                                   :total-time-ms (:total-time-ms message-content)
-                                   :summary (:summary message-content)
-                                   :details (:details message-content)
-                                   :error (:error message-content)
-                                   :id (:id message-content)
-                                   :outputs (:contents (:output message-content))}}]
+    ;; Mirror the live path in tool-calls.clj :send-toolCalled: split image
+    ;; outputs out of the toolCalled :outputs (which is text-only per
+    ;; protocol) and re-emit them as standalone ChatImageContent entries so
+    ;; reopened/resumed chats render MCP-produced images at the same point
+    ;; they appeared live.
+    "tool_call_output" (let [contents (:contents (:output message-content))
+                             image? #(and (map? %) (= :image (:type %)))
+                             ;; Only partition when contents is a sequence of content
+                             ;; maps that includes images; otherwise pass through.
+                             image-outputs (when (sequential? contents) (filter image? contents))
+                             text-outputs (if (seq image-outputs)
+                                            (vec (remove image? contents))
+                                            contents)]
+                         (into [{:role :assistant
+                                 :content (assoc-some
+                                           {:type :toolCallRun
+                                            :id (:id message-content)
+                                            :name (:name message-content)
+                                            :server (:server message-content)
+                                            :origin (:origin message-content)
+                                            :arguments (:arguments message-content)}
+                                           :details (:details message-content)
+                                           :summary (:summary message-content))}
+                                {:role :assistant
+                                 :content (assoc-some
+                                           {:type :toolCallRunning
+                                            :id (:id message-content)
+                                            :name (:name message-content)
+                                            :server (:server message-content)
+                                            :origin (:origin message-content)
+                                            :arguments (:arguments message-content)}
+                                           :details (:details message-content)
+                                           :summary (:summary message-content))}
+                                {:role :assistant
+                                 :content {:type :toolCalled
+                                           :origin (:origin message-content)
+                                           :name (:name message-content)
+                                           :server (:server message-content)
+                                           :arguments (:arguments message-content)
+                                           :total-time-ms (:total-time-ms message-content)
+                                           :summary (:summary message-content)
+                                           :details (:details message-content)
+                                           :error (:error message-content)
+                                           :id (:id message-content)
+                                           :outputs text-outputs}}]
+                               (map (fn [img]
+                                      {:role :assistant
+                                       :content {:type :image
+                                                 :media-type (:media-type img)
+                                                 :base64 (:base64 img)}}))
+                               image-outputs))
     "image_generation_call" [{:role :assistant
                               :content {:type :image
                                         :media-type (:media-type message-content)

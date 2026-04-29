@@ -404,3 +404,51 @@
             {:type "web_search_20250305" :name "web_search" :cache_control {:type "ephemeral"}}]
            (add-cache [{:name "tool1"}
                        {:type "web_search_20250305" :name "web_search"}]))))))
+
+(deftest normalize-messages-tool-call-output-image-test
+  (let [tool-output-with-image
+        {:role "tool_call_output"
+         :content {:id "call-1"
+                   :name "create-image"
+                   :output {:contents [{:type :text :text "saved"}
+                                       {:type :image
+                                        :media-type "image/png"
+                                        :base64 "AAAA"}]}}}]
+    (testing "image content + supports-image? true emits a single tool_result with mixed text+image blocks"
+      (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                      [tool-output-with-image] true))]
+        (is (= 1 (count out))
+            "Anthropic carries images in tool_result.content natively, no synthetic user message")
+        (is (match? {:role "user"
+                     :content [{:type "tool_result"
+                                :tool_use_id "call-1"
+                                :content [{:type "text"
+                                           :text #(string/includes? % "[Image: image/png]")}
+                                          {:type "image"
+                                           :source {:type "base64"
+                                                    :media_type "image/png"
+                                                    :data "AAAA"}}]}]}
+                    (first out)))))
+
+    (testing "image content + supports-image? false falls back to legacy text-only tool_result"
+      (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                      [tool-output-with-image] false))]
+        (is (= 1 (count out)))
+        (is (match? {:role "user"
+                     :content [{:type "tool_result"
+                                :tool_use_id "call-1"
+                                :content string?}]}
+                    (first out)))))
+
+    (testing "no image content emits the legacy text-only tool_result"
+      (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                      [{:role "tool_call_output"
+                        :content {:id "call-2"
+                                  :output {:contents [{:type :text :text "ok"}]}}}]
+                      true))]
+        (is (= 1 (count out)))
+        (is (match? {:role "user"
+                     :content [{:type "tool_result"
+                                :tool_use_id "call-2"
+                                :content "ok\n"}]}
+                    (first out)))))))

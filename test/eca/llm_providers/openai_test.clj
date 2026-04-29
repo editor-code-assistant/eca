@@ -1,5 +1,6 @@
 (ns eca.llm-providers.openai-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-providers.openai :as llm-providers.openai]
@@ -338,6 +339,48 @@
                       :arguments {"command" "ls"}}]
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
+
+(deftest normalize-messages-tool-call-output-image-test
+  (let [tool-output-with-image
+        {:role "tool_call_output"
+         :content {:id "call-1"
+                   :name "create-image"
+                   :output {:contents [{:type :text :text "saved"}
+                                       {:type :image
+                                        :media-type "image/png"
+                                        :base64 "AAAA"}]}}}]
+    (testing "image content + supports-image? true emits function_call_output + user input_image"
+      (let [out (vec (#'llm-providers.openai/normalize-messages
+                      [tool-output-with-image] true))]
+        (is (= 2 (count out))
+            "two messages: function_call_output then user input_image")
+        (is (match? {:type "function_call_output"
+                     :call_id "call-1"
+                     :output #(string/includes? % "[Image: image/png]")}
+                    (first out)))
+        (is (match? {:role "user"
+                     :content [{:type "input_image"
+                                :image_url "data:image/png;base64,AAAA"}]}
+                    (second out)))))
+
+    (testing "image content + supports-image? false emits only text function_call_output"
+      (let [out (vec (#'llm-providers.openai/normalize-messages
+                      [tool-output-with-image] false))]
+        (is (= 1 (count out)))
+        (is (match? {:type "function_call_output" :call_id "call-1"}
+                    (first out)))))
+
+    (testing "no image content emits only text function_call_output"
+      (let [out (vec (#'llm-providers.openai/normalize-messages
+                      [{:role "tool_call_output"
+                        :content {:id "call-2"
+                                  :output {:contents [{:type :text :text "ok"}]}}}]
+                      true))]
+        (is (= 1 (count out)))
+        (is (match? {:type "function_call_output"
+                     :call_id "call-2"
+                     :output "ok\n"}
+                    (first out)))))))
 
 (deftest ->tools-image-generation-test
   (testing "image_generation tool is appended when flag is on and not on codex path"

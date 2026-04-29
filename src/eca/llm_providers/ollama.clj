@@ -107,6 +107,10 @@
                                                          :function (-> content
                                                                        (assoc :name (:full-name content))
                                                                        (dissoc :full-name))}]}
+            ;; NOTE: Image content from MCP tool results is flattened to
+            ;; placeholder text via `stringfy-tool-result`. Image round-trip
+            ;; is implemented for openai-responses and anthropic; see those
+            ;; providers' `tool_call_output` branches for the pattern.
             "tool_call_output" {:role "tool" :content (llm-util/stringfy-tool-result content)}
             "reason" {:role "assistant" :content (:text content)}
             {:role (:role msg)

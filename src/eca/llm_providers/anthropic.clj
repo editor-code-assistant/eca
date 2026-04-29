@@ -183,10 +183,29 @@
                                     :input (or (:arguments content) {})}]}
 
             "tool_call_output"
-            {:role "user"
-             :content [{:type "tool_result"
-                        :tool_use_id (:id content)
-                        :content (llm-util/stringfy-tool-result content)}]}
+            ;; Anthropic's tool_result `content` field accepts a list of
+            ;; mixed text + image blocks natively, so when the tool returned
+            ;; image content and the model supports image input, emit a
+            ;; single tool_result whose content is the textual portion plus
+            ;; one image block per image. Falls back to the legacy text-only
+            ;; string shape when there are no images or the model is not
+            ;; multimodal (preserves prior behavior).
+            (let [contents (-> content :output :contents)
+                  image-contents (when supports-image?
+                                   (seq (filter #(= :image (:type %)) contents)))
+                  text (llm-util/stringfy-tool-result content)]
+              {:role "user"
+               :content [{:type "tool_result"
+                          :tool_use_id (:id content)
+                          :content (if image-contents
+                                     (into [{:type "text" :text text}]
+                                           (map (fn [img]
+                                                  {:type "image"
+                                                   :source {:type "base64"
+                                                            :media_type (or (:media-type img) "image/png")
+                                                            :data (:base64 img)}}))
+                                           image-contents)
+                                     text)}]})
 
             ;; OpenAI-emitted image_generation_call history entries are
             ;; replayed for Anthropic as user-role image blocks (Anthropic

@@ -174,6 +174,15 @@
                                   (:external-id content)
                                   (assoc-in [:extra_content :google :thought_signature]
                                             (:external-id content)))]})
+    ;; NOTE: Image content from MCP tool results is currently flattened to
+    ;; the placeholder text `[Image: <media-type>]` via `stringfy-tool-result`,
+    ;; so multimodal models on the chat-completions API will not see prior
+    ;; images on follow-up turns. Image round-trip is implemented for
+    ;; `openai-responses` (see eca.llm-providers.openai/normalize-messages
+    ;; `tool_call_output` branch) and `anthropic`; replicating it here would
+    ;; require emitting a `tool` message followed by a synthetic `user`
+    ;; message with `image_url` content blocks, since the chat-completions
+    ;; `tool` role does not accept image content natively.
     "tool_call_output" {:role "tool"
                         :tool_call_id (or (:llm-tool-call-id content) (:id content))
                         :content (llm-util/stringfy-tool-result content)}
