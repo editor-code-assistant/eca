@@ -226,10 +226,16 @@
       :else nil)))
 
 (defn ^:private tool->internal
-  "Adapt plumcp tool map to ECA's internal tool shape."
+  "Adapt plumcp tool map to ECA's internal tool shape.
+
+  Per the MCP spec, tool `description` is optional; some servers omit it. We
+  normalize a missing/empty description here so providers that require a
+  non-null string (e.g. Anthropic) don't reject the request."
   [tool]
   {:name (:name tool)
-   :description (:description tool)
+   :description (or (not-empty (:description tool))
+                    (not-empty (:title tool))
+                    (str "MCP tool: " (:name tool)))
    :parameters (:inputSchema tool)})
 
 (defn ^:private format-jsonrpc-error

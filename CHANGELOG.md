@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: MCP tools without a `description` (which the MCP spec marks optional) no longer break Anthropic chat requests with `tools.<n>.custom.description: Input should be a valid string`. Missing/empty descriptions now fall back to the tool's `title`, then to a synthesized `MCP tool: <name>` string at the MCP boundary so all providers receive a non-null string.
+
 ## 0.131.0
 
 - Add `${plugin:root}` dynamic interpolation for plugin-provided config, hooks, commands, and rules.

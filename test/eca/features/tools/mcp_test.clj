@@ -428,3 +428,40 @@
       (is (= 2 @refresh-count*) "should have tried token refresh on attempts 1 and 2")
       (is (= :failed (get-in @db* [:mcp-clients "fail-server" :status]))
           "server should be in failed state after exhausting retries"))))
+
+(deftest tool->internal-description-fallback-test
+  (testing "uses :description when present"
+    (is (= "Generate an image"
+           (:description (#'mcp/tool->internal
+                          {:name "create-image"
+                           :description "Generate an image"
+                           :inputSchema {}})))))
+
+  (testing "falls back to :title when :description is missing"
+    (is (= "Create Image"
+           (:description (#'mcp/tool->internal
+                          {:name "create-image"
+                           :title "Create Image"
+                           :inputSchema {}})))))
+
+  (testing "falls back to :title when :description is empty string"
+    (is (= "Create Image"
+           (:description (#'mcp/tool->internal
+                          {:name "create-image"
+                           :description ""
+                           :title "Create Image"
+                           :inputSchema {}})))))
+
+  (testing "synthesizes from :name when both :description and :title are missing"
+    (is (= "MCP tool: create-image"
+           (:description (#'mcp/tool->internal
+                          {:name "create-image"
+                           :inputSchema {}})))))
+
+  (testing "synthesizes from :name when both :description and :title are empty"
+    (is (= "MCP tool: edit-image"
+           (:description (#'mcp/tool->internal
+                          {:name "edit-image"
+                           :description ""
+                           :title ""
+                           :inputSchema {}}))))))
