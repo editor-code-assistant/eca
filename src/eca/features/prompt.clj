@@ -202,7 +202,7 @@
                            (remove #(= :global (:scope %)))
                            (map :content))
         path-scoped-section (when (and fetch-rule-available? (seq path-scoped-rules))
-                              ["<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per target path.\">"
+                              ["<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat.\">"
                                (path-scoped-rule-catalog path-scoped-rules)
                                "</path-scoped-rules>"])
         has-static-rules? (seq rendered-static-rules)]

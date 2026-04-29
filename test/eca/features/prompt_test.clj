@@ -37,7 +37,7 @@
       (is (string/includes? static "<project-rules description=\"Rules loaded from the current workspace. Prefer these when they conflict with broader global rules.\">"))
       (is (string/includes? static "<rule name=\"rule1\">First rule</rule>"))
       (is (string/includes? static "<rule name=\"rule2\">Second rule</rule>"))
-      (is (string/includes? static "<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per target path.\">"))
+      (is (string/includes? static "<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat.\">"))
       (is (string/includes? static "<global-path-scoped-rules description=\"Path-scoped rules loaded outside the current workspace.\">"))
       (is (string/includes? static "<workspace-path-scoped-rules root=\"/workspace/a\">"))
       (is (string/includes? static "<rule id=\"/workspace/a/.eca/rules/format.md\" name=\"format.md\" scope=\"project\" workspace-root=\"/workspace/a\" paths=\"**/*.clj\" enforce=\"modify\"/>"))
@@ -93,7 +93,7 @@
                               :workspace-root "/workspace/a"
                               :paths ["**/*.clj" "**/*.cljs"]}]
           {:keys [static]} (build-instructions [] [] path-scoped-rules [] (delay "TREE") "code" {} nil [{:full-name "eca__fetch_rule"}] (h/db))]
-      (is (string/includes? static "<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per target path.\">"))
+      (is (string/includes? static "<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat.\">"))
       (is (string/includes? static "<workspace-path-scoped-rules root=\"/workspace/a\">"))
       (is (string/includes? static "<rule id=\"/workspace/a/.eca/rules/format.md\" name=\"format.md\" scope=\"project\" workspace-root=\"/workspace/a\" paths=\"**/*.clj,**/*.cljs\" enforce=\"modify\"/>"))
       (is (not (string/includes? static "<global-rules")))

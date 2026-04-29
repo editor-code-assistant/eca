@@ -10,6 +10,7 @@
 - Fix inline completion crash when renewing auth tokens before completion requests. #437
 - Bugfix: avoid `Divide by zero` crash in chat auto-compact when models.dev reports `0` for a model's context/output limits (e.g. `openai/chatgpt-image-latest`); such limits are now normalized to `nil` and `auto-compact?` skips models without a known positive context window.
 - Bugfix: image edit follow-up turns no longer fail on the OpenAI Responses API when prior generations are replayed; generated images are now persisted under a dedicated `image_generation_call` history role and replayed as a user-role `input_image` data URL across providers.
+- Bugfix: path-scoped rule enforcement now treats a fetched rule as loaded for the current chat, so matching files do not require fetching the same rule again.
 
 - Support regex patterns in markdown agent tool entries (e.g. `eca__shell_command(npm run .*)`) for fine-grained tool approval, currently limited to `eca__shell_command`.
 
