@@ -124,6 +124,20 @@ Subagents can be configured in config or markdown and support/require these fiel
     You should run sleep 1 and return "I slept 1 second"
     ```
     
+    !!! info "Pattern-based tool approval in markdown"
+
+        You can append a regex pattern in parentheses after a tool name to restrict approval to calls matching the pattern. Currently only `eca__shell_command` supports this — the pattern is matched against its `command` argument. Multiple entries for the same tool are automatically merged.
+
+        ```yaml
+        tools:
+          allow:
+            - eca__shell_command(npm run .*)
+            - eca__shell_command(git diff(\s+.*)?)
+            - eca__read_file
+        ```
+
+        This is equivalent to `argsMatchers` in JSON config. Patterns on tools other than `eca__shell_command` are currently ignored.
+
     !!! info "Tool call approval"
         
         For more complex tool call approval, use toolCall via config

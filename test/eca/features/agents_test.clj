@@ -84,6 +84,29 @@
                                          :deny {"foo" {}}}}}
                   config))))
 
+  (testing "tool entries with regex patterns"
+    (let [parsed {:tools {"byDefault" "ask"
+                          "allow" ["eca__shell_command(npm run .*)"
+                                   "eca__shell_command(git commit .*)"
+                                   "eca__read_file"]}}
+          config (#'agents/md->agent-config parsed)]
+      (is (match? {:toolCall {:approval {:byDefault "ask"
+                                         :allow {"eca__shell_command" {:argsMatchers {"command" ["npm run .*" "git commit .*"]}}
+                                                 "eca__read_file" {}}}}}
+                  config))))
+
+  (testing "tool entry with pattern for unknown tool arg (no tool-arg-name entry)"
+    (let [parsed {:tools {"allow" ["eca__read_file(/tmp/.*)"]}}
+          config (#'agents/md->agent-config parsed)]
+      (is (match? {:toolCall {:approval {:allow {"eca__read_file" {}}}}}
+                  config))))
+
+  (testing "single tool with pattern"
+    (let [parsed {:tools {"allow" ["eca__shell_command(git diff(\\s+.*)?)"]}}
+          config (#'agents/md->agent-config parsed)]
+      (is (match? {:toolCall {:approval {:allow {"eca__shell_command" {:argsMatchers {"command" ["git diff(\\s+.*)?"]}}}}}}
+                  config))))
+
   (testing "minimal agent with only description and body"
     (let [parsed (shared/parse-md "---\ndescription: Simple agent\nmode: subagent\n---\n\nDo stuff")
           config (#'agents/md->agent-config parsed)]

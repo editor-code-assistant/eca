@@ -14,10 +14,39 @@
 
 (def ^:private logger-tag "[AGENTS-MD]")
 
+(def ^:private tool-arg-name
+  "Maps tool names to the argument name used for regex pattern matching in argsMatchers.
+   Only tools that support pattern-based approval need an entry here."
+  {"eca__shell_command" "command"})
+
+(defn ^:private parse-tool-entry
+  "Parses a tool entry string into [tool-name config].
+   Plain names like 'eca__read_file' -> ['eca__read_file' {}]
+   Pattern entries like 'eca__shell_command(npm run .*)' -> ['eca__shell_command' {:argsMatchers {'command' ['npm run .*']}}]"
+  [entry]
+  (let [s (str entry)]
+    (if-let [[_ tool-name pattern] (re-matches #"(.+?)\((.+)\)" s)]
+      (if-let [arg-name (get tool-arg-name tool-name)]
+        [tool-name {:argsMatchers {arg-name [pattern]}}]
+        (do (logger/warn logger-tag (format "Tool '%s' has pattern '%s' but no arg-name mapping in tool-arg-name; pattern will be ignored" tool-name pattern))
+            [tool-name {}]))
+      [s {}])))
+
 (defn ^:private tools-list->approval-map
-  [tool-names]
-  (when (seq tool-names)
-    (into {} (map (fn [name] [(str name) {}]) tool-names))))
+  [tool-entries]
+  (when (seq tool-entries)
+    (reduce
+     (fn [acc entry]
+       (let [[tool-name config] (parse-tool-entry entry)]
+         (if (contains? acc tool-name)
+           ;; Merge argsMatchers patterns for repeated tool entries
+           (update-in acc [tool-name :argsMatchers]
+                      (fn [existing new-matchers]
+                        (merge-with into existing new-matchers))
+                      (:argsMatchers config))
+           (assoc acc tool-name config))))
+     {}
+     tool-entries)))
 
 (defn ^:private md->agent-config
   [{:keys [description mode model steps tools body inherit]}]
