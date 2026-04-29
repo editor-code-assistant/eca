@@ -4212,6 +4212,7 @@
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">#</a></h1>
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">#</a></h2>
 <ul>
+<li>MCP tools that return image content blocks (e.g. an MCP image-generation/edit server) now render those images in the chat UI as <code>ChatImageContent</code> and replay them back to the LLM as image inputs on follow-up turns when the model supports vision. Implemented for <code>openai-responses</code> (synthetic user-role <code>input_image</code> after the <code>function_call_output</code>) and <code>anthropic</code> (mixed text + image blocks inside <code>tool_result.content</code>). <code>openai-chat</code> and <code>ollama</code> continue to receive a text placeholder until a parallel pattern is implemented there.</li>
 <li>Bugfix: MCP tools without a <code>description</code> (which the MCP spec marks optional) no longer break Anthropic chat requests with <code>tools.&lt;n&gt;.custom.description: Input should be a valid string</code>. Missing/empty descriptions now fall back to the tool's <code>title</code>, then to a synthesized <code>MCP tool: &lt;name&gt;</code> string at the MCP boundary so all providers receive a non-null string.</li>
 </ul>
 <h2 id="01310">0.131.0<a class="headerlink" href="#01310" title="Permanent link">#</a></h2>
@@ -5918,7 +5919,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 29, 2026 15:50:15 UTC">April 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 29, 2026 18:18:40 UTC">April 29, 2026</span>
   </span>
 
     
