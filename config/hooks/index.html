@@ -1462,7 +1462,7 @@
 </table>
 <h2 id="hook-options">Hook Options<a class="headerlink" href="#hook-options" title="Permanent link">#</a></h2>
 <ul>
-<li><strong><code>matcher</code></strong>: Regex for <code>server__tool-name</code>, only for <code>*ToolCall</code> hooks.</li>
+<li><strong><code>matcher</code></strong>: For <code>*ToolCall</code> hooks. String = legacy regex for <code>server__tool-name</code>. Object = tool selector map with optional <code>argsMatchers</code>. Selectors follow tool approval: full tool name (<code>eca__write_file</code>), native ECA tool name (<code>write_file</code>), or server name. In <code>argsMatchers</code>, keys are tool argument names and values are arrays of regex alternatives for that argument. All listed arguments must match; multiple regexes for one argument are alternatives.</li>
 <li><strong><code>visible</code></strong>: Show hook execution in chat (default: <code>true</code>).</li>
 <li><strong><code>runOnError</code></strong>: For <code>postToolCall</code>, run even if tool errored (default: <code>false</code>).</li>
 </ul>
@@ -1496,7 +1496,7 @@
 <p>Plain text output (non-JSON) is treated as <code>additionalContext</code>.</p>
 <p>To reject a tool call, either output <code>{"approval": "deny"}</code> or exit with code <code>2</code>.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:8"><input checked="checked" id="notify-after-prompt" name="__tabbed_1" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_1" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_1" type="radio" /><input id="rewrite-prompt" name="__tabbed_1" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_1" type="radio" /><input id="modify-tool-arguments" name="__tabbed_1" type="radio" /><input id="notify-when-subagent-finishes" name="__tabbed_1" type="radio" /><input id="use-external-script-file" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="notify-when-subagent-finishes">Notify when subagent finishes</label><label for="use-external-script-file">Use external script file</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:9"><input checked="checked" id="notify-after-prompt" name="__tabbed_1" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_1" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_1" type="radio" /><input id="rewrite-prompt" name="__tabbed_1" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_1" type="radio" /><input id="modify-tool-arguments" name="__tabbed_1" type="radio" /><input id="match-tool-arguments" name="__tabbed_1" type="radio" /><input id="notify-when-subagent-finishes" name="__tabbed_1" type="radio" /><input id="use-external-script-file" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="match-tool-arguments">Match tool arguments</label><label for="notify-when-subagent-finishes">Notify when subagent finishes</label><label for="use-external-script-file">Use external script file</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1595,6 +1595,24 @@ user question".</p>
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;check-allium&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;postToolCall&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;eca__write_file&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="s2">&quot;argsMatchers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*\\.allium$&quot;</span><span class="p">]</span>
+<span class="w">          </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;file&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;hooks/check-allium.sh&quot;</span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;subagent-done&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;subagentPostRequest&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;visible&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
@@ -1640,7 +1658,7 @@ user question".</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 29, 2026 18:18:15 UTC">April 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 30, 2026 16:22:57 UTC">April 30, 2026</span>
   </span>
 
     
