@@ -2,6 +2,8 @@
   (:require
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
+   [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -70,7 +72,7 @@
         (f.hooks/trigger-if-matches! :preRequest {:foo "1"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
-      (is (= "test" (get-in @result* [:parsed :additionalContext])))))
+      (is (= "test" (get-in @result* [:parsed "additionalContext"])))))
 
   (testing "invalid JSON falls back to plain text"
     (h/reset-components!)
@@ -156,10 +158,53 @@
                                      {:server "eca" :tool-name "read"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
-      (is (= "deny" (get-in @result* [:parsed :approval])))
-      (is (= "Too large" (get-in @result* [:parsed :additionalContext]))))))
+      (is (= "deny" (get-in @result* [:parsed "approval"])))
+      (is (= "Too large" (get-in @result* [:parsed "additionalContext"]))))))
 
 ;;; Lifecycle hooks tests
+
+(deftest hook-action-notification-test
+  (testing "hook output display reads string-keyed parsed JSON fields"
+    (let [sent* (atom [])]
+      (with-redefs [lifecycle/send-content! (fn [_ role content]
+                                              (swap! sent* conj {:role role :content content}))]
+        (lifecycle/notify-after-hook-action!
+         {}
+         {:id "action-1"
+          :name "my-hook"
+          :type "shell"
+          :visible? true
+          :exit 0
+          :parsed {"systemMessage" "Hook done"
+                   "replacedPrompt" "new prompt"
+                   "additionalContext" "extra context"}
+          :raw-output nil
+          :raw-error nil}))
+      (is (= [{:role :system
+               :content {:type :hookActionFinished
+                         :action-type "shell"
+                         :id "action-1"
+                         :name "my-hook"
+                         :status 0
+                         :output "Hook done\nReplacedPrompt: \"new prompt\"\nAdditionalContext: extra context"
+                         :error nil}}]
+             @sent*))))
+
+  (testing "suppressOutput string key hides hook output"
+    (let [sent* (atom [])]
+      (with-redefs [lifecycle/send-content! (fn [_ role content]
+                                              (swap! sent* conj {:role role :content content}))]
+        (lifecycle/notify-after-hook-action!
+         {}
+         {:id "action-1"
+          :name "my-hook"
+          :type "shell"
+          :visible? true
+          :exit 0
+          :parsed {"suppressOutput" true}
+          :raw-output nil
+          :raw-error nil}))
+      (is (empty? @sent*)))))
 
 (deftest session-hooks-test
   (testing "sessionStart has base fields only"
@@ -302,3 +347,294 @@
                                      {:prompt "task"}
                                      {} (h/db) (h/config)))
       (is (false? @ran?*)))))
+
+;;; Matcher map tests (map form with argsMatchers)
+
+(deftest matcher-map-normalization-test
+  (testing "JSON-shaped matcher config works after normalization"
+    (h/reset-components!)
+    ;; This intentionally targets config normalization: hook matcher selector keys
+    ;; must stay strings, otherwise selectors containing / lose their namespace via `name`.
+    (h/config! (#'config/normalize-fields
+                @#'config/normalization-rules
+                {"hooks" {"spec-check" {"type" "preToolCall"
+                                        "matcher" {"vendor/my-mcp__write_file" {"argsMatchers" {"path" [".*\\.allium$"]}}}
+                                        "actions" [{"type" "shell" "shell" "echo ok"}]}}}))
+    (let [result* (atom nil)]
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "vendor/my-mcp" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/bar/spec.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name :spec-check} @result*)))))
+
+(deftest matcher-map-test
+  (testing "map matcher with argsMatchers filters by tool argument"
+    (h/reset-components!)
+    (h/config! {:hooks {"spec-check" {:type "preToolCall"
+                                      ;; Simulates config after normalize-fields: matcher and argsMatchers keys may be keywords.
+                                      :matcher {:eca__write_file {:argsMatchers {:path [".*\\.allium$"]}}}
+                                      :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; Should NOT match — wrong extension, with real provider-style string keys.
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/bar/spec.md"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))
+
+      ;; Should NOT match — required arg is missing.
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"source" "/foo/bar/spec.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))
+
+      ;; Should match — .allium extension, with real provider-style string keys.
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/bar/spec.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "spec-check"} @result*))))
+
+  (testing "map matcher uses toolApproval-like selectors, not regex"
+    (h/reset-components!)
+    (h/config! {:hooks {"native-write" {:type "preToolCall"
+                                         :matcher {"write_file" {}}
+                                         :actions [{:type "shell" :shell "echo ok"}]}
+                       "server-hook" {:type "preToolCall"
+                                      :matcher {"my-mcp" {}}
+                                      :actions [{:type "shell" :shell "echo ok"}]}
+                       "regex-looking" {:type "preToolCall"
+                                        :matcher {".*write_file" {}}
+                                        :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [native-tools [{:origin :native :name "write_file"}]
+          result* (atom nil)]
+      ;; Native short selector matches only the ECA native tool.
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file" :tool-input {}}
+                                     {:on-after-action (set-action-payload result*)
+                                      :native-tools native-tools}
+                                     (h/db) (h/config)))
+      (is (match? {:name "native-write"} @result*))
+
+      ;; The same short selector must not match an MCP tool with the same name.
+      (reset! result* nil)
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "my-mcp" :tool-name "write_file" :tool-input {}}
+                                     {:on-after-action (set-action-payload result*)
+                                      :native-tools native-tools}
+                                     (h/db) (h/config)))
+      (is (match? {:name "server-hook"} @result*))
+
+      ;; Map keys are selectors, not regexes.
+      (reset! result* nil)
+      (h/reset-components!)
+      (h/config! {:hooks {"regex-looking" {:type "preToolCall"
+                                           :matcher {".*write_file" {}}
+                                           :actions [{:type "shell" :shell "echo ok"}]}}})
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file" :tool-input {}}
+                                     {:on-after-action (set-action-payload result*)
+                                      :native-tools native-tools}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))))
+
+  (testing "postToolCall map matcher supports native short selector"
+    (h/reset-components!)
+    (h/config! {:hooks {"native-write" {:type "postToolCall"
+                                        :matcher {"write_file" {}}
+                                        :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :postToolCall
+                                     {:server "eca" :tool-name "write_file" :tool-input {}}
+                                     {:on-after-action (set-action-payload result*)
+                                      :native-tools [{:origin :native :name "write_file"}]}
+                                     (h/db) (h/config)))
+      (is (match? {:name "native-write"} @result*))))
+
+  (testing "invalid regex matchers are skipped"
+    (h/reset-components!)
+    (h/config! {:hooks {"bad-legacy" {:type "preToolCall"
+                                      :matcher "["
+                                      :actions [{:type "shell" :shell "echo ok"}]}
+                       "bad-args" {:type "preToolCall"
+                                   :matcher {"eca__write_file" {:argsMatchers {"path" ["["]}}}
+                                   :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/spec.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))))
+
+  (testing "map matcher with empty map value matches without arg filter"
+    (h/reset-components!)
+    (h/config! {:hooks {"spec-check" {:type "preToolCall"
+                                      :matcher {"eca__write_file" {}}
+                                      :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; Should match — empty map = no arg filtering
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/any/path.txt"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "spec-check"} @result*))))
+
+  (testing "map matcher with multiple tools — each with different argsMatchers"
+    (h/reset-components!)
+    (h/config! {:hooks {"spec-check" {:type "postToolCall"
+                                      :matcher {"eca__write_file" {:argsMatchers {"path" [".*\\.allium$"]}}
+                                                "eca__edit_file" {:argsMatchers {"path" [".*\\.allium$"]}}
+                                                "eca__move_file" {}}
+                                      :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; write_file with .allium → match
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :postToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/spec.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "spec-check"} @result*))
+
+      ;; write_file with .txt → no match (argsMatchers filters it out)
+      (reset! result* nil)
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :postToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/spec.txt"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))
+
+      ;; move_file with any path → match (empty map = no filter)
+      (reset! result* nil)
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :postToolCall
+                                     {:server "eca" :tool-name "move_file"
+                                      :tool-input {"source" "/foo.txt" "destination" "/bar.txt"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "spec-check"} @result*))))
+
+  (testing "map matcher does not match when tool name not in map"
+    (h/reset-components!)
+    (h/config! {:hooks {"spec-check" {:type "preToolCall"
+                                      :matcher {"eca__write_file" {:argsMatchers {"path" [".*\\.allium$"]}}}
+                                      :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; read_file is NOT in matcher map
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "read_file"
+                                      :tool-input {:path "/foo/spec.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))))
+
+  (testing "string matcher still works (backward compatibility)"
+    (h/reset-components!)
+    (h/config! {:hooks {"my-hook" {:type "preToolCall"
+                                   :matcher "eca__write_file|eca__edit_file"
+                                   :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; Should match
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {:path "/any"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "my-hook"} @result*))))
+
+  (testing "nil matcher matches all (backward compatibility)"
+    (h/reset-components!)
+    (h/config! {:hooks {"my-hook" {:type "preToolCall"
+                                   :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "anything"
+                                      :tool-input {:path "/any"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "my-hook"} @result*))))
+
+  (testing "argsMatchers with multiple patterns — OR within arg"
+    (h/reset-components!)
+    (h/config! {:hooks {"my-hook" {:type "preToolCall"
+                                   :matcher {"eca__write_file" {:argsMatchers {"path" [".*\\.allium$" ".*\\.spec$"]}}}
+                                   :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; .allium → match
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/bar.allium"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "my-hook"} @result*))
+
+      ;; .spec → match
+      (reset! result* nil)
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/bar.spec"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "my-hook"} @result*))
+
+      ;; .txt → no match
+      (reset! result* nil)
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/foo/bar.txt"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*))))
+
+  (testing "argsMatchers with multiple args — AND across args"
+    (h/reset-components!)
+    (h/config! {:hooks {"my-hook" {:type "preToolCall"
+                                   :matcher {"eca__write_file" {:argsMatchers {"path" [".*\\.allium$"]
+                                                                              "original_content" [".*foo.*"]}}}
+                                   :actions [{:type "shell" :shell "echo ok"}]}}})
+    (let [result* (atom nil)]
+      ;; Both args match → match
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/bar.allium"
+                                                   "original_content" "foo bar"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (match? {:name "my-hook"} @result*))
+
+      ;; Only path matches, original_content doesn't → no match
+      (reset! result* nil)
+      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (f.hooks/trigger-if-matches! :preToolCall
+                                     {:server "eca" :tool-name "write_file"
+                                      :tool-input {"path" "/bar.allium"
+                                                   "original_content" "no match here"}}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (nil? @result*)))))

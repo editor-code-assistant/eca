@@ -38,7 +38,7 @@
 
 (defn- format-hook-output
   "Format hook output for display, showing parsed JSON fields or raw output."
-  [{:keys [systemMessage replacedPrompt additionalContext] :as parsed} raw-output]
+  [{:strs [systemMessage replacedPrompt additionalContext] :as parsed} raw-output]
   (if parsed
     (cond-> (or systemMessage "Hook executed")
       replacedPrompt  (str "\nReplacedPrompt: " (pr-str replacedPrompt))
@@ -54,7 +54,7 @@
                     :id id})))
 
 (defn notify-after-hook-action! [chat-ctx {:keys [id name parsed raw-output raw-error exit type visible?]}]
-  (when (and visible? (not (:suppressOutput parsed)))
+  (when (and visible? (not (get parsed "suppressOutput")))
     (send-content! chat-ctx :system
                    {:type :hookActionFinished
                     :action-type type

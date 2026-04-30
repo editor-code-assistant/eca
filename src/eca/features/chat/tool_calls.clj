@@ -65,7 +65,9 @@
   "Run postToolCall hooks and append any additionalContext to the tool output."
   [db* chat-ctx tool-call-id event-data]
   (let [tool-call-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)
-        chat-id (:chat-id chat-ctx)]
+        chat-id (:chat-id chat-ctx)
+        native-tools (filter #(= :native (:origin %))
+                             (f.tools/all-tools chat-id (:agent chat-ctx) @db* (:config chat-ctx)))]
     (f.hooks/trigger-if-matches!
      :postToolCall
      (merge (f.hooks/chat-hook-data @db* chat-id (:agent chat-ctx))
@@ -79,13 +81,14 @@
                          ;; Always notify UI
                          (lifecycle/notify-after-hook-action! chat-ctx result)
                          ;; If hook provided additionalContext, append as XML to the tool output
-                         (when-let [ac (:additionalContext parsed)]
+                         (when-let [ac (get parsed "additionalContext")]
                            (append-post-tool-additional-context!
                             (:db* chat-ctx)
                             (:chat-id chat-ctx)
                             tool-call-id
                             name
-                            ac)))}
+                            ac)))
+      :native-tools native-tools}
      @db*
      (:config chat-ctx))))
 
@@ -524,17 +527,17 @@
            :hook-rejection-reason nil, :hook-continue true, :hook-stop-reason nil}"
   [acc result]
   (let [parsed (:parsed result)
-        hook-approval (:approval parsed)
+        hook-approval (get parsed "approval")
         exit-code-2? (= f.hooks/hook-rejection-exit-code (:exit result))]
     (cond-> (update acc :hook-results conj result)
       ;; Handle rejection (exit code 2 or explicit deny)
       (or exit-code-2? (= "deny" hook-approval))
       (merge {:hook-rejected? true
-              :hook-rejection-reason (or (:additionalContext parsed)
+              :hook-rejection-reason (or (get parsed "additionalContext")
                                          (:raw-error result)
                                          "Tool call rejected by hook")
-              :hook-continue (get parsed :continue true)
-              :hook-stop-reason (:stopReason parsed)})
+              :hook-continue (get parsed "continue" true)
+              :hook-stop-reason (get parsed "stopReason")})
 
       ;; Handle approval override (allow/ask) when not exit-code-2
       (and hook-approval (not exit-code-2?))
@@ -562,6 +565,7 @@
         name (:name tool)
         server (:server tool)
         server-name (:name server)
+        native-tools (filter #(= :native (:origin %)) all-tools)
 
         ;; 1. Determine approval (trust promotion handled inside f.tools/approval)
         approval (f.tools/approval all-tools tool arguments db config agent-name {:trust trust})
@@ -596,14 +600,15 @@
            {:on-before-action on-before-hook-action
             :on-after-action (fn [result]
                                (on-after-hook-action result)
-                               (swap! hook-state* process-pre-tool-call-hook-result result))}
+                               (swap! hook-state* process-pre-tool-call-hook-result result))
+            :native-tools native-tools}
            db
            config)
 
         ;; 3. Merge all updatedInput from hooks
         {:keys [hook-results approval-override hook-rejected?
                 hook-rejection-reason hook-continue hook-stop-reason]} @hook-state*
-        updated-inputs (keep #(get-in % [:parsed :updatedInput]) hook-results)
+        updated-inputs (keep #(get-in % [:parsed "updatedInput"]) hook-results)
         final-arguments (if (not-empty updated-inputs)
                           (reduce merge arguments updated-inputs)
                           arguments)

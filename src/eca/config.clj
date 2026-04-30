@@ -452,6 +452,8 @@
     [:providers :ANY :models]
     [:providers :ANY :models :ANY :extraHeaders]
     [:providers :ANY :models :ANY :variants]
+    [:hooks :ANY :matcher]
+    [:hooks :ANY :matcher :ANY :argsMatchers]
     [:toolCall :approval :allow]
     [:toolCall :approval :allow :ANY :argsMatchers]
     [:toolCall :approval :ask]

@@ -18,7 +18,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -43,7 +43,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -66,7 +66,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -91,7 +91,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
@@ -104,7 +104,7 @@
                                                   (when (= event :preToolCall)
                                                     (swap! hook-call-count inc)
                                                     (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:approval "ask"}
+                                                      (on-after {:parsed {"approval" "ask"}
                                                                  :exit 0}))))]
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (= 1 @hook-call-count))
@@ -122,7 +122,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
@@ -133,7 +133,7 @@
                     f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:additionalContext "Hook rejected"}
+                                                      (on-after {:parsed {"additionalContext" "Hook rejected"}
                                                                  :exit 2
                                                                  :raw-error "Command failed"}))))]
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
@@ -155,7 +155,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -182,7 +182,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -204,7 +204,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
@@ -229,7 +229,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
@@ -240,7 +240,7 @@
                     f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:additionalContext "Hook rejected"}
+                                                      (on-after {:parsed {"additionalContext" "Hook rejected"}
                                                                  :exit 2
                                                                  :raw-error "Command failed"}))))]
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
@@ -254,10 +254,10 @@
     (h/reset-components!)
     (let [tool-call {:id "call-1"
                      :full-name "eca__test_tool"
-                     :arguments {:foo "bar"}}
+                     :arguments {"foo" "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config! {:hooks {"hook1" {:event   "preToolCall"
@@ -268,11 +268,11 @@
                     f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {:updatedInput {:baz "qux"}}
+                                                      (on-after {:parsed {"updatedInput" {"baz" "qux"}}
                                                                  :exit 0}))))]
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
-                       :arguments {:foo "bar" :baz "qux"}
+                       :arguments {"foo" "bar" "baz" "qux"}
                        :approval-override nil
                        :hook-rejected? false
                        :arguments-modified? true}
@@ -285,7 +285,7 @@
                      :arguments {"question" "Why?"}}
           all-tools [{:name "ask_user"
                       :full-name "eca__ask_user"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -311,7 +311,7 @@
                      :arguments {"question" "Why?"}}
           all-tools [{:name "ask_user"
                       :full-name "eca__ask_user"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)
@@ -334,7 +334,7 @@
                      :arguments {:foo "bar"}}
           all-tools [{:name "test_tool"
                       :full-name "eca__test_tool"
-                      :origin :eca
+                      :origin :native
                       :server {:name "eca"}}]
           db (h/db)
           config (h/config)

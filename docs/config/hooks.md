@@ -24,7 +24,7 @@ Hooks are shell actions that run before or after specific events, useful for not
 
 ## Hook Options
 
-- **`matcher`**: Regex for `server__tool-name`, only for `*ToolCall` hooks.
+- **`matcher`**: For `*ToolCall` hooks. String = legacy regex for `server__tool-name`. Object = tool selector map with optional `argsMatchers`. Selectors follow tool approval: full tool name (`eca__write_file`), native ECA tool name (`write_file`), or server name. In `argsMatchers`, keys are tool argument names and values are arrays of regex alternatives for that argument. All listed arguments must match; multiple regexes for one argument are alternatives.
 - **`visible`**: Show hook execution in chat (default: `true`).
 - **`runOnError`**: For `postToolCall`, run even if tool errored (default: `false`).
 
@@ -169,6 +169,26 @@ To reject a tool call, either output `{"approval": "deny"}` or exit with code `2
             "type": "shell",
             "shell": "echo '{\"updatedInput\": {\"max_depth\": 3}}'"
           }]
+        }
+      }
+    }
+    ```
+
+=== "Match tool arguments"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "hooks": {
+        "check-allium": {
+          "type": "postToolCall",
+          "matcher": {
+            "eca__write_file": {
+              "argsMatchers": {
+                "path": [".*\\.allium$"]
+              }
+            }
+          },
+          "actions": [{"type": "shell", "file": "hooks/check-allium.sh"}]
         }
       }
     }

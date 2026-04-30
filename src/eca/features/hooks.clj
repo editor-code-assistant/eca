@@ -3,9 +3,10 @@
    [babashka.fs :as fs]
    [babashka.process :as p]
    [cheshire.core :as json]
+   [eca.features.tools.shell :as f.tools.shell]
+   [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.shared :as shared]
-   [eca.features.tools.shell :as f.tools.shell]))
+   [eca.shared :as shared]))
 
 (def ^:private logger-tag "[HOOK]")
 
@@ -35,7 +36,7 @@
   [output]
   (when (and output (not-empty output))
     (try
-      (let [parsed (json/parse-string output true)]
+      (let [parsed (json/parse-string output)]
         (if (map? parsed)
           parsed
           (logger/debug logger-tag "Hook JSON output must result in map")))
@@ -70,22 +71,84 @@
        (not (get hook :runOnError false))
        (:error data)))
 
-(defn ^:private hook-matches? [hook-type data hook]
+(defn ^:private parse-matcher-rules
+  "Returns normalized rules for missing, string, or object hook matchers.
+   String matchers stay legacy regex rules; object matcher keys become tool selector rules."
+  [matcher]
+  (cond
+    (nil? matcher)
+    [{:kind :regex :pattern ".*"}]
+
+    (string? matcher)
+    [{:kind :regex :pattern matcher}]
+
+    (map? matcher)
+    (->> matcher
+         (keep (fn [[tool-selector config]]
+                 (if (map? config)
+                   {:kind :selector
+                    :selector (tools.util/selector->string tool-selector)
+                    :args-matchers (:argsMatchers config)}
+                   (logger/warn logger-tag "Ignoring non-map matcher entry for selector" {:selector tool-selector}))))
+         vec)
+
+    :else
+    []))
+
+(defn ^:private arg-value [tool-input arg-name]
+  (when (map? tool-input)
+    (when-let [arg-str (tools.util/selector->string arg-name)]
+      (get tool-input arg-str))))
+
+(defn ^:private regex-matches? [pattern value]
+  (try
+    (boolean (re-matches (re-pattern (str pattern)) (str value)))
+    (catch Exception e
+      (logger/warn logger-tag "Invalid hook matcher regex" {:pattern (str pattern)
+                                                            :error (.getMessage e)})
+      false)))
+
+(defn ^:private args-match?
+  "Matches all configured argument rules.
+   Patterns within a single argument are ORed; arguments are ANDed; missing arguments do not match."
+  [args-matchers tool-input]
+  (cond
+    (or (nil? args-matchers)
+        (and (map? args-matchers) (empty? args-matchers)))
+    true
+
+    (not (map? args-matchers))
+    false
+
+    :else
+    (every? (fn [[arg-name matchers]]
+              (let [value (arg-value tool-input arg-name)]
+                (and (some? value)
+                     (sequential? matchers)
+                     (some #(regex-matches? % value) matchers))))
+            args-matchers)))
+
+(defn ^:private hook-matches? [hook-type data hook native-tools]
   (let [hook-config-type (keyword (:type hook))
         hook-config-type (cond ;; legacy values
                            (= :prePrompt hook-config-type) :preRequest
                            (= :postPrompt hook-config-type) :postRequest
                            :else hook-config-type)]
     (cond
-      (not= hook-type hook-config-type)
-      false
-
-      (should-skip-on-error? hook-type hook data)
+      (or (not= hook-type hook-config-type)
+          (should-skip-on-error? hook-type hook data))
       false
 
       (contains? #{:preToolCall :postToolCall} hook-type)
-      (re-matches (re-pattern (or (:matcher hook) ".*"))
-                  (str (:server data) "__" (:tool-name data)))
+      (let [rules (parse-matcher-rules (:matcher hook))
+            full-name (str (:server data) "__" (:tool-name data))]
+        (some (fn [{:keys [kind pattern selector args-matchers]}]
+                (case kind
+                  :regex (regex-matches? pattern full-name)
+                  :selector (and (tools.util/tool-selector-matches? selector (:server data) (:tool-name data) native-tools)
+                                 (args-match? args-matchers (:tool-input data)))
+                  false))
+              rules))
 
       :else
       true)))
@@ -145,14 +208,14 @@
   "Run hook of specified type if matches any config for that type"
   [hook-type
    data
-   {:keys [on-before-action on-after-action]
+   {:keys [on-before-action on-after-action native-tools]
     :or {on-before-action identity
          on-after-action identity}}
    db
    config]
   ;; Sort hooks by name to ensure deterministic execution order.
   (doseq [[name hook] (sort-by key (:hooks config))]
-    (when (hook-matches? hook-type data hook)
+    (when (hook-matches? hook-type data hook native-tools)
       (vec
        (map-indexed (fn [i action]
                       (let [id (str (random-uuid))

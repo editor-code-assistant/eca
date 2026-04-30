@@ -755,9 +755,23 @@
           ]
         },
         "matcher": {
-          "type": "string",
-          "description": "Regex pattern for matching server__tool-name. Only for *ToolCall hook types.",
-          "markdownDescription": "Regex pattern for matching server__tool-name. Only for *ToolCall hook types."
+          "description": "Matches *ToolCall hooks; unmatched hooks are skipped. String: legacy regex against server__tool-name. Object: tool selector map with optional argsMatchers.",
+          "markdownDescription": "Matches `*ToolCall` hooks; unmatched hooks are skipped. **String**: legacy regex against `server__tool-name`. **Object**: tool selector map with optional `argsMatchers`.",
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Regex pattern for matching server__tool-name.",
+              "markdownDescription": "Regex pattern for matching `server__tool-name`."
+            },
+            {
+              "type": "object",
+              "description": "Tool selector map. Keys follow toolApproval selectors: full tool name (server__tool-name), native ECA tool name, or server name. Empty rule {} matches without argument filtering.",
+              "markdownDescription": "Tool selector map. Keys follow `toolApproval` selectors: full tool name (`server__tool-name`), native ECA tool name, or server name. Empty rule `{}` matches without argument filtering.",
+              "additionalProperties": {
+                "$ref": "#/definitions/hookMatcherEntry"
+              }
+            }
+          ]
         },
         "visible": {
           "type": "boolean",
@@ -1000,6 +1014,25 @@
           "type": "object",
           "description": "Map of argument name to list of Java regex patterns to match against.",
           "markdownDescription": "Map of argument name to list of Java regex patterns to match against.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "hookMatcherEntry": {
+      "type": "object",
+      "description": "Hook matcher rule. Use argsMatchers to require argument values to match Java regex patterns.",
+      "markdownDescription": "Hook matcher rule. Use `argsMatchers` to require argument values to match Java regex patterns.",
+      "properties": {
+        "argsMatchers": {
+          "type": "object",
+          "description": "Tool argument name to Java regex alternatives. Every listed argument must exist and match at least one pattern.",
+          "markdownDescription": "Tool argument name to Java regex alternatives. Every listed argument must exist and match at least one pattern.",
           "additionalProperties": {
             "type": "array",
             "items": {

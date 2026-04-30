@@ -282,9 +282,9 @@
 (defn ^:private update-pre-request-state
   "Pure function to compute new state from hook result."
   [{:keys [final-prompt additional-contexts stop?]} {:keys [parsed raw-output exit]} action-name]
-  (let [replaced-prompt (:replacedPrompt parsed)
+  (let [replaced-prompt (get parsed "replacedPrompt")
         additional-context (if parsed
-                             (:additionalContext parsed)
+                             (get parsed "additionalContext")
                              raw-output)
         success? (= 0 exit)]
     {:final-prompt (if (and replaced-prompt success?)
@@ -295,7 +295,7 @@
                                   {:hook-name action-name :content additional-context})
                             additional-contexts)
      :stop? (or stop?
-                (false? (get parsed :continue true)))}))
+                (false? (get parsed "continue" true)))}))
 
 (defn ^:private run-pre-request-action!
   "Run a single preRequest hook action, updating the accumulator state.
@@ -326,7 +326,7 @@
                                                         :all-messages (:all-messages state)})
                                                 db)]
         (let [{:keys [parsed raw-output raw-error exit]} result
-              should-continue? (get parsed :continue true)]
+              should-continue? (get parsed "continue" true)]
           ;; Notify after action
           (lifecycle/notify-after-hook-action! chat-ctx (merge result
                                                                {:id id
@@ -338,7 +338,7 @@
                                                                 :error raw-error}))
           ;; Check if hook wants to stop
           (when (false? should-continue?)
-            (when-let [stop-reason (:stopReason parsed)]
+            (when-let [stop-reason (get parsed "stopReason")]
               (lifecycle/send-content! chat-ctx :system {:type :text :text stop-reason}))
             (lifecycle/finish-chat-prompt! :idle chat-ctx))
           ;; Update accumulator
@@ -1148,7 +1148,7 @@
                                            config)
               ;; Collect additionalContext from all chatStart hooks and store
               ;; it as startup-context for this chat.
-              (when-let [additional-contexts (seq (keep #(get-in % [:parsed :additionalContext]) @hook-results*))]
+              (when-let [additional-contexts (seq (keep #(get-in % [:parsed "additionalContext"]) @hook-results*))]
                 (swap! db* assoc-in [:chats chat-id :startup-context]
                        (string/join "\n\n" additional-contexts)))
               ;; Mark chatStart as fired for this chat in this server run
