@@ -60,6 +60,27 @@
   [all-tools full-name]
   (boolean (some #(= full-name (:full-name %)) all-tools)))
 
+(defn selector->string [selector]
+  (cond
+    (keyword? selector) (name selector)
+    (string? selector) selector))
+
+(defn tool-selector-matches?
+  "Matches tool selectors used by tool approval and hook object matchers.
+   Selector forms: server__tool exact full name, native ECA tool short name
+   when present in native-tools, otherwise server name."
+  [selector tool-call-server tool-call-name native-tools]
+  (when-let [selector (selector->string selector)]
+    (let [[server-name tool-name] (if (string/includes? selector "__")
+                                    (string/split selector #"__" 2)
+                                    (if (some #(= selector (:name %)) native-tools)
+                                      ["eca" selector]
+                                      [selector nil]))]
+      (if tool-name
+        (and (= tool-call-server server-name)
+             (= tool-call-name tool-name))
+        (= tool-call-server server-name)))))
+
 (defn workspace-roots-strs [db]
   (->> (:workspace-folders db)
        (map #(shared/uri->filename (:uri %)))

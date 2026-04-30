@@ -159,7 +159,8 @@
         plan-tool {:name "plan" :server {:name "eca"} :origin :native :require-approval-fn (constantly false)}
         request-tool {:name "request" :server {:name "web"} :origin :mcp}
         download-tool {:name "download" :server {:name "web"} :origin :mcp}
-        all-tools [read-tool write-tool shell-tool plan-tool request-tool download-tool]]
+        web-write-tool {:name "write" :server {:name "web"} :origin :mcp}
+        all-tools [read-tool write-tool shell-tool plan-tool request-tool download-tool web-write-tool]]
     (testing "tool has require-approval-fn which returns true"
       (is (= :ask (f.tools/approval all-tools shell-tool {} {} {} nil))))
     (testing "tool has require-approval-fn which returns false we ignore it"
@@ -174,6 +175,7 @@
       (testing "when matches allow config"
         (is (= :allow (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:allow {"web__request" {}}}}} nil)))
         (is (= :allow (f.tools/approval all-tools read-tool {} {} {:toolCall {:approval {:allow {"read" {}}}}} nil)))
+        (is (= :ask (f.tools/approval all-tools web-write-tool {} {} {:toolCall {:approval {:allow {"write" {}}}}} nil)))
         (is (= :allow (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:allow {"web" {}}}}} nil)))
         (is (= :allow (f.tools/approval all-tools read-tool {} {} {:toolCall {:approval {:allow {"eca" {}}}}} nil))))
       (testing "when matches ask config"

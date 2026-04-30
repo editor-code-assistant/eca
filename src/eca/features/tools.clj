@@ -37,23 +37,9 @@
       manual-approval?)))
 
 (defn ^:private approval-matches? [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
-  (let [args-matchers (:argsMatchers config)
-        [server-name tool-name] (if (string/includes? server-or-full-tool-name "__")
-                                  (string/split server-or-full-tool-name #"__" 2)
-                                  (if (some #(= server-or-full-tool-name (:name %)) native-tools)
-                                    ["eca" server-or-full-tool-name]
-                                    [server-or-full-tool-name nil]))]
+  (let [args-matchers (:argsMatchers config)]
     (cond
-      ;; specified server name in config
-      (and (nil? tool-name)
-           ;; but the name doesn't match
-           (not= tool-call-server server-name))
-      false
-
-      ;; tool or server not match
-      (and tool-name
-           (or (not= tool-call-server server-name)
-               (not= tool-call-name tool-name)))
+      (not (tools.util/tool-selector-matches? server-or-full-tool-name tool-call-server tool-call-name native-tools))
       false
 
       (map? args-matchers)
