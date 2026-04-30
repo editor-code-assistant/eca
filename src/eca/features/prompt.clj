@@ -283,14 +283,21 @@
       (load-builtin-prompt (some-> legacy-config-file-prompt (string/replace-first #"prompts/" ""))))))
 
 (defn inline-completion-region-replace-prompt
-  "Resolve the system prompt for region-replace inline completions (Format B).
+  "Resolve the system prompt for region-replace inline completions.
 
-  Falls back to `inline-completion-prompt` only when the user explicitly
-  cleared `prompts.completionRegionReplace`; otherwise the focused
-  rewrite-window prompt is used."
+  Picks `prompts.completionRegionReplace`, `prompts.completionSearchReplace`,
+  or `prompts.completionUdiffSimple` from `completion.responseEncoding`
+  (`region-replace`, `search-replace`, `udiff-simple`). Falls back to
+  `inline-completion-prompt` when that override is explicitly cleared."
   [config]
-  (or (get-config-prompt :completionRegionReplace nil config)
-      (inline-completion-prompt config)))
+  (let [encoding (or (some-> (get-in config [:completion :responseEncoding]) keyword)
+                     :search-replace)]
+    (or (case encoding
+          :region-replace (get-config-prompt :completionRegionReplace nil config)
+          :search-replace (get-config-prompt :completionSearchReplace nil config)
+          :udiff-simple (get-config-prompt :completionUdiffSimple nil config)
+          (get-config-prompt :completionSearchReplace nil config))
+        (inline-completion-prompt config))))
 
 (defn get-prompt! [^String name ^Map arguments db]
   (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))

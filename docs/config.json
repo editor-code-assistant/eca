@@ -248,6 +248,13 @@
           "markdownDescription": "Timeout in milliseconds for a single `completion/inline` request to the model.",
           "default": 30000,
           "minimum": 1
+        },
+        "responseEncoding": {
+          "type": "string",
+          "enum": ["search-replace", "udiff", "region-replace"],
+          "description": "",
+          "markdownDescription": "",
+          "default": "search-replace"
         }
       }
     },
@@ -1108,8 +1115,18 @@
         },
         "completionRegionReplace": {
           "type": "string",
-          "description": "System prompt for inline completions when the client advertises `codeAssistant.completionCapabilities.regionReplace`. The model receives the document with an editable window delimited by `<ECA_WINDOW_START>`/`<ECA_WINDOW_END>` and a `<ECA_CURSOR>` marker, and rewrites the window contents.",
-          "markdownDescription": "System prompt for inline completions when the client advertises `codeAssistant.completionCapabilities.regionReplace`. The model receives the document with an editable window delimited by `<ECA_WINDOW_START>`/`<ECA_WINDOW_END>` and a `<ECA_CURSOR>` marker, and rewrites the window contents."
+          "description": "System prompt when the client advertises `codeAssistant.completionCapabilities.regionReplace` and `completion.responseEncoding` is `region-replace`. Use with the whole-window rewrite output contract (not SEARCH/REPLACE blocks or unified-diff hunks).",
+          "markdownDescription": "System prompt when the client advertises `codeAssistant.completionCapabilities.regionReplace` and `completion.responseEncoding` is `region-replace`. Use with the whole-window rewrite output contract (not SEARCH/REPLACE blocks or unified-diff hunks)."
+        },
+        "completionSearchReplace": {
+          "type": "string",
+          "description": "System prompt when the client advertises `codeAssistant.completionCapabilities.regionReplace` and `completion.responseEncoding` is `search-replace` (default). Use with the SEARCH/REPLACE block output contract.",
+          "markdownDescription": "System prompt when the client advertises `codeAssistant.completionCapabilities.regionReplace` and `completion.responseEncoding` is `search-replace` (default). Use with the SEARCH/REPLACE block output contract."
+        },
+        "completionUdiff": {
+          "type": "string",
+          "description": "System prompt when the client advertises `codeAssistant.completionCapabilities.regionReplace` and `completion.responseEncoding` is `udiff`. Use with the unified-diff hunk output contract.",
+          "markdownDescription": "System prompt when the client advertises `codeAssistant.completionCapabilities.regionReplace` and `completion.responseEncoding` is `udiff`. Use with the unified-diff hunk output contract."
         },
         "rewrite": {
           "type": "string",

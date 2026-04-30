@@ -8,14 +8,21 @@ Propose edits within the editable window, before or after the cursor when useful
 
 ## Output format
 
-Output the **entire rewritten contents of the editable window**, and nothing else.
+Output a single SEARCH/REPLACE block of the form:
+
+<<<<<<< SEARCH
+{exact text from inside the window}
+=======
+{replacement text}
+>>>>>>> REPLACE
 
 Rules:
 
-- Do **not** include the `<ECA_WINDOW_START>`, `<ECA_WINDOW_END>`, or `<ECA_CURSOR>` markers in your output.
-- Do **not** wrap the output in code fences, quotes, or any preamble/explanation.
-- Preserve indentation and line endings of unchanged lines byte-for-byte.
-- If you have no useful change to suggest, output the window contents unchanged.
+- The SEARCH text MUST appear **exactly once** in the file. Use fragments inside the editable window. Prefer single line searches.
+- Preserve indentation and line endings byte-for-byte in the SEARCH block.
+- Output **only** the blocks: no preamble, no explanation, no trailing prose.
+- An empty REPLACE block deletes the SEARCH text.
+- An empty SEARCH block is discarded. Return an empty SEARCH block if you have no useful change to suggest.
 
 ## Core rules
 

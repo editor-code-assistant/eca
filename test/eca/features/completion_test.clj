@@ -2,6 +2,9 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.features.completion :as f.completion]
+   [eca.features.completion.response-encoding.region-replace :as region-replace]
+   [eca.features.completion.response-encoding.search-replace :as search-replace]
+   [eca.features.completion.response-encoding.udiff-simple :as udiff-simple]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
@@ -9,6 +12,11 @@
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
+
+(defn ^:private search-replace-block
+  "Minimal SEARCH/REPLACE wrapper matching `response-encoding.search-replace`."
+  [search-text replace-text]
+  (str "<<<<< SEARCH\n" search-text "\n=====\n" replace-text "\n>>>>> REPLACE"))
 
 (defn ^:private with-stubs [output-text body-fn]
   (with-redefs [llm-api/sync-prompt! (fn [_] {:output-text output-text})
@@ -21,6 +29,27 @@
   (swap! (h/db*) assoc-in
          [:client-capabilities :code-assistant :completion-capabilities :region-replace]
          enabled?))
+
+(deftest resolve-encoding-test
+  (testing "explicit :search-replace"
+    (is (= search-replace/build-items
+           (f.completion/resolve-encoding
+            {:completion {:responseEncoding "search-replace"}}))))
+  (testing "explicit :udiff-simple"
+    (is (= udiff-simple/build-items
+           (f.completion/resolve-encoding
+            {:completion {:responseEncoding "udiff-simple"}}))))
+  (testing "explicit :region-replace"
+    (is (= region-replace/build-items
+           (f.completion/resolve-encoding
+            {:completion {:responseEncoding "region-replace"}}))))
+  (testing "missing config falls back to default"
+    (is (= search-replace/build-items
+           (f.completion/resolve-encoding {}))))
+  (testing "unknown value falls back to default"
+    (is (= search-replace/build-items
+           (f.completion/resolve-encoding
+            {:completion {:responseEncoding "bogus"}})))))
 
 (deftest complete-legacy-mode-test
   (testing "without regionReplace capability, returns a zero-width range at the cursor (legacy)"
@@ -42,22 +71,27 @@
 (deftest complete-region-replace-no-change-test
   (testing "with regionReplace capability, identical rewritten window yields no suggestions"
     (h/reset-components!)
-    (h/config! {:completion {:model "openai/gpt-4.1" :windowRadius 6}})
+    (h/config! {:completion {:model "openai/gpt-4.1"
+                             :windowRadius 6
+                             :responseEncoding "search-replace"}})
     (set-region-replace-capability! true)
     ;; Model echoes the original window unchanged.
-    (let [resp (with-stubs "alpha\nbeta\ngamma"
+    (let [resp (with-stubs (search-replace-block "alpha\nbeta\ngamma"
+                                                 "alpha\nbeta\ngamma")
                  (fn []
                    (f.completion/complete
                     {:doc-text "alpha\nbeta\ngamma"
                      :doc-version 1
                      :position {:line 2 :character 5}}
                     (h/db*) (h/config) (h/messenger) (h/metrics))))]
-      (is (match? {:error {:type :info}} resp)))))
+      (is (= {:items []} resp)))))
 
 (deftest complete-region-replace-before-cursor-test
   (testing "with regionReplace capability, edits before the cursor produce a precise replacement range"
     (h/reset-components!)
-    (h/config! {:completion {:model "openai/gpt-4.1" :windowRadius 6}})
+    (h/config! {:completion {:model "openai/gpt-4.1"
+                             :windowRadius 6
+                             :responseEncoding "region-replace"}})
     (set-region-replace-capability! true)
     ;; Doc:    "thersholdd"  (cursor right after the trailing 'd', column 11)
     ;; Model rewrites the window dropping the typo trailing 'd':
@@ -77,7 +111,9 @@
 (deftest complete-region-replace-multi-line-test
   (testing "with regionReplace capability, multi-line rewrites are returned as a single replacement"
     (h/reset-components!)
-    (h/config! {:completion {:model "openai/gpt-4.1" :windowRadius 6}})
+    (h/config! {:completion {:model "openai/gpt-4.1"
+                             :windowRadius 6
+                             :responseEncoding "region-replace"}})
     (set-region-replace-capability! true)
     (let [doc "line1\ntodo\nline3"
           new-window "line1\nDONE\nline3"
@@ -97,7 +133,9 @@
 (deftest complete-region-replace-strips-fences-and-markers-test
   (testing "the rewritten window is sanitized: code fences and stray markers are stripped"
     (h/reset-components!)
-    (h/config! {:completion {:model "openai/gpt-4.1" :windowRadius 6}})
+    (h/config! {:completion {:model "openai/gpt-4.1"
+                             :windowRadius 6
+                             :responseEncoding "region-replace"}})
     (set-region-replace-capability! true)
     (let [resp (with-stubs "```\n<ECA_WINDOW_START>\nhello WORLD<ECA_CURSOR>\n<ECA_WINDOW_END>\n```"
                  (fn []

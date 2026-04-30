@@ -8,14 +8,43 @@ Propose edits within the editable window, before or after the cursor when useful
 
 ## Output format
 
-Output the **entire rewritten contents of the editable window**, and nothing else.
+Output one or more unified-diff hunks describing only the changed regions of the editable window.
+
+Hunk syntax:
+
+- Each line MUST start with one of:
+  - `<space>` for an unchanged context line
+  - `-` for a removed line
+  - `+` for an added line
+- Separate multiple hunks with a bare `@@ @@` line. If there is only one hunk, no separator is needed.
+- Include 1-3 lines of context around each change so the hunk anchors uniquely against the file.
+
+Example (single hunk):
+
+    @@ @@
+     def greet():
+    -  print("hi")
+    +  print("hello")
+
+Example (two hunks):
+
+    @@ @@
+    -import a
+    +import a as A
+     import b
+    @@ @@
+     call_a()
+    -call_b()
+    +call_b(arg=1)
 
 Rules:
 
-- Do **not** include the `<ECA_WINDOW_START>`, `<ECA_WINDOW_END>`, or `<ECA_CURSOR>` markers in your output.
+- Do **not** include file headers (`diff --git`, `--- a/...`, `+++ b/...`).
+- Do **not** include line numbers in `@@` markers (use bare `@@ @@`).
 - Do **not** wrap the output in code fences, quotes, or any preamble/explanation.
-- Preserve indentation and line endings of unchanged lines byte-for-byte.
-- If you have no useful change to suggest, output the window contents unchanged.
+- Do **not** include the `<ECA_WINDOW_START>`, `<ECA_WINDOW_END>`, or `<ECA_CURSOR>` markers in your output.
+- Preserve indentation and line endings of context lines byte-for-byte.
+- Output an empty response if you have no useful change to suggest.
 
 ## Core rules
 
