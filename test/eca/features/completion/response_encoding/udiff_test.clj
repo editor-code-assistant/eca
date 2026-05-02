@@ -13,8 +13,6 @@
      :output-text out
      :doc-version doc-version})))
 
-;; ── §6 Test matrix ──────────────────────────────────────────────────
-
 (deftest single-hunk-test
   (testing "a single hunk patches the document"
     (let [doc "line1\nline2\nline3\n"
@@ -75,7 +73,21 @@
           out "@@ -1,2 +1,2 @@\n-one\n-two\n+ONE\n+TWO\n@@ -2,2 +2,2 @@\n-two\n-three\n+TWO_MOD\n+THREE\n"]
       (is (= markers/no-edits (build doc out))))))
 
-;; ── §8 Zed upstream scenarios ───────────────────────────────────────
+;; --- Malformed hunk ---
+
+(deftest malformed-hunk-indented-at-sign-header-test
+  (testing "leading spaces before @@ must not drop the edit (LLMs often indent)"
+    ;; Same logical hunk as @@ -2,1 +2,1 @@ with one context line, but the
+    ;; header is indented like fenced-example / prose alignment.
+    (let [doc "alpha\nbeta\ngamma\n"
+          out (str "    @@ -1,3 +1,3 @@\n"
+                   " alpha\n"
+                   "-beta\n"
+                   "+BETA\n"
+                   " gamma\n")]
+      (is (match? [{:doc-version 1 :text "BETA" :range map?}]
+                  (build doc out))))))
+
 
 (deftest line-disambiguation-first-occurrence-test
   (testing "hunk targets first repeated line via @@ line numbers"

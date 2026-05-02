@@ -13,7 +13,9 @@
   #"(?m)^(?:diff --git .*|index [0-9a-fA-F]+\.\.[0-9a-fA-F]+.*|--- .*|\+\+\+ .*)\r?\n?")
 
 (def ^:private hunk-header-re
-  #"(?m)^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@.*\r?\n?")
+  ;; Tolerate leading whitespace before `@@` — LLMs occasionally indent
+  ;; the header to match the prose/example alignment of their prompt.
+  #"(?m)^[ \t]*@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@.*\r?\n?")
 
 ;; --- Hunk parsing ---
 
