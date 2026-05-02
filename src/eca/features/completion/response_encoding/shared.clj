@@ -91,38 +91,98 @@
               end-char (transduce (map count) + 0 (subvec buf-lines 0 end-line))]
           {:start start-char :end end-char})))))
 
+;; --- Unified needle matching ---
+
+(defn ^:private line-number-at-offset
+  "Return the 1-based line number of the character at `offset` in `s`."
+  [^String s offset]
+  (inc (count (re-seq #"\n" (subs s 0 offset)))))
+
+(defn ^:private find-all-occurrences
+  "Return all start offsets of `needle` in `s`."
+  [^String s ^String needle]
+  (when-not (string/blank? needle)
+    (loop [idx 0
+           acc []]
+      (let [pos (string/index-of s needle idx)]
+        (if pos
+          (let [p (long pos)]
+            (recur (inc p) (conj acc p)))
+          (seq acc))))))
+
+(defn match-needle
+  "Find `needle` in `buf`. Returns `{:start :end}` when uniquely resolved,
+  nil when absent or ambiguous.
+
+  Options map keys:
+  - `:old-start-line` — when multiple literal matches exist, keep only the
+    one whose 1-based line number equals this value (udiff @@ disambiguation).
+    Without this, multiple literal matches → nil (ambiguous).
+
+  Falls back to `try-line-aligned-match` when there are zero literal matches."
+  [^String buf ^String needle {:keys [old-start-line]}]
+  (when-not (string/blank? needle)
+    (if-let [positions (find-all-occurrences buf needle)]
+      (if (= 1 (count positions))
+        {:start (first positions)
+         :end (+ (first positions) (count needle))}
+        (when old-start-line
+          (let [matching (filter (fn [pos]
+                                   (= old-start-line (line-number-at-offset buf pos)))
+                                 positions)]
+            (when (= 1 (count matching))
+              (let [pos (first matching)]
+                {:start pos :end (+ pos (count needle))})))))
+      (try-line-aligned-match buf needle))))
+
+;; --- Apply edits ---
+
+(defn ^:private splice-resolved
+  "Apply pre-resolved `{:start :end :replacement}` edits from end to start.
+  Edits must be sorted by `:start`. Returns nil on overlap."
+  [^String doc-text resolved]
+  (when (every? some? resolved)
+    (let [sorted (sort-by :start resolved)]
+      (when (loop [prev nil
+                   remaining (seq sorted)]
+              (if-let [cur (first remaining)]
+                (if (and prev (> (:end prev) (:start cur)))
+                  false
+                  (recur cur (next remaining)))
+                true))
+        (reduce (fn [buf {:keys [start end replacement]}]
+                  (splice buf start end replacement))
+                doc-text
+                (reverse sorted))))))
+
 (defn apply-edits
-  "Match every needle/line-aligned-needle against the original `doc-text`,
-  reject on overlapping ranges, then apply all replacements from end to
-  start. Returns the patched string, or nil when any needle is absent,
-  ambiguous, or overlaps another matched range."
+  "Match every needle against the original `doc-text`, reject on overlapping
+  ranges, then apply all replacements from end to start.
+
+  Each edit is either:
+  - `[needle replacement]` — standard pair
+  - `[needle replacement opts]` — pair with `match-needle` options (e.g.
+    `{:old-start-line N}` for udiff @@ line disambiguation).
+
+  Returns the patched string, or nil when any needle is absent, ambiguous,
+  or overlaps another matched range."
   [^String doc-text edits]
-  (let [matched (mapv (fn [[needle replacement]]
-                        (when-let [m (or (try-match doc-text needle)
-                                         (try-line-aligned-match doc-text needle))]
-                          {:match m :replacement (or replacement "")}))
-                      edits)]
-    (when (every? :match matched)
-      (let [sorted (sort-by (comp :start :match) matched)]
-        (when (loop [prev nil
-                     remaining (seq sorted)]
-                (if-let [cur (first remaining)]
-                  (if (and prev (> (:end (:match prev)) (:start (:match cur))))
-                    false
-                    (recur cur (next remaining)))
-                  true))
-          (reduce (fn [buf {:keys [match replacement]}]
-                    (splice buf (:start match) (:end match) replacement))
-                  doc-text
-                  (reverse sorted)))))))
+  (let [resolved (mapv (fn [edit]
+                         (let [[n r opts] (if (= 3 (count edit))
+                                            edit
+                                            [(nth edit 0) (nth edit 1) {}])]
+                           (when-let [m (match-needle doc-text n opts)]
+                             {:start (:start m)
+                              :end (:end m)
+                              :replacement (or r "")})))
+                       edits)]
+    (splice-resolved doc-text resolved)))
 
 ;; --- Completion item emission ---
 
 (defn edits->items
-  "Apply parsed edit pairs to `doc-text` and emit completion items.
-  When `:patched` is provided in opts, it is used as the already-patched
-  document instead of running `apply-edits` (which applies edits sequentially)."
-  [{:keys [encoder-id output-text doc-text doc-version edits patched] :as opts}]
+  "Apply parsed edit pairs to `doc-text` and emit completion items."
+  [{:keys [encoder-id output-text doc-text doc-version edits]}]
   (logger/debug logger-tag
                 (format "encoding=%s\n--- raw model output ---\n%s"
                         encoder-id output-text))
@@ -130,7 +190,7 @@
     (string/blank? (or output-text "")) markers/no-edits
     (empty? edits) markers/no-edits
     :else
-    (let [p (if (contains? opts :patched) patched (apply-edits doc-text edits))]
+    (let [p (apply-edits doc-text edits)]
       (if p
         (or (when-let [{:keys [range text]}
                        (completion-diff/diff-window doc-text p 1)]
