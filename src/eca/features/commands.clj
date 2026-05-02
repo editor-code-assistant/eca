@@ -37,15 +37,6 @@
 (defn ^:private normalize-command-name [f]
   (string/lower-case (fs/strip-ext (fs/file-name f))))
 
-(defn ^:private prefixed-command-name
-  "Builds the user-invocation name for a plugin-sourced command.
-   Returns just the plugin name when it equals the command name,
-   otherwise 'plugin:command'."
-  [plugin-name command-name]
-  (if (= plugin-name command-name)
-    plugin-name
-    (str plugin-name ":" command-name)))
-
 (defn ^:private markdown-file? [file]
   (and (not (fs/directory? file))
        (string/ends-with? (string/lower-case (str file)) ".md")))
@@ -60,11 +51,12 @@
   (let [base (normalize-command-name file)
         content (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)]
     (cond-> {:name (if-let [plugin (:plugin opts)]
-                     (prefixed-command-name plugin base)
+                     (shared/prefixed-name plugin base)
                      base)
              :path (str (fs/canonicalize file))
              :type type
-             :content content}
+             :content content
+             :arguments (shared/extract-args-from-content content)}
       (:plugin opts) (assoc :plugin (:plugin opts)))))
 
 (defn ^:private global-file-commands []
@@ -125,8 +117,8 @@
                       {:name "skill-create"
                        :type :native
                        :description "Create a skill considering a user request"
-                       :arguments [{:name "name" :description "The skill name"}
-                                   {:name "prompt" :description "What to consider as this skill content"}]}
+                       :arguments [{:name "name" :description "The skill name" :required true}
+                                   {:name "prompt" :description "What to consider as this skill content" :required true}]}
                       {:name "costs"
                        :type :native
                        :description "Total costs of the current chat session."
@@ -178,23 +170,23 @@
                       {:name "plugin-install"
                        :type :native
                        :description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
-                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace"}]}
+                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                       {:name "plugin-uninstall"
                        :type :native
                        :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin)"
-                       :arguments [{:name "plugin" :description "Plugin name"}]}]
+                       :arguments [{:name "plugin" :description "Plugin name" :required true}]}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
                             :description (:path custom)
-                            :arguments []})
+                            :arguments (:arguments custom)})
                          (custom-commands config (:workspace-folders db)))
         skills-cmds (->> (f.skills/all config (:workspace-folders db))
                          (mapv (fn [skill]
                                  {:name (:name skill)
                                   :type :skill
                                   :description (:description skill)
-                                  :arguments []})))]
+                                  :arguments (:arguments skill)})))]
     (concat mcp-prompts
             eca-commands
             skills-cmds

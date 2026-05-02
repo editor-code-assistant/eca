@@ -1474,7 +1474,7 @@ interface ChatCommand {
     arguments: [{
        name: string;
        description?: string;
-       required: boolean; 
+       required?: boolean;
     }];
 }
 ```
