@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.commands :as f.commands]
    [eca.features.rules :as f.rules]
+   [eca.shared :as shared]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
@@ -112,6 +113,29 @@
                 result (vec (#'f.commands/custom-commands config []))]
             (is (= #{"review" "ship"} (set (map :name result))))
             (is (= #{"Review body" "Ship body"} (set (map :content result)))))))
+
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest command-arguments-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (testing "command with $ARG1 placeholder detects arguments"
+        (let [cmd-file (fs/file tmp-dir "greet.md")]
+          (spit cmd-file "Greet $ARG1!")
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                result (vec (#'f.commands/custom-commands config []))]
+            (is (= 1 (count result)))
+            (is (= "greet" (:name (first result))))
+            (is (= [{:name "arg1" :required true}]
+                   (:arguments (first result)))))))
+
+      (testing "command without placeholders has empty arguments"
+        (let [cmd-file (fs/file tmp-dir "simple.md")]
+          (spit cmd-file "Simple body")
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                result (vec (#'f.commands/custom-commands config []))]
+            (is (= [] (:arguments (first result)))))))
 
       (finally
         (fs/delete-tree tmp-dir)))))
@@ -305,3 +329,49 @@
                                                   :metrics (h/metrics)})
             text (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
         (is (= "No rules available for the current agent and model." text))))))
+
+(deftest extract-args-from-content-test
+  (testing "detects $ARG1 placeholder"
+    (is (= [{:name "arg1" :required true}]
+           (shared/extract-args-from-content "Respond with $ARG1"))))
+
+  (testing "detects multiple $ARGn placeholders"
+    (is (= [{:name "arg1" :required true}
+            {:name "arg2" :required true}
+            {:name "arg3" :required true}]
+           (shared/extract-args-from-content "First:$ARG1 Second:$ARG2 Third:$ARG3"))))
+
+  (testing "detects $ARGS without $ARGn"
+    (is (= [{:name "arg1" :required true}]
+           (shared/extract-args-from-content "Use all args: $ARGS"))))
+
+  (testing "detects $ARGUMENTS without $ARGn"
+    (is (= [{:name "arg1" :required true}]
+           (shared/extract-args-from-content "Process $ARGUMENTS here"))))
+
+  (testing "detects Claude Code style $1 and $2"
+    (is (= [{:name "arg1" :required true}
+            {:name "arg2" :required true}]
+           (shared/extract-args-from-content "First:$1 Second:$2"))))
+
+  (testing "uses max of all placeholder styles"
+    (is (= [{:name "arg1" :required true}]
+           (shared/extract-args-from-content "$ARG1 $1"))))
+
+  (testing "returns empty vector when no placeholders present"
+    (is (= []
+           (shared/extract-args-from-content "No placeholders here"))))
+
+  (testing "returns empty vector for nil/blank content"
+    (is (= [] (shared/extract-args-from-content nil)))
+    (is (= [] (shared/extract-args-from-content ""))))
+
+  (testing "$ARGn takes precedence over $ARGS for argument count"
+    (is (= [{:name "arg1" :required true}]
+           (shared/extract-args-from-content "Single:$ARG1 All:$ARGS"))))
+
+  (testing "detects $ARG10 and declares all args up to 10"
+    (let [result (shared/extract-args-from-content "Use $ARG10")]
+      (is (= 10 (count result)))
+      (is (= {:name "arg1" :required true} (first result)))
+      (is (= {:name "arg10" :required true} (last result))))))

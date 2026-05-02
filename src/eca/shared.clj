@@ -63,6 +63,27 @@
           (assoc metadata :body (string/trim (string/join "\n" body-lines)))))
       {:body (string/trim content)})))
 
+(defn extract-args-from-content
+  "Parses command/skill content for $ARGN, $N, $ARGS, and $ARGUMENTS placeholders
+   and returns the corresponding :arguments vector for command metadata.
+   Returns an empty vector when no argument placeholders are found."
+  [content]
+  (if (string/blank? content)
+    []
+    (let [content (str content)
+          nums (keep (fn [[_ n]] (parse-long n))
+                     (re-seq #"\$(?:ARG)?(\d+)" content))
+          has-varargs (some #(string/includes? content %)
+                            ["$ARGS" "$ARGUMENTS"])
+          max-n (when (seq nums) (apply max nums))
+          declared-count (cond
+                           max-n     max-n
+                           has-varargs 1)]
+      (if declared-count
+        (vec (for [i (range 1 (inc declared-count))]
+               {:name (str "arg" i) :required true}))
+        []))))
+
 ;; Walks up from a non-existing path to find the nearest existing ancestor,
 ;; canonicalizes it (resolving symlinks), then re-attaches the missing segments.
 ;; This is needed because workspace roots can be symlinks — for write_file
@@ -115,6 +136,14 @@
 (def line-separator
   "The system's line separator."
   (System/lineSeparator))
+
+(defn prefixed-name
+  "Builds a plugin-prefixed name. Returns the bare name when it
+   equals the plugin name, otherwise 'plugin:name'."
+  [plugin-name capability-name]
+  (if (= plugin-name capability-name)
+    plugin-name
+    (str plugin-name ":" capability-name)))
 
 (defn normalize-api-url [api-url]
   (some-> api-url

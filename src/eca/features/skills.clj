@@ -19,6 +19,7 @@
         {:name name
          :description description
          :body body
+         :arguments (shared/extract-args-from-content body)
          :dir (str (fs/canonicalize (fs/parent skill-file)))}))
     (catch Exception e
       (logger/warn logger-tag (format "Error parsing skill file '%s': %s" (str skill-file) (.getMessage e)))
@@ -39,20 +40,11 @@
     (fs/directory? path) (filter skill-file? (fs/glob path "**" {:follow-links true}))
     :else [path]))
 
-(defn ^:private prefixed-skill-name
-  "Builds the user-invocation name for a plugin skill.
-   Returns just the plugin name when it equals the skill name,
-   otherwise 'plugin:skill'."
-  [plugin-name skill-name]
-  (if (= plugin-name skill-name)
-    plugin-name
-    (str plugin-name ":" skill-name)))
-
 (defn ^:private plugin-skill [plugin file]
   (when-let [skill (skill-file->skill file)]
     (cond-> skill
       plugin (assoc :plugin plugin
-                    :name (prefixed-skill-name plugin (:name skill))))))
+                    :name (shared/prefixed-name plugin (:name skill))))))
 
 (defn ^:private global-skills []
   (keep skill-file->skill
