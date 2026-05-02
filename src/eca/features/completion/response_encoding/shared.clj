@@ -57,20 +57,17 @@
       (subs line content-end)
       line)))
 
-(defn try-match
-  "Return `{:start :end}` for the unique exact occurrence of `needle` in
-  `buf`, else nil. A blank/empty `needle` never matches."
-  [^String buf ^String needle]
-  (when-not (string/blank? needle)
-    (let [first-idx (string/index-of buf needle)
-          last-idx (string/last-index-of buf needle)]
-      (when (and first-idx (= first-idx last-idx))
-        {:start first-idx :end (+ first-idx (count needle))}))))
+(defn ^:private normalize-line-for-alignment
+  "Collapse whitespace-only lines and strip leading whitespace
+  from content lines."
+  [^String line]
+  (string/replace (collapse-blank-line line) #"^[ \t]+" ""))
 
 (defn try-line-aligned-match
-  "Match `needle` against `buf` line-by-line after collapsing
-  whitespace-only lines on both sides. Returns `{:start :end}` into the
-  original `buf`, or nil when the match is absent or ambiguous.
+  "Match `needle` against `buf` line-by-line after normalizing each line
+  (collapsing whitespace-only lines and stripping leading whitespace).
+  Returns `{:start :end}` into the original `buf`, or nil when the match is
+  absent or ambiguous.
 
   Only runs when `needle` is not present as a literal substring; otherwise
   the literal interpretation is authoritative (including its ambiguity)."
@@ -80,8 +77,8 @@
     (let [buf-lines (split-keeping-newlines buf)
           needle-lines (split-keeping-newlines needle)
           n (count needle-lines)
-          n-buf (mapv collapse-blank-line buf-lines)
-          n-needle (mapv collapse-blank-line needle-lines)
+          n-buf (mapv normalize-line-for-alignment buf-lines)
+          n-needle (mapv normalize-line-for-alignment needle-lines)
           windows (->> (range (inc (- (count n-buf) n)))
                        (filter #(= (subvec n-buf % (+ % n)) n-needle)))]
       (when (= 1 (count windows))

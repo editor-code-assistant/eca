@@ -23,21 +23,6 @@
   (testing "treats nil sides as empty strings"
     (is (= ["" ""] (shared/trim-pair-edges [nil nil])))))
 
-(deftest try-match-test
-  (testing "returns the range for a unique exact match"
-    (is (= {:start 6 :end 12}
-           (shared/try-match "hello needle bye" "needle"))))
-  (testing "matches a needle equal to the entire buffer"
-    (is (= {:start 0 :end 6}
-           (shared/try-match "needle" "needle"))))
-  (testing "rejects ambiguous, absent, and blank needles"
-    (is (nil? (shared/try-match "needle needle" "needle")))
-    (is (nil? (shared/try-match "haystack" "needle")))
-    (is (nil? (shared/try-match "haystack" "")))
-    (is (nil? (shared/try-match "hay stack" " "))))
-  (testing "treats overlapping occurrences as ambiguous"
-    (is (nil? (shared/try-match "aaa" "aa")))))
-
 (deftest split-keeping-newlines-test
   (testing "keeps line endings with each line"
     (is (= ["a\n" "b\n" "c"]
@@ -75,6 +60,36 @@
     (is (nil? (shared/try-line-aligned-match
                "alpha\n\nomega"
                "alpha\n\nomega")))))
+
+(deftest match-needle-blank-line-whitespace-test
+  (testing "rescues a needle whose blank lines differ only in whitespace"
+    ;; Buffer has a whitespace-only blank line ("    \n"); the model emits a
+    ;; truly empty blank line. Literal index-of finds zero matches, so
+    ;; try-line-aligned-match collapses both sides and resolves a unique window.
+    (let [buf "fn foo() {\n    \n  return 1;\n}\n"
+          needle "fn foo() {\n\n  return 1;\n}\n"]
+      (is (nil? (clojure.string/index-of buf needle))
+          "precondition: literal substring lookup must miss")
+      (is (= {:start 0 :end (count buf)}
+             (shared/match-needle buf needle {})))))
+  (testing "and the symmetric case: needle has the whitespace, buffer is clean"
+    (let [buf "fn foo() {\n\n  return 1;\n}\n"
+          needle "fn foo() {\n   \n  return 1;\n}\n"]
+      (is (nil? (clojure.string/index-of buf needle)))
+      (is (= {:start 0 :end (count buf)}
+             (shared/match-needle buf needle {}))))))
+
+(deftest match-needle-leading-whitespace-drift-test
+  (testing "needle whose content lines have drifted indentation"
+    ;; Buffer is indented 4 spaces; model echoed the same block at 2 spaces.
+    ;; Literal lookup misses; the line-aligned fallback strips leading
+    ;; whitespace per line and resolves the unique window.
+    (let [buf "if (cond) {\n    doThing();\n    doOther();\n}\n"
+          needle "if (cond) {\n  doThing();\n  doOther();\n}\n"]
+      (is (nil? (clojure.string/index-of buf needle))
+          "precondition: literal substring lookup must miss")
+      (is (= {:start 0 :end (count buf)}
+             (shared/match-needle buf needle {}))))))
 
 (deftest clean-raw-output-test
   (testing "strips whole-line window markers (with leading whitespace)"
