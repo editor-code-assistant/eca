@@ -33,7 +33,7 @@
         "Available commands:"
         "  server        Start eca as server, listening to stdin."
         ""
-        "See https://eca.dev/settings/ for detailed documentation."]
+        "See https://eca.dev/config/introduction/ for detailed documentation."]
        (string/join \newline)))
 
 (defn ^:private error-msg [errors]
