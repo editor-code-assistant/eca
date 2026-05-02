@@ -4,7 +4,7 @@
    [eca.features.completion :as f.completion]
    [eca.features.completion.response-encoding.region-replace :as region-replace]
    [eca.features.completion.response-encoding.search-replace :as search-replace]
-   [eca.features.completion.response-encoding.udiff-simple :as udiff-simple]
+   [eca.features.completion.response-encoding.udiff :as udiff]
    [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
@@ -35,10 +35,10 @@
     (is (= search-replace/build-items
            (f.completion/resolve-encoding
             {:completion {:responseEncoding "search-replace"}}))))
-  (testing "explicit :udiff-simple"
-    (is (= udiff-simple/build-items
+  (testing "explicit :udiff"
+    (is (= udiff/build-items
            (f.completion/resolve-encoding
-            {:completion {:responseEncoding "udiff-simple"}}))))
+            {:completion {:responseEncoding "udiff"}}))))
   (testing "explicit :region-replace"
     (is (= region-replace/build-items
            (f.completion/resolve-encoding

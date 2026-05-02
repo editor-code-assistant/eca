@@ -160,7 +160,7 @@
              :completion "${classpath:prompts/inline_completion.md}"
              :completionRegionReplace "${classpath:prompts/inline_completion_region_replace.md}"
              :completionSearchReplace "${classpath:prompts/inline_completion_search_replace.md}"
-             :completionUdiffSimple "${classpath:prompts/inline_completion_udiff_simple.md}"
+             :completionUdiff "${classpath:prompts/inline_completion_udiff.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:title true}
    :rewrite {:fullFileMaxLines 2000}

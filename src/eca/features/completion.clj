@@ -48,7 +48,7 @@
 (def ^:private encoding-ns
   {:region-replace 'eca.features.completion.response-encoding.region-replace/build-items
    :search-replace 'eca.features.completion.response-encoding.search-replace/build-items
-   :udiff-simple 'eca.features.completion.response-encoding.udiff-simple/build-items})
+   :udiff 'eca.features.completion.response-encoding.udiff/build-items})
 
 (def default-encoding :search-replace)
 

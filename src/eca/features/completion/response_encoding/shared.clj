@@ -21,12 +21,6 @@
   [s]
   (string/replace (or s "") #"(?m)^[ \t]+$" ""))
 
-(defn blank-out-whitespace-only-lines-pair
-  "Collapse whitespace-only lines on both sides of an edit."
-  [[needle replacement]]
-  [(blank-out-whitespace-only-lines needle)
-   (blank-out-whitespace-only-lines replacement)])
-
 (defn trim-edges-string
   "Strip leading and trailing blank lines from `s`."
   [s]
@@ -98,23 +92,37 @@
           {:start start-char :end end-char})))))
 
 (defn apply-edits
-  "Match each needle and splice the entire replacement over the matched
-  range. Pure match-and-splice: needles must be uniquely identifiable
-  in the full buffer (with whitespace-tolerant fallback)."
+  "Match every needle/line-aligned-needle against the original `doc-text`,
+  reject on overlapping ranges, then apply all replacements from end to
+  start. Returns the patched string, or nil when any needle is absent,
+  ambiguous, or overlaps another matched range."
   [^String doc-text edits]
-  (loop [buf doc-text
-         remaining (seq edits)]
-    (if-let [[needle replacement] (first remaining)]
-      (when-let [{:keys [start end]} (or (try-match buf needle)
-                                         (try-line-aligned-match buf needle))]
-        (recur (splice buf start end (or replacement "")) (next remaining)))
-      buf)))
+  (let [matched (mapv (fn [[needle replacement]]
+                        (when-let [m (or (try-match doc-text needle)
+                                         (try-line-aligned-match doc-text needle))]
+                          {:match m :replacement (or replacement "")}))
+                      edits)]
+    (when (every? :match matched)
+      (let [sorted (sort-by (comp :start :match) matched)]
+        (when (loop [prev nil
+                     remaining (seq sorted)]
+                (if-let [cur (first remaining)]
+                  (if (and prev (> (:end (:match prev)) (:start (:match cur))))
+                    false
+                    (recur cur (next remaining)))
+                  true))
+          (reduce (fn [buf {:keys [match replacement]}]
+                    (splice buf (:start match) (:end match) replacement))
+                  doc-text
+                  (reverse sorted)))))))
 
 ;; --- Completion item emission ---
 
 (defn edits->items
-  "Apply parsed edit pairs to `doc-text` and emit completion items."
-  [{:keys [encoder-id output-text doc-text doc-version edits]}]
+  "Apply parsed edit pairs to `doc-text` and emit completion items.
+  When `:patched` is provided in opts, it is used as the already-patched
+  document instead of running `apply-edits` (which applies edits sequentially)."
+  [{:keys [encoder-id output-text doc-text doc-version edits patched] :as opts}]
   (logger/debug logger-tag
                 (format "encoding=%s\n--- raw model output ---\n%s"
                         encoder-id output-text))
@@ -122,10 +130,12 @@
     (string/blank? (or output-text "")) markers/no-edits
     (empty? edits) markers/no-edits
     :else
-    (when-let [patched (apply-edits doc-text edits)]
-      (or (when-let [{:keys [range text]}
-                     (completion-diff/diff-window doc-text patched 1)]
-            [{:text text
-              :doc-version doc-version
-              :range range}])
-          markers/no-edits))))
+    (let [p (if (contains? opts :patched) patched (apply-edits doc-text edits))]
+      (if p
+        (or (when-let [{:keys [range text]}
+                       (completion-diff/diff-window doc-text p 1)]
+              [{:text text
+                :doc-version doc-version
+                :range range}])
+            markers/no-edits)
+        markers/no-edits))))

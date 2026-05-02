@@ -142,3 +142,12 @@
           replacement "one\ntwo\nthree\n"]
       (is (= "alpha\none\ntwo\nthree\ngamma\n"
              (shared/apply-edits doc [[needle replacement]]))))))
+
+(deftest apply-edits-sequential-pollution-test
+  (testing "original-buffer matching prevents pollution from earlier replacements"
+    (let [doc "aaa\nbbb\nccc\n"
+          edits [["aaa" "aaa\nccc"]
+                 ["ccc" "CCC"]]]
+      (is (= "aaa\nccc\nbbb\nCCC\n"
+             (shared/apply-edits doc edits))
+          "both edits match against the original snapshot, not a mutated buffer"))))

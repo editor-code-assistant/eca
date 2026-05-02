@@ -286,8 +286,8 @@
   "Resolve the system prompt for region-replace inline completions.
 
   Picks `prompts.completionRegionReplace`, `prompts.completionSearchReplace`,
-  or `prompts.completionUdiffSimple` from `completion.responseEncoding`
-  (`region-replace`, `search-replace`, `udiff-simple`). Falls back to
+  or `prompts.completionUdiff` from `completion.responseEncoding`
+  (`region-replace`, `search-replace`, `udiff`). Falls back to
   `inline-completion-prompt` when that override is explicitly cleared."
   [config]
   (let [encoding (or (some-> (get-in config [:completion :responseEncoding]) keyword)
@@ -295,7 +295,7 @@
     (or (case encoding
           :region-replace (get-config-prompt :completionRegionReplace nil config)
           :search-replace (get-config-prompt :completionSearchReplace nil config)
-          :udiff-simple (get-config-prompt :completionUdiffSimple nil config)
+          :udiff (get-config-prompt :completionUdiff nil config)
           (get-config-prompt :completionSearchReplace nil config))
         (inline-completion-prompt config))))
 

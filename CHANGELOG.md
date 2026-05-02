@@ -2,12 +2,14 @@
 
 ## Unreleased
 
+- Rename inline completion encoding `udiff-simple` to `udiff`: use `completion.responseEncoding` `"udiff"` and `prompts.completionUdiff` (replaces `prompts.completionUdiffSimple`).
 - Inline completion response encoding is now swappable via `completion.responseEncoding`, with built-in prompts selected per encoding.
-- Add the `udiff-simple` response encoding.
 - Harden parsing: paired `...` lines can elide unchanged middle sections, leaked ECA markers are stripped, and malformed leaked markers are recovered.
 - Normalize search-replace output by trimming outer blank lines while preserving spaces inside code lines.
 - Treat intentionally empty search-replace replies as a clean `{:items []}` no-op while still surfacing real match failures.
 - `preToolCall` hooks now receive `approval: "ask"` for the native `ask_user` tool so notification hooks (e.g. matching `.approval == "ask"`) also fire when the chat is blocked waiting for a user answer, regardless of trust mode.
+- Simplify inline-completion edit application: drop window-scoped clipping and window-priority match disambiguation. The window is now a prompt-shaping hint only; encoders produce edit pairs and the splicer matches needles uniquely against the full buffer (Zed/Aider-style).
+- Stop collapsing whitespace-only lines inside `:search-replace` and `:udiff` needle/replacement bodies. The previous normalization created an asymmetry between needle and buffer that forced the line-aligned fallback to run and silently erased whitespace-only lines from the spliced text; needles are now used verbatim and the matcher's line-aligned fallback symmetrically handles whitespace drift in either direction.
 - Inline completion now supports region-replace edits: when the client advertises `codeAssistant.completionCapabilities.regionReplace` at `initialize`, `completion/inline` may return a `range` that starts before the cursor, ends after it and/or spans multiple lines — enabling Cursor-Tab style suggestions that fix typos and rewrite code around the cursor. The two flows use independent system prompts so each is focused on a single output contract: `prompts.completion` keeps the legacy `<ECA_TAG>` insertion contract for legacy clients, and the new `prompts.completionRegionReplace` ships a focused rewrite-window prompt for capable clients. Configurable via `completion.windowRadius` (default 6) and `completion.requestTimeoutMs` (default 30000). Legacy clients keep the previous insert-at-cursor behavior. #427
 
 ## 0.129.2

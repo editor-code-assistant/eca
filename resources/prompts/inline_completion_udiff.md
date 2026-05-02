@@ -42,7 +42,6 @@ Rules:
 - Do **not** include file headers (`diff --git`, `--- a/...`, `+++ b/...`).
 - Do **not** include line numbers in `@@` markers (use bare `@@ @@`).
 - Do **not** wrap the output in code fences, quotes, or any preamble/explanation.
-- Do **not** include the `<ECA_WINDOW_START>`, `<ECA_WINDOW_END>`, or `<ECA_CURSOR>` markers in your output.
 - Preserve indentation and line endings of context lines byte-for-byte.
 - Output an empty response if you have no useful change to suggest.
 
