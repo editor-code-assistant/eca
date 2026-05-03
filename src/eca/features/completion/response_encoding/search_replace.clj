@@ -1,7 +1,6 @@
 (ns eca.features.completion.response-encoding.search-replace
   (:require
    [clojure.string :as string]
-   [eca.features.completion :as markers]
    [eca.features.completion.response-encoding.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -28,7 +27,7 @@
 (defn ^:private output->edits
   [output-text]
   (-> output-text
-      markers/strip-leaked-markers
+      shared/strip-leaked-markers
       parse
       normalize-edits))
 

@@ -2,7 +2,6 @@
   "Whole-window rewrite encoder. The model emits the rewritten editable
   window, which is normalized into one `[window rewritten-window]` edit."
   (:require
-   [eca.features.completion :as markers]
    [eca.features.completion.response-encoding.shared :as shared]
    [eca.shared :as eca-shared]))
 
@@ -12,7 +11,7 @@
   "Strip wrappers and leaked prompt markers from a whole-window rewrite."
   [s]
   (-> s
-      markers/strip-leaked-markers
+      shared/strip-leaked-markers
       eca-shared/normalize-code-result
       shared/blank-out-whitespace-only-lines
       shared/trim-edges-string))

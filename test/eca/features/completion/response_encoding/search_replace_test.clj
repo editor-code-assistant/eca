@@ -1,7 +1,7 @@
 (ns eca.features.completion.response-encoding.search-replace-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.completion :as markers]
+   [eca.features.completion.markers :as markers]
    [eca.features.completion.response-encoding.search-replace :as search-replace]
    [matcher-combinators.test :refer [match?]]))
 

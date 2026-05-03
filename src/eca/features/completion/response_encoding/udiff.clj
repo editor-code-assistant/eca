@@ -1,7 +1,6 @@
 (ns eca.features.completion.response-encoding.udiff
   (:require
    [clojure.string :as string]
-   [eca.features.completion :as markers]
    [eca.features.completion.response-encoding.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -79,7 +78,7 @@
   (one or more hunks)."
   [s]
   (-> (or s "")
-      (markers/strip-leaked-markers)
+      (shared/strip-leaked-markers)
       (string/replace fence-re "$1")
       (string/replace file-header-re "")))
 

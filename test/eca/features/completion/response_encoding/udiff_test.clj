@@ -1,7 +1,7 @@
 (ns eca.features.completion.response-encoding.udiff-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.completion :as markers]
+   [eca.features.completion.markers :as markers]
    [eca.features.completion.response-encoding.udiff :as udiff]
    [matcher-combinators.test :refer [match?]]))
 

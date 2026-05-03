@@ -2,7 +2,12 @@
   (:require
    [clojure.string :as string]
    [eca.features.completion-diff :as completion-diff]
+   [eca.features.completion.markers :as markers]
+   [eca.features.completion.response-encoding.region-replace :as enc.region-replace]
+   [eca.features.completion.response-encoding.search-replace :as enc.search-replace]
+   [eca.features.completion.response-encoding.udiff :as enc.udiff]
    [eca.features.login :as f.login]
+   [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -11,44 +16,10 @@
 
 (def ^:private logger-tag "[COMPLETION]")
 
-(def completion-tag "<ECA_TAG>")
-(def cursor-marker "<ECA_CURSOR>")
-(def window-start-marker "<ECA_WINDOW_START>")
-(def window-end-marker "<ECA_WINDOW_END>")
-
-(def no-edits ::no-edits)
-
-(def whole-line-window-marker-re
-  ;; Whole-line window markers (allow leading whitespace and an optional line
-  ;; terminator). A line whose entire content is one of these tokens is
-  ;; essentially-never user code.
-  (re-pattern
-   (str "(?m)^[ \\t]*(?:"
-        (java.util.regex.Pattern/quote window-start-marker)
-        "|"
-        (java.util.regex.Pattern/quote window-end-marker)
-        ")[ \\t]*\\r?\\n?")))
-
-(def inline-marker-re
-  ;; Optional `<` + uppercase/underscore token starting with `ECA_` +
-  ;; optional `>`. Permissive on purpose: covers `<ECA_CURSOR>`,
-  ;; `<ECA_CURSOR`, `ECA_CURSOR>`, `ECA_CURSOR`, `<ECA_CURSO>`,
-  ;; `<ECA_WINDOW_STAR>`, `ECA_WINDOW_EN`, etc.
-  #"<?ECA_[A-Z_]{2,}>?")
-
-(defn strip-leaked-markers
-  "Strips whole-line window markers and any
-  inline ECA marker tokens so downstream
-  parsing and matching never see leaked protocol artifacts."
-  [s]
-  (-> (or s "")
-      (string/replace whole-line-window-marker-re "")
-      (string/replace inline-marker-re "")))
-
-(def ^:private encoding-ns
-  {:region-replace 'eca.features.completion.response-encoding.region-replace/build-items
-   :search-replace 'eca.features.completion.response-encoding.search-replace/build-items
-   :udiff 'eca.features.completion.response-encoding.udiff/build-items})
+(def ^:private encoding-builders
+  {:region-replace enc.region-replace/build-items
+   :search-replace enc.search-replace/build-items
+   :udiff enc.udiff/build-items})
 
 (def default-encoding :search-replace)
 
@@ -58,9 +29,8 @@
   or unknown."
   [config]
   (let [encoding (or (some-> (get-in config [:completion :responseEncoding]) keyword)
-                     default-encoding)
-        sym (get encoding-ns encoding (get encoding-ns default-encoding))]
-    (some-> sym requiring-resolve deref)))
+                     default-encoding)]
+    (get encoding-builders encoding (get encoding-builders default-encoding))))
 
 (def ^:private default-window-radius 6)
 (def ^:private default-request-timeout-ms 30000)
@@ -77,7 +47,7 @@
         char-idx (dec character)
         prefix (subs line-str 0 char-idx)
         suffix (subs line-str char-idx)
-        updated-line (str prefix completion-tag suffix)]
+        updated-line (str prefix markers/completion-tag suffix)]
     (->> (assoc lines line-idx updated-line)
          (string/join "\n"))))
 
@@ -86,8 +56,8 @@
 
   Returns `{:prompt :window :start-line :end-line}`. The prompt embeds the
   full document with the editable window wrapped in `<ECA_WINDOW_START>` /
-  `<ECA_WINDOW_END>`markers and the cursor marked by `<ECA_CURSOR>` inside
-   the window — the model is instructed to rewrite the window contents."
+  `<ECA_WINDOW_END>` markers and the cursor marked by `<ECA_CURSOR>` inside
+  the window — the model is instructed to rewrite the window contents."
   [doc-text {:keys [line character]} window-radius]
   (let [{:keys [window start-line end-line]} (completion-diff/extract-window
                                               doc-text line window-radius)
@@ -95,7 +65,7 @@
                        window {:line line :character character} start-line)
         marked-window (if cursor-offset
                         (str (subs window 0 cursor-offset)
-                             cursor-marker
+                             markers/cursor-marker
                              (subs window cursor-offset))
                         window)
         all-lines (if (seq doc-text)
@@ -107,7 +77,7 @@
         prompt (string/join
                 "\n"
                 (concat prefix-lines
-                        [(str window-start-marker "\n" marked-window "\n" window-end-marker)]
+                        [(str markers/window-start-marker "\n" marked-window "\n" markers/window-end-marker)]
                         suffix-lines))]
     {:prompt prompt
      :window window
@@ -171,8 +141,8 @@
         region-input (when region-replace?
                        (region-replace-input doc-text position window-radius))
         instructions (if region-replace?
-                       ((requiring-resolve 'eca.features.prompt/inline-completion-region-replace-prompt) config)
-                       ((requiring-resolve 'eca.features.prompt/inline-completion-prompt) config))
+                       (f.prompt/inline-completion-region-replace-prompt config)
+                       (f.prompt/inline-completion-prompt config))
         input-code (if region-replace?
                      (:prompt region-input)
                      (insert-completion-tag doc-text position))
@@ -207,7 +177,7 @@
                                 :config config
                                 :region-input region-input})]
         (cond
-          (= no-edits items) {:items []}
+          (= markers/no-edits items) {:items []}
           (seq items) {:items items}
           :else {:error {:type :info
                          :message "No suggestions found"}}))

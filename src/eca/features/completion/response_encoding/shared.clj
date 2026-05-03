@@ -4,12 +4,18 @@
   (:require
    [clojure.string :as string]
    [eca.features.completion-diff :as completion-diff]
-   [eca.features.completion :as markers]
+   [eca.features.completion.markers :as markers]
    [eca.logger :as logger]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[COMPLETION]")
+
+(defn strip-leaked-markers
+  [s]
+  (-> (or s "")
+      (string/replace markers/whole-line-window-marker-re "")
+      (string/replace markers/inline-marker-re "")))
 
 (defn splice
   "Replace `[start end)` of `s` with `replacement`."

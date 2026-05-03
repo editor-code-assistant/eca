@@ -1,7 +1,8 @@
 (ns eca.features.completion.response-encoding.shared-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.completion :as markers]
+   [eca.features.completion.markers :as markers]
    [eca.features.completion.response-encoding.shared :as shared]
    [eca.logger :as logger]
    [matcher-combinators.test :refer [match?]]))
@@ -68,14 +69,14 @@
     ;; try-line-aligned-match collapses both sides and resolves a unique window.
     (let [buf "fn foo() {\n    \n  return 1;\n}\n"
           needle "fn foo() {\n\n  return 1;\n}\n"]
-      (is (nil? (clojure.string/index-of buf needle))
+      (is (nil? (string/index-of buf needle))
           "precondition: literal substring lookup must miss")
       (is (= {:start 0 :end (count buf)}
              (shared/match-needle buf needle {})))))
   (testing "and the symmetric case: needle has the whitespace, buffer is clean"
     (let [buf "fn foo() {\n\n  return 1;\n}\n"
           needle "fn foo() {\n   \n  return 1;\n}\n"]
-      (is (nil? (clojure.string/index-of buf needle)))
+      (is (nil? (string/index-of buf needle)))
       (is (= {:start 0 :end (count buf)}
              (shared/match-needle buf needle {}))))))
 
@@ -86,7 +87,7 @@
     ;; whitespace per line and resolves the unique window.
     (let [buf "if (cond) {\n    doThing();\n    doOther();\n}\n"
           needle "if (cond) {\n  doThing();\n  doOther();\n}\n"]
-      (is (nil? (clojure.string/index-of buf needle))
+      (is (nil? (string/index-of buf needle))
           "precondition: literal substring lookup must miss")
       (is (= {:start 0 :end (count buf)}
              (shared/match-needle buf needle {}))))))
@@ -94,21 +95,21 @@
 (deftest clean-raw-output-test
   (testing "strips whole-line window markers (with leading whitespace)"
     (is (= "foo\nbar\n"
-           (markers/strip-leaked-markers
+           (shared/strip-leaked-markers
             (str "foo\n  " markers/window-start-marker "\nbar\n" markers/window-end-marker "\n")))))
   (testing "strips inline window markers (literal substring)"
     (is (= "before  after\n"
-           (markers/strip-leaked-markers (str "before " markers/window-start-marker " after\n")))))
+           (shared/strip-leaked-markers (str "before " markers/window-start-marker " after\n")))))
   (testing "strips cursor marker on its own line"
     (is (= "\n"
-           (markers/strip-leaked-markers (str markers/cursor-marker "\n")))))
+           (shared/strip-leaked-markers (str markers/cursor-marker "\n")))))
   (testing "strips malformed inline marker variants"
-    (is (= "x" (markers/strip-leaked-markers "x<ECA_CURSOR")))
-    (is (= "x" (markers/strip-leaked-markers "ECA_CURSOR>x")))
-    (is (= "x" (markers/strip-leaked-markers "x<ECA_CURSO>")))
-    (is (= "x" (markers/strip-leaked-markers "ECA_CURSORxECA_CURSOR"))))
+    (is (= "x" (shared/strip-leaked-markers "x<ECA_CURSOR")))
+    (is (= "x" (shared/strip-leaked-markers "ECA_CURSOR>x")))
+    (is (= "x" (shared/strip-leaked-markers "x<ECA_CURSO>")))
+    (is (= "x" (shared/strip-leaked-markers "ECA_CURSORxECA_CURSOR"))))
   (testing "treats nil as empty"
-    (is (= "" (markers/strip-leaked-markers nil)))))
+    (is (= "" (shared/strip-leaked-markers nil)))))
 
 (deftest edits->items-test
   (testing "applies edits and emits completion items"
