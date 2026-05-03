@@ -252,8 +252,8 @@
         "responseEncoding": {
           "type": "string",
           "enum": ["search-replace", "udiff", "region-replace"],
-          "description": "",
-          "markdownDescription": "",
+          "description": "Which encoding the server expects from the model for region-replace completions.",
+          "markdownDescription": "Use `search-replace` (default), `udiff`, or `region-replace` with the paired prompt.",
           "default": "search-replace"
         }
       }
