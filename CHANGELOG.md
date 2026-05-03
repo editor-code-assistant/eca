@@ -4,7 +4,8 @@
 
 - Add `search-replace` (SEARCH/REPLACE blocks, now the default) and `udiff` (unified-diff hunks) response encodings for inline completion; select via `completion.responseEncoding` (`search-replace` | `udiff` | `region-replace`), each paired to a dedicated built-in prompt (`prompts.completionSearchReplace`, `prompts.completionUdiff`).
 - Strip leaked ECA prompt markers — including partial and malformed forms — from model output before parsing.
-- Disambiguate ambiguous `udiff` needle matches using `@@ -N @@` old-start-line hints; multi-hunk responses with any overlapping range are rejected atomically.
+- Disambiguate ambiguous `udiff` needle matches using `@@ -N @@` old-start-line hints; multi-hunk responses with any overlapping range among **matched** hunks are rejected atomically.
+- Inline completion (`apply-edits`): hunks whose needle does not match the document are skipped; other hunks in the same model output still apply (overlap rules unchanged).
 - Return `{:items []}` for blank or empty model output instead of a match-failure error.
 - `preToolCall` hooks now receive `approval: "ask"` for the native `ask_user` tool so notification hooks (e.g. matching `.approval == "ask"`) also fire when the chat is blocked waiting for a user answer, regardless of trust mode.
 - Inline completion needle matching now tolerates leading-whitespace drift on content lines (in addition to whitespace-only blank lines), recovering edits where the model re-indented the matched block.

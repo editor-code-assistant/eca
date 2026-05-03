@@ -73,6 +73,18 @@
           out "@@ -1,2 +1,2 @@\n-one\n-two\n+ONE\n+TWO\n@@ -2,2 +2,2 @@\n-two\n-three\n+TWO_MOD\n+THREE\n"]
       (is (= markers/no-edits (build doc out))))))
 
+(deftest partial-multi-hunk-skip-unmatched-test
+  (testing "a hunk that does not match is skipped; a later valid hunk still applies"
+    (let [doc "one\ntwo\nthree\nfour\n"
+          out (str "@@ -1,1 +1,1 @@\n"
+                   "-nope\n"
+                   "+NEVER\n"
+                   "@@ -3,1 +3,1 @@\n"
+                   "-three\n"
+                   "+THREE\n")]
+      (is (match? [{:doc-version 1 :text "THREE" :range map?}]
+                  (build doc out))))))
+
 ;; --- Malformed hunk ---
 
 (deftest malformed-hunk-indented-at-sign-header-test

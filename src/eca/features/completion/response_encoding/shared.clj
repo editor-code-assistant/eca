@@ -142,9 +142,10 @@
 
 (defn ^:private splice-resolved
   "Apply pre-resolved `{:start :end :replacement}` edits from end to start.
-  Edits must be sorted by `:start`. Returns nil on overlap."
+  `resolved` must contain only matched maps (no nils). Edits must be sorted by
+  `:start`. Returns nil on overlap or empty input."
   [^String doc-text resolved]
-  (when (every? some? resolved)
+  (when (and (seq resolved) (every? some? resolved))
     (let [sorted (sort-by :start resolved)]
       (when (loop [prev nil
                    remaining (seq sorted)]
@@ -159,26 +160,30 @@
                 (reverse sorted))))))
 
 (defn apply-edits
-  "Match every needle against the original `doc-text`, reject on overlapping
-  ranges, then apply all replacements from end to start.
+  "Match each needle against the original `doc-text`, then apply every
+  replacement whose needle matched, from end to start.
+
+  Edits whose needle is absent or ambiguous are skipped; hunks that matched
+  but overlap another matched hunk still reject the whole splice (returns nil).
 
   Each edit is either:
   - `[needle replacement]` — standard pair
   - `[needle replacement opts]` — pair with `match-needle` options (e.g.
     `{:old-start-line N}` for udiff @@ line disambiguation).
 
-  Returns the patched string, or nil when any needle is absent, ambiguous,
-  or overlaps another matched range."
+  Returns the patched string, or nil when no needle matched or overlaps occur
+  among the matched ranges."
   [^String doc-text edits]
-  (let [resolved (mapv (fn [edit]
-                         (let [[n r opts] (if (= 3 (count edit))
-                                            edit
-                                            [(nth edit 0) (nth edit 1) {}])]
-                           (when-let [m (match-needle doc-text n opts)]
-                             {:start (:start m)
-                              :end (:end m)
-                              :replacement (or r "")})))
-                       edits)]
+  (let [resolved (->> edits
+                      (mapv (fn [edit]
+                              (let [[n r opts] (if (= 3 (count edit))
+                                                 edit
+                                                 [(nth edit 0) (nth edit 1) {}])]
+                                (when-let [m (match-needle doc-text n opts)]
+                                  {:start (:start m)
+                                   :end (:end m)
+                                   :replacement (or r "")}))))
+                      (filterv some?))]
     (splice-resolved doc-text resolved)))
 
 ;; --- Completion item emission ---

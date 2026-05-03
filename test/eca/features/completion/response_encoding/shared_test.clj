@@ -167,3 +167,10 @@
       (is (= "aaa\nccc\nbbb\nCCC\n"
              (shared/apply-edits doc edits))
           "both edits match against the original snapshot, not a mutated buffer"))))
+
+(deftest apply-edits-partial-skip-unmatched-test
+  (testing "unmatched needles are skipped; matched edits still splice"
+    (let [doc "alpha\nbeta\ngamma\n"]
+      (is (= "alpha\nBETA\ngamma\n"
+             (shared/apply-edits doc [["missing" "x"]
+                                      ["beta\n" "BETA\n"]]))))))
