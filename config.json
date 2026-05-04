@@ -475,6 +475,17 @@
           "items": {
             "type": "string"
           }
+        },
+        "api": {
+          "type": [
+            "string",
+            "array"
+          ],
+          "description": "Restrict variants to the given API type(s). String for exact match, array for any-of. Absent = match all.",
+          "markdownDescription": "Restrict variants to the given API type(s). String for exact match, array for any-of. Absent = match all.",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
