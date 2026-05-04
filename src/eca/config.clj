@@ -159,6 +159,8 @@
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :completionRegionReplace "${classpath:prompts/inline_completion_region_replace.md}"
+             :completionSearchReplace "${classpath:prompts/inline_completion_search_replace.md}"
+             :completionUdiff "${classpath:prompts/inline_completion_udiff.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:title true}
    :rewrite {:fullFileMaxLines 2000}
@@ -185,7 +187,7 @@
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
                      ".*opus[-._]4[-._]7" {:variants anthropic-v2-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
-                                                                            :excludeProviders ["github-copilot"]}}
+                                                                              :excludeProviders ["github-copilot"]}}
    :mcpTimeoutSeconds 60
    :lspTimeoutSeconds 30
    :streamIdleTimeoutSeconds 120
