@@ -822,7 +822,8 @@
                 :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                         (lifecycle/assert-chat-not-stopped! chat-ctx)
                                         (let [all-tools (f.tools/all-tools chat-id agent @db* config)
-                                              tool (tc/tool-by-full-name full-name all-tools)]
+                                              tool (f.tools/resolve-tool full-name all-tools)
+                                              resolved-full-name (or (:full-name tool) full-name)]
                                           (when-not tool
                                             (logger/warn logger-tag "Tool not found for prepare"
                                                          {:full-name full-name
@@ -830,10 +831,10 @@
                                           (tc/transition-tool-call! db* chat-ctx id :tool-prepare
                                                                     {:name (or (:name tool) full-name)
                                                                      :server (:name (:server tool))
-                                                                     :full-name full-name
+                                                                     :full-name resolved-full-name
                                                                      :origin (or (:origin tool) :unknown)
                                                                      :arguments-text arguments-text
-                                                                     :summary (f.tools/tool-call-summary all-tools full-name nil config @db*)})))
+                                                                     :summary (f.tools/tool-call-summary all-tools resolved-full-name nil config @db*)})))
                 :on-tools-called (tc/on-tools-called!
                                   (assoc chat-ctx :continue-fn
                                          (fn [tc-all-tools tc-user-messages]

@@ -517,9 +517,6 @@
 
     {:status status :actions actions}))
 
-(defn tool-by-full-name [full-name all-tools]
-  (first (filter #(= full-name (:full-name %)) all-tools)))
-
 (defn ^:private process-pre-tool-call-hook-result
   "Pure function: fold a single hook result into accumulated state.
 
@@ -561,9 +558,7 @@
    & [{:keys [on-before-hook-action on-after-hook-action trust]
        :or {on-before-hook-action (fn [_] nil)
             on-after-hook-action (fn [_] nil)}}]]
-  (let [tool (tool-by-full-name full-name all-tools)
-        name (:name tool)
-        server (:server tool)
+  (let [{:keys [name server] :as tool} (f.tools/resolve-tool full-name all-tools)
         server-name (:name server)
         native-tools (filter #(= :native (:origin %)) all-tools)
 
@@ -666,12 +661,15 @@
           (let [rejected-tool-call-info* (atom nil)]
             (run! (fn do-tool-call [{:keys [id full-name] :as tool-call}]
                     (let [approved?*                                     (promise)
-                          {:keys [origin name server parameters]}        (tool-by-full-name full-name all-tools)
+                          {:keys [origin name server parameters]
+                           :as resolved-tool}                            (f.tools/resolve-tool full-name all-tools)
+                          full-name                                      (or (:full-name resolved-tool) full-name)
                           server-name                                    (:name server)
-                          tool-call                                      (update tool-call :arguments
-                                                                                 #(if parameters
-                                                                                    (tools.util/omit-optional-empty-string-args parameters %)
-                                                                                    %))
+                          tool-call                                      (assoc tool-call
+                                                                                :full-name full-name
+                                                                                :arguments (if parameters
+                                                                                             (tools.util/omit-optional-empty-string-args parameters (:arguments tool-call))
+                                                                                             (:arguments tool-call)))
                           decision-plan                                  (decide-tool-call-action
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)

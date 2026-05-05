@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Native ECA tools now auto-resolve bare tool names like `write_file` to their canonical `eca__...` form, avoiding repeated failed retries when an LLM omits the native server prefix.
+
 ## 0.132.0
 
 - `variantsByModel` entries now support an optional `:api` filter (string or vector) to restrict variant matching by provider API type.
