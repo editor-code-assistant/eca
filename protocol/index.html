@@ -1454,6 +1454,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-status-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat status changed (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-deleted" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat deleted (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-delete" class="md-nav__link">
     <span class="md-ellipsis">
       Chat delete (↩️)
@@ -2163,6 +2181,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-status-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat status changed (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-deleted" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat deleted (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-delete" class="md-nav__link">
     <span class="md-ellipsis">
       Chat delete (↩️)
@@ -2862,7 +2898,22 @@ Used for broader questions or continuous discussion of project/files.</p>
 </ul>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatPromptParams</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The chat session identifier. If not provided, a new chat session will be created.</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     *</span>
+<span class="cm">     * Clients should generate this id (e.g. a UUID) at the moment the user</span>
+<span class="cm">     * opens a new chat in the UI and reuse it across all subsequent requests</span>
+<span class="cm">     * for that chat. If the server has never seen the id, it materializes a</span>
+<span class="cm">     * new empty chat record on demand and emits a `chat/opened` notification</span>
+<span class="cm">     * so other observers (additional clients, remote viewers) can sync.</span>
+<span class="cm">     *</span>
+<span class="cm">     * Backward compatibility: clients that omit this field still work — the</span>
+<span class="cm">     * server will mint an id and return it in the response. In that legacy</span>
+<span class="cm">     * path no `chat/opened` notification is emitted (the prompting client</span>
+<span class="cm">     * already learns the id from the response payload).</span>
+<span class="cm">     *</span>
+<span class="cm">     * Reserved: ids starting with `subagent-` are reserved for server-managed</span>
+<span class="cm">     * subagent chats and will be rejected. Ids must be non-blank and at most</span>
+<span class="cm">     * 256 characters.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
@@ -4146,8 +4197,18 @@ via <code>chat/contentReceived</code>. A system message is also sent to the orig
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="chat-opened">Chat opened (⬅️)<a class="headerlink" href="#chat-opened" title="Permanent link">#</a></h3>
-<p>A server notification indicating a new chat was created server-side (e.g. via <code>/fork</code>).
-Clients should create a new chat entry in the UI. The chat messages will follow as <code>chat/contentReceived</code> notifications.</p>
+<p>A server notification indicating that a chat exists or was just materialized
+server-side. Emitted when:</p>
+<ul>
+<li>a chat is forked via <code>/fork</code> or the <code>chat/fork</code> request,</li>
+<li>a persisted chat is replayed via <code>chat/open</code>,</li>
+<li>a client-supplied <code>chatId</code> is seen for the first time on <code>chat/prompt</code>
+  (the legacy null-<code>chatId</code> path does not emit this).</li>
+</ul>
+<p>Clients should treat this notification as <strong>idempotent</strong>: if the <code>chatId</code>
+already exists in the client's UI, no new chat entry should be created — the
+notification should be ignored or used to update the title. Chat messages
+follow as <code>chat/contentReceived</code> notifications.</p>
 <p><em>Notification:</em></p>
 <ul>
 <li>method: <code>chat/opened</code></li>
@@ -4156,14 +4217,59 @@ Clients should create a new chat entry in the UI. The chat messages will follow 
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatOpenedParams</span><span class="w"> </span><span class="p">{</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The new chat session identifier.</span>
+<span class="cm">     * The chat session identifier.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The title of the new chat.</span>
+<span class="cm">     * The title of the chat. Absent for client-initiated new chats that do</span>
+<span class="cm">     * not yet have a title.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">title?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="chat-status-changed">Chat status changed (⬅️)<a class="headerlink" href="#chat-status-changed" title="Permanent link">#</a></h3>
+<p>A server notification carrying lifecycle transitions for a chat. Clients
+typically use it to drive a "chat is running/idle/stopping" indicator.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>chat/statusChanged</code></li>
+<li>params: <code>ChatStatusChangedParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatStatusChangedParams</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Lifecycle status of the chat.</span>
+<span class="cm">     *</span>
+<span class="cm">     * - `running`:  a prompt is actively being processed (LLM streaming, tool calls in flight).</span>
+<span class="cm">     * - `idle`:     prompt finished; chat is ready for further input.</span>
+<span class="cm">     * - `stopping`: a stop has been requested (via `chat/promptStop`) and the</span>
+<span class="cm">     *               chat is winding down its in-flight work.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;running&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;idle&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;stopping&#39;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="chat-deleted">Chat deleted (⬅️)<a class="headerlink" href="#chat-deleted" title="Permanent link">#</a></h3>
+<p>A server notification confirming that a chat was deleted (either via the
+<code>chat/delete</code> request from this client or via another connected client / a
+server-side cleanup such as <code>chatRetentionDays</code>). Clients should remove the
+chat from their UI.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>chat/deleted</code></li>
+<li>params: <code>ChatDeletedParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatDeletedParams</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier that was deleted.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="chat-delete">Chat delete (↩️)<a class="headerlink" href="#chat-delete" title="Permanent link">#</a></h3>
@@ -4315,6 +4421,16 @@ not been opened in the current client session.</p>
 </ul>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatSelectedAgentChanged</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier the change applies to.</span>
+<span class="cm">     *</span>
+<span class="cm">     * When provided, the server persists the selection on this specific</span>
+<span class="cm">     * chat record and the resulting `config/updated` broadcast carries the</span>
+<span class="cm">     * same `chatId` so clients scope the update to one chat. When omitted,</span>
+<span class="cm">     * the change is treated as session-wide (legacy behavior).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The selected agent.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">agent</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
@@ -4333,6 +4449,16 @@ and the suggested variant to select (if any).</p>
 <li>params: <code>ChatSelectedModelChanged</code> defined as follows:</li>
 </ul>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatSelectedModelChanged</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier the change applies to.</span>
+<span class="cm">     *</span>
+<span class="cm">     * When provided, the server persists model + variant on this specific</span>
+<span class="cm">     * chat record and the resulting `config/updated` broadcast carries the</span>
+<span class="cm">     * same `chatId` so clients scope the update to one chat. When omitted,</span>
+<span class="cm">     * the change is treated as session-wide (legacy behavior).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The selected model (full model name, e.g. &quot;anthropic/claude-sonnet-4-5&quot;).</span>
 <span class="cm">     */</span>
@@ -4652,6 +4778,17 @@ Clients should update UI accordingly, if a field is missing/null, means it had n
 <li>params: <code>configUpdatedParams</code> defined as follows:</li>
 </ul>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ConfigUpdatedParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * When present, scopes this update to a single chat: clients should</span>
+<span class="cm">     * apply the per-chat fields (`selectModel`, `selectAgent`,</span>
+<span class="cm">     * `selectVariant`, `selectTrust`) only to the chat with this id and</span>
+<span class="cm">     * leave other chats untouched. When absent, the update is session-wide</span>
+<span class="cm">     * and clients should apply the per-chat fields to every chat (legacy</span>
+<span class="cm">     * behavior, used for the initial config push and other genuinely</span>
+<span class="cm">     * session-wide events).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * Configs related to chat.</span>
 <span class="cm">     */</span>
@@ -5335,7 +5472,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 7, 2026 17:09:44 UTC">May 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 7, 2026 19:44:34 UTC">May 7, 2026</span>
   </span>
 
     
