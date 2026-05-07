@@ -1382,6 +1382,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chat-steer-prompt-remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat steer prompt remove (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-rollback" class="md-nav__link">
     <span class="md-ellipsis">
       Chat rollback (↩️)
@@ -2076,6 +2085,15 @@
   <a href="#chat-steer-prompt" class="md-nav__link">
     <span class="md-ellipsis">
       Chat steer prompt (➡️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-steer-prompt-remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat steer prompt remove (➡️)
     </span>
   </a>
   
@@ -3955,6 +3973,22 @@ If the prompt finishes before the steer is consumed, the client should send it a
 <span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="chat-steer-prompt-remove">Chat steer prompt remove (➡️)<a class="headerlink" href="#chat-steer-prompt-remove" title="Permanent link">#</a></h3>
+<p>A client notification to discard any pending steer message that has not yet been consumed by the LLM loop.
+The notification is idempotent: if no steer message is pending (or it was already consumed at the next turn boundary),
+the server silently does nothing.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>chat/promptSteerRemove</code></li>
+<li>params: <code>ChatPromptSteerRemoveParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ChatPromptSteerRemoveParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The chat session identifier.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="chat-rollback">Chat rollback (↩️)<a class="headerlink" href="#chat-rollback" title="Permanent link">#</a></h3>
 <p>A client request to rollback chat messages to before a specific user sent message using <code>contentId</code>.
 Clients should show an option close to user sent messages in chat to rollback, calling this method.
@@ -5301,7 +5335,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 6, 2026 13:00:53 UTC">May 6, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 7, 2026 15:14:26 UTC">May 7, 2026</span>
   </span>
 
     
