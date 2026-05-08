@@ -3,7 +3,10 @@
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.messenger :as messenger]
    [eca.remote.handlers :as handlers]
+   [eca.remote.messenger :as remote.messenger]
+   [eca.remote.sse :as sse]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
@@ -88,3 +91,43 @@
       (is (= 200 (:status response)))
       (is (string? (:version body)))
       (is (= "1.0" (:protocolVersion body))))))
+
+(deftest handle-answer-question-test
+  (let [inner (h/messenger)
+        sse-connections* (sse/create-connections)
+        broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+        os (java.io.ByteArrayOutputStream.)
+        _client (sse/add-client! sse-connections* os)
+        request-with-body (fn [body]
+                            {:body (java.io.ByteArrayInputStream.
+                                    (.getBytes ^String (json/generate-string body) "UTF-8"))})]
+
+    (testing "returns 400 when requestId is missing"
+      (let [response (handlers/handle-answer-question
+                      {:messenger broadcast-messenger}
+                      (request-with-body {:answer "x"}))
+            body (json/parse-string (:body response) true)]
+        (is (= 400 (:status response)))
+        (is (= "invalid_request" (get-in body [:error :code])))))
+
+    (testing "returns 404 when requestId is unknown"
+      (let [response (handlers/handle-answer-question
+                      {:messenger broadcast-messenger}
+                      (request-with-body {:requestId "nonexistent" :answer "x"}))
+            body (json/parse-string (:body response) true)]
+        (is (= 404 (:status response)))
+        (is (= "question_not_found" (get-in body [:error :code])))))
+
+    (testing "returns 204 and resolves the pending promise on a successful answer"
+      (let [p (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Q?"})]
+        (Thread/sleep 100)
+        (let [pending @(:pending-questions* broadcast-messenger)
+              [request-id _] (first pending)
+              response (handlers/handle-answer-question
+                        {:messenger broadcast-messenger}
+                        (request-with-body {:requestId request-id :answer "ok" :cancelled false}))]
+          (is (= 204 (:status response)))
+          (is (realized? p))
+          (is (= {:answer "ok" :cancelled false} @p)))))
+
+    (sse/close-all! sse-connections*)))

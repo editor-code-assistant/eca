@@ -1245,64 +1245,125 @@
      :model full-model
      :status :prompting}))
 
+(def ^:private max-client-chat-id-length 256)
+
+(defn ^:private server-managed-subagent-chat-id?
+  [db chat-id]
+  (and (string? chat-id)
+       (string/starts-with? chat-id "subagent-")
+       (some? (get-in db [:chats chat-id :subagent]))))
+
+(defn validate-client-chat-id
+  "Validates a client-supplied chat id. Returns nil when valid, otherwise an
+   error message string.
+
+   Public so non-prompt selection handlers (`chat/selectedModelChanged`,
+   `chat/selectedAgentChanged`) can apply the same rules to their `chat-id`
+   field.
+
+   Rejected: blank, the reserved `subagent-` prefix (used for deterministic
+   subagent chat ids in `eca.features.tools.agent`), embedded whitespace or
+   control characters (which would mangle log lines / tab-line titles), and
+   ids longer than `max-client-chat-id-length` characters."
+  [chat-id]
+  (cond
+    (string/blank? chat-id)
+    "chatId must be a non-blank string"
+
+    (string/starts-with? chat-id "subagent-")
+    "chatId prefix 'subagent-' is reserved for server-managed subagent chats"
+
+    (re-find #"[\s\p{Cntrl}]" chat-id)
+    "chatId must not contain whitespace or control characters"
+
+    (> (count chat-id) max-client-chat-id-length)
+    (str "chatId must be " max-client-chat-id-length " characters or fewer")))
+
 (defn prompt
   [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
-  (let [raw-agent (or agent
-                      behavior ;; backward compat: accept old 'behavior' param
-                      (-> config :chat :defaultAgent) ;; legacy
-                      (-> config :defaultAgent))
-        chat-id (or chat-id
-                    (let [new-id (str (random-uuid))]
-                      (swap! db* assoc-in [:chats new-id] {:id new-id})
-                      new-id))
-        selected-agent (config/validate-agent-name raw-agent config)
-        agent-config (get-in config [:agent selected-agent])
-        base-chat-ctx (assoc-some {:metrics metrics
-                                   :config config
-                                   :contexts contexts
-                                   :db* db*
-                                   :messenger messenger
-                                   :user-content-id (lifecycle/new-content-id)
-                                   :message (string/trim message)
-                                   :chat-id chat-id
-                                   :agent selected-agent
-                                   :agent-config agent-config
-                                   :trust trust
-                                   :variant (or variant (:variant agent-config))}
-                                  :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
-        _ (when (some? trust)
-            (swap! db* assoc-in [:chats chat-id :trust] trust))]
-    (try
-      (prompt* params base-chat-ctx)
-      (catch Exception e
-        (logger/error e)
-        (lifecycle/send-content! base-chat-ctx :system {:type :text
-                                                        :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
-        (lifecycle/finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
-        {:chat-id chat-id
-         :model "error"
-         :status :error}))))
+  (let [provided-chat-id chat-id
+        invalid-id-reason (when (and (some? provided-chat-id)
+                                     (not (server-managed-subagent-chat-id? @db* provided-chat-id)))
+                            (validate-client-chat-id provided-chat-id))]
+    (if invalid-id-reason
+      (do (logger/warn logger-tag "Rejected chat/prompt with invalid chat-id"
+                       {:chat-id provided-chat-id :reason invalid-id-reason})
+          {:chat-id provided-chat-id
+           :model "error"
+           :status :error})
+      (let [raw-agent (or agent
+                          behavior ;; backward compat: accept old 'behavior' param
+                          (-> config :chat :defaultAgent) ;; legacy
+                          (-> config :defaultAgent))
+            chat-id (or provided-chat-id (str (random-uuid)))
+            ;; Atomically seed the chat record if absent and remember whether
+            ;; we were the ones to create it. swap-vals! returns [old new] so
+            ;; chat-just-created? is true iff the chat was missing pre-swap.
+            [old-db _] (swap-vals! db* update :chats
+                                   (fn [chats]
+                                     (if (contains? chats chat-id)
+                                       chats
+                                       (assoc chats chat-id {:id chat-id}))))
+            chat-just-created? (not (contains? (:chats old-db) chat-id))
+            ;; Notify observers (other clients, remote SSE viewers) about a
+            ;; new client-initiated chat. Skipped on the legacy null-id path
+            ;; because the prompting client learns its id from the response.
+            _ (when (and provided-chat-id chat-just-created?)
+                (messenger/chat-opened messenger {:chat-id chat-id}))
+            selected-agent (config/validate-agent-name raw-agent config)
+            agent-config (get-in config [:agent selected-agent])
+            base-chat-ctx (assoc-some {:metrics metrics
+                                       :config config
+                                       :contexts contexts
+                                       :db* db*
+                                       :messenger messenger
+                                       :user-content-id (lifecycle/new-content-id)
+                                       :message (string/trim message)
+                                       :chat-id chat-id
+                                       :agent selected-agent
+                                       :agent-config agent-config
+                                       :trust trust
+                                       :variant (or variant (:variant agent-config))}
+                                      :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
+            _ (when (some? trust)
+                (swap! db* assoc-in [:chats chat-id :trust] trust))]
+        (try
+          (prompt* params base-chat-ctx)
+          (catch Exception e
+            (logger/error e)
+            (lifecycle/send-content! base-chat-ctx :system {:type :text
+                                                            :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+            (lifecycle/finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
+            {:chat-id chat-id
+             :model "error"
+             :status :error}))))))
 
 (defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
-  (let [chat-ctx {:chat-id chat-id
-                  :db* db*
-                  :metrics metrics
-                  :messenger messenger}]
-    (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
-                              {:reason {:code :user-choice-allow
-                                        :text "Tool call allowed by user choice"}})
-    (when (= "session" save)
-      (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
-        (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true)))))
+  (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
+    (logger/warn logger-tag "tool-call-approve ignored: unknown chat or tool-call"
+                 {:chat-id chat-id :tool-call-id tool-call-id})
+    (let [chat-ctx {:chat-id chat-id
+                    :db* db*
+                    :metrics metrics
+                    :messenger messenger}]
+      (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
+                                {:reason {:code :user-choice-allow
+                                          :text "Tool call allowed by user choice"}})
+      (when (= "session" save)
+        (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
+          (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true))))))
 
 (defn tool-call-reject [{:keys [chat-id tool-call-id]} db* messenger metrics]
-  (let [chat-ctx {:chat-id chat-id
-                  :db* db*
-                  :metrics metrics
-                  :messenger messenger}]
-    (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
-                              {:reason {:code :user-choice-deny
-                                        :text "Tool call rejected by user choice"}})))
+  (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
+    (logger/warn logger-tag "tool-call-reject ignored: unknown chat or tool-call"
+                 {:chat-id chat-id :tool-call-id tool-call-id})
+    (let [chat-ctx {:chat-id chat-id
+                    :db* db*
+                    :metrics metrics
+                    :messenger messenger}]
+      (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
+                                {:reason {:code :user-choice-deny
+                                          :text "Tool call rejected by user choice"}}))))
 
 (defn query-context
   [{:keys [query contexts chat-id]}
@@ -1341,6 +1402,20 @@
     (logger/info logger-tag "Steer message received" {:chat-id chat-id})
     (swap! db* update-in [:chats chat-id :steer-message]
            (fn [existing] (if existing (str existing "\n" message) message)))))
+
+(defn prompt-steer-remove
+  "Drop any pending steer message for the chat.
+   No-op if no steer message is pending or the chat is not present.
+   Idempotent: cancelling an already-consumed steer is silent."
+  [{:keys [chat-id]} db*]
+  (let [removed?* (volatile! false)]
+    (swap! db* (fn [db]
+                 (if (get-in db [:chats chat-id :steer-message])
+                   (do (vreset! removed?* true)
+                       (update-in db [:chats chat-id] dissoc :steer-message))
+                   db)))
+    (when @removed?*
+      (logger/info logger-tag "Steer message removed" {:chat-id chat-id}))))
 
 (defn prompt-stop
   ([params db* messenger metrics]

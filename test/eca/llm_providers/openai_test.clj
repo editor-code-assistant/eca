@@ -257,7 +257,19 @@
     (is (= []
            (#'llm-providers.openai/normalize-messages
             [{:role "image_generation_call" :content {:base64 "DDD"}}]
-            false)))))
+            false))))
+  (testing "server web search history artifacts are skipped on replay"
+    (is (match?
+         [{:role "assistant"
+           :content [{:type "output_text" :text "Found the answer."}]}]
+         (#'llm-providers.openai/normalize-messages
+          [{:role "server_tool_use"
+            :content {:id "ws_1" :name "web_search" :input {:query "latest news"}}}
+           {:role "server_tool_result"
+            :content {:tool-use-id "ws_1" :raw-content nil}}
+           {:role "assistant"
+            :content [{:type :text :text "Found the answer."}]}]
+          true)))))
 
 (defn- base-provider-params []
   {:model "gpt-test"
@@ -382,25 +394,43 @@
                      :output "ok\n"}
                     (first out)))))))
 
-(deftest ->tools-image-generation-test
-  (testing "image_generation tool is appended when flag is on and not on codex path"
+(deftest ->tools-built-in-tools-test
+  (testing "image_generation tool is appended when flag is on"
     (is (match?
          [{:type "image_generation" :output_format "png"}]
-         (#'llm-providers.openai/->tools [] false true false))))
+         (#'llm-providers.openai/->tools [] false true))))
   (testing "image_generation tool is NOT appended when flag is off"
     (is (= []
-           (#'llm-providers.openai/->tools [] false false false))))
-  (testing "image_generation tool is NOT appended on codex path even if flag is on"
-    (is (= []
-           (#'llm-providers.openai/->tools [] false true true))))
+           (#'llm-providers.openai/->tools [] false false))))
   (testing "image_generation tool sits alongside web_search and function tools"
     (is (match?
          [{:type "function" :name "eca__foo"}
-          {:type "web_search_preview"}
+          {:type "web_search"}
           {:type "image_generation" :output_format "png"}]
          (#'llm-providers.openai/->tools
           [{:full-name "eca__foo" :description "d" :parameters {}}]
-          true true false)))))
+          true true)))))
+
+(deftest create-response-oauth-preserves-built-in-tools-test
+  (testing "OAuth requests keep web_search and image_generation when capabilities are enabled"
+    (let [requests* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (swap! requests* conj opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params)
+                :auth-type :auth/oauth
+                :web-search true
+                :image-generation true)
+         (base-callbacks {}))
+        (is (match? [{:type "function"}
+                     {:type "web_search"}
+                     {:type "image_generation" :output_format "png"}]
+                    (get-in (first @requests*) [:body :tools])))))))
 
 (deftest create-response-image-generation-tool-on-request-test
   (testing "request body includes image_generation tool when :image-generation is true"

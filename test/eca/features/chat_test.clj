@@ -1342,4 +1342,110 @@
           [{:type :text :text "hello"}]
           nil)))))
 
+(deftest prompt-with-client-supplied-chat-id-test
+  (testing "Client-supplied unknown chat-id is accepted and emits chat/opened once"
+    (h/reset-components!)
+    (let [client-id "client-supplied-1234"
+          {:keys [chat-id]}
+          (prompt!
+           {:message "Hey!" :chat-id client-id}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received]}]
+              (on-first-response-received {:type :text :text "Hey"})
+              (on-message-received {:type :text :text "Hey"})
+              (on-message-received {:type :finish}))})]
+      (is (= client-id chat-id))
+      (is (match? {client-id {:id client-id}} (:chats (h/db))))
+      (is (match? [{:chat-id client-id}] (:chat-opened (h/messages))))))
+  (testing "Second prompt on same client-supplied id does not re-emit chat/opened"
+    (h/reset-messenger!)
+    (let [client-id "client-supplied-1234"
+          {:keys [chat-id]}
+          (prompt!
+           {:message "follow up" :chat-id client-id}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received]}]
+              (on-first-response-received {:type :text :text "ok"})
+              (on-message-received {:type :text :text "ok"})
+              (on-message-received {:type :finish}))})]
+      (is (= client-id chat-id))
+      (is (nil? (:chat-opened (h/messages)))))))
+
+(deftest prompt-without-chat-id-does-not-emit-chat-opened-test
+  (testing "Legacy null-id path mints a server-side id and does NOT emit chat/opened"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Hey!"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received]}]
+              (on-first-response-received {:type :text :text "Hey"})
+              (on-message-received {:type :text :text "Hey"})
+              (on-message-received {:type :finish}))})]
+      (is (string? chat-id))
+      (is (nil? (:chat-opened (h/messages)))))))
+
+(deftest prompt-rejects-invalid-client-chat-id-test
+  (testing "Blank chat-id is rejected without seeding state"
+    (h/reset-components!)
+    (let [resp (f.chat/prompt {:message "hi" :chat-id ""}
+                              (h/db*) (h/messenger) (h/config) (h/metrics))]
+      (is (match? {:status :error :model "error"} resp))
+      (is (= {} (:chats (h/db))))
+      (is (nil? (:chat-opened (h/messages))))))
+  (testing "Reserved subagent- prefix is rejected"
+    (h/reset-components!)
+    (let [resp (f.chat/prompt {:message "hi" :chat-id "subagent-foo"}
+                              (h/db*) (h/messenger) (h/config) (h/metrics))]
+      (is (match? {:chat-id "subagent-foo" :status :error} resp))
+      (is (= {} (:chats (h/db))))
+      (is (nil? (:chat-opened (h/messages))))))
+  (testing "Server-managed subagent chat-id is accepted"
+    (h/reset-components!)
+    (let [chat-id "subagent-foo"]
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :subagent {:mode "subagent"}})
+      (is (= {:chat-id chat-id}
+             (prompt!
+              {:message "hi" :chat-id chat-id}
+              {:all-tools-mock (constantly [])
+               :api-mock
+               (fn [{:keys [on-first-response-received on-message-received]}]
+                 (on-first-response-received {:type :text :text "ok"})
+                 (on-message-received {:type :text :text "ok"})
+                 (on-message-received {:type :finish}))})))))
+  (testing "Excessively long chat-id is rejected"
+    (h/reset-components!)
+    (let [too-long (apply str (repeat 257 "a"))
+          resp (f.chat/prompt {:message "hi" :chat-id too-long}
+                              (h/db*) (h/messenger) (h/config) (h/metrics))]
+      (is (match? {:status :error} resp))
+      (is (= {} (:chats (h/db))))))
+  (testing "Embedded whitespace and control characters are rejected"
+    (doseq [bad ["abc\n" "a b" "a\tb" "a\u0000b" " leading" "trailing "]]
+      (h/reset-components!)
+      (let [resp (f.chat/prompt {:message "hi" :chat-id bad}
+                                (h/db*) (h/messenger) (h/config) (h/metrics))]
+        (is (match? {:status :error} resp)
+            (str "expected " (pr-str bad) " to be rejected"))
+        (is (= {} (:chats (h/db))))))))
+
+(deftest tool-call-approve-on-unknown-chat-is-noop-test
+  (testing "Approving a tool-call against an unknown chat does not throw or mutate state"
+    (h/reset-components!)
+    (f.chat/tool-call-approve {:chat-id "unknown-chat" :tool-call-id "t1"}
+                              (h/db*) (h/messenger) (h/metrics))
+    (is (= {} (:chats (h/db))))
+    (is (= {} (h/messages)))))
+
+(deftest tool-call-reject-on-unknown-chat-is-noop-test
+  (testing "Rejecting a tool-call against an unknown chat does not throw or mutate state"
+    (h/reset-components!)
+    (f.chat/tool-call-reject {:chat-id "unknown-chat" :tool-call-id "t1"}
+                             (h/db*) (h/messenger) (h/metrics))
+    (is (= {} (:chats (h/db))))
+    (is (= {} (h/messages)))))
+
 

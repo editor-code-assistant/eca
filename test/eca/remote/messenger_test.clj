@@ -11,7 +11,7 @@
 (deftest broadcast-messenger-delegates-and-broadcasts-test
   (let [inner (h/messenger)
         sse-connections* (sse/create-connections)
-        broadcast-messenger (remote.messenger/->BroadcastMessenger inner sse-connections*)
+        broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
         os (java.io.ByteArrayOutputStream.)
         _client (sse/add-client! sse-connections* os)]
 
@@ -60,3 +60,46 @@
         (is (not (.contains (.toString os3 "UTF-8") "rewrite")))))
 
     (sse/close-all! sse-connections*)))
+
+(deftest ask-question-broadcasts-and-resolves-via-answer-test
+  (testing "ask-question registers a promise, broadcasts SSE, and answer-question! resolves it"
+    (let [inner (h/messenger)
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+          os (java.io.ByteArrayOutputStream.)
+          _client (sse/add-client! sse-connections* os)
+          p (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Why?"})]
+      (Thread/sleep 100)
+      (is (not (realized? p)) "promise should not be realized before answer")
+      (let [output (.toString os "UTF-8")]
+        (is (.contains output "chat:ask-question") "SSE event name should be chat:ask-question")
+        (is (.contains output "\"chatId\":\"c1\"") "payload should be camel-cased")
+        (is (.contains output "\"requestId\"") "payload should include a generated requestId"))
+      (let [pending @(:pending-questions* broadcast-messenger)
+            [request-id _] (first pending)]
+        (is (= 1 (count pending)) "exactly one pending question should be registered")
+        (is (string? request-id))
+        (is (= true (remote.messenger/answer-question! broadcast-messenger request-id "because" false)))
+        (is (realized? p) "promise should be realized after answer-question!")
+        (is (= {:answer "because" :cancelled false} @p))
+        (is (empty? @(:pending-questions* broadcast-messenger))
+            "registry should be cleared after delivery"))
+      (sse/close-all! sse-connections*))))
+
+(deftest ask-question-falls-back-to-inner-when-no-sse-clients-test
+  (testing "ask-question delegates to inner messenger when no SSE clients are connected"
+    (let [inner (h/messenger)
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)]
+      (reset! (:ask-question-response* inner) {:answer "from-inner" :cancelled false})
+      (let [result (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Why?"})]
+        (is (= {:answer "from-inner" :cancelled false} @result))
+        (is (empty? @(:pending-questions* broadcast-messenger))
+            "no SSE-side registration should occur when delegating to inner")))))
+
+(deftest answer-question-returns-nil-for-unknown-id-test
+  (testing "answer-question! returns nil when the request-id is unknown"
+    (let [inner (h/messenger)
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)]
+      (is (nil? (remote.messenger/answer-question! broadcast-messenger "nonexistent" "x" false))))))

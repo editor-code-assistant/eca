@@ -202,14 +202,19 @@
    :mcpServers {}
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
-                              "Complete `/` for all commands"
+                              "Type `/` to see all commands"
                               ""
                               "- `/login` to authenticate with providers"
                               "- `/init` to create/update AGENTS.md"
                               "- `/doctor` or `/config` to troubleshoot"
                               "- `/remote` for remote connection details"
                               ""
-                              "Add more contexts in `@`"
+                              "__User context__ (preserved through history):"
+                              "- Complete `#` to expand to a resource path (let LLM find it)"
+                              "- Complete `@` to insert that resource's content (pass content to LLM)."
+                              ""
+                              "__System context__ (available only during the prompt being sent):"
+                              "- Add it to the `@` area above the user prompt"
                               ""
                               "Toggle **trust mode** to auto-accept all tool calls"
                               "")
@@ -660,12 +665,25 @@
       (when (seq result)
         result))))
 
-(defn notify-fields-changed-only! [config-updated messenger db*]
-  (let [config-to-notify (diff-keeping-vectors (:last-config-notified @db*)
-                                               config-updated)]
-    (when (seq config-to-notify)
-      (swap! db* update :last-config-notified shared/deep-merge config-to-notify)
-      (messenger/config-updated messenger config-to-notify))))
+(defn notify-fields-changed-only!
+  "Emit `config/updated` with the fields that have changed against the
+   session-level mirror (`:last-config-notified`) and update that mirror.
+
+   When called with `chat-id` (4-arity), the broadcast is scoped to that
+   chat: it includes `:chat-id` in the payload so the client can apply
+   the change only to that chat's UI state, and bypasses the session-
+   level mirror diff (so per-chat changes never collapse against the
+   session mirror or each other). Used by `chat/selectedModelChanged`
+   and `chat/selectedAgentChanged` when the client supplies a `chatId`."
+  ([config-updated messenger db*]
+   (let [config-to-notify (diff-keeping-vectors (:last-config-notified @db*)
+                                                config-updated)]
+     (when (seq config-to-notify)
+       (swap! db* update :last-config-notified shared/deep-merge config-to-notify)
+       (messenger/config-updated messenger config-to-notify))))
+  ([config-updated messenger _db* chat-id]
+   (when chat-id
+     (messenger/config-updated messenger (assoc config-updated :chat-id chat-id)))))
 
 (defn notify-selected-model-changed!
   "Server-initiated equivalent of a client `chat/selectedModelChanged`: aligns

@@ -214,6 +214,10 @@
   (metrics/task metrics :eca/chat-prompt-steer
     (f.chat/prompt-steer params db*)))
 
+(defn chat-prompt-steer-remove [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-prompt-steer-remove
+    (f.chat/prompt-steer-remove params db*)))
+
 (defn chat-delete [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-delete
     (f.chat/delete-chat params db* messenger config metrics)
@@ -354,47 +358,103 @@
                  :message (.getMessage e)
                  :data (ex-data e)}}))))
 
+(defn ^:private sanitize-client-chat-id
+  "Returns CHAT-ID when the client-supplied id is valid, otherwise nil.
+   On rejection, logs a warning so the selection still proceeds via the
+   legacy session-wide path instead of silently no-oping."
+  [chat-id method]
+  (when chat-id
+    (if-let [reason (f.chat/validate-client-chat-id chat-id)]
+      (do (logger/warn (str "[" method "]") "Ignoring invalid chat-id"
+                       {:chat-id chat-id :reason reason})
+          nil)
+      chat-id)))
+
 (defn ^:private update-agent-model-and-variants!
-  "Updates the selected model and variants based on agent configuration."
-  [agent-config config messenger db*]
-  (when-let [model (or (:defaultModel agent-config)
-                       (:defaultModel config))]
-    (let [variants (model-variants config model)]
-      (config/notify-fields-changed-only!
-       {:chat {:select-model model
-               :variants (or variants [])
-               :select-variant (select-variant agent-config variants)}}
-       messenger
-       db*))))
+  "Updates the selected model and variants based on agent configuration.
+   When `chat-id` is provided AND that chat exists in the db, the change
+   is persisted on that chat record and the broadcast is scoped via
+   `:chat-id`. When `chat-id` is unknown or absent, falls back to the
+   session-wide path so we never broadcast per-chat state for a chat the
+   server does not recognize."
+  ([agent-config config messenger db*]
+   (update-agent-model-and-variants! agent-config config messenger db* nil))
+  ([agent-config config messenger db* chat-id]
+   (when-let [model (or (:defaultModel agent-config)
+                        (:defaultModel config))]
+     (let [variants (model-variants config model)
+           selected-variant (select-variant agent-config variants)
+           payload {:chat {:select-model model
+                           :variants (or variants [])
+                           :select-variant selected-variant}}
+           ;; CAS: only mutate the chat record if it still exists at swap
+           ;; time, avoiding TOCTOU resurrection when chat/delete races us.
+           [old-db _new-db] (when chat-id
+                              (swap-vals! db* update-in [:chats chat-id]
+                                          (fn [c]
+                                            (when c
+                                              (cond-> (assoc c :model model)
+                                                selected-variant (assoc :variant selected-variant))))))
+           chat-existed? (and chat-id (some? (get-in old-db [:chats chat-id])))]
+       (if chat-existed?
+         (config/notify-fields-changed-only! payload messenger db* chat-id)
+         (config/notify-fields-changed-only! payload messenger db*))))))
 
 (defn chat-selected-agent-changed
   "Switches model to the one defined in custom agent or to the default-one
-   and updates tool status for the new agent"
-  [{:keys [db* messenger config metrics]} {:keys [agent behavior]}]
+   and updates tool status for the new agent.
+   When `chatId` is provided AND valid, persists the agent on that chat
+   record and scopes the broadcast so other chats are not affected
+   client-side. Invalid ids fall through to the session-wide path with a
+   warn log."
+  [{:keys [db* messenger config metrics]} {:keys [chat-id agent behavior]}]
   (metrics/task metrics :eca/chat-selected-agent-changed
-    (let [agent-name (or agent behavior) ;; backward compat: accept old 'behavior' param
+    (let [chat-id (sanitize-client-chat-id chat-id "chat/selectedAgentChanged")
+          agent-name (or agent behavior) ;; backward compat: accept old 'behavior' param
           validated-agent (config/validate-agent-name agent-name config)
           agent-config (get-in config [:agent validated-agent])
           tool-status-fn (f.tools/make-tool-status-fn config validated-agent)]
-      (update-agent-model-and-variants! agent-config config messenger db*)
+      (when chat-id
+        (swap! db* update-in [:chats chat-id]
+               (fn [c] (when c (assoc c :agent validated-agent)))))
+      (update-agent-model-and-variants! agent-config config messenger db* chat-id)
       (f.tools/refresh-tool-servers! tool-status-fn db* messenger config))))
 
 (defn chat-selected-model-changed
-  [{:keys [db* messenger config metrics]} {:keys [model variant]}]
+  "When `chatId` is provided AND valid AND the chat exists, persists model
+   + variant on that chat record and scopes the broadcast (`:chat-id` is
+   included in the `config/updated` payload). Invalid or unknown ids fall
+   through to the legacy session-wide path with a warn log so we never
+   announce per-chat state for a chat the server doesn't recognize."
+  [{:keys [db* messenger config metrics]} {:keys [chat-id model variant]}]
   (metrics/task metrics :eca/chat-selected-model-changed
-    (let [default-agent-name (config/validate-agent-name
+    (let [chat-id (sanitize-client-chat-id chat-id "chat/selectedModelChanged")
+          default-agent-name (config/validate-agent-name
                               (or (:defaultAgent (:chat config))
                                   (:defaultAgent config))
                               config)
           agent-config (get-in config [:agent default-agent-name])
-          variants (model-variants config model)]
-      (when (and variant (not (some #{variant} variants)))
-        (swap! db* assoc-in [:last-config-notified :chat :select-variant] variant))
-      (config/notify-fields-changed-only!
-       {:chat {:variants (or variants [])
-               :select-variant (select-variant agent-config variants)}}
-       messenger
-       db*))))
+          variants (model-variants config model)
+          payload {:chat {:variants (or variants [])
+                          :select-variant (select-variant agent-config variants)}}
+          ;; CAS: only mutate the chat record if it still exists at swap
+          ;; time, avoiding TOCTOU resurrection when chat/delete races us.
+          [old-db _new-db] (when chat-id
+                             (swap-vals! db* update-in [:chats chat-id]
+                                         (fn [c]
+                                           (when c
+                                             (cond-> (assoc c :model model)
+                                               variant (assoc :variant variant))))))
+          chat-existed? (and chat-id (some? (get-in old-db [:chats chat-id])))]
+      (if chat-existed?
+        (config/notify-fields-changed-only! payload messenger db* chat-id)
+        (do
+          ;; Legacy session-wide path: keep the historical hack that forces
+          ;; the next diff to emit when the requested variant is not in the
+          ;; new model's variant set.
+          (when (and variant (not (some #{variant} variants)))
+            (swap! db* assoc-in [:last-config-notified :chat :select-variant] variant))
+          (config/notify-fields-changed-only! payload messenger db*))))))
 
 (defn completion-inline
   [{:keys [db* config metrics messenger]} params]

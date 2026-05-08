@@ -8,6 +8,7 @@
    [eca.config :as config]
    [eca.features.chat :as f.chat]
    [eca.handlers :as handlers]
+   [eca.remote.messenger :as remote.messenger]
    [eca.remote.sse :as sse]
    [eca.shared :as shared]
    [ring.core.protocols :as ring.protocols])
@@ -214,7 +215,9 @@
         (let [config (config/all @db*)]
           (handlers/chat-selected-model-changed
            (assoc components :config config)
-           {:model (:model body)})
+           {:chat-id chat-id
+            :model (:model body)
+            :variant (:variant body)})
           (no-content))))))
 
 (defn handle-change-agent [{:keys [db*] :as components} request chat-id]
@@ -226,7 +229,8 @@
         (let [config (config/all @db*)]
           (handlers/chat-selected-agent-changed
            (assoc components :config config)
-           {:agent (:agent body)})
+           {:chat-id chat-id
+            :agent (:agent body)})
           (no-content))))))
 
 (defn handle-change-variant [{:keys [db*] :as components} request chat-id]
@@ -240,7 +244,8 @@
                         (f.chat/default-model @db* config))]
           (handlers/chat-selected-model-changed
            (assoc components :config config)
-           {:model model
+           {:chat-id chat-id
+            :model model
             :variant (:variant body)})
           (no-content))))))
 
@@ -260,6 +265,28 @@
     (swap! db* assoc :trust trust)
     (sse/broadcast! sse-connections* "trust:updated" {:trust trust})
     (json-response {:trust trust})))
+
+(defn handle-answer-question
+  "Resolves a pending question previously asked via the SSE `chat:ask-question`
+   event. Body: {:requestId String :answer (String|nil) :cancelled Boolean}.
+   Returns 204 on success, 400 if `requestId` is missing or blank, 404 if the
+   requestId is unknown (e.g. already answered or never registered)."
+  [{:keys [messenger]} request]
+  (let [body (parse-body request)
+        request-id (:requestId body)]
+    (cond
+      (not (and (string? request-id) (seq request-id)))
+      (error-response 400 "invalid_request" "Missing required field: requestId")
+
+      (remote.messenger/answer-question! messenger
+                                         request-id
+                                         (:answer body)
+                                         (:cancelled body))
+      (no-content)
+
+      :else
+      (error-response 404 "question_not_found"
+                      (str "No pending question for requestId " request-id)))))
 
 (defn handle-mcp-start [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]

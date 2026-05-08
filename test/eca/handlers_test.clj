@@ -261,6 +261,178 @@
                                           :select-variant "high"}}]}
                 (h/messages)))))
 
+(deftest chat-selected-model-changed-per-chat-scoping-test
+  (testing "When chat-id is provided, model+variant are persisted on that chat
+            and the config/updated broadcast carries :chat-id"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"} "c2" {:id "c2"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "c1"
+      :model "anthropic/claude-sonnet-4-5"
+      :variant "high"})
+    (is (match? {"c1" {:id "c1"
+                       :model "anthropic/claude-sonnet-4-5"
+                       :variant "high"}
+                 "c2" {:id "c2"
+                       :model m/absent
+                       :variant m/absent}}
+                (:chats (h/db))))
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:variants ["high" "low"]
+                                          :select-variant "high"}}]}
+                (h/messages)))
+    (is (empty? (:last-config-notified (h/db)))
+        "per-chat path must NOT touch the session-wide last-config-notified mirror"))
+
+  (testing "Without chat-id, the legacy session-wide path is used
+            (no :chat-id in payload, session mirror updated)"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:model "anthropic/claude-sonnet-4-5"})
+    (let [[broadcast] (:config-updated (h/messages))]
+      (is (nil? (:chat-id broadcast)))
+      (is (match? {:chat {:variants ["high" "low"]
+                          :select-variant "high"}}
+                  broadcast))))
+
+  (testing "Per-chat broadcast does not mutate other chats' :model"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5" {}
+                                                  "claude-opus-4-6" {}}}}
+                :defaultAgent "code"
+                :agent {"code" {}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :model "anthropic/claude-sonnet-4-5"}
+                                 "c2" {:id "c2" :model "anthropic/claude-opus-4-6"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "c1"
+      :model "anthropic/claude-opus-4-6"})
+    (is (= "anthropic/claude-opus-4-6" (get-in (h/db) [:chats "c1" :model])))
+    (is (= "anthropic/claude-opus-4-6" (get-in (h/db) [:chats "c2" :model]))
+        "c2's model is unchanged"))
+
+  (testing "Unknown chat-id falls through to the legacy session-wide path
+            (no per-chat broadcast for a chat the server doesn't recognize)"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1" {}}}}
+                :defaultAgent "code"
+                :agent {"code" {}}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "ghost-chat"
+      :model "openai/gpt-4.1"})
+    (is (nil? (get-in (h/db) [:chats "ghost-chat"])))
+    (let [[broadcast] (:config-updated (h/messages))]
+      (is (nil? (:chat-id broadcast))
+          "broadcast must NOT carry a chat-id for a chat that does not exist server-side")))
+
+  (testing "Invalid chat-id (subagent- prefix) falls through to legacy session-wide path"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1" {}}}}
+                :defaultAgent "code"
+                :agent {"code" {}}})
+    (swap! (h/db*) assoc :chats {"subagent-pretender" {:id "subagent-pretender"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "subagent-pretender" :model "openai/gpt-4.1"})
+    (is (nil? (get-in (h/db) [:chats "subagent-pretender" :model]))
+        "rejected ids must not mutate the chat record either")
+    (let [[broadcast] (:config-updated (h/messages))]
+      (is (nil? (:chat-id broadcast)))))
+
+  (testing "Concurrent chat/delete cannot resurrect a deleted chat as a ghost record"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1" {}}}}
+                :defaultAgent "code"
+                :agent {"code" {}}})
+    ;; Simulate: chat existed, was deleted, then a model-change arrives for it.
+    ;; The CAS swap must not recreate the entry as `{:model "..."}`.
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "deleted-c1" :model "openai/gpt-4.1"})
+    (is (nil? (get-in (h/db) [:chats "deleted-c1"])))))
+
+(deftest chat-selected-agent-changed-per-chat-scoping-test
+  (testing "When chat-id is provided, the agent and the agent's defaultModel
+            (and the agent's variant) are persisted on that chat and the
+            broadcast is scoped"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1" {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :agent {"plan" {:defaultModel "openai/gpt-4.1" :variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"} "c2" {:id "c2"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (= "plan" (get-in (h/db) [:chats "c1" :agent])))
+    (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "c1" :model])))
+    (is (= "high" (get-in (h/db) [:chats "c1" :variant]))
+        "variant should be persisted alongside model so /resume restores it")
+    (is (nil? (get-in (h/db) [:chats "c2" :agent])))
+    (is (nil? (get-in (h/db) [:chats "c2" :model])))
+    (is (nil? (get-in (h/db) [:chats "c2" :variant])))
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-model "openai/gpt-4.1"
+                                          :select-variant "high"}}]
+                 :tool-server-update [{}]}
+                (h/messages))))
+
+  (testing "Without chat-id, the legacy session-wide path is used
+            (no :chat-id in payload, no per-chat persistence)"
+    (h/reset-components!)
+    (h/config! {:agent {"plan" {:defaultModel "openai/gpt-4.1"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:agent "plan"})
+    (is (nil? (get-in (h/db) [:chats "c1" :agent])))
+    (let [[broadcast] (:config-updated (h/messages))]
+      (is (nil? (:chat-id broadcast)))
+      (is (= "openai/gpt-4.1" (get-in broadcast [:chat :select-model])))))
+
+  (testing "Unknown chat-id falls through to legacy session-wide path"
+    (h/reset-components!)
+    (h/config! {:agent {"plan" {:defaultModel "openai/gpt-4.1"}}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "ghost-chat" :agent "plan"})
+    (is (nil? (get-in (h/db) [:chats "ghost-chat"])))
+    (let [[broadcast] (:config-updated (h/messages))]
+      (is (nil? (:chat-id broadcast)))))
+
+  (testing "Per-chat agent change does not mutate other chats' :agent / :model"
+    (h/reset-components!)
+    (h/config! {:agent {"plan" {:defaultModel "openai/gpt-4.1"}
+                        "code" {:defaultModel "anthropic/claude-sonnet-4-5"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :agent "code" :model "anthropic/claude-sonnet-4-5"}
+                                 "c2" {:id "c2" :agent "code" :model "anthropic/claude-sonnet-4-5"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (= "plan" (get-in (h/db) [:chats "c1" :agent])))
+    (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "c1" :model])))
+    (is (= "code" (get-in (h/db) [:chats "c2" :agent])))
+    (is (= "anthropic/claude-sonnet-4-5" (get-in (h/db) [:chats "c2" :model]))))
+
+  (testing "Tool-server-update is emitted in both legacy and per-chat paths"
+    (h/reset-components!)
+    (h/config! {:agent {"plan" {:defaultModel "openai/gpt-4.1"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"}})
+    (handlers/chat-selected-agent-changed (h/components) {:chat-id "c1" :agent "plan"})
+    (is (= 1 (count (:tool-server-update (h/messages)))))
+    (h/reset-messenger!)
+    (handlers/chat-selected-agent-changed (h/components) {:agent "plan"})
+    (is (= 1 (count (:tool-server-update (h/messages)))))))
+
 (defn ^:private seed-chats!
   "Seed the test db with a map of chats keyed by id."
   [chats]

@@ -366,7 +366,22 @@ _Request:_
 ```typescript
 interface ChatPromptParams {
     /**
-     * The chat session identifier. If not provided, a new chat session will be created.
+     * The chat session identifier.
+     *
+     * Clients should generate this id (e.g. a UUID) at the moment the user
+     * opens a new chat in the UI and reuse it across all subsequent requests
+     * for that chat. If the server has never seen the id, it materializes a
+     * new empty chat record on demand and emits a `chat/opened` notification
+     * so other observers (additional clients, remote viewers) can sync.
+     *
+     * Backward compatibility: clients that omit this field still work — the
+     * server will mint an id and return it in the response. In that legacy
+     * path no `chat/opened` notification is emitted (the prompting client
+     * already learns the id from the response payload).
+     *
+     * Reserved: ids starting with `subagent-` are reserved for server-managed
+     * subagent chats and will be rejected. Ids must be non-blank and at most
+     * 256 characters.
      */
     chatId?: string;
 
@@ -1523,6 +1538,26 @@ interface ChatPromptSteerParams {
 }
 ```
 
+### Chat steer prompt remove (➡️)
+
+A client notification to discard any pending steer message that has not yet been consumed by the LLM loop.
+The notification is idempotent: if no steer message is pending (or it was already consumed at the next turn boundary),
+the server silently does nothing.
+
+_Notification:_
+
+* method: `chat/promptSteerRemove`
+* params: `ChatPromptSteerRemoveParams` defined as follows:
+
+```typescript
+interface ChatPromptSteerRemoveParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+}
+```
+
 ### Chat rollback (↩️)
 
 A client request to rollback chat messages to before a specific user sent message using `contentId`.
@@ -1720,8 +1755,18 @@ interface ChatClearedParams {
 
 ### Chat opened (⬅️)
 
-A server notification indicating a new chat was created server-side (e.g. via `/fork`).
-Clients should create a new chat entry in the UI. The chat messages will follow as `chat/contentReceived` notifications.
+A server notification indicating that a chat exists or was just materialized
+server-side. Emitted when:
+
+- a chat is forked via `/fork` or the `chat/fork` request,
+- a persisted chat is replayed via `chat/open`,
+- a client-supplied `chatId` is seen for the first time on `chat/prompt`
+  (the legacy null-`chatId` path does not emit this).
+
+Clients should treat this notification as **idempotent**: if the `chatId`
+already exists in the client's UI, no new chat entry should be created — the
+notification should be ignored or used to update the title. Chat messages
+follow as `chat/contentReceived` notifications.
 
 _Notification:_
 
@@ -1732,14 +1777,67 @@ _Notification:_
 interface ChatOpenedParams {
 
     /**
-     * The new chat session identifier.
+     * The chat session identifier.
      */
     chatId: string;
 
     /**
-     * The title of the new chat.
+     * The title of the chat. Absent for client-initiated new chats that do
+     * not yet have a title.
      */
     title?: string;
+}
+```
+
+### Chat status changed (⬅️)
+
+A server notification carrying lifecycle transitions for a chat. Clients
+typically use it to drive a "chat is running/idle/stopping" indicator.
+
+_Notification:_
+
+* method: `chat/statusChanged`
+* params: `ChatStatusChangedParams` defined as follows:
+
+```typescript
+interface ChatStatusChangedParams {
+
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * Lifecycle status of the chat.
+     *
+     * - `running`:  a prompt is actively being processed (LLM streaming, tool calls in flight).
+     * - `idle`:     prompt finished; chat is ready for further input.
+     * - `stopping`: a stop has been requested (via `chat/promptStop`) and the
+     *               chat is winding down its in-flight work.
+     */
+    status: 'running' | 'idle' | 'stopping';
+}
+```
+
+### Chat deleted (⬅️)
+
+A server notification confirming that a chat was deleted (either via the
+`chat/delete` request from this client or via another connected client / a
+server-side cleanup such as `chatRetentionDays`). Clients should remove the
+chat from their UI.
+
+_Notification:_
+
+* method: `chat/deleted`
+* params: `ChatDeletedParams` defined as follows:
+
+```typescript
+interface ChatDeletedParams {
+
+    /**
+     * The chat session identifier that was deleted.
+     */
+    chatId: string;
 }
 ```
 
@@ -1924,6 +2022,16 @@ _Notification:_
 ```typescript
 interface ChatSelectedAgentChanged {
     /**
+     * The chat session identifier the change applies to.
+     *
+     * When provided, the server persists the selection on this specific
+     * chat record and the resulting `config/updated` broadcast carries the
+     * same `chatId` so clients scope the update to one chat. When omitted,
+     * the change is treated as session-wide (legacy behavior).
+     */
+    chatId?: string;
+
+    /**
      * The selected agent.
      */
     agent: ChatAgent;
@@ -1945,6 +2053,16 @@ _Notification:_
 
 ```typescript
 interface ChatSelectedModelChanged {
+    /**
+     * The chat session identifier the change applies to.
+     *
+     * When provided, the server persists model + variant on this specific
+     * chat record and the resulting `config/updated` broadcast carries the
+     * same `chatId` so clients scope the update to one chat. When omitted,
+     * the change is treated as session-wide (legacy behavior).
+     */
+    chatId?: string;
+
     /**
      * The selected model (full model name, e.g. "anthropic/claude-sonnet-4-5").
      */
@@ -2302,6 +2420,17 @@ _Notification:_
 
 ```typescript
 interface ConfigUpdatedParams {
+    /**
+     * When present, scopes this update to a single chat: clients should
+     * apply the per-chat fields (`selectModel`, `selectAgent`,
+     * `selectVariant`, `selectTrust`) only to the chat with this id and
+     * leave other chats untouched. When absent, the update is session-wide
+     * and clients should apply the per-chat fields to every chat (legacy
+     * behavior, used for the initial config push and other genuinely
+     * session-wide events).
+     */
+    chatId?: string;
+
     /**
      * Configs related to chat.
      */

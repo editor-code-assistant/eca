@@ -43,6 +43,10 @@
       (when (= :post method)
         [handlers/handle-set-trust components request {:sse-connections* sse-connections*}])
 
+      ["api" "v1" "answer"]
+      (when (= :post method)
+        [handlers/handle-answer-question components request])
+
       ["api" "v1" "mcp"]
       (when (= :post method)
         [handlers/handle-mcp-add components request])

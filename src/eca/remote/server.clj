@@ -300,6 +300,14 @@
                                    host-with-port
                                    "&pass=" token
                                    "&protocol=" protocol)]
+              ;; Declare the askQuestion capability now that the remote
+              ;; server is up, so the `ask_user` tool is enabled for the
+              ;; LLM. BroadcastMessenger.ask-question routes the question
+              ;; over SSE when at least one client is connected, and falls
+              ;; back to the inner JSON-RPC messenger otherwise.
+              (swap! (:db* components) assoc-in
+                     [:client-capabilities :code-assistant :chat-capabilities :ask-question]
+                     true)
               (when (and localhost-only? private? (not= host-base "127.0.0.1"))
                 (logger/warn logger-tag
                              (str "⚠️  Bound to 127.0.0.1:" actual-port " (localhost only) because another service "

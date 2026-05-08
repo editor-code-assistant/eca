@@ -4,6 +4,24 @@
 
 - Native ECA tools now auto-resolve bare tool names like `write_file` to their canonical `eca__...` form, avoiding repeated failed retries when an LLM omits the native server prefix.
 
+## 0.133.2
+
+- Fix subagent spawning being rejected by reserved server-managed chat ids.
+- Fix OpenAI OAuth requests dropping built-in web search and image generation tools, and avoid replaying web search history artifacts on follow-up turns.
+
+## 0.133.1
+
+- Support client-generated chat ids: clients may now create the `chatId` themselves and send it on the first `chat/prompt`. eca-emacs#231.
+- Per-chat scoping of model/agent changes: `chat/selectedModelChanged` and `chat/selectedAgentChanged` now accept an optional `chatId`.  eca-emacs#231.
+
+## 0.133.0
+
+- Add `chat/promptSteerRemove` notification for discarding a pending steer message before it is consumed at the next LLM turn boundary. Idempotent: silent no-op when no steer is pending.
+
+## 0.132.1
+
+- Support `ask_user` agent questions for remote REST/SSE clients (e.g. `eca-web`): the remote server now declares the `askQuestion` capability, broadcasts `chat:ask-question` over SSE with a generated `requestId`, and accepts answers via the new `POST /api/v1/answer` endpoint. Falls back to the JSON-RPC inner messenger when no SSE clients are connected, preserving editor behavior.
+
 ## 0.132.0
 
 - `variantsByModel` entries now support an optional `:api` filter (string or vector) to restrict variant matching by provider API type.
