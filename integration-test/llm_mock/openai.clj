@@ -190,6 +190,74 @@
                          :status "completed"}})
   (hk/close ch))
 
+(defn ^:private subagent-spawn-0
+  "Three-stage scenario for parent <-> subagent communication:
+   - Parent's first call: returns a tool_use for `eca__spawn_agent`.
+   - Subagent's call (recognized by user message \"find files\"): returns text and finishes.
+   - Parent's follow-up call (recognized by `function_call_output` in input): returns final text."
+  [ch body]
+  (let [input (:input body)
+        has-tool-output? (some #(= "function_call_output" (:type %)) input)
+        first-user-text (some->> input
+                                 (filter #(= "user" (:role %)))
+                                 first
+                                 :content
+                                 first
+                                 :text)
+        subagent-call? (and (not has-tool-output?)
+                            (= "find files" first-user-text))]
+    (cond
+      has-tool-output?
+      (do
+        (sse-send! ch "response.output_text.delta"
+                   {:type "response.output_text.delta" :delta "Final answer"})
+        (sse-send! ch "response.completed"
+                   {:type "response.completed"
+                    :response {:output []
+                               :usage {:input_tokens 10
+                                       :output_tokens 5}
+                               :status "completed"}})
+        (hk/close ch))
+
+      subagent-call?
+      (do
+        (sse-send! ch "response.output_text.delta"
+                   {:type "response.output_text.delta" :delta "Subagent done"})
+        (sse-send! ch "response.completed"
+                   {:type "response.completed"
+                    :response {:output []
+                               :usage {:input_tokens 5
+                                       :output_tokens 3}
+                               :status "completed"}})
+        (hk/close ch))
+
+      :else
+      (let [args-json (json/generate-string {:agent "explorer"
+                                             :task "find files"
+                                             :activity "exploring"})]
+        (sse-send! ch "response.output_item.added"
+                   {:type "response.output_item.added"
+                    :item {:type "function_call"
+                           :id "item-1"
+                           :call_id "tool-1"
+                           :name "eca__spawn_agent"
+                           :arguments ""}})
+        (sse-send! ch "response.function_call_arguments.delta"
+                   {:type "response.function_call_arguments.delta"
+                    :item_id "item-1"
+                    :delta args-json})
+        (sse-send! ch "response.completed"
+                   {:type "response.completed"
+                    :response {:output [{:type "function_call"
+                                         :id "item-1"
+                                         :call_id "tool-1"
+                                         :name "eca__spawn_agent"
+                                         :arguments args-json}]
+                               :usage {:input_tokens 10
+                                       :output_tokens 5}
+                               :status "completed"}})
+        (hk/close ch)))))
+
 (defn handle-openai-responses [req]
   (let [body (some-> (slurp (:body req))
                      (json/parse-string true))]
@@ -212,4 +280,5 @@
                        :simple-text-2 (simple-text-2 ch)
                        :reasoning-0 (reasoning-0 ch)
                        :reasoning-1 (reasoning-1 ch)
-                       :tool-calling-0 (tool-calling-0 ch body)))))})))
+                       :tool-calling-0 (tool-calling-0 ch body)
+                       :subagent-spawn-0 (subagent-spawn-0 ch body)))))})))

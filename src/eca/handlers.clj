@@ -433,10 +433,7 @@
                               (or (:defaultAgent (:chat config))
                                   (:defaultAgent config))
                               config)
-          agent-config (get-in config [:agent default-agent-name])
           variants (model-variants config model)
-          payload {:chat {:variants (or variants [])
-                          :select-variant (select-variant agent-config variants)}}
           ;; CAS: only mutate the chat record if it still exists at swap
           ;; time, avoiding TOCTOU resurrection when chat/delete races us.
           [old-db _new-db] (when chat-id
@@ -447,8 +444,26 @@
                                                variant (assoc :variant variant))))))
           chat-existed? (and chat-id (some? (get-in old-db [:chats chat-id])))]
       (if chat-existed?
-        (config/notify-fields-changed-only! payload messenger db* chat-id)
-        (do
+        ;; Per-chat path: preserve the chat's currently selected variant
+        ;; whenever it is still valid for the new model. Precedence:
+        ;;   1. explicit :variant param (the request) if valid
+        ;;   2. chat's persisted :variant if valid for the new model
+        ;;   3. chat's :agent (or default agent) variant if valid
+        ;;   4. nil (new model has no compatible variant)
+        (let [chat-agent-name (get-in old-db [:chats chat-id :agent])
+              chat-variant (get-in old-db [:chats chat-id :variant])
+              agent-config (get-in config [:agent (or chat-agent-name default-agent-name)])
+              valid? (fn [v] (and v (some #{v} variants)))
+              selected-variant (cond
+                                 (valid? variant) variant
+                                 (valid? chat-variant) chat-variant
+                                 :else (select-variant agent-config variants))
+              payload {:chat {:variants (or variants [])
+                              :select-variant selected-variant}}]
+          (config/notify-fields-changed-only! payload messenger db* chat-id))
+        (let [agent-config (get-in config [:agent default-agent-name])
+              payload {:chat {:variants (or variants [])
+                              :select-variant (select-variant agent-config variants)}}]
           ;; Legacy session-wide path: keep the historical hack that forces
           ;; the next diff to emit when the requested variant is not in the
           ;; new model's variant set.

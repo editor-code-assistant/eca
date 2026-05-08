@@ -1652,6 +1652,6 @@
         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
         (send-chat-contents! messages chat-ctx)
         (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
-        (config/notify-selected-model-changed! (:model chat) db* messenger config)
+        (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat))
         (config/notify-selected-trust-changed! (:trust chat) db* messenger)
         {:found? true :chat-id chat-id :title title}))))

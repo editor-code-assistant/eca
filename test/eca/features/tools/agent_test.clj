@@ -1,7 +1,11 @@
 (ns eca.features.tools.agent-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
+   [eca.features.chat :as f.chat]
+   [eca.features.tools :as f.tools]
    [eca.features.tools.agent :as f.tools.agent]
+   [eca.llm-api :as llm-api]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -616,3 +620,72 @@
              (summary-fn {:args {"agent" "explorer" "activity" "searching files"}})))
       (is (= "Spawning agent"
              (summary-fn {:args {}}))))))
+
+(deftest spawn-agent-real-chat-prompt-test
+  ;; Regression test for v0.133.1 -> v0.133.2: spawn_agent failed end-to-end
+  ;; because chat/prompt's validate-client-chat-id rejected the deterministic
+  ;; "subagent-..." chat id used internally by spawn-agent. Every other test
+  ;; in this namespace mocks chat/prompt via with-redefs of requiring-resolve,
+  ;; so the validator path was never exercised. This test runs the REAL
+  ;; chat/prompt and only mocks the LLM transport, asserting the spawn handler
+  ;; reaches success through the chat layer.
+  (testing "spawn handler drives real chat/prompt to success"
+    (h/reset-components!)
+    (h/config! {:env "test"
+                :agent {"explorer" {:mode "subagent"
+                                    :description "Explores codebases"
+                                    :systemPrompt "You are an explorer."}}})
+    (swap! (h/db*) update :models
+           (fn [models] (merge {"openai/gpt-5.2" {:tools true}} (or models {}))))
+    (swap! (h/db*) assoc-in [:chats "parent-1"]
+           {:id "parent-1" :model "openai/gpt-5.2"})
+    (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                     (on-first-response-received {:type :text :text "Found it"})
+                     (on-message-received {:type :text :text "Found it"})
+                     (on-message-received {:type :finish}))]
+      (with-redefs [llm-api/sync-or-async-prompt! api-mock
+                    llm-api/sync-prompt! (constantly nil)
+                    f.tools/all-tools (constantly [])
+                    f.tools/approval (constantly :allow)
+                    config/await-plugins-resolved! (constantly true)]
+        (let [handler (get-in (f.tools.agent/definitions (h/config) (h/db)) ["spawn_agent" :handler])
+              ;; Run in a future with a timeout so a regression that causes
+              ;; chat/prompt to reject the subagent chat-id (and thus never
+              ;; flip the chat to :idle) fails the test instead of hanging
+              ;; the polling loop forever.
+              result-fut (future
+                           (handler
+                            {"agent" "explorer" "task" "find files" "activity" "exploring"}
+                            {:db* (h/db*)
+                             :config (h/config)
+                             :messenger (h/messenger)
+                             :metrics (h/metrics)
+                             :chat-id "parent-1"
+                             :tool-call-id "tc-1"
+                             :call-state-fn (constantly {:status :executing})}))
+              result (deref result-fut 5000 ::timeout)]
+          (when (identical? ::timeout result)
+            (future-cancel result-fut))
+          (testing "spawn handler completes (regression would hang the polling loop)"
+            (is (not (identical? ::timeout result))
+                "spawn handler did not complete in 5s — chat/prompt likely rejected the subagent chat-id"))
+          (when (map? result)
+            (testing "spawn handler returns success (would be :error true under v0.133.1)"
+              (is (match? {:error false
+                           :contents [{:type :text
+                                       :text #"^## Agent 'explorer' Result"}]}
+                          result)))
+            (testing "subagent chat reaches :idle through real chat/prompt"
+              (is (= :idle (get-in @(h/db*) [:chats "subagent-tc-1" :status]))))
+            (testing "subagent chat carries the parent-chat-id"
+              (is (= "parent-1" (get-in @(h/db*) [:chats "subagent-tc-1" :parent-chat-id]))))
+            (testing "real chat/prompt streamed assistant content under the subagent chat-id with parent-chat-id"
+              (is (some (fn [m] (and (= "subagent-tc-1" (:chat-id m))
+                                     (= "parent-1" (:parent-chat-id m))
+                                     (= :assistant (:role m))
+                                     (= {:type :text :text "Found it"} (:content m))))
+                        (:chat-content-received (h/messages)))))))))
+    ;; Reference f.chat to keep the require non-unused; the actual
+    ;; eca.features.chat/prompt is invoked indirectly via requiring-resolve
+    ;; inside spawn-agent.
+    (is (var? #'f.chat/prompt))))

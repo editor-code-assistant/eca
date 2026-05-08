@@ -688,33 +688,44 @@
 (defn notify-selected-model-changed!
   "Server-initiated equivalent of a client `chat/selectedModelChanged`: aligns
    the client-side selected model to `full-model`, re-computing the available
-   variants and the suggested selected variant for the default agent. Emits via
+   variants and the suggested selected variant. Emits via
    `notify-fields-changed-only!`, so it is a no-op when nothing changed.
    Returns nil when `full-model` is missing or no longer in `(:models @db*)`,
    so a stale persisted model does not bubble to the UI. Used by chat resume
-   flows (`chat/open`, `/resume`) to restore the model each chat was using."
-  [full-model db* messenger config]
-  (when (and full-model (contains? (:models @db*) full-model))
-    (let [default-agent-name (validate-agent-name
-                              (or (:defaultAgent (:chat config))
-                                  (:defaultAgent config))
-                              config)
-          agent-config (get-in config [:agent default-agent-name])
-          [provider model-name] (shared/full-model->provider+model full-model)
-          user-variants (when (and provider model-name)
-                          (get-in config [:providers provider :models model-name :variants]))
-          variants (when (and provider model-name)
-                     (selectable-variant-names
-                      (effective-model-variants config provider model-name user-variants)))
-          agent-variant (:variant agent-config)
-          select-variant (when (and agent-variant variants (some #{agent-variant} variants))
-                           agent-variant)]
-      (notify-fields-changed-only!
-       {:chat {:select-model full-model
-               :variants (or variants [])
-               :select-variant select-variant}}
-       messenger
-       db*))))
+   flows (`chat/open`, `/resume`) to restore the model each chat was using.
+
+   When `chat-variant` is provided (the chat's persisted `:variant`) and is
+   still supported by `full-model`, the broadcast keeps it; otherwise it
+   falls back to the default agent's configured variant when valid, else
+   nil. This lets resume preserve the variant the user last saw on the
+   chat instead of resetting to the default agent's variant."
+  ([full-model db* messenger config]
+   (notify-selected-model-changed! full-model db* messenger config nil))
+  ([full-model db* messenger config chat-variant]
+   (when (and full-model (contains? (:models @db*) full-model))
+     (let [default-agent-name (validate-agent-name
+                               (or (:defaultAgent (:chat config))
+                                   (:defaultAgent config))
+                               config)
+           agent-config (get-in config [:agent default-agent-name])
+           [provider model-name] (shared/full-model->provider+model full-model)
+           user-variants (when (and provider model-name)
+                           (get-in config [:providers provider :models model-name :variants]))
+           variants (when (and provider model-name)
+                      (selectable-variant-names
+                       (effective-model-variants config provider model-name user-variants)))
+           agent-variant (:variant agent-config)
+           valid? (fn [v] (and v variants (some #{v} variants)))
+           select-variant (cond
+                            (valid? chat-variant) chat-variant
+                            (valid? agent-variant) agent-variant
+                            :else nil)]
+       (notify-fields-changed-only!
+        {:chat {:select-model full-model
+                :variants (or variants [])
+                :select-variant select-variant}}
+        messenger
+        db*)))))
 
 (defn notify-selected-trust-changed!
   "Server-initiated equivalent of a client-side trust toggle: aligns the

@@ -54,4 +54,7 @@
                  :required []}
     :handler #'diagnostics
     :enabled-fn (fn [{:keys [db]}] (-> db :client-capabilities :code-assistant :editor :diagnostics))
-    :summary-fn (constantly "Checking diagnostics")}})
+    :summary-fn (fn [{:keys [args]}]
+                  (if-let [path (some-> (get args "path") not-empty)]
+                    (format "Checking diagnostics: %s" (fs/file-name (fs/file path)))
+                    "Checking all diagnostics"))}})
