@@ -39,6 +39,48 @@
 (defn ^:private spawn-handler []
   (get-in (f.tools.agent/definitions test-config test-db) ["spawn_agent" :handler]))
 
+(defn ^:private spawn-summary [args]
+  ((get-in (f.tools.agent/definitions test-config test-db) ["spawn_agent" :summary-fn]) {:args args}))
+
+(deftest spawn-agent-activity-summary-test
+  (testing "normal activity label is unchanged"
+    (is (= "explorer: searching files"
+           (spawn-summary {"agent" "explorer" "activity" "searching files"}))))
+
+  (testing "whitespace and newlines are collapsed"
+    (is (= "explorer: searching files"
+           (spawn-summary {"agent" "explorer" "activity" "  searching\n\t files  "}))))
+
+  (testing "long activity label is truncated"
+    (let [long-label (apply str (repeat 80 "a"))]
+      (is (= (str "explorer: " (apply str (repeat 40 "a")) "...")
+             (spawn-summary {"agent" "explorer" "activity" long-label})))))
+
+  (testing "blank activity omits summary suffix"
+    (is (= "explorer"
+           (spawn-summary {"agent" "explorer" "activity" "  \n  "})))
+    (is (= "explorer"
+           (spawn-summary {"agent" "explorer"})))))
+
+(deftest spawn-agent-normalize-arguments-test
+  (is (= {"agent" "explorer" "task" "find" "activity" "searching files"}
+         (f.tools.agent/normalize-arguments {"agent" "explorer"
+                                             "task" "find"
+                                             "activity" " searching\nfiles "})))
+  (is (= {"agent" "explorer" "task" "find"}
+         (f.tools.agent/normalize-arguments {"agent" "explorer"
+                                             "task" "find"
+                                             "activity" ""})))
+  (is (= {"agent" "explorer" "task" "find"}
+         (f.tools.agent/normalize-arguments {"agent" "explorer"
+                                             "task" "find"
+                                             "activity" ["not" "string"]})))
+  (is (= {"agent" "explorer" "task" "find" "activity" "searching files"}
+         (f.tools.agent/normalize-arguments
+          (f.tools.agent/normalize-arguments {"agent" "explorer"
+                                              "task" "find"
+                                              "activity" " searching\nfiles "})))))
+
 (deftest spawn-agent-not-found-test
   (testing "throws when agent is not found"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1"}}})
@@ -589,7 +631,7 @@
                                 "activity" {:type "string"}
                                 "model" {:type "string"}
                                 "variant" {:type "string"}}
-                   :required ["agent" "task" "activity"]}
+                   :required ["agent" "task"]}
                   (:parameters tool)))))
 
   (testing "model and variant enums are absent when no models in db"
