@@ -383,22 +383,37 @@
    (when-let [model (or (:defaultModel agent-config)
                         (:defaultModel config))]
      (let [variants (model-variants config model)
-           selected-variant (select-variant agent-config variants)
-           payload {:chat {:select-model model
-                           :variants (or variants [])
-                           :select-variant selected-variant}}
+           agent-variant (select-variant agent-config variants)
            ;; CAS: only mutate the chat record if it still exists at swap
            ;; time, avoiding TOCTOU resurrection when chat/delete races us.
+           ;; Note: when the new agent has no `:variant` configured,
+           ;; `agent-variant` is nil so the cond-> below leaves the chat's
+           ;; previously persisted `:variant` intact.
            [old-db _new-db] (when chat-id
                               (swap-vals! db* update-in [:chats chat-id]
                                           (fn [c]
                                             (when c
                                               (cond-> (assoc c :model model)
-                                                selected-variant (assoc :variant selected-variant))))))
+                                                agent-variant (assoc :variant agent-variant))))))
            chat-existed? (and chat-id (some? (get-in old-db [:chats chat-id])))]
        (if chat-existed?
-         (config/notify-fields-changed-only! payload messenger db* chat-id)
-         (config/notify-fields-changed-only! payload messenger db*))))))
+         ;; Per-chat path: prefer the new agent's configured variant when
+         ;; valid for the new model; otherwise fall back to the chat's
+         ;; previously selected variant if still valid. This way switching
+         ;; to an agent without a configured variant does not blow away
+         ;; the user's explicit pick on that chat.
+         (let [chat-variant (get-in old-db [:chats chat-id :variant])
+               selected-variant (or agent-variant
+                                    (when (and chat-variant (some #{chat-variant} variants))
+                                      chat-variant))
+               payload {:chat {:select-model model
+                               :variants (or variants [])
+                               :select-variant selected-variant}}]
+           (config/notify-fields-changed-only! payload messenger db* chat-id))
+         (let [payload {:chat {:select-model model
+                               :variants (or variants [])
+                               :select-variant agent-variant}}]
+           (config/notify-fields-changed-only! payload messenger db*)))))))
 
 (defn chat-selected-agent-changed
   "Switches model to the one defined in custom agent or to the default-one

@@ -499,6 +499,57 @@
     (handlers/chat-selected-agent-changed (h/components) {:agent "plan"})
     (is (= 1 (count (:tool-server-update (h/messages)))))))
 
+(deftest chat-selected-agent-changed-preserves-chat-variant-test
+  (testing "Existing chat: when the new agent has no :variant configured, the
+            chat's previously selected variant is preserved (not reset to nil)
+            both in the broadcast and in the chat record"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :agent {"plan" {:defaultModel "openai/gpt-4.1"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :variant "low"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (= "low" (get-in (h/db) [:chats "c1" :variant]))
+        "chat record keeps its variant when the new agent has no variant configured")
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-model "openai/gpt-4.1"
+                                          :variants ["high" "low"]
+                                          :select-variant "low"}}]}
+                (h/messages))))
+
+  (testing "Existing chat: the new agent's :variant still wins over the chat's
+            persisted variant (preserves the documented agent-adopts-variant contract)"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :agent {"plan" {:defaultModel "openai/gpt-4.1" :variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :variant "low"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (= "high" (get-in (h/db) [:chats "c1" :variant])))
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-variant "high"}}]}
+                (h/messages))))
+
+  (testing "Existing chat: persisted variant invalid for the new model AND new
+            agent has no valid variant → broadcast nil"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :agent {"plan" {:defaultModel "openai/gpt-4.1"}}})
+    ;; Chat had `:variant "max"` (e.g. from a prior model); not in new model's variants.
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :variant "max"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:variants ["high" "low"]
+                                          :select-variant nil}}]}
+                (h/messages)))))
+
 (defn ^:private seed-chats!
   "Seed the test db with a map of chats keyed by id."
   [chats]
