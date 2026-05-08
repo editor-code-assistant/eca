@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix subagent spawning being rejected by reserved server-managed chat ids.
+
 ## 0.133.1
 
 - Support client-generated chat ids: clients may now create the `chatId` themselves and send it on the first `chat/prompt`. eca-emacs#231.
