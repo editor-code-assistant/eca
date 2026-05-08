@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
+- Guard subagent activity labels against overly long model-generated text.
 
 ## 0.134.1
 
