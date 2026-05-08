@@ -5,6 +5,7 @@
 - Add unit and integration tests covering parent↔subagent end-to-end communication so regressions like the v0.133.1 spawn-agent breakage are caught automatically.
 - Improve `editor_diagnostics` tool summary to show the target filename (e.g. `Checking diagnostics: foo.clj`) or `Checking all diagnostics` when no path is provided.
 - Bugfix: preserve the chat's selected variant when changing model on an existing chat (regression from per-chat scoping in v0.133.1). `chat/selectedModelChanged` now keeps the chat's persisted `:variant` if it is still supported by the new model, before falling back to the chat's agent variant. Resume flows (`chat/open`, `/resume`) align the same way.
+- Native ECA tools now auto-resolve bare tool names like `write_file` to their canonical `eca__...` form, avoiding repeated failed retries when an LLM omits the native server prefix.
 
 ## 0.133.2
 

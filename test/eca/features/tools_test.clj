@@ -354,6 +354,18 @@
         "git add ."
         "python --version"))))
 
+(deftest resolve-tool-test
+  (let [native-tool {:name "write_file" :full-name "eca__write_file" :server {:name "eca"} :origin :native}
+        mcp-tool {:name "write_file" :full-name "vendor__write_file" :server {:name "vendor"} :origin :mcp}
+        all-tools [native-tool mcp-tool]]
+    (testing "resolves exact full name"
+      (is (= native-tool (f.tools/resolve-tool "eca__write_file" all-tools)))
+      (is (= mcp-tool (f.tools/resolve-tool "vendor__write_file" all-tools))))
+    (testing "resolves bare native ECA tool names"
+      (is (= native-tool (f.tools/resolve-tool "write_file" all-tools))))
+    (testing "does not resolve bare names to MCP tools"
+      (is (nil? (f.tools/resolve-tool "missing_tool" all-tools))))))
+
 (deftest call-tool!-test
   (testing "INVALID_ARGS for missing required param on native tool"
     (is (match?
@@ -381,7 +393,38 @@
             (h/metrics)
             identity
             identity
-            nil))))))
+            nil)))))
+  (testing "bare native tool names dispatch to native ECA tools"
+    (let [called-args* (atom nil)]
+      (is (match?
+           {:error false
+            :contents [{:type :text :text "OK"}]}
+           (with-redefs [f.tools.filesystem/definitions
+                         {"test_native_tool"
+                          {:description "Test tool"
+                           :parameters {"type" "object"
+                                        :properties {"path" {:type "string"}}
+                                        :required ["path"]}
+                           :handler (fn [args _ctx]
+                                      (reset! called-args* args)
+                                      {:error false
+                                       :contents [{:type :text :text "OK"}]})}}
+                         f.mcp/call-tool! (fn [& _]
+                                            (throw (ex-info "MCP should not be called" {})))]
+             (f.tools/call-tool!
+              "test_native_tool"
+              {"path" "/tmp/foo"}
+              "chat-1"
+              "call-1"
+              "code"
+              (h/db*)
+              (h/config)
+              (h/messenger)
+              (h/metrics)
+              identity
+              identity
+              nil))))
+      (is (= {"path" "/tmp/foo"} @called-args*)))))
 
 (deftest call-tool!-mcp-missing-required-test
   (testing "INVALID_ARGS for missing required param on MCP tool"
