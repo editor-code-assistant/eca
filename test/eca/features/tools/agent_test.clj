@@ -711,12 +711,17 @@
                              :chat-id "parent-1"
                              :tool-call-id "tc-1"
                              :call-state-fn (constantly {:status :executing})}))
-              result (deref result-fut 30000 ::timeout)]
+              result (deref result-fut 30000 ::timeout)
+              timeout-details (when (identical? ::timeout result)
+                                (pr-str {:parent-chat (get-in @(h/db*) [:chats "parent-1"])
+                                         :subagent-chat (get-in @(h/db*) [:chats "subagent-tc-1"])
+                                         :messages (h/messages)}))]
           (when (identical? ::timeout result)
             (future-cancel result-fut))
           (testing "spawn handler completes (regression would hang the polling loop)"
             (is (not (identical? ::timeout result))
-                "spawn handler did not complete in 30s — chat/prompt likely rejected the subagent chat-id"))
+                (str "spawn handler did not complete in 30s — chat/prompt likely rejected the subagent chat-id. "
+                     timeout-details)))
           (when (map? result)
             (testing "spawn handler returns success (would be :error true under v0.133.1)"
               (is (match? {:error false
