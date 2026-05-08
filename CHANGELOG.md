@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve `editor_diagnostics` tool summary to show the target filename (e.g. `Checking diagnostics: foo.clj`) or `Checking all diagnostics` when no path is provided.
+
 ## 0.133.2
 
 - Fix subagent spawning being rejected by reserved server-managed chat ids.
