@@ -700,4 +700,52 @@
     (is (match? {:config-updated [{:chat {:select-model "custom-provider/plain-model"
                                           :variants []
                                           :select-variant nil}}]}
+                (h/messages))))
+
+  (testing "5-arity: chat-variant valid for the model is preserved over the agent's variant
+            (so resume restores the variant the user last saw on the chat)"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1}
+                                                              "medium" {:a 2}
+                                                              "high" {:a 3}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) update :models
+           #(merge % {"anthropic/claude-sonnet-4-5" {:tools true}}))
+    (config/notify-selected-model-changed! "anthropic/claude-sonnet-4-5"
+                                           (h/db*) (h/messenger) (h/config)
+                                           "low")
+    (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-sonnet-4-5"
+                                          :select-variant "low"}}]}
+                (h/messages))))
+
+  (testing "5-arity: chat-variant not supported by the model falls back to agent variant"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1}
+                                                              "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) update :models
+           #(merge % {"anthropic/claude-sonnet-4-5" {:tools true}}))
+    (config/notify-selected-model-changed! "anthropic/claude-sonnet-4-5"
+                                           (h/db*) (h/messenger) (h/config)
+                                           "max")
+    (is (match? {:config-updated [{:chat {:select-variant "high"}}]}
+                (h/messages))))
+
+  (testing "5-arity: nil chat-variant behaves like the 4-arity (uses agent variant)"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1}
+                                                              "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) update :models
+           #(merge % {"anthropic/claude-sonnet-4-5" {:tools true}}))
+    (config/notify-selected-model-changed! "anthropic/claude-sonnet-4-5"
+                                           (h/db*) (h/messenger) (h/config)
+                                           nil)
+    (is (match? {:config-updated [{:chat {:select-variant "high"}}]}
                 (h/messages)))))

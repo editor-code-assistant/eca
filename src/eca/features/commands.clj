@@ -503,7 +503,7 @@
                      (db/update-workspaces-cache! @db* metrics)
                      ;; Align the client's selected model with the resumed chat
                      ;; so the LLM call keeps using the chat's original model. #417
-                     (config/notify-selected-model-changed! (:model chat) db* messenger config)
+                     (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat))
                      ;; Align the client's trust indicator with the resumed
                      ;; chat's persisted :trust so the icon matches the
                      ;; auto-approval behavior the server will apply. #426

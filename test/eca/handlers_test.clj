@@ -362,6 +362,72 @@
      {:chat-id "deleted-c1" :model "openai/gpt-4.1"})
     (is (nil? (get-in (h/db) [:chats "deleted-c1"])))))
 
+(deftest chat-selected-model-changed-preserves-chat-variant-test
+  (testing "Existing chat: when no :variant param is sent, the chat's persisted
+            :variant is preserved in the broadcast (not reset to default agent's variant)"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :variant "low"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "c1" :model "anthropic/claude-sonnet-4-5"})
+    (is (= "low" (get-in (h/db) [:chats "c1" :variant]))
+        "chat record keeps the persisted variant")
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:variants ["high" "low"]
+                                          :select-variant "low"}}]}
+                (h/messages))))
+
+  (testing "Existing chat: explicit :variant param wins over the chat's persisted variant"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :variant "low"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "c1" :model "anthropic/claude-sonnet-4-5" :variant "high"})
+    (is (= "high" (get-in (h/db) [:chats "c1" :variant])))
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-variant "high"}}]}
+                (h/messages))))
+
+  (testing "Existing chat: persisted :variant invalid for new model → broadcast nil
+            (matches the protocol contract for chat/selectedModelChanged)"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :variant "max"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "c1" :model "openai/gpt-4.1"})
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:variants ["high" "low"]
+                                          :select-variant nil}}]}
+                (h/messages))))
+
+  (testing "Existing chat without persisted :variant falls back to the chat's :agent
+            variant (not the default agent's variant)"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "low"}
+                        "plan" {:variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :agent "plan"}})
+    (handlers/chat-selected-model-changed
+     (h/components)
+     {:chat-id "c1" :model "openai/gpt-4.1"})
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-variant "high"}}]}
+                (h/messages)))))
+
 (deftest chat-selected-agent-changed-per-chat-scoping-test
   (testing "When chat-id is provided, the agent and the agent's defaultModel
             (and the agent's variant) are persisted on that chat and the
