@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix OpenAI OAuth requests dropping built-in web search and image generation tools, and avoid replaying web search history artifacts on follow-up turns.
+
 ## 0.133.1
 
 - Support client-generated chat ids: clients may now create the `chatId` themselves and send it on the first `chat/prompt`. eca-emacs#231.
