@@ -26,7 +26,9 @@
                        {:name "login" :arguments [{:name "provider-id"}]}
                        {:name "model" :arguments [{:name "full-model"}]}
                        {:name "skills" :arguments []}
-                       {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
+                       {:name "skill-create"
+                        :arguments [{:name "name" :description "The skill name" :required true}
+                                    {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "fork" :arguments []}
@@ -39,8 +41,10 @@
                        {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
                        {:name "subagents" :arguments []}
                        {:name "plugins" :arguments []}
-                       {:name "plugin-install" :arguments [{:name "plugin"}]}
-                       {:name "plugin-uninstall" :arguments [{:name "plugin"}]}
+                       {:name "plugin-install"
+                        :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
+                       {:name "plugin-uninstall"
+                        :arguments [{:name "plugin" :description "Plugin name" :required true}]}
                        {:name "eca-info" :arguments nil}]}
            resp))))
 
@@ -50,7 +54,9 @@
       (is (match?
            {:chatId nil
             :commands [{:name "login" :arguments [{:name "provider-id"}]}
-                       {:name "skill-create" :arguments [{:name "name"} {:name "prompt"}]}
+                       {:name "skill-create"
+                        :arguments [{:name "name" :description "The skill name" :required true}
+                                    {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "remote" :arguments []}

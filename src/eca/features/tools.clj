@@ -133,26 +133,26 @@
 (defn ^:private native-definitions
   [chat-id agent-name db config]
   (into
-    {}
-    (map (fn [[name tool]]
-           [name (-> tool
-                     (assoc :name name)
-                     (replace-string-values-with-vars
-                       {:workspaceRoots   (tools.util/workspace-roots-strs db)
-                        :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
-    (merge {}
-           f.tools.filesystem/definitions
-           f.tools.shell/definitions
-           f.tools.git/definitions
-           f.tools.editor/definitions
-           f.tools.chat/definitions
-           f.tools.skill/definitions
-           f.tools.task/definitions
-           f.tools.background/definitions
-           f.tools.ask-user/definitions
-           (f.tools.agent/definitions config db)
-           (f.tools.custom/definitions config)
-           (f.tools.fetch-rule/definitions config db chat-id agent-name))))
+   {}
+   (map (fn [[name tool]]
+          [name (-> tool
+                    (assoc :name name)
+                    (replace-string-values-with-vars
+                     {:workspaceRoots   (tools.util/workspace-roots-strs db)
+                      :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
+   (merge {}
+          f.tools.filesystem/definitions
+          f.tools.shell/definitions
+          f.tools.git/definitions
+          f.tools.editor/definitions
+          f.tools.chat/definitions
+          f.tools.skill/definitions
+          f.tools.task/definitions
+          f.tools.background/definitions
+          f.tools.ask-user/definitions
+          (f.tools.agent/definitions config db)
+          (f.tools.custom/definitions config)
+          (f.tools.fetch-rule/definitions config db chat-id agent-name))))
 
 (defn native-tools
   ([db config]
@@ -170,6 +170,18 @@
    - Excludes ask_user because subagents run non-interactively and cannot prompt the user."
   [tools]
   (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
+
+(defn resolve-tool
+  [tool-name all-tools]
+  (or (some #(when (= tool-name (:full-name %)) %) all-tools)
+      (when-not (string/includes? tool-name "__")
+        (when-let [resolved-tool (some #(when (and (= :native (:origin %))
+                                                   (= tool-name (:name %)))
+                                          %) all-tools)]
+          (logger/info logger-tag "Auto-resolved bare native tool name"
+                       {:requested-name tool-name
+                        :resolved-name (:full-name resolved-tool)})
+          resolved-tool))))
 
 (defn all-tools
   "Returns all available tools, including both native ECA tools
@@ -211,11 +223,13 @@
                   state-transition-fn   ; params: event & event-data
                   {:keys [trust]}]
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
-  (let [[server-name tool-name] (string/split full-name #"__")
-        arguments (update-keys arguments clojure.core/name)
+  (let [arguments (update-keys arguments clojure.core/name)
         db @db*
         all-tools (all-tools chat-id agent-name db config)
-        tool-meta (some #(when (= full-name (:full-name %)) %) all-tools)
+        tool-meta (resolve-tool full-name all-tools)
+        resolved-full-name (:full-name tool-meta full-name)
+        server-name (get-in tool-meta [:server :name])
+        tool-name (:name tool-meta)
         arguments (if-let [parameters (:parameters tool-meta)]
                     (tools.util/omit-optional-empty-string-args parameters arguments)
                     arguments)
@@ -224,7 +238,6 @@
     (try
       (when-not tool-meta
         (throw (ex-info (format "Tool '%s' not found" full-name) {:full-name full-name
-                                                                  :server-name server-name
                                                                   :arguments arguments
                                                                   :all-tools (mapv :full-name all-tools)})))
       (let [result (-> (if required-args-error
@@ -249,7 +262,7 @@
                                                                   :metrics metrics})))
                        (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
-        (metrics/count-up! "tool-called" {:name full-name :error (:error result)} metrics)
+        (metrics/count-up! "tool-called" {:name resolved-full-name :error (:error result)} metrics)
         (if-let [r (:rollback-changes result)]
           (do
             (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
@@ -376,8 +389,7 @@
       :on-server-removed (partial notify-server-removed metrics messenger)})))
 
 (defn tool-call-summary [all-tools full-name args config db]
-  (when-let [summary-fn (:summary-fn (first (filter #(= full-name (:full-name %))
-                                                    all-tools)))]
+  (when-let [summary-fn (:summary-fn (resolve-tool full-name all-tools))]
     (try
       (summary-fn {:args args
                    :config config
