@@ -1246,6 +1246,12 @@
 
 (def ^:private max-client-chat-id-length 256)
 
+(defn ^:private server-managed-subagent-chat-id?
+  [db chat-id]
+  (and (string? chat-id)
+       (string/starts-with? chat-id "subagent-")
+       (some? (get-in db [:chats chat-id :subagent]))))
+
 (defn validate-client-chat-id
   "Validates a client-supplied chat id. Returns nil when valid, otherwise an
    error message string.
@@ -1275,7 +1281,8 @@
 (defn prompt
   [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
   (let [provided-chat-id chat-id
-        invalid-id-reason (when (some? provided-chat-id)
+        invalid-id-reason (when (and (some? provided-chat-id)
+                                     (not (server-managed-subagent-chat-id? @db* provided-chat-id)))
                             (validate-client-chat-id provided-chat-id))]
     (if invalid-id-reason
       (do (logger/warn logger-tag "Rejected chat/prompt with invalid chat-id"

@@ -1403,6 +1403,19 @@
       (is (match? {:chat-id "subagent-foo" :status :error} resp))
       (is (= {} (:chats (h/db))))
       (is (nil? (:chat-opened (h/messages))))))
+  (testing "Server-managed subagent chat-id is accepted"
+    (h/reset-components!)
+    (let [chat-id "subagent-foo"]
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :subagent {:mode "subagent"}})
+      (is (= {:chat-id chat-id}
+             (prompt!
+              {:message "hi" :chat-id chat-id}
+              {:all-tools-mock (constantly [])
+               :api-mock
+               (fn [{:keys [on-first-response-received on-message-received]}]
+                 (on-first-response-received {:type :text :text "ok"})
+                 (on-message-received {:type :text :text "ok"})
+                 (on-message-received {:type :finish}))})))))
   (testing "Excessively long chat-id is rejected"
     (h/reset-components!)
     (let [too-long (apply str (repeat 257 "a"))

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix subagent spawning being rejected by reserved server-managed chat ids.
 - Fix OpenAI OAuth requests dropping built-in web search and image generation tools, and avoid replaying web search history artifacts on follow-up turns.
 
 ## 0.133.1
