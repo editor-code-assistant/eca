@@ -152,6 +152,8 @@
                                     [{:type "summary_text"
                                       :text (:text content)}])
                          :encrypted_content (:external-id content)}]
+              "server_tool_use" []
+              "server_tool_result" []
               [(-> msg
                    (dissoc :content-id)
                    (update :content (fn [c]
@@ -175,7 +177,7 @@
                                               c)))))]))
           messages))
 
-(defn ^:private ->tools [tools web-search image-generation codex?]
+(defn ^:private ->tools [tools web-search image-generation]
   (cond->
    (mapv (fn [tool]
            {:type "function"
@@ -183,22 +185,22 @@
             :description (:description tool)
             :parameters (:parameters tool)})
          tools)
-    (and web-search (not codex?)) (conj {:type "web_search_preview"})
-    (and image-generation (not codex?)) (conj {:type "image_generation" :output_format "png"})))
+    web-search (conj {:type "web_search"})
+    image-generation (conj {:type "image_generation" :output_format "png"})))
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search image-generation extra-payload extra-headers
                                 auth-type account-id http-client prompt-cache-key]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
                                 on-server-web-search on-server-image-generation] :as callbacks}]
-  (let [codex? (= :auth/oauth auth-type)
+  (let [oauth? (= :auth/oauth auth-type)
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
-        tools (->tools tools web-search image-generation codex?)
+        tools (->tools tools web-search image-generation)
         body (merge
               (assoc-some
                {:model model
-                :input (if codex?
+                :input (if oauth?
                          (concat [{:role "system" :content instructions}] input)
                          input)
                 :prompt_cache_key (or prompt-cache-key
@@ -212,7 +214,7 @@
                              {:effort "medium"
                               :summary "auto"})
                 :stream true}
-               :max_output_tokens (when-not codex? max-output-tokens)
+               :max_output_tokens (when-not oauth? max-output-tokens)
                :parallel_tool_calls (:parallel_tool_calls extra-payload))
               extra-payload)
         tool-call-by-item-id* (atom {})
@@ -345,7 +347,7 @@
                      {:rid (llm-util/gen-rid)
                       :body (assoc body
                                    :input (normalize-messages new-messages supports-image?)
-                                   :tools (->tools tools web-search image-generation codex?))
+                                   :tools (->tools tools web-search image-generation))
                       :api-url api-url
                       :url-relative-path url-relative-path
                       :api-key (or fresh-api-key api-key)
