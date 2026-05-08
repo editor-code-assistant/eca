@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.133.3
+
 - Add unit and integration tests covering parent↔subagent end-to-end communication so regressions like the v0.133.1 spawn-agent breakage are caught automatically.
 - Improve `editor_diagnostics` tool summary to show the target filename (e.g. `Checking diagnostics: foo.clj`) or `Checking all diagnostics` when no path is provided.
 - Bugfix: preserve the chat's selected variant when changing model or agent on an existing chat (regression from per-chat scoping in v0.133.1).
