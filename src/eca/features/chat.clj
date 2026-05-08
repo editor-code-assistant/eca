@@ -650,6 +650,13 @@
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (swap! db* assoc-in [:chats chat-id :prompt-id] prompt-id)
       (swap! db* assoc-in [:chats chat-id :model] full-model)
+      ;; Persist the variant the chat is currently using so subsequent
+      ;; chat/selectedModelChanged, chat/selectedAgentChanged and resume
+      ;; flows can read it back. `chat-ctx :variant` is `(or request-variant
+      ;; (:variant agent-config))`, so it tracks whatever variant the LLM
+      ;; call is actually using on this prompt, and overwriting on every
+      ;; prompt keeps the record in sync with the user's current pick.
+      (swap! db* assoc-in [:chats chat-id :variant] (:variant chat-ctx))
       (swap! db* update-in [:chats chat-id :user-prompt-count] (fnil inc 0))
       (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
             _ (lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
