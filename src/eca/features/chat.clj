@@ -828,8 +828,7 @@
                                                      (lifecycle/finish-chat-prompt! :idle chat-ctx)))))
                 :on-prepare-tool-call (fn [{:keys [id full-name arguments-text]}]
                                         (lifecycle/assert-chat-not-stopped! chat-ctx)
-                                        (let [all-tools (f.tools/all-tools chat-id agent @db* config)
-                                              tool (f.tools/resolve-tool full-name all-tools)
+                                        (let [tool (f.tools/resolve-tool full-name all-tools)
                                               resolved-full-name (or (:full-name tool) full-name)]
                                           (when-not tool
                                             (logger/warn logger-tag "Tool not found for prepare"
