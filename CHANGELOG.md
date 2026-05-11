@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.133.5
+
 - Improve CPU usage while streaming tool-call arguments by reusing the prompt's tool list.
 - Improve connection error messages from LLM providers. #457
 
