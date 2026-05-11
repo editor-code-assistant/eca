@@ -57,7 +57,7 @@
                         :desc "Path to a JSON config <FILE> to use instead of searching default locations"
                         :coerce :string
                         :default nil}
-          :verbose {:desc "Use stdout for eca logs instead of default log settings"}}})
+          :verbose {:desc "Enable verbose JSON-RPC protocol tracing"}}})
 
 (defn ^:private parse-opts
   [args]
@@ -98,7 +98,7 @@
   (when (= "server" action)
     (when-some [cfg-file (:config-file options)]
       (reset! config/custom-config-file-path* cfg-file))
-    (alter-var-root #'logger/*level* (constantly (keyword (:log-level options))))
+    (logger/set-level! (keyword (:log-level options)))
     (network/setup! (config/read-file-configs))
     (client/hato-client-global-setup! {})
     (let [finished @(server/run-io-server! (:verbose options))]

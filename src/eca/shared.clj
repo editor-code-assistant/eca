@@ -370,19 +370,25 @@
 (defmacro future*
   "Wrapper for future unless in tests. In non-test envs we spawn a Thread and
    return a promise (derefable) to avoid relying on clojure.core/future which
-   can behave differently in some REPL tooling environments."
+   can behave differently in some REPL tooling environments.
+
+   Automatically propagates logger context from the calling thread to the spawned
+   thread, so log calls inside the future inherit chat-id and other context."
   [config & body]
-  `(if (= "test" (:env ~config))
-     ~@body
-     (let [p# (promise)
-           t# (Thread. (fn []
-                         (try
-                           (deliver p# (do ~@body))
-                           (catch Throwable e#
-                             ;; deliver the Throwable so deref can inspect it if needed
-                             (deliver p# e#)))))]
-       (.start t#)
-       p#)))
+  `(let [context# (logger/capture-context)]
+     (if (= "test" (:env ~config))
+       (logger/with-context context# ~@body)
+       (let [p# (promise)
+             t# (Thread.
+                 (fn []
+                   (logger/with-context context#
+                     (try
+                       (deliver p# (do ~@body))
+                       (catch Throwable e#
+                         ;; deliver the Throwable so deref can inspect it if needed
+                         (deliver p# e#))))))]
+         (.start t#)
+         p#))))
 
 (defn get-workspaces
   "Returns a vector of all workspace folder paths.

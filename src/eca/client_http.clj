@@ -35,7 +35,7 @@
 
   Returns a map suitable for passing to `hato.client-http/build-http-client`."
   [{:eca.client-http/keys [proxy-http proxy-https] :as opts}]
-  (logger/debug "hato-client-config: " opts)
+  (logger/debug "[HATO]" "client-config:" opts)
   (let [{http-host :host http-port :port http-user :username http-pass :password} proxy-http
         {https-host :host https-port :port https-user :username https-pass :password} proxy-https
         opts (apply dissoc opts [:eca.client-http/proxy-http :eca.client-http/proxy-https])

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support including `AGENTS.md` files from parent directories of each workspace folder via new `includeParentAgentsFiles` config flag (disabled by default), ordered outermost parent first.
+- Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
 
 ## 0.133.6
 
