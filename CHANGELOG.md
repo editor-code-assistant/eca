@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bugfix: OpenAI Responses tool calls now opt out of strict schema normalization so optional tool parameters remain optional.
+- Bugfix: MCP tool calls now route to the selected server when multiple servers expose the same tool name.
+
 ## 0.133.3
 
 - Add unit and integration tests covering parent↔subagent end-to-end communication so regressions like the v0.133.1 spawn-agent breakage are caught automatically.

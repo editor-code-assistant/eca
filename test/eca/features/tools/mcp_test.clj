@@ -46,6 +46,30 @@
              (mcp/all-tools {:mcp-clients {"server1" {:tools tools1}
                                            "server2" {:tools tools2}}}))))))
 
+(deftest call-tool-routes-to-server-test
+  (testing "uses the requested MCP server when tool names collide"
+    (let [db {:mcp-clients (array-map
+                            "server-a" {:client :client-a
+                                        :tools [{:name "shared_tool"}]}
+                            "server-b" {:client :client-b
+                                        :tools [{:name "shared_tool"}]})}
+          calls* (atom [])]
+      (with-redefs [mcp/do-call-tool (fn [client name arguments needs-reinit?*]
+                                         (swap! calls* conj {:client client
+                                                            :name name
+                                                            :arguments arguments
+                                                            :needs-reinit?* needs-reinit?*})
+                                         {:error false
+                                          :contents [{:type :text :text (str client)}]})]
+        (is (= {:error false
+                :contents [{:type :text :text ":client-b"}]}
+               (mcp/call-tool! "server-b" "shared_tool" {"query" "value"} {:db db})))
+        (is (= [{:client :client-b
+                 :name "shared_tool"
+                 :arguments {"query" "value"}
+                 :needs-reinit?* nil}]
+               @calls*))))))
+
 (deftest all-prompts-test
   (testing "empty db"
     (is (= []
