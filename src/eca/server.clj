@@ -13,9 +13,13 @@
    [eca.remote.server :as remote.server]
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
-   [jsonrpc4clj.liveness-probe :as liveness-probe]
    [jsonrpc4clj.server :as jsonrpc.server]
-   [promesa.core :as p]))
+   [promesa.core :as p])
+  (:import
+   [java.lang ProcessHandle]
+   [java.util Optional]
+   [java.util.concurrent CompletableFuture]
+   [java.util.function BiConsumer]))
 
 (set! *warn-on-reflection* true)
 
@@ -56,9 +60,39 @@
        (catch Throwable e#
          (logger/error e# "[server] Error in async notification handler")))))
 
+(defn ^:private start-liveness-probe!
+  "Monitor parent process `ppid`; invoke `on-exit` once when the parent
+  disappears. Event-driven via `ProcessHandle.onExit` so we don't shell out
+  to `kill -0` (which loops forever when the binary is missing)."
+  [ppid on-exit]
+  (let [fire! (fn []
+                (try (on-exit)
+                     (catch Throwable t
+                       (logger/error t "[server] Liveness probe - on-exit threw"))))]
+    (try
+      (let [opt ^Optional (ProcessHandle/of (long ppid))]
+        (if (.isPresent opt)
+          (let [^ProcessHandle handle (.get opt)
+                ^CompletableFuture fut (.onExit handle)]
+            (.whenComplete fut
+                           (reify BiConsumer
+                             (accept [_ _result ex]
+                               (if (some? ex)
+                                 (logger/warn ex "[server] Liveness probe - failed waiting for parent" ppid "- monitor disabled")
+                                 (do
+                                   (logger/info "[server] Liveness probe - parent" ppid "exited - exiting server")
+                                   (fire!))))))
+            nil)
+          (do
+            (logger/info "[server] Liveness probe - parent" ppid "is not running - exiting server")
+            (fire!))))
+      (catch Throwable t
+        (logger/error t "[server] Liveness probe - failed to start; parent monitoring disabled")
+        nil))))
+
 (defmethod jsonrpc.server/receive-request "initialize" [_ {:keys [server] :as components} params]
   (when-let [parent-process-id (:process-id params)]
-    (liveness-probe/start! parent-process-id log-wrapper-fn #(exit server)))
+    (start-liveness-probe! parent-process-id #(exit server)))
   (handlers/initialize components params))
 
 (defmethod jsonrpc.server/receive-notification "initialized" [_ components _params]
