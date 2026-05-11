@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve CPU usage while streaming tool-call arguments by reusing the prompt's tool list.
+
 ## 0.133.4
 
 - Bugfix: stop the infinite "Cannot run program 'kill'" liveness-probe log loop for sandboxed environments.
