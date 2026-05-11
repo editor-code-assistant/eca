@@ -4,6 +4,10 @@
 
 - Improve CPU usage while streaming tool-call arguments by reusing the prompt's tool list.
 
+## 0.133.4
+
+- Bugfix: stop the infinite "Cannot run program 'kill'" liveness-probe log loop for sandboxed environments.
+
 ## 0.133.3
 
 - Add unit and integration tests covering parent↔subagent end-to-end communication so regressions like the v0.133.1 spawn-agent breakage are caught automatically.
