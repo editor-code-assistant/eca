@@ -8,7 +8,10 @@
    [eca.secrets :as secrets]
    [eca.shared :as shared])
   (:import
-   [java.io BufferedReader Closeable]))
+   [java.io BufferedReader Closeable]
+   [java.net ConnectException SocketTimeoutException UnknownHostException]
+   [java.net.http HttpConnectTimeoutException]
+   [javax.net.ssl SSLException]))
 
 (set! *warn-on-reflection* true)
 
@@ -156,3 +159,76 @@
               (some-> (get-in config [:providers (name provider) :urlEnv]) config/get-env)) ;; legacy
           shared/normalize-api-url
           not-empty))
+
+(defn ^:private cause-chain
+  "Returns a seq of `e` followed by every nested cause."
+  [^Throwable e]
+  (->> (iterate (fn [^Throwable t] (.getCause t)) e)
+       (take-while some?)))
+
+(defn ^:private root-message [^Throwable e]
+  (or (ex-message e) (.getName (class e))))
+
+(defn classify-connection-exception
+  "Walks the cause chain of `e` and classifies common HTTP/TLS failures
+   into a user-friendly map: {:kind <keyword> :message <string>}.
+
+   Recognized kinds:
+   - :tls-untrusted   - PKIX path building failed (private/corporate CA not trusted)
+   - :tls-other       - other TLS/SSL handshake errors
+   - :dns             - UnknownHostException
+   - :connect-refused - ConnectException (connection refused, etc.)
+   - :timeout         - connection/socket timeouts
+   - :unknown         - fallback; keeps the historical 'Connection error: ...' format"
+  [^Throwable e]
+  (let [msg (root-message e)
+        causes (cause-chain e)
+        pkix? (some (fn [^Throwable c]
+                      (some-> (ex-message c)
+                              (string/includes? "PKIX path building failed")))
+                    causes)
+        ssl?  (some #(instance? SSLException %) causes)
+        dns?  (some #(instance? UnknownHostException %) causes)
+        connect-refused? (some #(instance? ConnectException %) causes)
+        timeout? (some #(or (instance? HttpConnectTimeoutException %)
+                            (instance? SocketTimeoutException %))
+                       causes)]
+    (cond
+      pkix?
+      {:kind :tls-untrusted
+       :message (str "TLS certificate not trusted: PKIX path building failed. "
+                     "The server's certificate is signed by a CA not in the JVM truststore "
+                     "(common with private/corporate CAs). "
+                     "Fix: set `network.caCertFile` in your ECA config or the `SSL_CERT_FILE` "
+                     "env var to a PEM bundle containing the missing CA. "
+                     "See docs/config/network.md for details. Original error: " msg)}
+
+      ssl?
+      {:kind :tls-other
+       :message (str "TLS error: " msg
+                     ". See docs/config/network.md for trust and mTLS configuration.")}
+
+      dns?
+      {:kind :dns
+       :message (str "DNS resolution failed: " msg
+                     ". Check the provider URL and your network/proxy settings.")}
+
+      connect-refused?
+      {:kind :connect-refused
+       :message (str "Could not connect: " msg
+                     ". Check the provider URL and whether the server is reachable. "
+                     "Corporate networks may require HTTP_PROXY / HTTPS_PROXY env vars.")}
+
+      timeout?
+      {:kind :timeout
+       :message (str "Connection timed out: " msg ".")}
+
+      :else
+      {:kind :unknown
+       :message (format "Connection error: %s" msg)})))
+
+(defn connection-error-message
+  "Returns a user-friendly message describing a connection-level exception.
+   Always non-nil. See `classify-connection-exception` for recognized error kinds."
+  [^Throwable e]
+  (:message (classify-connection-exception e)))

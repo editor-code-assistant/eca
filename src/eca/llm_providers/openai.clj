@@ -96,10 +96,10 @@
               (llm-util/log-response logger-tag rid "response" body)
               (response-body->result body)))))
       (catch Exception e
-        (let [msg (or (ex-message e) (.getName (class e)))
-              prefix (if (ex-data e) "Internal error" "Connection error")]
-          (on-error {:exception e
-                     :message (format "%s: %s" prefix msg)}))))))
+        (on-error {:exception e
+                   :message (if (ex-data e)
+                              (format "Internal error: %s" (or (ex-message e) (.getName (class e))))
+                              (llm-util/connection-error-message e))})))))
 
 (defn ^:private normalize-messages [messages supports-image?]
   ;; Each history entry maps to one or more provider messages. Switched from
