@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.133.6
+
 - Bugfix: `network.caCertFile` (and `clientCert`/`clientKey`/`clientKeyPassphrase`) set via `config.json` were silently ignored due to a key-case mismatch between config normalization and the network reader; only the env-var fallbacks worked. #457
 
 ## 0.133.5
