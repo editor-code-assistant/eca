@@ -112,11 +112,15 @@
   "Reads network TLS configuration from the config `network` section
   (when available) and falls back to well-known environment variables.
 
-  Config values (camelCase as from JSON):
-    :caCertFile          - path to a PEM CA certificate bundle
-    :clientCert          - path to a PEM client certificate for mTLS
-    :clientKey           - path to a PEM client private key for mTLS
-    :clientKeyPassphrase - passphrase for an encrypted client key
+  The JSON config uses camelCase (`caCertFile`, `clientCert`, ...), but
+  `eca.config` normalizes keys under `:network` to kebab-case before
+  this function is called, so we look up kebab-cased keys here.
+
+  Config values (kebab-case after normalization):
+    :ca-cert-file          - path to a PEM CA certificate bundle
+    :client-cert           - path to a PEM client certificate for mTLS
+    :client-key            - path to a PEM client private key for mTLS
+    :client-key-passphrase - passphrase for an encrypted client key
 
   Environment variable fallbacks (lowest priority):
     SSL_CERT_FILE / NODE_EXTRA_CA_CERTS  -> :ca-cert-file
@@ -125,14 +129,14 @@
     ECA_CLIENT_KEY_PASSPHRASE            -> :client-key-passphrase"
   [file-config]
   (let [net (:network file-config)]
-    {:ca-cert-file (or (non-blank (:caCertFile net))
+    {:ca-cert-file (or (non-blank (:ca-cert-file net))
                        (non-blank (config/get-env "SSL_CERT_FILE"))
                        (non-blank (config/get-env "NODE_EXTRA_CA_CERTS")))
-     :client-cert (or (non-blank (:clientCert net))
+     :client-cert (or (non-blank (:client-cert net))
                       (non-blank (config/get-env "ECA_CLIENT_CERT")))
-     :client-key (or (non-blank (:clientKey net))
+     :client-key (or (non-blank (:client-key net))
                      (non-blank (config/get-env "ECA_CLIENT_KEY")))
-     :client-key-passphrase (or (non-blank (:clientKeyPassphrase net))
+     :client-key-passphrase (or (non-blank (:client-key-passphrase net))
                                 (non-blank (config/get-env "ECA_CLIENT_KEY_PASSPHRASE")))}))
 
 (defn load-pem-certificates
@@ -279,13 +283,20 @@
   custom CA or mTLS settings are present, and stores it in
   `*ssl-context*`."
   [file-config]
-  (let [net-cfg (read-network-config file-config)]
+  (let [net-cfg (read-network-config file-config)
+        configured? (boolean (:network file-config))]
+    (logger/debug logger-tag "Resolved network config:" net-cfg)
     (try
-      (when-let [ctx (build-ssl-context net-cfg)]
-        (logger/info logger-tag "Custom SSL context configured"
-                     (cond-> {}
-                       (:ca-cert-file net-cfg) (assoc :ca-cert-file (:ca-cert-file net-cfg))
-                       (:client-cert net-cfg) (assoc :client-cert (:client-cert net-cfg))))
-        (alter-var-root #'*ssl-context* (constantly ctx)))
+      (if-let [ctx (build-ssl-context net-cfg)]
+        (do
+          (logger/info logger-tag "Custom SSL context configured"
+                       (cond-> {}
+                         (:ca-cert-file net-cfg) (assoc :ca-cert-file (:ca-cert-file net-cfg))
+                         (:client-cert net-cfg) (assoc :client-cert (:client-cert net-cfg))))
+          (alter-var-root #'*ssl-context* (constantly ctx)))
+        (when configured?
+          (logger/warn logger-tag
+                       (str "`network` config present but no TLS settings were resolved; "
+                            "using JVM defaults. Check caCertFile/clientCert/clientKey paths."))))
       (catch Exception e
         (logger/error logger-tag "Failed to build SSL context:" (.getMessage e))))))

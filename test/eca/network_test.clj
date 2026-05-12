@@ -4,6 +4,9 @@
    [eca.config :as config]
    [eca.network :as network]))
 
+(def ^:private normalize-fields @#'config/normalize-fields)
+(def ^:private normalization-rules @#'config/normalization-rules)
+
 (deftest proxy-urls-system-env-get-tests
   (testing "Returns correct HTTP and HTTPS proxy values when only lowercase env vars are set"
     (with-redefs [config/get-env (fn [k] (case k "http_proxy" "http://lc-http" "https_proxy" "https://lc-https"))]
@@ -119,11 +122,14 @@
 ;;;; ---- TLS tests -----------------------------------------------------------
 
 (deftest read-network-config-test
+  ;; `read-network-config` runs after `eca.config/normalize-fields` has
+  ;; kebab-cased every key under `:network`, so the function expects the
+  ;; kebab-cased shape below.
   (testing "Reads from config network section"
-    (let [cfg {:network {:caCertFile "/path/to/ca.pem"
-                         :clientCert "/path/to/cert.pem"
-                         :clientKey "/path/to/key.pem"
-                         :clientKeyPassphrase "secret"}}]
+    (let [cfg {:network {:ca-cert-file "/path/to/ca.pem"
+                         :client-cert "/path/to/cert.pem"
+                         :client-key "/path/to/key.pem"
+                         :client-key-passphrase "secret"}}]
       (with-redefs [config/get-env (fn [_] nil)]
         (is (= (network/read-network-config cfg)
                {:ca-cert-file "/path/to/ca.pem"
@@ -152,7 +158,7 @@
              "/node/ca.pem"))))
 
   (testing "Config takes precedence over env vars"
-    (let [cfg {:network {:caCertFile "/config/ca.pem"}}]
+    (let [cfg {:network {:ca-cert-file "/config/ca.pem"}}]
       (with-redefs [config/get-env (fn [k] (case k
                                              "SSL_CERT_FILE" "/env/ca.pem"
                                              nil))]
@@ -166,6 +172,26 @@
               :client-cert nil
               :client-key nil
               :client-key-passphrase nil})))))
+
+(deftest read-network-config-end-to-end-test
+  ;; Regression test for #457: ensure the JSON shape
+  ;; `{"network":{"caCertFile":"..."}}` users actually write in their
+  ;; config.json survives `normalize-fields` and is honored by
+  ;; `read-network-config`. Previously the network keys were kebab-cased
+  ;; by `normalize-fields` but `read-network-config` still read camelCase
+  ;; keys, so the user's paths were silently dropped.
+  (testing "camelCase JSON config reaches read-network-config after normalization"
+    (let [raw-cfg {:network {:caCertFile "/path/to/ca.pem"
+                             :clientCert "/path/to/cert.pem"
+                             :clientKey "/path/to/key.pem"
+                             :clientKeyPassphrase "secret"}}
+          normalized (normalize-fields normalization-rules raw-cfg)]
+      (with-redefs [config/get-env (fn [_] nil)]
+        (is (= (network/read-network-config normalized)
+               {:ca-cert-file "/path/to/ca.pem"
+                :client-cert "/path/to/cert.pem"
+                :client-key "/path/to/key.pem"
+                :client-key-passphrase "secret"}))))))
 
 (deftest load-pem-certificates-test
   (testing "Throws when file does not exist"
