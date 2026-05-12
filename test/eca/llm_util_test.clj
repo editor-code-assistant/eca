@@ -7,7 +7,9 @@
    [eca.secrets :as secrets]
    [matcher-combinators.test :refer [match?]])
   (:import
-   [java.io ByteArrayInputStream]))
+   [java.io ByteArrayInputStream]
+   [java.net ConnectException SocketTimeoutException UnknownHostException]
+   [javax.net.ssl SSLException SSLHandshakeException]))
 
 (deftest event-data-seq-test
   (testing "when there is a event line and another data line"
@@ -185,4 +187,69 @@
 
   (testing "returns nil for blank url"
     (with-redefs [config/get-env (constantly nil)]
-      (is (nil? (llm-util/provider-api-url "openai" {:providers {"openai" {:url "   "}}})))))) 
+      (is (nil? (llm-util/provider-api-url "openai" {:providers {"openai" {:url "   "}}}))))))
+
+(deftest classify-connection-exception-test
+  (testing "PKIX path building failed -> :tls-untrusted with actionable hint"
+    (let [e (SSLHandshakeException. "PKIX path building failed: unable to find valid certification path to requested target")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :tls-untrusted kind))
+      (is (re-find #"TLS certificate not trusted" message))
+      (is (re-find #"network\.caCertFile" message))
+      (is (re-find #"SSL_CERT_FILE" message))
+      (is (re-find #"docs/config/network\.md" message))))
+
+  (testing "PKIX detected even when wrapped in a non-SSL outer exception"
+    (let [root (Exception. "PKIX path building failed: unable to find valid certification path to requested target")
+          wrapped (RuntimeException. "wrapper" root)
+          {:keys [kind message]} (llm-util/classify-connection-exception wrapped)]
+      (is (= :tls-untrusted kind))
+      (is (re-find #"network\.caCertFile" message))))
+
+  (testing "Generic SSLException (no PKIX) -> :tls-other"
+    (let [e (SSLException. "handshake_failure")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :tls-other kind))
+      (is (re-find #"TLS error" message))
+      (is (re-find #"docs/config/network\.md" message))))
+
+  (testing "UnknownHostException -> :dns"
+    (let [e (UnknownHostException. "no-such-host.example")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :dns kind))
+      (is (re-find #"DNS resolution failed" message))))
+
+  (testing "ConnectException (e.g. Connection refused) -> :connect-refused"
+    (let [e (ConnectException. "Connection refused")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :connect-refused kind))
+      (is (re-find #"Could not connect" message))
+      (is (re-find #"HTTP_PROXY" message))))
+
+  (testing "SocketTimeoutException -> :timeout"
+    (let [e (SocketTimeoutException. "Read timed out")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :timeout kind))
+      (is (re-find #"Connection timed out" message))))
+
+  (testing "Unknown exception falls back to legacy 'Connection error:' format"
+    (let [e (Exception. "boom")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :unknown kind))
+      (is (= "Connection error: boom" message))))
+
+  (testing "Exception with nil message uses class name as fallback"
+    (let [e (Exception.)
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :unknown kind))
+      (is (re-find #"Connection error: java\.lang\.Exception" message)))))
+
+(deftest connection-error-message-test
+  (testing "returns the :message from classify-connection-exception"
+    (is (re-find #"TLS certificate not trusted"
+                 (llm-util/connection-error-message
+                  (SSLHandshakeException. "PKIX path building failed: ...")))))
+  (testing "is non-nil for any exception"
+    (is (string? (llm-util/connection-error-message (Exception. "x"))))
+    (is (string? (llm-util/connection-error-message (Exception.))))))
+

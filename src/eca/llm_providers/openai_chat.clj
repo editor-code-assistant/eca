@@ -154,7 +154,7 @@
               (response-body->result body on-tools-called-wrapper)))))
       (catch Exception e
         (on-error {:exception e
-                   :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))})))))
+                   :message (llm-util/connection-error-message e)})))))
 
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles.

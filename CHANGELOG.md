@@ -5,6 +5,19 @@
 - Bugfix: OpenAI Responses tool calls now opt out of strict schema normalization so optional tool parameters remain optional.
 - Bugfix: MCP tool calls now route to the selected server when multiple servers expose the same tool name.
 
+## 0.133.6
+
+- Bugfix: `network.caCertFile` (and `clientCert`/`clientKey`/`clientKeyPassphrase`) set via `config.json` were silently ignored due to a key-case mismatch between config normalization and the network reader; only the env-var fallbacks worked. #457
+
+## 0.133.5
+
+- Improve CPU usage while streaming tool-call arguments by reusing the prompt's tool list.
+- Improve connection error messages from LLM providers. #457
+
+## 0.133.4
+
+- Bugfix: stop the infinite "Cannot run program 'kill'" liveness-probe log loop for sandboxed environments.
+
 ## 0.133.3
 
 - Add unit and integration tests covering parent↔subagent end-to-end communication so regressions like the v0.133.1 spawn-agent breakage are caught automatically.

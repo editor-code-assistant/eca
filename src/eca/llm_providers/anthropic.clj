@@ -161,7 +161,7 @@
 
                       :else
                       (on-error {:exception e
-                                 :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))}))))
+                                 :message (llm-util/connection-error-message e)}))))
                 (finally
                   (stop-fn))))
             (do
@@ -170,7 +170,7 @@
                       {:output-text (:text (last (:content body)))})))))
       (catch Exception e
         (on-error {:exception e
-                   :message (format "Connection error: %s" (or (ex-message e) (.getName (class e))))})))
+                   :message (llm-util/connection-error-message e)})))
     @response*))
 
 (defn ^:private normalize-messages [past-messages supports-image?]
