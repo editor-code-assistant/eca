@@ -28,8 +28,12 @@
                                               #(throw (ex-info "boom" {}))))
         "start! must not raise even when on-exit throws")))
 
-(deftest start-liveness-probe-with-alive-parent-test
-  (when-not h/windows?
+;; The two deftests below are skipped on Windows: they rely on `sleep` and on
+;; POSIX-style subprocess semantics that the liveness probe targets. Skipping
+;; the whole `deftest` (rather than gating only its body) keeps kaocha from
+;; reporting "Test ran without assertions" on Windows.
+(when-not h/windows?
+  (deftest start-liveness-probe-with-alive-parent-test
     (testing "an alive parent does not trigger on-exit"
       (let [proc (spawn-blocking-process)
             exited? (promise)]
@@ -41,8 +45,8 @@
           (finally
             (p/destroy-tree proc)))))))
 
-(deftest start-liveness-probe-fires-when-parent-dies-test
-  (when-not h/windows?
+(when-not h/windows?
+  (deftest start-liveness-probe-fires-when-parent-dies-test
     (testing "killing the parent triggers on-exit"
       (let [proc (spawn-blocking-process)
             exited? (promise)]
