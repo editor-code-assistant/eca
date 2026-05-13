@@ -194,6 +194,12 @@
       "maximum": 100,
       "default": 75
     },
+    "includeParentAgentsFiles": {
+      "type": "boolean",
+      "description": "When true, also include AGENTS.md files from each workspace folder's parent directories, ordered outermost parent first, then the workspace's own AGENTS.md.",
+      "markdownDescription": "When `true`, also include `AGENTS.md` files from each workspace folder's parent directories, ordered outermost parent first, then the workspace's own `AGENTS.md`.",
+      "default": false
+    },
     "index": {
       "type": "object",
       "description": "Indexing configuration for workspace files.",
