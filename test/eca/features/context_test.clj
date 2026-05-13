@@ -7,7 +7,7 @@
    [eca.features.index :as f.index]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
-   [eca.shared :refer [multi-str]]
+   [eca.shared :as shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -337,6 +337,130 @@
               :path a-file
               :content a-content}])
            (#'f.context/parse-agents-file a-file))))))
+
+(deftest agents-file-contexts-test
+  (testing "Flag disabled: only the workspace's own AGENTS.md plus global"
+    (h/reset-components!)
+    (let [ws "/a/b/c/d"
+          ws-agents (str ws "/AGENTS.md")
+          global-dir "/global"
+          global-agents (str global-dir "/AGENTS.md")
+          readable #{ws-agents global-agents}]
+      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b/c/d"}])
+      (with-redefs [shared/uri->filename (constantly ws)
+                    shared/global-config-dir (constantly global-dir)
+                    fs/canonicalize identity
+                    fs/path (fn [& parts] (string/join "/" (map str parts)))
+                    fs/readable? (fn [p] (contains? readable (str p)))
+                    llm-api/refine-file-context (constantly "content")]
+        (is (match?
+             [{:type :agents-file :path ws-agents :content "content"}
+              {:type :agents-file :path global-agents :content "content"}]
+             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles false}))))))
+
+  (testing "Flag enabled: parents emitted outermost first, then workspace, then global"
+    (h/reset-components!)
+    (let [ws "/a/b/c/d"
+          parent-ab-agents "/a/b/AGENTS.md"
+          parent-abc-agents "/a/b/c/AGENTS.md"
+          global-dir "/global"
+          global-agents (str global-dir "/AGENTS.md")
+          readable #{parent-ab-agents parent-abc-agents global-agents}
+          parent-map {"/a/b/c/d" "/a/b/c"
+                      "/a/b/c" "/a/b"
+                      "/a/b" "/a"
+                      "/a" "/"
+                      "/" nil}]
+      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b/c/d"}])
+      (with-redefs [shared/uri->filename (constantly ws)
+                    shared/global-config-dir (constantly global-dir)
+                    fs/canonicalize identity
+                    fs/parent (fn [p] (get parent-map (str p)))
+                    fs/path (fn [& parts] (string/join "/" (map str parts)))
+                    fs/readable? (fn [p] (contains? readable (str p)))
+                    llm-api/refine-file-context (constantly "content")]
+        (is (match?
+             [{:type :agents-file :path parent-ab-agents :content "content"}
+              {:type :agents-file :path parent-abc-agents :content "content"}
+              {:type :agents-file :path global-agents :content "content"}]
+             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
+
+  (testing "Flag enabled but no parent has AGENTS.md: behaves like disabled"
+    (h/reset-components!)
+    (let [ws "/a/b/c/d"
+          ws-agents (str ws "/AGENTS.md")
+          global-dir "/global"
+          global-agents (str global-dir "/AGENTS.md")
+          readable #{ws-agents global-agents}
+          parent-map {"/a/b/c/d" "/a/b/c"
+                      "/a/b/c" "/a/b"
+                      "/a/b" "/a"
+                      "/a" "/"
+                      "/" nil}]
+      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b/c/d"}])
+      (with-redefs [shared/uri->filename (constantly ws)
+                    shared/global-config-dir (constantly global-dir)
+                    fs/canonicalize identity
+                    fs/parent (fn [p] (get parent-map (str p)))
+                    fs/path (fn [& parts] (string/join "/" (map str parts)))
+                    fs/readable? (fn [p] (contains? readable (str p)))
+                    llm-api/refine-file-context (constantly "content")]
+        (is (match?
+             [{:type :agents-file :path ws-agents :content "content"}
+              {:type :agents-file :path global-agents :content "content"}]
+             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
+
+  (testing "Two nested workspaces share ancestors via dedup"
+    (h/reset-components!)
+    (let [a-agents "/a/AGENTS.md"
+          ab-agents "/a/b/AGENTS.md"
+          abc-agents "/a/b/c/AGENTS.md"
+          global-dir "/global"
+          global-agents (str global-dir "/AGENTS.md")
+          readable #{a-agents ab-agents abc-agents global-agents}
+          parent-map {"/a/b/c/d" "/a/b/c"
+                      "/a/b/c" "/a/b"
+                      "/a/b" "/a"
+                      "/a" "/"
+                      "/" nil}
+          uri->filename-map {"file:///a/b" "/a/b"
+                             "file:///a/b/c/d" "/a/b/c/d"}]
+      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b"}
+                                               {:uri "file:///a/b/c/d"}])
+      (with-redefs [shared/uri->filename (fn [u] (get uri->filename-map u))
+                    shared/global-config-dir (constantly global-dir)
+                    fs/canonicalize identity
+                    fs/parent (fn [p] (get parent-map (str p)))
+                    fs/path (fn [& parts] (string/join "/" (map str parts)))
+                    fs/readable? (fn [p] (contains? readable (str p)))
+                    llm-api/refine-file-context (constantly "content")]
+        (is (match?
+             [{:type :agents-file :path a-agents}
+              {:type :agents-file :path ab-agents}
+              {:type :agents-file :path abc-agents}
+              {:type :agents-file :path global-agents}]
+             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
+
+  (testing "Workspace at filesystem root: no parent walk"
+    (h/reset-components!)
+    (let [ws "/"
+          ws-agents "//AGENTS.md"
+          global-dir "/global"
+          global-agents (str global-dir "/AGENTS.md")
+          readable #{ws-agents global-agents}
+          parent-map {"/" nil}]
+      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///"}])
+      (with-redefs [shared/uri->filename (constantly ws)
+                    shared/global-config-dir (constantly global-dir)
+                    fs/canonicalize identity
+                    fs/parent (fn [p] (get parent-map (str p)))
+                    fs/path (fn [& parts] (string/join "/" (map str parts)))
+                    fs/readable? (fn [p] (contains? readable (str p)))
+                    llm-api/refine-file-context (constantly "content")]
+        (is (match?
+             [{:type :agents-file :path ws-agents}
+              {:type :agents-file :path global-agents}]
+             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true})))))))
 
 (deftest contexts-str-from-prompt-test
   (testing "not context mention"

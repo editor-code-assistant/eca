@@ -1185,7 +1185,7 @@
                                                                                       :state :running
                                                                                       :text "Parsing given context"}))
         refined-contexts (concat
-                          (f.context/agents-file-contexts db)
+                          (f.context/agents-file-contexts db config)
                           (f.context/raw-contexts->refined contexts db))
         {static-rules :static path-scoped-rules :path-scoped} (f.rules/all-rules config (:workspace-folders db) agent full-model)
         all-tools (f.tools/all-tools chat-id agent @db* config)
