@@ -150,11 +150,26 @@
   (and (= 401 (:status response))
        (some? (get (:headers response) "www-authenticate"))))
 
+(def ^:private probe-initialize-body
+  "JSON-RPC initialize body used to probe for OAuth challenges. Some servers
+   (e.g. Figma) only return 401 + www-authenticate when the request body is a
+   recognizable MCP initialize message; a bare '{}' is treated as malformed and
+   yields a generic JSON-RPC error instead of an auth challenge."
+  (json/generate-string
+   {:jsonrpc "2.0"
+    :id 0
+    :method "initialize"
+    :params {:protocolVersion "2024-11-05"
+             :capabilities {}
+             :clientInfo {:name "eca" :version "probe"}}}))
+
 (defn ^:private probe-auth
   "Probe the MCP server for a 401 auth challenge with www-authenticate header.
-   Tries HEAD first; falls back to POST if HEAD doesn't return a valid challenge
-   (some servers like Glean don't support HEAD, some proxies like istio-envoy
-   return 401 on HEAD without actually requiring auth)."
+   Tries HEAD first; falls back to POST with a JSON-RPC initialize body if HEAD
+   doesn't return a valid challenge (some servers like Glean don't support HEAD,
+   some proxies like istio-envoy return 401 on HEAD without actually requiring
+   auth, and some servers like Figma only emit the auth challenge in response to
+   a valid MCP initialize request)."
   [^String url]
   (let [head-response (http/head url {:timeout 10000
                                       :throw-exceptions? false})]
@@ -164,7 +179,7 @@
                                           :throw-exceptions? false
                                           :headers {"Content-Type" "application/json"
                                                     "Accept" "application/json, text/event-stream"}
-                                          :body "{}"})]
+                                          :body probe-initialize-body})]
         (when (valid-auth-challenge? post-response)
           post-response)))))
 

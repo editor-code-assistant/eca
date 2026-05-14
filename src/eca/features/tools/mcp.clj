@@ -387,6 +387,9 @@
                                                     {:on-tools-change on-tools-change
                                                      :pending-tools-refresh* pending-tools-refresh*})
                                    init-result (pmc/get-initialize-result client)
+                                   _ (when-not init-result
+                                       (throw (ex-info "MCP initialize returned no result"
+                                                       {:server name})))
                                    version (get-in init-result [:serverInfo :version])]
                                (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
                                                                                 :status :starting
