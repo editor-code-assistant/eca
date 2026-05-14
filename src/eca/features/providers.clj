@@ -17,6 +17,7 @@
    "github-copilot" "GitHub Copilot"
    "google" "Google"
    "azure" "Azure"
+   "bedrock" "AWS Bedrock"
    "deepseek" "DeepSeek"
    "litellm" "LiteLLM"
    "lmstudio" "LM Studio"
@@ -35,6 +36,7 @@
    "github-copilot" [{:key "device" :label "GitHub device flow"}]
    "google"         [{:key "api-key" :label "Enter API key"}]
    "azure"          [{:key "api-key" :label "Enter API key, URL & models"}]
+   "bedrock"        [{:key "api-key" :label "Enter API key, URL & models"}]
    "deepseek"       [{:key "api-key" :label "Enter API key & models"}]
    "litellm"        [{:key "api-key" :label "Enter API key, URL & models"}]
    "lmstudio"       [{:key "api-key" :label "Enter models"}]
@@ -61,7 +63,10 @@
                  {:key "models"  :label "Model names (comma-separated)" :type "text"}]
    "azure"      [{:key "api-key" :label "API Key" :type "secret"}
                  {:key "url"     :label "API URL" :type "text"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]})
+                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
+   "bedrock"    [{:key "api-key" :label "API Key (AWS_BEARER_TOKEN_BEDROCK)" :type "secret"}
+                 {:key "url"     :label "Runtime URL (e.g. https://bedrock-runtime.us-east-1.amazonaws.com)" :type "text"}
+                 {:key "models"  :label "Model/inference-profile ids (comma-separated)" :type "text"}]})
 
 (def ^:private provider-configs
   {"deepseek"   {:api "openai-chat" :url "https://api.deepseek.com"}
@@ -73,7 +78,8 @@
    "moonshot"   {:api "openai-chat" :url "https://api.kimi.com/coding/v1"}
    "openrouter" {:api "openai-chat" :url "https://openrouter.ai/api/v1"}
    "z-ai"       {:api "anthropic" :url "https://api.z.ai/api/anthropic"}
-   "azure"      {:api "openai-chat"}})
+   "azure"      {:api "openai-chat"}
+   "bedrock"    {:api "bedrock"}})
 
 ;; --- Auth resolution ---
 

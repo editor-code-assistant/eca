@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
+- Add AWS Bedrock provider using the native `Converse`/`ConverseStream` APIs with bearer-token auth, supporting models not available on Bedrock's OpenAI-compatible endpoint (e.g. Claude inference profiles). #254
 
 ## 0.134.1
 
