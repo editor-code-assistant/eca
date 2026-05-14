@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
+
 ## 0.134.1
 
 - Support optional `clientName` config field for MCP servers to override the OAuth Dynamic Client Registration `client_name` (useful for servers that allowlist clients by name, e.g. Figma).
