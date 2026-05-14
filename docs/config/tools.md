@@ -111,6 +111,26 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+=== "Advanced — DCR client name override"
+
+    Some OAuth-protected MCP servers allowlist clients during Dynamic Client
+    Registration (DCR) by `client_name`. If the server rejects ECA's default
+    registration with a 403, set `clientName` to a value the server accepts.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "figma": {
+          "url": "https://mcp.figma.com/mcp",
+          "clientName": "Claude Code"
+        }
+      }
+    }
+    ```
+
+    The DCR attempt, its result and the chosen `client_name` are logged at
+    `info`/`warn` level so you can verify behavior in the ECA log.
+
 === "Disabling a MCP"
 
     Set `"disabled": true` to keep the configuration but prevent ECA from starting the server.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support optional `clientName` config field for MCP servers to override the OAuth Dynamic Client Registration `client_name` (useful for servers that allowlist clients by name, e.g. Figma).
+
 ## 0.134.0
 
 - Support including `AGENTS.md` files from parent directories of each workspace folder via new `includeParentAgentsFiles` config flag (disabled by default), ordered outermost parent first.

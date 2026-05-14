@@ -222,13 +222,20 @@
   "Perform OAuth discovery for the given MCP server URL.
    Optional `configured-client-id` skips dynamic client registration when provided.
    Optional `configured-client-secret` enables confidential OAuth (e.g. Slack MCP).
+   When DCR is performed, a `client_secret` returned by the registration endpoint
+   is also captured and used in the subsequent token exchange (some servers like
+   Figma issue a secret even when the client requests `token_endpoint_auth_method: none`).
    Optional `configured-oauth-port` uses a fixed port for the OAuth callback (required
-   by providers like Slack that mandate pre-registered redirect URIs)."
-  ([^String url] (oauth-info url nil nil))
+   by providers like Slack that mandate pre-registered redirect URIs).
+   Optional `configured-client-name` overrides the `client_name` sent during DCR
+   (some servers like Figma allowlist clients by name)."
+  ([^String url] (oauth-info url nil))
   ([^String url configured-client-id] (oauth-info url configured-client-id nil))
   ([^String url configured-client-id configured-client-secret]
    (oauth-info url configured-client-id configured-client-secret nil))
   ([^String url configured-client-id configured-client-secret configured-oauth-port]
+   (oauth-info url configured-client-id configured-client-secret configured-oauth-port nil))
+  ([^String url configured-client-id configured-client-secret configured-oauth-port configured-client-name]
    (let [base-url (url->base-url url)
          auth-response (probe-auth url)]
      (when-let [headers (:headers auth-response)]
@@ -252,30 +259,54 @@
          (when (:authorization_endpoint meta)
            (let [base-auth-endpoint (:authorization_endpoint meta)
                  ;; Skip DCR when a client-id is pre-configured
-                 new-client-id (when-not configured-client-id
-                                 (when-let [reg-endpoint (:registration_endpoint meta)]
-                                   (let [auth-method (if configured-client-secret
-                                                       "client_secret_post"
-                                                       "none")
-                                         res (http/post
-                                              reg-endpoint
-                                              {:timeout 10000
-                                               :as :json
-                                               :throw-exceptions? false
-                                               :headers {"Content-Type" "application/json"}
-                                               :body (json/generate-string
-                                                      {:redirect_uris [redirect-uri]
-                                                       :token_endpoint_auth_method auth-method
-                                                       :grant_types ["authorization_code" "refresh_token"]
-                                                       :response_types ["code"]
-                                                       :client_name "ECA (Editor Code Assistant)"
-                                                       :client_uri "http://github.com/editor-code-assistant/eca"
-                                                       :client_id eca-client-id
-                                                       :client_id_issued_at (.getEpochSecond (java.time.Instant/now))})})]
-                                     (when (<= 200 (:status res) 299)
-                                       (:client_id (:body res))))))
+                 new-client-info (when-not configured-client-id
+                                   (when-let [reg-endpoint (:registration_endpoint meta)]
+                                     (let [auth-method (if configured-client-secret
+                                                         "client_secret_post"
+                                                         "none")
+                                           client-name (or configured-client-name "ECA (Editor Code Assistant)")
+                                           _ (logger/info logger-tag
+                                                          (format "Attempting DCR at %s with client_name=%s"
+                                                                  reg-endpoint client-name))
+                                           res (http/post
+                                                reg-endpoint
+                                                {:timeout 10000
+                                                 :as :json
+                                                 :throw-exceptions? false
+                                                 :headers {"Content-Type" "application/json"}
+                                                 :body (json/generate-string
+                                                        {:redirect_uris [redirect-uri]
+                                                         :token_endpoint_auth_method auth-method
+                                                         :grant_types ["authorization_code" "refresh_token"]
+                                                         :response_types ["code"]
+                                                         :client_name client-name
+                                                         :client_uri "http://github.com/editor-code-assistant/eca"
+                                                         :client_id eca-client-id
+                                                         :client_id_issued_at (.getEpochSecond (java.time.Instant/now))})})]
+                                       (if (<= 200 (:status res) 299)
+                                         (let [body (:body res)
+                                               cid (:client_id body)
+                                               cs (:client_secret body)]
+                                           (logger/info logger-tag
+                                                        (format "DCR succeeded at %s, client_id=%s%s"
+                                                                reg-endpoint
+                                                                cid
+                                                                (if cs
+                                                                  " (confidential, received client_secret)"
+                                                                  "")))
+                                           {:client-id cid :client-secret cs})
+                                         (do (logger/warn logger-tag
+                                                          (format "DCR rejected by %s status=%s body=%s"
+                                                                  reg-endpoint
+                                                                  (:status res)
+                                                                  (let [b (str (:body res))]
+                                                                    (if (> (count b) 200)
+                                                                      (str (subs b 0 200) "...")
+                                                                      b))))
+                                             nil)))))
                  {:keys [challenge verifier]} (generate-pkce)
-                 client-id (or configured-client-id new-client-id eca-client-id)
+                 client-id (or configured-client-id (:client-id new-client-info) eca-client-id)
+                 client-secret (or configured-client-secret (:client-secret new-client-info))
                  scope (when-let [scopes (:scopes_supported meta)]
                          (if (coll? scopes)
                            (string/join " " scopes)
@@ -298,7 +329,7 @@
                      :resource url
                      :authorization-endpoint (str base-auth-endpoint "?" query-params)}
               ssl? (assoc :ssl? true)
-              configured-client-secret (assoc :client-secret configured-client-secret)))))))))
+              client-secret (assoc :client-secret client-secret)))))))))
 
 (comment
   (oauth-info "https://mcp.atlassian.com/v1/sse")
