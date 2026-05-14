@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.134.1
+
 - Support optional `clientName` config field for MCP servers to override the OAuth Dynamic Client Registration `client_name` (useful for servers that allowlist clients by name, e.g. Figma).
 
 ## 0.134.0
