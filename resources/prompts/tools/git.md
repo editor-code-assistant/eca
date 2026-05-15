@@ -37,6 +37,8 @@ gh pr create --title "the pr title" --body "$(cat <<'EOF'
 [Testing checklist]
 
 🤖 Generated with [eca](https://eca.dev)
+
+Co-Authored-By: eca-agent <git@eca.dev>
 EOF
 )"
 </example>
