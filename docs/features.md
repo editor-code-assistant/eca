@@ -111,6 +111,8 @@ So user can include those contexts in 3 different ways for different purposes:
 
 ECA will always include if found the `AGENTS.md` file as context, searching for both `/project-root/AGENTS.md` and `~/.config/eca/AGENTS.md`, it will recursively check for any `@some-file.md` mention as well.
 
+Set the config flag `includeParentAgentsFiles` to `true` to also include `AGENTS.md` files from each workspace's parent directories (up to the filesystem root). Files are emitted outermost parent first, then descending toward the workspace's own `AGENTS.md`, and duplicates across overlapping workspaces are skipped. The flag is disabled by default.
+
 You can ask ECA to create/update this file via `/init` command.
 you can check/debug what goes to final prompt with `/prompt-show` as well.
 

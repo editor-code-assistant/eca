@@ -55,24 +55,57 @@
                  nested-results))
        []))))
 
+(defn ^:private ancestor-paths
+  "Return all ancestor directories of `path` in outermost-first order.
+   Excludes `path` itself."
+  [path]
+  (loop [p (fs/parent path)
+         acc '()]
+    (if (nil? p)
+      (vec acc)
+      (recur (fs/parent p) (conj acc p)))))
+
+(defn ^:private safe-canonicalize
+  "Canonicalize `path`, falling back to a non-resolved `fs/path` if the
+   path does not exist (e.g. a stale workspace folder or test fixture)."
+  [path]
+  (try (fs/canonicalize path)
+       (catch Exception _ (fs/path path))))
+
 (defn agents-file-contexts
   "Search for AGENTS.md file both in workspaceRoot and global config dir.
+   When `:includeParentAgentsFiles` is true in `config`, also include
+   AGENTS.md files from each workspace's parent directories, ordered
+   outermost parent first, then the workspace's own AGENTS.md.
    Process any found @paths mentions recursively, supporting both relative and absolute paths.
    Deduplicates files to avoid reading the same file multiple times."
-  [db]
+  [db config]
   ;; TODO make it customizable by agent
-  (let [agent-file "AGENTS.md"
-        local-agent-files (keep (fn [{:keys [uri]}]
-                                  (let [agent-file (fs/path (shared/uri->filename uri) agent-file)]
-                                    (when (fs/readable? agent-file)
-                                      (fs/canonicalize agent-file))))
-                                (:workspace-folders db))
-        global-agent-file (let [agent-file (fs/path (shared/global-config-dir) agent-file)]
-                            (when (fs/readable? agent-file)
-                              (fs/canonicalize agent-file)))]
-    (->> (concat local-agent-files
-                 (when global-agent-file [global-agent-file]))
-         (mapcat #(parse-agents-file (str %))))))
+  (let [agent-file-name "AGENTS.md"
+        include-parents? (boolean (:includeParentAgentsFiles config))
+        readable-agent-file-in (fn [dir]
+                                 (let [p (fs/path dir agent-file-name)]
+                                   (when (fs/readable? p)
+                                     (str (fs/canonicalize p)))))
+        {:keys [paths seen]}
+        (reduce
+         (fn [{:keys [paths seen]} {:keys [uri]}]
+           (let [ws-path (safe-canonicalize (shared/uri->filename uri))
+                 candidate-dirs (cond-> []
+                                  include-parents? (into (ancestor-paths ws-path))
+                                  true (conj ws-path))
+                 new-paths (->> candidate-dirs
+                                (keep readable-agent-file-in)
+                                (remove seen))]
+             {:paths (into paths new-paths)
+              :seen (into seen new-paths)}))
+         {:paths [] :seen #{}}
+         (:workspace-folders db))
+        global-agent-file (readable-agent-file-in (shared/global-config-dir))
+        all-paths (cond-> paths
+                    (and global-agent-file (not (contains? seen global-agent-file)))
+                    (conj global-agent-file))]
+    (mapcat parse-agents-file all-paths)))
 
 (defn ^:private file->refined-context [path lines-range]
   (if (fs/readable? path)

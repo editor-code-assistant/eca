@@ -652,7 +652,13 @@
               ;; Run in a future with a timeout so a regression that causes
               ;; chat/prompt to reject the subagent chat-id (and thus never
               ;; flip the chat to :idle) fails the test instead of hanging
-              ;; the polling loop forever.
+              ;; the polling loop forever. The budget is generous because
+              ;; chat/prompt does its real work in a future* and the agent
+              ;; polling loop in agent.clj sleeps 1s between status checks,
+              ;; so on slower CI runners (notably macOS GitHub runners with
+              ;; cold JIT) a healthy run can still take a few polling
+              ;; iterations. A genuine regression hangs forever, so 30s is
+              ;; still a fast failure for that case.
               result-fut (future
                            (handler
                             {"agent" "explorer" "task" "find files" "activity" "exploring"}
@@ -663,12 +669,12 @@
                              :chat-id "parent-1"
                              :tool-call-id "tc-1"
                              :call-state-fn (constantly {:status :executing})}))
-              result (deref result-fut 5000 ::timeout)]
+              result (deref result-fut 30000 ::timeout)]
           (when (identical? ::timeout result)
             (future-cancel result-fut))
           (testing "spawn handler completes (regression would hang the polling loop)"
             (is (not (identical? ::timeout result))
-                "spawn handler did not complete in 5s — chat/prompt likely rejected the subagent chat-id"))
+                "spawn handler did not complete in 30s — chat/prompt likely rejected the subagent chat-id"))
           (when (map? result)
             (testing "spawn handler returns success (would be :error true under v0.133.1)"
               (is (match? {:error false

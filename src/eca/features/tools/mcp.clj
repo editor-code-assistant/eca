@@ -296,7 +296,7 @@
 (defn ^:private try-refresh-token!
   "Attempt to refresh an MCP server's OAuth token.
    Returns true if refresh succeeded, false otherwise."
-  [name db* url metrics {:keys [clientId clientSecret oauthPort]}]
+  [name db* url metrics {:keys [clientId clientSecret oauthPort clientName]}]
   (let [mcp-auth (get-in @db* [:mcp-auth name])
         {:keys [refresh-token]} mcp-auth]
     (when refresh-token
@@ -304,7 +304,8 @@
       (when-let [oauth-info (oauth/oauth-info (replace-env-vars url)
                                               (some-> clientId replace-env-vars)
                                               (some-> clientSecret replace-env-vars)
-                                              oauthPort)]
+                                              oauthPort
+                                              (some-> clientName replace-env-vars))]
         (when-let [new-tokens (oauth/refresh-token!
                                (:token-endpoint oauth-info)
                                (:client-id oauth-info)
@@ -367,7 +368,8 @@
                          (oauth/oauth-info (replace-env-vars url)
                                            (some-> (:clientId server-config) replace-env-vars)
                                            (some-> (:clientSecret server-config) replace-env-vars)
-                                           (:oauthPort server-config)))]
+                                           (:oauthPort server-config)
+                                           (some-> (:clientName server-config) replace-env-vars)))]
         (if oauth-info
           (initialize-mcp-oauth oauth-info
                                 name
@@ -387,6 +389,9 @@
                                                     {:on-tools-change on-tools-change
                                                      :pending-tools-refresh* pending-tools-refresh*})
                                    init-result (pmc/get-initialize-result client)
+                                   _ (when-not init-result
+                                       (throw (ex-info "MCP initialize returned no result"
+                                                       {:server name})))
                                    version (get-in init-result [:serverInfo :version])]
                                (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
                                                                                 :status :starting

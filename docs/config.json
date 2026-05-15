@@ -194,6 +194,12 @@
       "maximum": 100,
       "default": 75
     },
+    "includeParentAgentsFiles": {
+      "type": "boolean",
+      "description": "When true, also include AGENTS.md files from each workspace folder's parent directories, ordered outermost parent first, then the workspace's own AGENTS.md.",
+      "markdownDescription": "When `true`, also include `AGENTS.md` files from each workspace folder's parent directories, ordered outermost parent first, then the workspace's own `AGENTS.md`.",
+      "default": false
+    },
     "index": {
       "type": "object",
       "description": "Indexing configuration for workspace files.",
@@ -1116,6 +1122,11 @@
           "maximum": 65535,
           "description": "Fixed port for the OAuth callback server. Required by providers like Slack that mandate pre-registered redirect URIs. When set, the callback uses HTTPS with a bundled localhost certificate. Register https://localhost:<port>/auth/callback as the redirect URI in your OAuth app.",
           "markdownDescription": "Fixed port for the OAuth callback server. Required by providers like Slack that mandate pre-registered redirect URIs. When set, the callback uses HTTPS with a bundled localhost certificate. Register `https://localhost:<port>/auth/callback` as the redirect URI in your OAuth app."
+        },
+        "clientName": {
+          "type": "string",
+          "description": "Override the client_name sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to 'ECA (Editor Code Assistant)' when not set.",
+          "markdownDescription": "Override the `client_name` sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to `ECA (Editor Code Assistant)` when not set."
         }
       },
       "additionalProperties": false
