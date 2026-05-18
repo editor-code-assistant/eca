@@ -4,6 +4,7 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.mcp :as f.tools.mcp]
    [eca.features.tools.util :as tools.util]
    [eca.llm-util :as llm-util]
@@ -665,18 +666,25 @@
                            :as resolved-tool}                            (f.tools/resolve-tool full-name all-tools)
                           full-name                                      (or (:full-name resolved-tool) full-name)
                           server-name                                    (:name server)
+                          spawn-agent?                                   (and (= :native origin)
+                                                                               (= "eca" server-name)
+                                                                               (= "spawn_agent" name))
+                          arguments                                      (if parameters
+                                                                           (tools.util/omit-optional-empty-string-args parameters (:arguments tool-call))
+                                                                           (:arguments tool-call))
                           tool-call                                      (assoc tool-call
                                                                                 :full-name full-name
-                                                                                :arguments (if parameters
-                                                                                             (tools.util/omit-optional-empty-string-args parameters (:arguments tool-call))
-                                                                                             (:arguments tool-call)))
+                                                                                :arguments (cond-> arguments
+                                                                                             spawn-agent? f.tools.agent/normalize-arguments))
                           decision-plan                                  (decide-tool-call-action
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
                                                                            :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
                                                                            :trust                 (get-in @db* [:chats chat-id :trust])})
-                          {:keys [decision arguments hook-rejected? reason hook-continue
+                          {:keys [decision hook-rejected? reason hook-continue
                                   hook-stop-reason arguments-modified?]} decision-plan
+                          arguments (cond-> (:arguments decision-plan)
+                                      spawn-agent? f.tools.agent/normalize-arguments)
                           _ (when arguments-modified?
                               (lifecycle/send-content! chat-ctx :system {:type :hookActionFinished
                                                                          :action-type "shell"
