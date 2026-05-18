@@ -1604,6 +1604,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#tool-server-removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool server removed (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stop-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Stop MCP server (➡️)
@@ -1661,6 +1670,24 @@
   <a href="#update-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Update MCP Server (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Add MCP Server (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remove-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Remove MCP Server (↩️)
     </span>
   </a>
   
@@ -2331,6 +2358,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#tool-server-removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool server removed (⬅️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#stop-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Stop MCP server (➡️)
@@ -2388,6 +2424,24 @@
   <a href="#update-mcp-server" class="md-nav__link">
     <span class="md-ellipsis">
       Update MCP Server (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Add MCP Server (↩️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remove-mcp-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      Remove MCP Server (↩️)
     </span>
   </a>
   
@@ -5020,6 +5074,21 @@ their status and available tools and actions.</p>
 <span class="w">    </span><span class="nx">mimeType</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="tool-server-removed">Tool server removed (⬅️)<a class="headerlink" href="#tool-server-removed" title="Permanent link">#</a></h3>
+<p>A server notification that an MCP server has been removed (via <code>mcp/removeServer</code>).
+Clients should drop the corresponding entry from any cached server list / UI.</p>
+<p><em>Notification:</em></p>
+<ul>
+<li>method: <code>tool/serverRemoved</code></li>
+<li>params: <code>ToolServerRemovedParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ToolServerRemovedParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The MCP server name that was removed.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="stop-mcp-server">Stop MCP server (➡️)<a class="headerlink" href="#stop-mcp-server" title="Permanent link">#</a></h3>
 <p>A client notification for server to stop a MCP server, stopping the process.
 Updates its status via <code>tool/serverUpdated</code> notification.</p>
@@ -5142,6 +5211,146 @@ starts the server, and sends <code>tool/serverUpdated</code> with the new status
 <ul>
 <li>result: <code>{}</code></li>
 </ul>
+<h3 id="add-mcp-server">Add MCP Server (↩️)<a class="headerlink" href="#add-mcp-server" title="Permanent link">#</a></h3>
+<p>Adds a new MCP server definition at runtime, persists it to the chosen config file
+(global or workspace-local), and starts the server asynchronously. On success the server
+also emits a follow-up <code>tool/serverUpdated</code> notification as the new server progresses
+through <code>starting</code> → <code>running</code> / <code>failed</code> / <code>requires-auth</code>. Clients should not
+optimistically add the row locally — they should rely on that broadcast.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>mcp/addServer</code></li>
+<li>params: <code>MCPAddServerParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPAddServerParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The MCP server name. Must be unique among already-configured servers.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The command to run (stdio transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">command?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The command arguments (stdio transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">args?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Environment variables for the spawned process (stdio transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">env</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">};</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The URL (Streamable HTTP transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">url?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * HTTP headers to send with each request (Streamable HTTP transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">headers</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">[</span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">};</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Pre-registered OAuth client id (Streamable HTTP transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">clientId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Pre-registered OAuth client secret (Streamable HTTP transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">clientSecret?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Local OAuth callback port (Streamable HTTP transport).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">oauthPort?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether the new server should be created in a disabled state.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">disabled?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Where to persist the new server entry. Defaults to &quot;global&quot;</span>
+<span class="cm">     * (`~/.config/eca/config.json`). Use &quot;workspace&quot; to persist to the</span>
+<span class="cm">     * workspace&#39;s `.eca/config.json` (requires `workspaceUri`).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">scope</span><span class="o">?:</span><span class="w"> </span><span class="s1">&#39;global&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;workspace&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Required when `scope = &quot;workspace&quot;`: identifies which workspace folder&#39;s</span>
+<span class="cm">     * `.eca/config.json` should receive the new entry.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">workspaceUri?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>MCPAddServerResult</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPAddServerResult</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The newly added server (canonical shape, identical to what</span>
+<span class="cm">     * `tool/serverUpdated` will subsequently broadcast). Present on success.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">server?</span><span class="o">:</span><span class="w"> </span><span class="kt">MCPServerUpdatedParams</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Present when the add failed (e.g. duplicate name, invalid config,</span>
+<span class="cm">     * missing workspaceUri).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">error</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">code</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">data?</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="remove-mcp-server">Remove MCP Server (↩️)<a class="headerlink" href="#remove-mcp-server" title="Permanent link">#</a></h3>
+<p>Removes an MCP server definition at runtime: stops the server if running, deletes the
+entry from the owning config file (global or workspace-local), clears any stored OAuth
+credentials, and emits a <code>tool/serverRemoved</code> notification so clients can drop the
+row from their UI.</p>
+<p><em>Request:</em></p>
+<ul>
+<li>method: <code>mcp/removeServer</code></li>
+<li>params: <code>MCPRemoveServerParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPRemoveServerParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The MCP server name.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<ul>
+<li>result: <code>MCPRemoveServerResult</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">MCPRemoveServerResult</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The name of the removed server. Present on success.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * `true` when the entry was removed from the config file. Present on success.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">removed?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Present when the remove failed (e.g. unknown name).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">error</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">code</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">data?</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div>
 <h2 id="provider-management">Provider Management<a class="headerlink" href="#provider-management" title="Permanent link">#</a></h2>
 <h3 id="list-providers">List Providers (↩️)<a class="headerlink" href="#list-providers" title="Permanent link">#</a></h3>
 <p>Returns all known providers with their current authentication status and available models.</p>
@@ -5472,7 +5681,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 18, 2026 16:46:57 UTC">May 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 18, 2026 18:29:14 UTC">May 18, 2026</span>
   </span>
 
     
