@@ -2667,6 +2667,25 @@ interface ServerResource {
 }
 ```
 
+### Tool server removed (⬅️)
+
+A server notification that an MCP server has been removed (via `mcp/removeServer`).
+Clients should drop the corresponding entry from any cached server list / UI.
+
+_Notification:_
+
+* method: `tool/serverRemoved`
+* params: `ToolServerRemovedParams` defined as follows:
+
+```typescript
+interface ToolServerRemovedParams {
+    /**
+     * The MCP server name that was removed.
+     */
+    name: string;
+}
+```
+
 ### Stop MCP server (➡️)
 
 A client notification for server to stop a MCP server, stopping the process.
@@ -2816,6 +2835,158 @@ interface MCPUpdateServerParams {
 _Response:_
 
 * result: `{}`
+
+### Add MCP Server (↩️)
+
+Adds a new MCP server definition at runtime, persists it to the chosen config file
+(global or workspace-local), and starts the server asynchronously. On success the server
+also emits a follow-up `tool/serverUpdated` notification as the new server progresses
+through `starting` → `running` / `failed` / `requires-auth`. Clients should not
+optimistically add the row locally — they should rely on that broadcast.
+
+_Request:_
+
+* method: `mcp/addServer`
+* params: `MCPAddServerParams` defined as follows:
+
+```typescript
+interface MCPAddServerParams {
+    /**
+     * The MCP server name. Must be unique among already-configured servers.
+     */
+    name: string;
+
+    /**
+     * The command to run (stdio transport).
+     */
+    command?: string;
+
+    /**
+     * The command arguments (stdio transport).
+     */
+    args?: string[];
+
+    /**
+     * Environment variables for the spawned process (stdio transport).
+     */
+    env?: { [key: string]: string };
+
+    /**
+     * The URL (Streamable HTTP transport).
+     */
+    url?: string;
+
+    /**
+     * HTTP headers to send with each request (Streamable HTTP transport).
+     */
+    headers?: { [key: string]: string };
+
+    /**
+     * Pre-registered OAuth client id (Streamable HTTP transport).
+     */
+    clientId?: string;
+
+    /**
+     * Pre-registered OAuth client secret (Streamable HTTP transport).
+     */
+    clientSecret?: string;
+
+    /**
+     * Local OAuth callback port (Streamable HTTP transport).
+     */
+    oauthPort?: number;
+
+    /**
+     * Whether the new server should be created in a disabled state.
+     */
+    disabled?: boolean;
+
+    /**
+     * Where to persist the new server entry. Defaults to "global"
+     * (`~/.config/eca/config.json`). Use "workspace" to persist to the
+     * workspace's `.eca/config.json` (requires `workspaceUri`).
+     */
+    scope?: 'global' | 'workspace';
+
+    /**
+     * Required when `scope = "workspace"`: identifies which workspace folder's
+     * `.eca/config.json` should receive the new entry.
+     */
+    workspaceUri?: string;
+}
+```
+
+_Response:_
+
+* result: `MCPAddServerResult` defined as follows:
+
+```typescript
+interface MCPAddServerResult {
+    /**
+     * The newly added server (canonical shape, identical to what
+     * `tool/serverUpdated` will subsequently broadcast). Present on success.
+     */
+    server?: MCPServerUpdatedParams;
+
+    /**
+     * Present when the add failed (e.g. duplicate name, invalid config,
+     * missing workspaceUri).
+     */
+    error?: {
+        code: string;
+        message: string;
+        data?: any;
+    };
+}
+```
+
+### Remove MCP Server (↩️)
+
+Removes an MCP server definition at runtime: stops the server if running, deletes the
+entry from the owning config file (global or workspace-local), clears any stored OAuth
+credentials, and emits a `tool/serverRemoved` notification so clients can drop the
+row from their UI.
+
+_Request:_
+
+* method: `mcp/removeServer`
+* params: `MCPRemoveServerParams` defined as follows:
+
+```typescript
+interface MCPRemoveServerParams {
+    /**
+     * The MCP server name.
+     */
+    name: string;
+}
+```
+
+_Response:_
+
+* result: `MCPRemoveServerResult` defined as follows:
+
+```typescript
+interface MCPRemoveServerResult {
+    /**
+     * The name of the removed server. Present on success.
+     */
+    name?: string;
+
+    /**
+     * `true` when the entry was removed from the config file. Present on success.
+     */
+    removed?: boolean;
+
+    /**
+     * Present when the remove failed (e.g. unknown name).
+     */
+    error?: {
+        code: string;
+        message: string;
+        data?: any;
+    };
+}
+```
 
 ## Provider Management
 

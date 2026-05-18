@@ -183,7 +183,8 @@
            {:type "function"
             :name (:full-name tool)
             :description (:description tool)
-            :parameters (:parameters tool)})
+            :parameters (:parameters tool)
+            :strict false})
          tools)
     web-search (conj {:type "web_search"})
     image-generation (conj {:type "image_generation" :output_format "png"})))

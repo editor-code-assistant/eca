@@ -2,8 +2,15 @@
 
 ## Unreleased
 
-- Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
 - Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
+
+## 0.134.2
+
+- Bugfix: OpenAI Responses tool calls now opt out of strict schema normalization so optional tool parameters remain optional.
+- Bugfix: MCP tool calls now route to the selected server when multiple servers expose the same tool name.
+- Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
+- Guard subagent activity labels against overly long model-generated text.
+
 ## 0.134.1
 
 - Support optional `clientName` config field for MCP servers to override the OAuth Dynamic Client Registration `client_name` (useful for servers that allowlist clients by name, e.g. Figma).

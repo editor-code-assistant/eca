@@ -897,13 +897,11 @@
     (do-call-tool new-client name arguments nil)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
-(defn call-tool! [name arguments {:keys [db db* config metrics]}]
-  (if-let [[server-name mcp-client needs-reinit?*]
-           (->> (:mcp-clients db)
-                (keep (fn [[sn {:keys [client tools needs-reinit?*]}]]
-                        (when (some #(= name (:name %)) tools)
-                          [sn client needs-reinit?*])))
-                first)]
+(defn call-tool! [server-name name arguments {:keys [db db* config metrics]}]
+  (if-let [[mcp-client needs-reinit?*]
+           (when-let [{:keys [client tools needs-reinit?*]} (get-in db [:mcp-clients server-name])]
+             (when (some #(= name (:name %)) tools)
+               [client needs-reinit?*]))]
     (if (and needs-reinit?* @needs-reinit?* db* config metrics)
       ;; Already flagged — reinit before attempting the call
       (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
@@ -918,7 +916,7 @@
           (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
 
           :else result)))
-    (tool-call-error (format "Tool '%s' not found in any connected MCP server" name))))
+    (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
 
 (defn all-prompts [db]
   (into []
