@@ -31,6 +31,42 @@
 
 (def ^:private logger-tag "[MCP]")
 
+(defn ^:private traffic-log
+  "Log MCP traffic message at DEBUG level with direction arrow."
+  [direction msg]
+  (logger/debug logger-tag (str direction " " msg)))
+
+(def ^:private mcp-traffic-logger
+  "Routes plumcp MCP traffic through ECA's Logback logger at DEBUG level.
+   Visible with --log-level debug, suppressed at default INFO."
+  (reify pp/ITrafficLogger
+    (log-http-request [_ req]
+      (traffic-log "-->" (format "HTTP %s %s" (-> req :request-method name .toUpperCase) (or (:uri req) "?"))))
+    (log-http-response [_ resp]
+      (traffic-log "<--" (format "HTTP %d" (:status resp))))
+    (log-http-failure [_ failure]
+      (traffic-log "<--" (str "HTTP failure: " failure)))
+    (log-incoming-jsonrpc-request [_ req]
+      (traffic-log "<--" (format "request %s %s" (or (:id req) "#") (:method req))))
+    (log-outgoing-jsonrpc-request [_ req]
+      (traffic-log "-->" (format "request %s %s" (or (:id req) "#") (:method req))))
+    (log-incoming-jsonrpc-success [_ id result]
+      (traffic-log "<--" (format "success %s %s" (or id "#") result)))
+    (log-outgoing-jsonrpc-success [_ id result]
+      (traffic-log "-->" (format "success %s %s" (or id "#") result)))
+    (log-incoming-jsonrpc-failure [_ id error]
+      (traffic-log "<--" (format "error %s code=%d" (or id "#") (get-in error [:error :code]))))
+    (log-outgoing-jsonrpc-failure [_ id error]
+      (traffic-log "-->" (format "error %s code=%d" (or id "#") (get-in error [:error :code]))))
+    (log-incoming-jsonrpc-notification [_ notif]
+      (traffic-log "<--" (str "notification " (:method notif))))
+    (log-outgoing-jsonrpc-notification [_ notif]
+      (traffic-log "-->" (str "notification " (:method notif))))
+    (log-mcpcall-failure [_ error]
+      (traffic-log "<--" (str "call failure: " error)))
+    (log-mcp-sse-message [_ msg]
+      (traffic-log "<--" (str "SSE " msg)))))
+
 (def ^:private init-threads*
   "Tracks in-flight MCP server initialization threads (server-name → Thread)
    so they can be interrupted during shutdown."
@@ -141,6 +177,7 @@
                  :primitives {:roots (mapv #(pcap/make-root-item (:uri %)
                                                                  {:name (:name %)})
                                            workspaces)}
+                 :traffic-logger mcp-traffic-logger
                  :notification-handlers
                  {;; Uses custom wrapping instead of non-blocking-handler to coordinate
                   ;; a promise that await-pending-tools-refresh can block on.

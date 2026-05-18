@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-  <!-- Console appender that writes to stderr instead of stdout -->
   <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
     <target>System.err</target>
     <encoder>
-      <pattern>[MCP] %msg%n</pattern>
+      <pattern>%d{HH:mm:ss.SSS} %-5level%replace( chat=%X{chat_id}){' chat=$', ''}%replace( parent=%X{parent_chat_id}){' parent=$', ''} %msg%n</pattern>
     </encoder>
   </appender>
 
-  <!-- Root logger configuration -->
-  <root level="${LOGBACK_LEVEL:-${logback.level:-INFO}}">
+  <logger name="eca" level="${LOGBACK_LEVEL:-${logback.level:-INFO}}" />
+
+  <root level="WARN">
     <appender-ref ref="STDERR" />
   </root>
 </configuration>

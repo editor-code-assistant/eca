@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
+
 ## 0.134.2
 
 - Bugfix: OpenAI Responses tool calls now opt out of strict schema normalization so optional tool parameters remain optional.
@@ -16,7 +18,6 @@
 ## 0.134.0
 
 - Support including `AGENTS.md` files from parent directories of each workspace folder via new `includeParentAgentsFiles` config flag (disabled by default), ordered outermost parent first.
-- Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
 - Fix MCP OAuth auto-discovery for servers that only return a 401 + `www-authenticate` challenge when probed with a valid JSON-RPC initialize request (e.g. Figma).
 - Mark MCP servers as failed when the initialize handshake returns no result, instead of silently appearing as running.
 

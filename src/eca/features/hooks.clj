@@ -186,13 +186,13 @@
                                                (merge {:hook-name name :hook-type hook-type} data)))]
               (cond
                 (and shell file)
-                (logger/error logger-tag (format "Hook '%s' has both 'shell' and 'file' - must have exactly one" name))
+                (logger/warn logger-tag (format "Hook '%s' has both 'shell' and 'file' - must have exactly one" name))
 
                 (and (not shell) (not file))
-                (logger/error logger-tag (format "Hook '%s' missing both 'shell' and 'file' - must have one" name))
+                (logger/warn logger-tag (format "Hook '%s' missing both 'shell' and 'file' - must have one" name))
 
                 (nil? cwd)
-                (logger/error logger-tag (format "Hook '%s' cannot run: no workspace folders configured" name))
+                (logger/warn logger-tag (format "Hook '%s' cannot run: no workspace folders configured" name))
 
                 shell
                 (do (logger/debug logger-tag (format "Running hook '%s' inline shell '%s' with input '%s'" name shell input))
