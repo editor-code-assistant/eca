@@ -557,6 +557,65 @@
   (with-init-thread name
     (initialize-server! name db* config metrics on-server-updated)))
 
+(defn restart-server-async!
+  "Spawn a daemon thread that stops the server (if running) and re-initializes
+   it. Used by reconciliation when an MCP server's config changed out-of-band."
+  [server-name db* config metrics on-server-updated]
+  (let [t (Thread.
+           (fn []
+             ;; stop runs outside with-init-thread because stop-server! interrupts
+             ;; any thread registered in init-threads* for this name.
+             (when (get-in @db* [:mcp-clients server-name :client])
+               (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+             (with-init-thread server-name
+               (initialize-server! server-name db* config metrics on-server-updated))))]
+    (.setName t (str "mcp-restart-" server-name))
+    (.setDaemon t true)
+    (.start t)))
+
+(defn reconcile-servers!
+  "Diff `:mcpServers` in `prev-config` vs `new-config` and apply lifecycle ops:
+   - added (in new, not in old): start async (or emit disabled status)
+   - removed (in old, not in new): stop + emit serverRemoved
+   - changed (config differs): restart async
+
+   No-op on the first tick (prev-config nil) since `initialize-servers-async!`
+   handles the initial start. Respects `:pureConfig`."
+  [prev-config new-config db* metrics {:keys [on-server-updated on-server-removed]}]
+  (when (and prev-config (not (:pureConfig new-config)))
+    (let [old (or (:mcpServers prev-config) {})
+          new (or (:mcpServers new-config) {})
+          old-keys (set (keys old))
+          new-keys (set (keys new))
+          removed (remove new-keys old-keys)
+          added (remove old-keys new-keys)
+          changed (filter (fn [k] (not= (get old k) (get new k)))
+                          (filter new-keys old-keys))]
+      (doseq [k removed]
+        (let [server-name (name k)]
+          (logger/info logger-tag (format "Reconcile: removing server '%s'" server-name))
+          (future
+            (try
+              (when (get-in @db* [:mcp-clients server-name :client])
+                (stop-server! server-name db* prev-config {:on-server-updated on-server-updated}))
+              (swap! db* update :mcp-auth dissoc server-name)
+              (when on-server-removed
+                (on-server-removed {:name server-name}))
+              (catch Exception e
+                (logger/error logger-tag (format "Reconcile remove failed for '%s': %s"
+                                                 server-name (.getMessage e))))))))
+      (doseq [k added]
+        (let [server-name (name k)
+              server-config (get new k)]
+          (logger/info logger-tag (format "Reconcile: adding server '%s'" server-name))
+          (if (get server-config :disabled false)
+            (on-server-updated (->server server-name server-config :disabled @db*))
+            (start-single-server-async! server-name db* new-config metrics on-server-updated))))
+      (doseq [k changed]
+        (let [server-name (name k)]
+          (logger/info logger-tag (format "Reconcile: restarting server '%s' (config changed)" server-name))
+          (restart-server-async! server-name db* new-config metrics on-server-updated))))))
+
 (defn logout-server!
   "Logout from an MCP server by clearing stored OAuth credentials and restarting it."
   [name db* config metrics {:keys [on-server-updated]}]

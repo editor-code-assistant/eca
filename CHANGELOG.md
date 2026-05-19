@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Live-reload config files: edits to global/local/custom config now reconcile MCP servers (add/remove/restart) and refresh tool lists in the UI without restart.
+
 ## 0.134.2
 
 - Bugfix: OpenAI Responses tool calls now opt out of strict schema normalization so optional tool parameters remain optional.

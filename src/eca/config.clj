@@ -328,7 +328,8 @@
         (some-> (safe-read-json-string (slurp config-file) (var *custom-config-error*))
                 (parse-dynamic-string-values (fs/file (fs/parent config-file))))))))
 
-(def ^:private config-from-custom (memoize config-from-custom*))
+(def ^:private config-from-custom
+  (memoize/ttl config-from-custom* :ttl/threshold ttl-cache-config-ms))
 
 (defn global-config-file ^File []
   (io/file (shared/global-config-dir) "config.json"))
@@ -610,16 +611,42 @@
     ;; all good
     :else nil))
 
-(defn listen-for-changes! [db*]
-  (while (not (:stopping @db*))
-    (Thread/sleep ^long listen-idle-ms)
-    (let [db @db*
-          new-config (all db)
-          new-config-hash (hash new-config)]
-      (when (not= new-config-hash (:config-hash db))
-        (swap! db* assoc :config-hash new-config-hash)
-        (doseq [config-updated-fns (vals (:config-updated-fns db))]
-          (config-updated-fns new-config))))))
+(defn ^:private maybe-notify-validation-error! [messenger prev-error new-error]
+  (when (and new-error (not= new-error prev-error))
+    (try
+      (messenger/showMessage messenger
+                             {:type "warning"
+                              :message (format "Failed to parse '%s' config, check stderr logs."
+                                               new-error)})
+      (catch Exception e
+        (logger/warn logger-tag "Failed to notify config validation error:" (.getMessage e))))))
+
+(defn listen-for-changes!
+  "Polling loop that detects config changes and dispatches to registered
+   `:config-updated-fns` listeners. Listeners receive `[prev-config new-config]`
+   so they can diff against the last seen snapshot (e.g. MCP reconciliation).
+   Parse/validation failures surface to the client via `$/showMessage`."
+  [db* messenger]
+  (loop [prev-config nil
+         prev-validation-error nil]
+    (when-not (:stopping @db*)
+      (Thread/sleep ^long listen-idle-ms)
+      (let [db @db*
+            new-config (try (all db)
+                            (catch Exception e
+                              (logger/warn logger-tag "Error reloading config:" (.getMessage e))
+                              prev-config))
+            new-validation-error (validation-error)]
+        (maybe-notify-validation-error! messenger prev-validation-error new-validation-error)
+        (let [new-config-hash (hash new-config)]
+          (when (not= new-config-hash (:config-hash db))
+            (swap! db* assoc :config-hash new-config-hash)
+            (doseq [config-updated-fns (vals (:config-updated-fns db))]
+              (try
+                (config-updated-fns prev-config new-config)
+                (catch Exception e
+                  (logger/error logger-tag "Error in config-updated fn:" (.getMessage e)))))))
+        (recur new-config new-validation-error)))))
 
 (defn diff-keeping-vectors
   "Like (second (clojure.data/diff a b)) but if a value is a vector, keep vector value from b.

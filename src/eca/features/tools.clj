@@ -307,6 +307,18 @@
      config
      metrics)))
 
+(defn reconcile-servers!
+  "Diff MCP servers between prev-config and new-config and apply add/remove/restart
+   accordingly, pushing `tool/serverUpdated` and `tool/serverRemoved` notifications.
+   Called by the config-polling loop when the resolved config changes."
+  [prev-config new-config db* messenger metrics]
+  (let [default-agent (get new-config :defaultAgent)
+        tool-status-fn (make-tool-status-fn new-config default-agent)]
+    (f.mcp/reconcile-servers!
+     prev-config new-config db* metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
+      :on-server-removed (partial notify-server-removed metrics messenger)})))
+
 (defn stop-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
     (f.mcp/stop-server!

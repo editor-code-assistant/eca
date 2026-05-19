@@ -104,7 +104,20 @@
                                                        :default-behavior default-agent-name}}
                                                      messenger
                                                      db*)))))))]
-      (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
+      (swap! db* assoc-in [:config-updated-fns :sync-models]
+             (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
+      (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
+             (fn [prev-config new-config]
+               (f.tools/reconcile-servers! prev-config new-config db* messenger metrics)))
+      (swap! db* assoc-in [:config-updated-fns :tool-refresh]
+             (fn [prev-config new-config]
+               (when (and prev-config
+                          (or (not= (:disabledTools prev-config) (:disabledTools new-config))
+                              (not= (:toolCall prev-config) (:toolCall new-config))
+                              (not= (:agent prev-config) (:agent new-config))))
+                 (let [default-agent (get new-config :defaultAgent)
+                       tool-status-fn (f.tools/make-tool-status-fn new-config default-agent)]
+                   (f.tools/refresh-tool-servers! tool-status-fn db* messenger new-config)))))
       (shared/future* config
         (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
             (sync-models-and-notify! config)
@@ -122,7 +135,7 @@
           :content {:type :text
                     :text (format "\nFailed to parse '%s' config, check stderr logs, double check your config and restart\n"
                                   error)}}))
-      (config/listen-for-changes! db*))
+      (config/listen-for-changes! db* messenger))
     (future
       (send-progress! db* messenger {:type "start" :taskId "plugins" :title "Resolving plugins"})
       (try
