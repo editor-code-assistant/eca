@@ -128,20 +128,20 @@
                                           m))
                                       (assoc-some {} :content-id content-id)
                                       message-content)
-                       image-entries (keep
-                                      (fn [content]
-                                        (when (= :image (:type content))
-                                          {:role role
-                                           :content {:type :image
-                                                     :media-type (:media-type content)
-                                                     :base64 (:base64 content)}}))
-                                      message-content)
+                        image-entries (keep
+                                       (fn [content]
+                                         (when (= :image (:type content))
+                                           {:role role
+                                            :content {:type :image
+                                                      :media-type (:media-type content)
+                                                      :base64 (:base64 content)}}))
+                                       message-content)
                        ;; Drop the text entry when there's no actual text and no image-only content
                        ;; would have produced an empty `{}` content map.
-                       text-entries (if (:type text-content)
-                                      [{:role role :content text-content}]
-                                      [])]
-                   (vec (concat text-entries image-entries)))
+                        text-entries (if (:type text-content)
+                                       [{:role role :content text-content}]
+                                       [])]
+                    (vec (concat text-entries image-entries)))
     "tool_call" [{:role :assistant
                   :content {:type :toolCallPrepare
                             :origin (:origin message-content)
@@ -778,8 +778,8 @@
                                                    (lifecycle/send-content! chat-ctx :assistant {:type :text :text (:text msg)}))
                                          :url (lifecycle/send-content! chat-ctx :assistant {:type :url :title (:title msg) :url (:url msg)})
                                          :image (let [client-content {:type :image
-                                                                       :media-type (:media-type msg)
-                                                                       :base64 (:base64 msg)}
+                                                                      :media-type (:media-type msg)
+                                                                      :base64 (:base64 msg)}
                                                       history-content (assoc-some
                                                                        {:media-type (:media-type msg)
                                                                         :base64 (:base64 msg)}
@@ -1333,43 +1333,46 @@
                                       :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
             _ (when (some? trust)
                 (swap! db* assoc-in [:chats chat-id :trust] trust))]
-        (try
-          (prompt* params base-chat-ctx)
-          (catch Exception e
-            (logger/error e)
-            (lifecycle/send-content! base-chat-ctx :system {:type :text
-                                                            :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
-            (lifecycle/finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
-            {:chat-id chat-id
-             :model "error"
-             :status :error}))))))
+        (logger/with-chat-context chat-id (:parent-chat-id base-chat-ctx)
+          (try
+            (prompt* params base-chat-ctx)
+            (catch Exception e
+              (logger/error e)
+              (lifecycle/send-content! base-chat-ctx :system {:type :text
+                                                              :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+              (lifecycle/finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
+              {:chat-id chat-id
+               :model "error"
+               :status :error})))))))
 
 (defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
-  (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
-    (logger/warn logger-tag "tool-call-approve ignored: unknown chat or tool-call"
-                 {:chat-id chat-id :tool-call-id tool-call-id})
-    (let [chat-ctx {:chat-id chat-id
-                    :db* db*
-                    :metrics metrics
-                    :messenger messenger}]
-      (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
-                                {:reason {:code :user-choice-allow
-                                          :text "Tool call allowed by user choice"}})
-      (when (= "session" save)
-        (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
-          (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true))))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
+      (logger/warn logger-tag "tool-call-approve ignored: unknown chat or tool-call"
+                   {:chat-id chat-id :tool-call-id tool-call-id})
+      (let [chat-ctx {:chat-id chat-id
+                      :db* db*
+                      :metrics metrics
+                      :messenger messenger}]
+        (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
+                                  {:reason {:code :user-choice-allow
+                                            :text "Tool call allowed by user choice"}})
+        (when (= "session" save)
+          (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
+            (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true)))))))
 
 (defn tool-call-reject [{:keys [chat-id tool-call-id]} db* messenger metrics]
-  (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
-    (logger/warn logger-tag "tool-call-reject ignored: unknown chat or tool-call"
-                 {:chat-id chat-id :tool-call-id tool-call-id})
-    (let [chat-ctx {:chat-id chat-id
-                    :db* db*
-                    :metrics metrics
-                    :messenger messenger}]
-      (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
-                                {:reason {:code :user-choice-deny
-                                          :text "Tool call rejected by user choice"}}))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
+      (logger/warn logger-tag "tool-call-reject ignored: unknown chat or tool-call"
+                   {:chat-id chat-id :tool-call-id tool-call-id})
+      (let [chat-ctx {:chat-id chat-id
+                      :db* db*
+                      :metrics metrics
+                      :messenger messenger}]
+        (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
+                                  {:reason {:code :user-choice-deny
+                                            :text "Tool call rejected by user choice"}})))))
 
 (defn query-context
   [{:keys [query contexts chat-id]}
@@ -1402,52 +1405,55 @@
 
 (defn prompt-steer
   [{:keys [chat-id message]} db*]
-  (when (and (string? message)
-             (not (string/blank? message))
-             (identical? :running (get-in @db* [:chats chat-id :status])))
-    (logger/info logger-tag "Steer message received" {:chat-id chat-id})
-    (swap! db* update-in [:chats chat-id :steer-message]
-           (fn [existing] (if existing (str existing "\n" message) message)))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (when (and (string? message)
+               (not (string/blank? message))
+               (identical? :running (get-in @db* [:chats chat-id :status])))
+      (logger/info logger-tag "Steer message received" {:chat-id chat-id})
+      (swap! db* update-in [:chats chat-id :steer-message]
+             (fn [existing] (if existing (str existing "\n" message) message))))))
 
 (defn prompt-steer-remove
   "Drop any pending steer message for the chat.
    No-op if no steer message is pending or the chat is not present.
    Idempotent: cancelling an already-consumed steer is silent."
   [{:keys [chat-id]} db*]
-  (let [removed?* (volatile! false)]
-    (swap! db* (fn [db]
-                 (if (get-in db [:chats chat-id :steer-message])
-                   (do (vreset! removed?* true)
-                       (update-in db [:chats chat-id] dissoc :steer-message))
-                   db)))
-    (when @removed?*
-      (logger/info logger-tag "Steer message removed" {:chat-id chat-id}))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (let [removed?* (volatile! false)]
+      (swap! db* (fn [db]
+                   (if (get-in db [:chats chat-id :steer-message])
+                     (do (vreset! removed?* true)
+                         (update-in db [:chats chat-id] dissoc :steer-message))
+                     db)))
+      (when @removed?*
+        (logger/info logger-tag "Steer message removed" {:chat-id chat-id})))))
 
 (defn prompt-stop
   ([params db* messenger metrics]
    (prompt-stop params db* messenger metrics {}))
   ([{:keys [chat-id]} db* messenger metrics {:keys [silent?]}]
-   (when (identical? :running (get-in @db* [:chats chat-id :status]))
-     ;; Set :stopping immediately to prevent race with stream callbacks
-     ;; that check status via assert-chat-not-stopped! or cancelled?
-     (swap! db* assoc-in [:chats chat-id :status] :stopping)
-     (let [chat-ctx {:chat-id chat-id
-                     :db* db*
-                     :metrics metrics
-                     :messenger messenger
-                     :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
-       (when-not silent?
-         (lifecycle/send-content! chat-ctx :system {:type :text
-                                                    :text "\nPrompt stopped"}))
+   (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+     (when (identical? :running (get-in @db* [:chats chat-id :status]))
+       ;; Set :stopping immediately to prevent race with stream callbacks
+       ;; that check status via assert-chat-not-stopped! or cancelled?
+       (swap! db* assoc-in [:chats chat-id :status] :stopping)
+       (let [chat-ctx {:chat-id chat-id
+                       :db* db*
+                       :metrics metrics
+                       :messenger messenger
+                       :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
+         (when-not silent?
+           (lifecycle/send-content! chat-ctx :system {:type :text
+                                                      :text "\nPrompt stopped"}))
 
-       ;; Handle each active tool call
-       (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-         (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                   {:reason {:code :user-prompt-stop
-                                             :text "Tool call rejected because of user prompt stop"}}))
-       ;; Clear compacting flags so finish-chat-prompt! isn't blocked
-       (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
-       (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect))))))
+         ;; Handle each active tool call
+         (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+           (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
+                                     {:reason {:code :user-prompt-stop
+                                               :text "Tool call rejected because of user prompt stop"}}))
+         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
+         (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+         (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect)))))))
 
 (defn delete-chat
   [{:keys [chat-id]} db* messenger config metrics]
