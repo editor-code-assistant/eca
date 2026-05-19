@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.134.3
+
 - Live-reload config files: edits to global/local/custom config now reconcile MCP servers (add/remove/restart) and refresh tool lists in the UI without restart.
 - Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
 
