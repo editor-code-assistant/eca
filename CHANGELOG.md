@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: `chat/list` was returning `:id nil` for chats persisted before the per-chat `:id` field was added to the DB schema. The projection now derives `:id` from the chat map key, so legacy rows show up with a usable id and become resumable via `chat/open`.
+
 ## 0.134.3
 
 - Live-reload config files: edits to global/local/custom config now reconcile MCP servers (add/remove/restart) and refresh tool lists in the UI without restart.

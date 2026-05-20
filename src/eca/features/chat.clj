@@ -1624,16 +1624,19 @@
    client sidebar. Subagent chats are excluded. Supports optional
    `:limit` (positive int) and `:sort-by` (`:updated-at` or `:created-at`;
    default `:updated-at`). Results are sorted descending by the chosen
-   timestamp, falling back to the other when the primary is nil."
+   timestamp, falling back to the other when the primary is nil.
+   The map key is used as the authoritative `:id` because legacy DB rows
+   may have been persisted without an `:id` inside the value, and clients
+   need a non-nil id to call `chat/open`."
   [db {:keys [limit] sort-key :sort-by}]
   (let [primary (or sort-key :updated-at)
         secondary (if (= primary :updated-at) :created-at :updated-at)
-        chats (->> (vals (:chats db))
-                   (remove :subagent)
-                   (sort-by (fn [c] (or (get c primary) (get c secondary) 0)) >)
-                   (mapv (fn [{:keys [id title status created-at updated-at model messages]}]
+        chats (->> (:chats db)
+                   (remove (fn [[_ v]] (:subagent v)))
+                   (sort-by (fn [[_ v]] (or (get v primary) (get v secondary) 0)) >)
+                   (mapv (fn [[k {:keys [title status created-at updated-at model messages]}]]
                            (assoc-some
-                            {:id id
+                            {:id k
                              :title title
                              :status (or status :idle)
                              :message-count (count messages)}

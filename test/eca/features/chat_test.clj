@@ -14,6 +14,26 @@
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
+(deftest list-chats-test
+  (testing "uses map key as :id even when value lacks an :id field
+            (regression: legacy DB rows pre-date the per-chat :id field
+            and would otherwise come back as :id nil, breaking chat/open)"
+    (let [db {:chats {"c1" {:title "With id" :messages [{} {}] :updated-at 2}
+                      "c2" {:id "stale-id" :title "Mismatched" :messages [{}] :updated-at 1}
+                      "c3" {:title "Subagent" :subagent true :messages [{}] :updated-at 3}}}
+          {:keys [chats]} (f.chat/list-chats db {})]
+      (is (= 2 (count chats)))
+      (is (every? :id chats))
+      (is (= ["c1" "c2"] (mapv :id chats)))))
+
+  (testing "respects :limit"
+    (let [db {:chats {"c1" {:title "a" :messages [] :updated-at 3}
+                      "c2" {:title "b" :messages [] :updated-at 2}
+                      "c3" {:title "c" :messages [] :updated-at 1}}}
+          {:keys [chats]} (f.chat/list-chats db {:limit 2})]
+      (is (= 2 (count chats)))
+      (is (= ["c1" "c2"] (mapv :id chats))))))
+
 (h/reset-components-before-test)
 
 (defn ^:private prompt! [params mocks]
