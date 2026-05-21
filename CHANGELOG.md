@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.134.5
+
 - Markdown agents now honor the YAML `name:` field and strip all filename extensions for the agent id (e.g. `foo.agent.md` → `foo`), matching Claude/OpenCode plugin conventions.
 
 ## 0.134.4
