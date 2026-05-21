@@ -48,29 +48,41 @@
      {}
      tool-entries)))
 
+(defn ^:private normalize-tools
+  "Coerces the YAML `tools:` value into the map form ECA expects.
+   - Map form is returned as-is (ECA convention: byDefault/allow/ask/deny).
+   - Sequential form (Claude convention: a flat list of allowed tool names)
+     is normalized to {byDefault ask, allow <list>}.
+   - Any other shape (string, number, malformed) is treated as absent."
+  [tools]
+  (cond
+    (map? tools) tools
+    (sequential? tools) {"byDefault" "ask" "allow" (vec tools)}
+    :else nil))
+
 (defn ^:private md->agent-config
   [{:keys [description mode model steps tools body inherit]}]
-  (cond-> {}
-    inherit (assoc :inherit (str inherit))
-    description (assoc :description description)
-    mode (assoc :mode (str mode))
-    model (assoc :defaultModel (str model))
-    steps (assoc :maxSteps (long steps))
-    (seq body) (assoc :systemPrompt body)
-    tools (assoc :toolCall
-                 (let [tools-map (if (map? tools) tools (into {} tools))]
-                   (cond-> {:approval {}}
-                     (get tools-map "byDefault")
-                     (assoc-in [:approval :byDefault] (get tools-map "byDefault"))
+  (let [tools-map (normalize-tools tools)]
+    (cond-> {}
+      inherit (assoc :inherit (str inherit))
+      description (assoc :description description)
+      mode (assoc :mode (str mode))
+      model (assoc :defaultModel (str model))
+      steps (assoc :maxSteps (long steps))
+      (seq body) (assoc :systemPrompt body)
+      tools-map (assoc :toolCall
+                       (cond-> {:approval {}}
+                         (get tools-map "byDefault")
+                         (assoc-in [:approval :byDefault] (get tools-map "byDefault"))
 
-                     (get tools-map "allow")
-                     (assoc-in [:approval :allow] (tools-list->approval-map (get tools-map "allow")))
+                         (get tools-map "allow")
+                         (assoc-in [:approval :allow] (tools-list->approval-map (get tools-map "allow")))
 
-                     (get tools-map "deny")
-                     (assoc-in [:approval :deny] (tools-list->approval-map (get tools-map "deny")))
+                         (get tools-map "deny")
+                         (assoc-in [:approval :deny] (tools-list->approval-map (get tools-map "deny")))
 
-                     (get tools-map "ask")
-                     (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
+                         (get tools-map "ask")
+                         (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
 
 (defn ^:private agent-name-from-frontmatter
   "Returns the agent id from YAML frontmatter `name:` when present and non-blank,

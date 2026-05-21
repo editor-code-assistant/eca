@@ -313,6 +313,54 @@
       (is (= [{:path "/a/commands/cmd.md"}] (:commands result)))
       (is (= [{:path "/b/rules/rule.mdc"}] (:rules result))))))
 
+(deftest plugin-agent-with-claude-tools-list-becomes-primary-test
+  (let [tmp-dir (fs/create-temp-dir)
+        source-dir (fs/file tmp-dir "repo")
+        plugin-dir (fs/file source-dir "plugins" "test" "design-review")
+        prev-plugin-components @config/plugin-components*
+        prev-init-config @config/initialization-config*]
+    (try
+      (fs/create-dirs (fs/file source-dir ".eca-plugin"))
+      (fs/create-dirs (fs/file plugin-dir "agents"))
+      (spit (fs/file source-dir ".eca-plugin" "marketplace.json")
+            (json/generate-string
+             {:plugins [{:name "design-review"
+                         :description "Design review plugin"
+                         :source "./plugins/test/design-review"}]}))
+      ;; Lucas's exact reproducer: Claude-style frontmatter with tools-as-list.
+      (spit (fs/file plugin-dir "agents" "glp-engineer.agent.md")
+            (str "---\n"
+                 "name: GLP-Reviewer\n"
+                 "description: \"Review any design document with DRC-style structured feedback and rubric scoring\"\n"
+                 "tools:\n"
+                 "  - read\n"
+                 "  - search\n"
+                 "  - agent\n"
+                 "---\n\n"
+                 "Role & Goal: review designs."))
+      (let [resolved (plugins/resolve-all!
+                      {"local" {:source (str source-dir)}
+                       "install" ["design-review"]})]
+        (testing "plugin discovery loads the Claude-style agent without dropping it"
+          (is (contains? (:agents resolved) "glp-reviewer")))
+
+        (reset! config/plugin-components* resolved)
+        (reset! config/initialization-config* {:pureConfig false})
+        (let [final-config (#'config/all* {:workspace-folders []})
+              primaries (set (config/primary-agent-names final-config))]
+          (testing "tools list is normalized to byDefault=ask + allow"
+            (is (match? {:approval {:byDefault "ask"
+                                    :allow {"read" {}
+                                            "search" {}
+                                            "agent" {}}}}
+                        (get-in final-config [:agent "glp-reviewer" :toolCall]))))
+          (testing "agent appears in primary-agent-names"
+            (is (contains? primaries "glp-reviewer")))))
+      (finally
+        (reset! config/plugin-components* prev-plugin-components)
+        (reset! config/initialization-config* prev-init-config)
+        (fs/delete-tree tmp-dir)))))
+
 (deftest plugin-agent-without-mode-becomes-primary-test
   (let [tmp-dir (fs/create-temp-dir)
         source-dir (fs/file tmp-dir "repo")

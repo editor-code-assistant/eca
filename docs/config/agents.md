@@ -142,6 +142,18 @@ Subagents can be configured in config or markdown and support/require these fiel
 
         This is equivalent to `argsMatchers` in JSON config. Patterns on tools other than `eca__shell_command` are currently ignored.
 
+    !!! info "Claude-compatible tools list"
+
+        For Claude Code / OpenCode plugin compatibility, `tools` can also be given as a flat YAML list. It is treated as `byDefault: ask` plus the list as `allow`:
+
+        ```yaml
+        tools:
+          - eca__read_file
+          - eca__grep
+        ```
+
+        The entries must be ECA tool ids for the allowlist to take effect; unknown names are accepted but will not match any real tool.
+
     !!! info "Tool call approval"
         
         For more complex tool call approval, use toolCall via config

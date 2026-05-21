@@ -128,7 +128,53 @@
           config (#'agents/md->agent-config parsed)]
       (is (= "A primary agent" (:description config)))
       (is (= "Do work." (:systemPrompt config)))
-      (is (nil? (:mode config))))))
+      (is (nil? (:mode config)))))
+
+  (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
+    (let [md (str "---\n"
+                  "description: Reviewer\n"
+                  "tools:\n"
+                  "  - read\n"
+                  "  - search\n"
+                  "  - agent\n"
+                  "---\n\n"
+                  "Body.")
+          parsed (shared/parse-md md)
+          config (#'agents/md->agent-config parsed)]
+      (is (match? {:description "Reviewer"
+                   :systemPrompt "Body."
+                   :toolCall {:approval {:byDefault "ask"
+                                         :allow {"read" {}
+                                                 "search" {}
+                                                 "agent" {}}}}}
+                  config))))
+
+  (testing "tools as a malformed string is ignored without crashing the agent"
+    (let [config (#'agents/md->agent-config {:description "no tools" :tools "read"})]
+      (is (= "no tools" (:description config)))
+      (is (nil? (:toolCall config)))))
+
+  (testing "tools as a number is ignored without crashing the agent"
+    (let [config (#'agents/md->agent-config {:description "no tools" :tools 42})]
+      (is (= "no tools" (:description config)))
+      (is (nil? (:toolCall config))))))
+
+(deftest normalize-tools-test
+  (testing "map form passes through unchanged"
+    (is (= {"byDefault" "ask" "allow" ["read"]}
+           (#'agents/normalize-tools {"byDefault" "ask" "allow" ["read"]}))))
+  (testing "vector form is wrapped as byDefault=ask + allow"
+    (is (= {"byDefault" "ask" "allow" ["read" "search"]}
+           (#'agents/normalize-tools ["read" "search"]))))
+  (testing "list form (clojure list) is also accepted"
+    (is (= {"byDefault" "ask" "allow" ["read" "search"]}
+           (#'agents/normalize-tools '("read" "search")))))
+  (testing "nil returns nil"
+    (is (nil? (#'agents/normalize-tools nil))))
+  (testing "string returns nil (treated as malformed)"
+    (is (nil? (#'agents/normalize-tools "read"))))
+  (testing "number returns nil (treated as malformed)"
+    (is (nil? (#'agents/normalize-tools 42)))))
 
 (deftest md-agents-from-directory-test
   (let [tmp-dir (fs/create-temp-dir)
@@ -309,6 +355,33 @@
     (is (= "my-agent" (#'agents/agent-name-from-filename (fs/file "My-Agent.md")))))
   (testing "handles filenames with multiple dots"
     (is (= "foo" (#'agents/agent-name-from-filename (fs/file "foo.bar.baz.md"))))))
+
+(deftest claude-tools-list-loads-agent-test
+  (let [tmp-dir (fs/create-temp-dir)
+        agents-dir (fs/file tmp-dir "agents")]
+    (try
+      (fs/create-dirs agents-dir)
+      ;; Lucas's exact reproducer: tools as a YAML list (Claude convention).
+      (spit (fs/file agents-dir "glp-engineer.agent.md")
+            (str "---\n"
+                 "name: GLP-Reviewer\n"
+                 "description: \"Review any design document with DRC-style structured feedback and rubric scoring\"\n"
+                 "tools:\n"
+                 "  - read\n"
+                 "  - search\n"
+                 "  - agent\n"
+                 "---\n\n"
+                 "You are a reviewer."))
+      (let [result (#'agents/agent-md-file->agent (fs/file agents-dir "glp-engineer.agent.md"))]
+        (testing "agent is loaded (not silently dropped by tools-list parse error)"
+          (is (some? result)))
+        (testing "agent id comes from YAML name"
+          (is (= "glp-reviewer" (first result))))
+        (testing "description is preserved"
+          (is (= "Review any design document with DRC-style structured feedback and rubric scoring"
+                 (get-in (second result) [:description])))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
 
 (deftest agent-id-precedence-test
   (let [tmp-dir (fs/create-temp-dir)

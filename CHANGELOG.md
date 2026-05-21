@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Markdown agents now accept `tools:` as a flat YAML list (Claude convention), normalized to `byDefault: ask` + `allow`. Previously such agents were silently dropped.
+
 ## 0.134.5
 
 - Markdown agents now honor the YAML `name:` field and strip all filename extensions for the agent id (e.g. `foo.agent.md` → `foo`), matching Claude/OpenCode plugin conventions.
