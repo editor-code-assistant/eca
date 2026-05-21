@@ -1518,6 +1518,10 @@ tools:
 You should run sleep 1 and return &quot;I slept 1 second&quot;
 </code></pre></div>
 <div class="admonition info">
+<p class="admonition-title">Agent id</p>
+<p>The agent id (the key under <code>agent</code>) is taken from the YAML <code>name:</code> field when present (trimmed and lowercased). Otherwise it falls back to the filename with all extensions stripped, so <code>architect.agent.md</code> becomes <code>architect</code>. This keeps Claude Code / OpenCode plugin agent files working without renaming.</p>
+</div>
+<div class="admonition info">
 <p class="admonition-title">Pattern-based tool approval in markdown</p>
 <p>You can append a regex pattern in parentheses after a tool name to restrict approval to calls matching the pattern. Currently only <code>eca__shell_command</code> supports this — the pattern is matched against its <code>command</code> argument. Multiple entries for the same tool are automatically merged.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">tools</span><span class="p">:</span>
@@ -1570,7 +1574,7 @@ You should run sleep 1 and return &quot;I slept 1 second&quot;
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 20, 2026 20:41:51 UTC">May 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 21, 2026 14:09:24 UTC">May 21, 2026</span>
   </span>
 
     
