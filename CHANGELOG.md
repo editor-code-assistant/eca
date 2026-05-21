@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.134.6
+
 - Markdown agents now accept `tools:` as a flat YAML list (Claude convention), normalized to `byDefault: ask` + `allow`. Previously such agents were silently dropped.
 
 ## 0.134.5
