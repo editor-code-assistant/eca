@@ -72,13 +72,34 @@
                      (get tools-map "ask")
                      (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
 
+(defn ^:private agent-name-from-frontmatter
+  "Returns the agent id from YAML frontmatter `name:` when present and non-blank,
+   trimmed and lowercased. Returns nil otherwise."
+  [parsed]
+  (when-let [n (:name parsed)]
+    (let [s (-> n str string/trim)]
+      (when-not (string/blank? s)
+        (string/lower-case s)))))
+
+(defn ^:private agent-name-from-filename
+  "Returns the agent id derived from a markdown filename by stripping all
+   extensions (everything from the first `.` onward) and lowercasing.
+   Example: `architect.agent.md` -> `architect`."
+  [md-file]
+  (-> (fs/file-name md-file)
+      str
+      (string/split #"\." 2)
+      first
+      string/lower-case))
+
 (defn agent-md-file->agent
   [md-file]
   (try
-    (let [agent-name (string/lower-case (fs/strip-ext (fs/file-name md-file)))
-          content (slurp (str md-file))
+    (let [content (slurp (str md-file))
           content (interpolation/replace-dynamic-strings content (fs/parent md-file) nil)
           parsed (shared/parse-md content)
+          agent-name (or (agent-name-from-frontmatter parsed)
+                         (agent-name-from-filename md-file))
           agent-config (md->agent-config parsed)]
       (when (seq agent-config)
         [agent-name agent-config]))

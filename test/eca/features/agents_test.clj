@@ -121,7 +121,14 @@
   (testing "agent with no tools config omits toolCall"
     (let [parsed (shared/parse-md "---\ndescription: No tools\n---\n\nPrompt")
           config (#'agents/md->agent-config parsed)]
-      (is (nil? (:toolCall config))))))
+      (is (nil? (:toolCall config)))))
+
+  (testing "agent with no mode produces config without :mode (defaults to primary)"
+    (let [parsed (shared/parse-md "---\ndescription: A primary agent\n---\n\nDo work.")
+          config (#'agents/md->agent-config parsed)]
+      (is (= "A primary agent" (:description config)))
+      (is (= "Do work." (:systemPrompt config)))
+      (is (nil? (:mode config))))))
 
 (deftest md-agents-from-directory-test
   (let [tmp-dir (fs/create-temp-dir)
@@ -277,5 +284,74 @@
                  "Prompt."))
       (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "My-Reviewer.md"))]
         (is (= "my-reviewer" agent-name)))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest agent-name-from-frontmatter-test
+  (testing "honors YAML name and lowercases it"
+    (is (= "some-role" (#'agents/agent-name-from-frontmatter {:name "Some-Role"}))))
+  (testing "trims surrounding whitespace"
+    (is (= "foo" (#'agents/agent-name-from-frontmatter {:name "  Foo  "}))))
+  (testing "stringifies non-string values"
+    (is (= "123" (#'agents/agent-name-from-frontmatter {:name 123}))))
+  (testing "returns nil when name is absent"
+    (is (nil? (#'agents/agent-name-from-frontmatter {:description "no name"}))))
+  (testing "returns nil when name is blank"
+    (is (nil? (#'agents/agent-name-from-frontmatter {:name "   "})))
+    (is (nil? (#'agents/agent-name-from-frontmatter {:name ""})))))
+
+(deftest agent-name-from-filename-test
+  (testing "single extension"
+    (is (= "architect" (#'agents/agent-name-from-filename (fs/file "architect.md")))))
+  (testing "multi-extension Claude-style file"
+    (is (= "architect" (#'agents/agent-name-from-filename (fs/file "architect.agent.md")))))
+  (testing "lowercases the result"
+    (is (= "my-agent" (#'agents/agent-name-from-filename (fs/file "My-Agent.md")))))
+  (testing "handles filenames with multiple dots"
+    (is (= "foo" (#'agents/agent-name-from-filename (fs/file "foo.bar.baz.md"))))))
+
+(deftest agent-id-precedence-test
+  (let [tmp-dir (fs/create-temp-dir)
+        agents-dir (fs/file tmp-dir "agents")]
+    (try
+      (fs/create-dirs agents-dir)
+      (testing "YAML name wins over filename"
+        (spit (fs/file agents-dir "Whatever.md")
+              (str "---\n"
+                   "name: My-Custom-Name\n"
+                   "description: Name override\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "Whatever.md"))]
+          (is (= "my-custom-name" agent-name))))
+
+      (testing "Claude-style .agent.md falls back to part before first dot when no YAML name"
+        (spit (fs/file agents-dir "architect.agent.md")
+              (str "---\n"
+                   "description: Architect persona\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "architect.agent.md"))]
+          (is (= "architect" agent-name))))
+
+      (testing "YAML name wins over multi-extension filename"
+        (spit (fs/file agents-dir "engineer.agent.md")
+              (str "---\n"
+                   "name: senior-engineer\n"
+                   "description: Engineer persona\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "engineer.agent.md"))]
+          (is (= "senior-engineer" agent-name))))
+
+      (testing "blank YAML name falls back to filename"
+        (spit (fs/file agents-dir "fallback.md")
+              (str "---\n"
+                   "name: \"   \"\n"
+                   "description: Blank name\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "fallback.md"))]
+          (is (= "fallback" agent-name))))
       (finally
         (fs/delete-tree tmp-dir)))))

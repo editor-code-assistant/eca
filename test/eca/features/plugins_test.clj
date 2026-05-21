@@ -313,6 +313,55 @@
       (is (= [{:path "/a/commands/cmd.md"}] (:commands result)))
       (is (= [{:path "/b/rules/rule.mdc"}] (:rules result))))))
 
+(deftest plugin-agent-without-mode-becomes-primary-test
+  (let [tmp-dir (fs/create-temp-dir)
+        source-dir (fs/file tmp-dir "repo")
+        plugin-dir (fs/file source-dir "plugins" "test" "doc-authoring")
+        prev-plugin-components @config/plugin-components*
+        prev-init-config @config/initialization-config*]
+    (try
+      (fs/create-dirs (fs/file source-dir ".eca-plugin"))
+      (fs/create-dirs (fs/file plugin-dir "agents"))
+      (spit (fs/file source-dir ".eca-plugin" "marketplace.json")
+            (json/generate-string
+             {:plugins [{:name "doc-authoring"
+                         :description "Test plugin"
+                         :source "./plugins/test/doc-authoring"}]}))
+      ;; Claude-style plugin agent: only `name` and `description` in frontmatter, no `mode`.
+      ;; Filename uses the `*.agent.md` convention seen in real marketplace plugins.
+      (spit (fs/file plugin-dir "agents" "architect.agent.md")
+            (str "---\n"
+                 "name: Architect\n"
+                 "description: Designs system architecture\n"
+                 "---\n\n"
+                 "Role & Goal: shape architectural decisions."))
+      (let [resolved (plugins/resolve-all!
+                      {"local" {:source (str source-dir)}
+                       "install" ["doc-authoring"]})]
+        (testing "discovery picks up the plugin agent under the YAML `name:` id"
+          (is (contains? (:agents resolved) "architect"))
+          (is (= "Designs system architecture"
+                 (get-in resolved [:agents "architect" :description])))
+          (is (nil? (get-in resolved [:agents "architect" :mode]))))
+
+        (reset! config/plugin-components* resolved)
+        (reset! config/initialization-config* {:pureConfig false})
+        (let [final-config (#'config/all* {:workspace-folders []})
+              primaries (set (config/primary-agent-names final-config))]
+          (testing "agent reaches the merged :agent map without :mode"
+            (is (= "Designs system architecture"
+                   (get-in final-config [:agent "architect" :description])))
+            (is (nil? (get-in final-config [:agent "architect" :mode]))))
+          (testing "plugin agent without mode appears in primary-agent-names"
+            (is (contains? primaries "architect")))
+          (testing "built-in primary agents remain available"
+            (is (contains? primaries "code"))
+            (is (contains? primaries "plan")))))
+      (finally
+        (reset! config/plugin-components* prev-plugin-components)
+        (reset! config/initialization-config* prev-init-config)
+        (fs/delete-tree tmp-dir)))))
+
 (deftest uninstall-plugin!-test
   (testing "removes plugin from install list"
     (let [updated (atom nil)]

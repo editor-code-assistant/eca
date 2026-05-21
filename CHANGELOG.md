@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Markdown agents now honor the YAML `name:` field and strip all filename extensions for the agent id (e.g. `foo.agent.md` → `foo`), matching Claude/OpenCode plugin conventions.
+
 ## 0.134.4
 
 - Bugfix: `chat/list` was returning `:id nil` for chats persisted before the per-chat `:id` field was added to the DB schema. The projection now derives `:id` from the chat map key, so legacy rows show up with a usable id and become resumable via `chat/open`.
