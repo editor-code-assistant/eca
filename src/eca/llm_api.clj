@@ -151,6 +151,37 @@
    :openai-chat [:reasoning]
    :ollama [:think]})
 
+(def ^:private roles-with-provider-specific-ids
+  "Roles whose :content carries opaque provider-specific identifiers
+   (Anthropic signatures, OpenAI Responses rs_*/encrypted_content, tool
+   use ids like toolu_*/call_*) that the next provider may reject."
+  #{"reason" "tool_call" "tool_call_output" "server_tool_use" "server_tool_result"})
+
+(defn ^:private entry-incompatible-with-api?
+  [target-api {:keys [role content]}]
+  (boolean (and target-api
+                (map? content)
+                (:api content)
+                (not= (:api content) target-api)
+                (contains? roles-with-provider-specific-ids role))))
+
+(defn sanitize-past-messages-for-api
+  "Drops history entries whose opaque provider-specific ids would make the
+   request invalid under `target-api`. Returns a map:
+     :messages      - sanitized past-messages vector
+     :dropped-count - number of entries removed
+     :dropped-apis  - set of origin apis whose entries were dropped
+   Entries without a :api tag (legacy, untagged) are kept as-is so existing
+   in-flight chats keep working. Issue #209."
+  [target-api past-messages]
+  (let [past (vec past-messages)
+        incompatible? (partial entry-incompatible-with-api? target-api)
+        kept (filterv (complement incompatible?) past)
+        dropped (filterv incompatible? past)]
+    {:messages kept
+     :dropped-count (count dropped)
+     :dropped-apis (into #{} (keep #(get-in % [:content :api])) dropped)}))
+
 (defn ^:private extra-payload-considering-variant
   "Resolves the effective extra-payload by merging extraPayload with variant payload.
    Variant values take priority over extraPayload on clashing keys.
@@ -172,7 +203,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           on-server-web-search on-server-image-generation
+           on-server-web-search on-server-image-generation on-history-sanitized
            past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
@@ -186,6 +217,16 @@
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model %))
         {:keys [handler] :as api-handler} (provider->api-handler provider model config)
+        {past-messages :messages
+         sanitized-dropped-count :dropped-count
+         sanitized-dropped-apis :dropped-apis} (sanitize-past-messages-for-api (:api api-handler) past-messages)
+        _ (when (and on-history-sanitized (pos? sanitized-dropped-count))
+            (try
+              (on-history-sanitized {:dropped-count sanitized-dropped-count
+                                     :dropped-apis sanitized-dropped-apis
+                                     :target-api (:api api-handler)})
+              (catch Exception e
+                (logger/warn logger-tag "on-history-sanitized callback failed" {:exception (ex-message e)}))))
         extra-payload (extra-payload-considering-variant model-config variant api-handler reason?)
         extra-headers (:extraHeaders model-config)
         reasoning-history (or (:reasoningHistory model-config) :all)
@@ -364,7 +405,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           on-server-web-search on-server-image-generation
+           on-server-web-search on-server-image-generation on-history-sanitized
            past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent? prompt-cache-key]
     :or {on-first-response-received identity
          on-message-received identity
@@ -375,8 +416,19 @@
          on-usage-updated identity
          on-server-web-search identity
          on-server-image-generation identity
+         on-history-sanitized identity
          cancelled? (constantly false)}}]
   (let [first-response-received* (atom false)
+        ;; Fire :on-history-sanitized at most once per sync-or-async-prompt! call:
+        ;; prompt! is invoked multiple times on retries and we don't want to
+        ;; spam the chat with repeated "history sanitized" notices.
+        history-sanitized-emitted?* (atom false)
+        on-history-sanitized-wrapper (fn [args]
+                                       (when (compare-and-set! history-sanitized-emitted?* false true)
+                                         (try
+                                           (on-history-sanitized args)
+                                           (catch Exception e
+                                             (logger/warn logger-tag "on-history-sanitized callback failed" {:exception (ex-message e)})))))
         emit-first-message-fn (fn [& args]
                                 (when-not @first-response-received*
                                   (reset! first-response-received* true)
@@ -465,6 +517,7 @@
                               :subagent? subagent?
                               :prompt-cache-key prompt-cache-key
                               :on-error on-error-wrapper
+                              :on-history-sanitized on-history-sanitized-wrapper
                               :config config})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
                   (if error
@@ -508,6 +561,7 @@
                 :on-server-web-search on-server-web-search-wrapper
                 :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper
+                :on-history-sanitized on-history-sanitized-wrapper
                 :on-error (fn [error-data]
                             (if (:silent? (ex-data (:exception error-data)))
                               (on-error-wrapper error-data)

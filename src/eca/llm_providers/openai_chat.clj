@@ -161,46 +161,57 @@
 
    For 'reason' messages:
    - If :reasoning-content exists, emit as assistant message with reasoning_content field (DeepSeek-style)
-   - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)"
+   - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)
+
+   Defense-in-depth against #209: entries whose :content :api was tagged by
+   another provider (Anthropic signatures, OpenAI rs_*/encrypted_content,
+   toolu_*/call_* tool ids the chat-completions endpoint won't accept) are
+   dropped here. The primary safeguard is the central sanitizer in
+   eca.llm-api; this protects direct callers that bypass it."
   [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
-  (case role
-    "tool_call" (let [tool-call-id (or (:llm-tool-call-id content) (:id content))]
-                  {:role "assistant"
-                   :tool_calls [(cond-> {:id       tool-call-id
-                                         :type     "function"
-                                         :function {:name      (:full-name content)
-                                                    :arguments (json/generate-string (or (:arguments content) {}))}}
-                                 ;; Preserve Google Gemini thought signatures if present
-                                  (:external-id content)
-                                  (assoc-in [:extra_content :google :thought_signature]
-                                            (:external-id content)))]})
-    ;; NOTE: Image content from MCP tool results is currently flattened to
-    ;; the placeholder text `[Image: <media-type>]` via `stringfy-tool-result`,
-    ;; so multimodal models on the chat-completions API will not see prior
-    ;; images on follow-up turns. Image round-trip is implemented for
-    ;; `openai-responses` (see eca.llm-providers.openai/normalize-messages
-    ;; `tool_call_output` branch) and `anthropic`; replicating it here would
-    ;; require emitting a `tool` message followed by a synthetic `user`
-    ;; message with `image_url` content blocks, since the chat-completions
-    ;; `tool` role does not accept image content natively.
-    "tool_call_output" {:role "tool"
-                        :tool_call_id (or (:llm-tool-call-id content) (:id content))
-                        :content (llm-util/stringfy-tool-result content)}
-    "user" {:role "user"
-            :content (extract-content content supports-image?)}
-    "reason" (if (:delta-reasoning? content)
-               ;; DeepSeek-style: reasoning_content must be passed back to API
-               {:role "assistant"
-                :content ""
-                :reasoning_content (:text content)}
-               ;; Fallback: wrap in thinking tags for models that use text-based reasoning
-               {:role "assistant"
-                :content (str think-tag-start (:text content) think-tag-end)})
-    "assistant" {:role "assistant"
-                 :content (extract-content content supports-image?)}
-    "system" {:role "system"
+  (let [foreign-api? (let [origin (:api content)]
+                       (and origin (not= :openai-chat origin)))]
+    (case role
+      "tool_call" (when-not foreign-api?
+                    (let [tool-call-id (or (:llm-tool-call-id content) (:id content))]
+                      {:role "assistant"
+                       :tool_calls [(cond-> {:id       tool-call-id
+                                             :type     "function"
+                                             :function {:name      (:full-name content)
+                                                        :arguments (json/generate-string (or (:arguments content) {}))}}
+                                      ;; Preserve Google Gemini thought signatures if present
+                                      (:external-id content)
+                                      (assoc-in [:extra_content :google :thought_signature]
+                                                (:external-id content)))]}))
+      ;; NOTE: Image content from MCP tool results is currently flattened to
+      ;; the placeholder text `[Image: <media-type>]` via `stringfy-tool-result`,
+      ;; so multimodal models on the chat-completions API will not see prior
+      ;; images on follow-up turns. Image round-trip is implemented for
+      ;; `openai-responses` (see eca.llm-providers.openai/normalize-messages
+      ;; `tool_call_output` branch) and `anthropic`; replicating it here would
+      ;; require emitting a `tool` message followed by a synthetic `user`
+      ;; message with `image_url` content blocks, since the chat-completions
+      ;; `tool` role does not accept image content natively.
+      "tool_call_output" (when-not foreign-api?
+                           {:role "tool"
+                            :tool_call_id (or (:llm-tool-call-id content) (:id content))
+                            :content (llm-util/stringfy-tool-result content)})
+      "user" {:role "user"
               :content (extract-content content supports-image?)}
-    nil))
+      "reason" (when-not foreign-api?
+                 (if (:delta-reasoning? content)
+                   ;; DeepSeek-style: reasoning_content must be passed back to API
+                   {:role "assistant"
+                    :content ""
+                    :reasoning_content (:text content)}
+                   ;; Fallback: wrap in thinking tags for models that use text-based reasoning
+                   {:role "assistant"
+                    :content (str think-tag-start (:text content) think-tag-end)}))
+      "assistant" {:role "assistant"
+                   :content (extract-content content supports-image?)}
+      "system" {:role "system"
+                :content (extract-content content supports-image?)}
+      nil)))
 
 (defn ^:private merge-assistant-messages
   "Merge two assistant messages into one.

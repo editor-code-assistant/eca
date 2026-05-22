@@ -175,69 +175,82 @@
 
 (defn ^:private normalize-messages [past-messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]
-          (case role
-            "tool_call" {:role "assistant"
-                         :content [{:type "tool_use"
-                                    :id (:id content)
-                                    :name (:full-name content)
-                                    :input (or (:arguments content) {})}]}
+          ;; Defense-in-depth against #209: entries whose :content :api was
+          ;; tagged by a different provider (toolu_*/call_*, OpenAI rs_*/
+          ;; encrypted_content, Anthropic signatures) are unsafe to forward to
+          ;; Anthropic. The primary safeguard is the central sanitizer in
+          ;; eca.llm-api/sanitize-past-messages-for-api; this check protects
+          ;; direct callers that bypass it.
+          (let [foreign-api? (let [origin (:api content)]
+                               (and origin (not= :anthropic origin)))]
+            (case role
+              "tool_call" (when-not foreign-api?
+                            {:role "assistant"
+                             :content [{:type "tool_use"
+                                        :id (:id content)
+                                        :name (:full-name content)
+                                        :input (or (:arguments content) {})}]})
 
-            "tool_call_output"
-            ;; Anthropic's tool_result `content` field accepts a list of
-            ;; mixed text + image blocks natively, so when the tool returned
-            ;; image content and the model supports image input, emit a
-            ;; single tool_result whose content is the textual portion plus
-            ;; one image block per image. Falls back to the legacy text-only
-            ;; string shape when there are no images or the model is not
-            ;; multimodal (preserves prior behavior).
-            (let [contents (-> content :output :contents)
-                  image-contents (when supports-image?
-                                   (seq (filter #(= :image (:type %)) contents)))
-                  text (llm-util/stringfy-tool-result content)]
-              {:role "user"
-               :content [{:type "tool_result"
-                          :tool_use_id (:id content)
-                          :content (if image-contents
-                                     (into [{:type "text" :text text}]
-                                           (map (fn [img]
-                                                  {:type "image"
-                                                   :source {:type "base64"
-                                                            :media_type (or (:media-type img) "image/png")
-                                                            :data (:base64 img)}}))
-                                           image-contents)
-                                     text)}]})
+              "tool_call_output"
+              ;; Anthropic's tool_result `content` field accepts a list of
+              ;; mixed text + image blocks natively, so when the tool returned
+              ;; image content and the model supports image input, emit a
+              ;; single tool_result whose content is the textual portion plus
+              ;; one image block per image. Falls back to the legacy text-only
+              ;; string shape when there are no images or the model is not
+              ;; multimodal (preserves prior behavior).
+              (when-not foreign-api?
+                (let [contents (-> content :output :contents)
+                      image-contents (when supports-image?
+                                       (seq (filter #(= :image (:type %)) contents)))
+                      text (llm-util/stringfy-tool-result content)]
+                  {:role "user"
+                   :content [{:type "tool_result"
+                              :tool_use_id (:id content)
+                              :content (if image-contents
+                                         (into [{:type "text" :text text}]
+                                               (map (fn [img]
+                                                      {:type "image"
+                                                       :source {:type "base64"
+                                                                :media_type (or (:media-type img) "image/png")
+                                                                :data (:base64 img)}}))
+                                               image-contents)
+                                         text)}]}))
 
-            ;; OpenAI-emitted image_generation_call history entries are
-            ;; replayed for Anthropic as user-role image blocks (Anthropic
-            ;; doesn't have an analogous tool, but it accepts inline base64
-            ;; images, so the model can still see prior generations).
-            "image_generation_call" (when supports-image?
-                                      {:role "user"
-                                       :content [{:type "image"
-                                                  :source {:data (:base64 content)
-                                                           :media_type (:media-type content)
-                                                           :type "base64"}}]})
-            "reason"
-            {:role "assistant"
-             :content [(if (:redacted? content)
-                         {:type "redacted_thinking"
-                          :data (:data content)}
-                         {:type "thinking"
-                          :signature (:external-id content)
-                          :thinking (:text content)})]}
+              ;; OpenAI-emitted image_generation_call history entries are
+              ;; replayed for Anthropic as user-role image blocks (Anthropic
+              ;; doesn't have an analogous tool, but it accepts inline base64
+              ;; images, so the model can still see prior generations).
+              "image_generation_call" (when supports-image?
+                                        {:role "user"
+                                         :content [{:type "image"
+                                                    :source {:data (:base64 content)
+                                                             :media_type (:media-type content)
+                                                             :type "base64"}}]})
+              "reason"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [(if (:redacted? content)
+                             {:type "redacted_thinking"
+                              :data (:data content)}
+                             {:type "thinking"
+                              :signature (:external-id content)
+                              :thinking (:text content)})]})
 
-            "server_tool_use"
-            {:role "assistant"
-             :content [{:type "server_tool_use"
-                        :id (:id content)
-                        :name (:name content)
-                        :input (or (:input content) {})}]}
+              "server_tool_use"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [{:type "server_tool_use"
+                            :id (:id content)
+                            :name (:name content)
+                            :input (or (:input content) {})}]})
 
-            "server_tool_result"
-            {:role "assistant"
-             :content [{:type "web_search_tool_result"
-                        :tool_use_id (:tool-use-id content)
-                        :content (:raw-content content)}]}
+              "server_tool_result"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [{:type "web_search_tool_result"
+                            :tool_use_id (:tool-use-id content)
+                            :content (:raw-content content)}]})
 
             (-> msg
                 (dissoc :content-id)
@@ -259,7 +272,7 @@
                                                              :type "base64"}})
 
                                                  %))
-                                            c))))))))
+                                            c)))))))))
         past-messages))
 
 (defn ^:private group-parallel-tool-calls

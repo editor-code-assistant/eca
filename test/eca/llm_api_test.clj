@@ -10,6 +10,92 @@
 
 (h/reset-components-before-test)
 
+(deftest sanitize-past-messages-for-api-test
+  (testing "drops anthropic-origin reason when target is :openai-chat"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "reason" :content {:id "r1" :external-id "sig-xyz" :text "thinking"
+                                          :api :anthropic}}
+                {:role "assistant" :content [{:type :text :text "ok"}]}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= 1 dropped-count))
+      (is (= #{:anthropic} dropped-apis))
+      (is (= 2 (count messages)))
+      (is (= ["user" "assistant"] (mapv :role messages)))))
+
+  (testing "drops openai-responses-origin reason when target is :anthropic"
+    (let [past [{:role "reason" :content {:id "rs_abc" :external-id "encrypted-blob" :text "thinking"
+                                          :api :openai-responses}}
+                {:role "user" :content [{:type :text :text "hi"}]}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :anthropic past)]
+      (is (= 1 dropped-count))
+      (is (= #{:openai-responses} dropped-apis))
+      (is (= 1 (count messages)))
+      (is (= "user" (:role (first messages))))))
+
+  (testing "drops tool_call/tool_call_output pairs whose :api differs from target"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "tool_call" :content {:id "toolu_aaa" :full-name "read"
+                                             :api :anthropic}}
+                {:role "tool_call_output" :content {:id "toolu_aaa" :output {:contents []}
+                                                    :api :anthropic}}
+                {:role "user" :content [{:type :text :text "next"}]}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= 2 dropped-count) "tool_call and tool_call_output both removed")
+      (is (= 2 (count messages)))
+      (is (every? #(= "user" (:role %)) messages))))
+
+  (testing "drops anthropic server_tool_use and server_tool_result on switch away"
+    (let [past [{:role "server_tool_use" :content {:id "stu_1" :name "web_search"
+                                                   :api :anthropic}}
+                {:role "server_tool_result" :content {:tool-use-id "stu_1" :raw-content {}
+                                                      :api :anthropic}}
+                {:role "user" :content [{:type :text :text "k"}]}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-responses past)]
+      (is (= 2 dropped-count))
+      (is (= [{:role "user" :content [{:type :text :text "k"}]}] messages))))
+
+  (testing "same-api round-trip preserves all entries"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "reason" :content {:id "r1" :external-id "sig" :text "t"
+                                          :api :anthropic}}
+                {:role "tool_call" :content {:id "toolu_a" :full-name "read"
+                                             :api :anthropic}}
+                {:role "tool_call_output" :content {:id "toolu_a" :output {:contents []}
+                                                    :api :anthropic}}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :anthropic past)]
+      (is (zero? dropped-count))
+      (is (empty? dropped-apis))
+      (is (= past messages))))
+
+  (testing "untagged (legacy) entries are preserved as-is"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "reason" :content {:id "r1" :external-id "sig" :text "t"}}
+                {:role "tool_call" :content {:id "toolu_a" :full-name "read"}}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (zero? dropped-count))
+      (is (= past messages))))
+
+  (testing "mixed history: tagged foreign entries dropped, untagged + matching kept"
+    (let [past [{:role "user" :content [{:type :text :text "u1"}]}
+                {:role "reason" :content {:id "r0" :text "legacy"}}                            ; untagged → kept
+                {:role "reason" :content {:id "r1" :text "t" :api :anthropic}}                 ; foreign → dropped
+                {:role "reason" :content {:id "r2" :text "t" :api :openai-chat}}               ; matching → kept
+                {:role "assistant" :content [{:type :text :text "a"}]}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= 1 dropped-count))
+      (is (= #{:anthropic} dropped-apis))
+      (is (= 4 (count messages)))
+      (is (= ["user" "reason" "reason" "assistant"] (mapv :role messages)))
+      (is (= ["r0" "r2"]
+             (->> messages (filter #(= "reason" (:role %))) (map #(get-in % [:content :id]))))))))
+
 (deftest default-model-test
   (testing "Custom provider defaultModel present"
     (with-redefs [config/get-env (constantly nil)

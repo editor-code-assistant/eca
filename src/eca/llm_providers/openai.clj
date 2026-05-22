@@ -107,53 +107,63 @@
   ;; (e.g. `tool_call_output` carrying image content emits a
   ;; `function_call_output` plus a synthetic user-role `input_image`).
   (mapcat (fn [{:keys [role content] :as msg}]
-            (case role
-              "tool_call" [{:type "function_call"
-                            :name (:full-name content)
-                            :call_id (:id content)
-                            :arguments (json/generate-string (or (:arguments content) {}))}]
+            ;; Defense-in-depth against #209: skip entries whose :content :api
+            ;; was tagged by another provider. The OpenAI Responses API rejects
+            ;; foreign reasoning ids/encrypted_content and foreign tool_use ids;
+            ;; the central sanitizer in eca.llm-api drops these first, this
+            ;; guard protects direct callers that bypass it.
+            (let [foreign-api? (let [origin (:api content)]
+                                 (and origin (not= :openai-responses origin)))]
+              (case role
+                "tool_call" (when-not foreign-api?
+                              [{:type "function_call"
+                                :name (:full-name content)
+                                :call_id (:id content)
+                                :arguments (json/generate-string (or (:arguments content) {}))}])
 
-              "tool_call_output"
-              (let [contents (-> content :output :contents)
-                    image-contents (when supports-image?
-                                     (seq (filter #(= :image (:type %)) contents)))]
-                (cond-> [{:type "function_call_output"
-                          :call_id (:id content)
-                          :output (llm-util/stringfy-tool-result content)}]
-                  ;; When the tool returned image content and the model
-                  ;; supports image input, follow the function_call_output
-                  ;; with a synthetic user-role input_image. The Responses
-                  ;; API `function_call_output.output` is text-only, so a
-                  ;; separate user message is the documented way to feed
-                  ;; the bytes back to the model (mirrors the
-                  ;; image_generation_call replay branch below).
-                  image-contents
-                  (conj {:role "user"
-                         :content (mapv (fn [img]
-                                          {:type "input_image"
-                                           :image_url (format "data:%s;base64,%s"
-                                                              (or (:media-type img) "image/png")
-                                                              (:base64 img))})
-                                        image-contents)})))
+                "tool_call_output"
+                (when-not foreign-api?
+                  (let [contents (-> content :output :contents)
+                        image-contents (when supports-image?
+                                         (seq (filter #(= :image (:type %)) contents)))]
+                    (cond-> [{:type "function_call_output"
+                              :call_id (:id content)
+                              :output (llm-util/stringfy-tool-result content)}]
+                      ;; When the tool returned image content and the model
+                      ;; supports image input, follow the function_call_output
+                      ;; with a synthetic user-role input_image. The Responses
+                      ;; API `function_call_output.output` is text-only, so a
+                      ;; separate user message is the documented way to feed
+                      ;; the bytes back to the model (mirrors the
+                      ;; image_generation_call replay branch below).
+                      image-contents
+                      (conj {:role "user"
+                             :content (mapv (fn [img]
+                                              {:type "input_image"
+                                               :image_url (format "data:%s;base64,%s"
+                                                                  (or (:media-type img) "image/png")
+                                                                  (:base64 img))})
+                                            image-contents)}))))
 
-              ;; Replay prior generations as user-role input_image: assistant-role
-              ;; input_image is rejected, and the standalone image_generation_call
-              ;; shape requires :store true (the id 404s otherwise).
-              "image_generation_call" (when (and supports-image? (:base64 content))
-                                        [{:role "user"
-                                          :content [{:type "input_image"
-                                                     :image_url (format "data:%s;base64,%s"
-                                                                        (or (:media-type content) "image/png")
-                                                                        (:base64 content))}]}])
-              "reason" [{:type "reasoning"
-                         :id (:id content)
-                         :summary (if (string/blank? (:text content))
-                                    []
-                                    [{:type "summary_text"
-                                      :text (:text content)}])
-                         :encrypted_content (:external-id content)}]
-              "server_tool_use" []
-              "server_tool_result" []
+                ;; Replay prior generations as user-role input_image: assistant-role
+                ;; input_image is rejected, and the standalone image_generation_call
+                ;; shape requires :store true (the id 404s otherwise).
+                "image_generation_call" (when (and supports-image? (:base64 content))
+                                          [{:role "user"
+                                            :content [{:type "input_image"
+                                                       :image_url (format "data:%s;base64,%s"
+                                                                          (or (:media-type content) "image/png")
+                                                                          (:base64 content))}]}])
+                "reason" (when-not foreign-api?
+                           [{:type "reasoning"
+                             :id (:id content)
+                             :summary (if (string/blank? (:text content))
+                                        []
+                                        [{:type "summary_text"
+                                          :text (:text content)}])
+                             :encrypted_content (:external-id content)}])
+                "server_tool_use" []
+                "server_tool_result" []
               [(-> msg
                    (dissoc :content-id)
                    (update :content (fn [c]
@@ -174,7 +184,7 @@
                                                                        (:base64 %))})
 
                                                  %)
-                                              c)))))]))
+                                              c)))))])))
           messages))
 
 (defn ^:private ->tools [tools web-search image-generation]
