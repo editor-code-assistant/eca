@@ -747,19 +747,9 @@
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
-          (do
-            ;; Persist user messages synchronously BEFORE dispatching the
-            ;; async LLM call. Previously this happened in
-            ;; :on-first-response-received, which meant a provider error
-            ;; that fired before the first response byte (auth failure,
-            ;; connection drop, HTTP error) left the chat with no user
-            ;; message on disk and no way to /resume it.
-            (doseq [message user-messages]
-              (add-to-history!
-               (assoc message :content-id (:user-content-id chat-ctx))))
-            (future* config
-              (try
-                (llm-api/sync-or-async-prompt!
+          (future* config
+            (try
+              (llm-api/sync-or-async-prompt!
                {:model model
                 :provider provider
                 :model-capabilities model-capabilities
@@ -818,9 +808,9 @@
                                                           (some-> target-api name))})))
                 :on-first-response-received (fn [& _]
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
-                                              ;; User messages are persisted synchronously before
-                                              ;; the LLM call (see above). This callback only marks
-                                              ;; the API in use and flips the UI to "Generating".
+                                              (doseq [message user-messages]
+                                                (add-to-history!
+                                                 (assoc message :content-id (:user-content-id chat-ctx))))
                                               (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider model config)))
                                               (lifecycle/send-content! chat-ctx :system {:type :progress
                                                                                          :state :running
@@ -1131,7 +1121,7 @@
                   ;; otherwise the belated statusChanged causes duplicate finished handling.
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
                     (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle}))
-                  (db/update-workspaces-cache! @db* metrics)))))))))))
+                  (db/update-workspaces-cache! @db* metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}

@@ -115,12 +115,8 @@
             :api-mock
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
-      ;; Chats now keep the user message even when the LLM call errors out
-      ;; before any response byte, so the chat shows up in /resume and can
-      ;; be rolled back to recover.
       (is (match?
-           {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
+           {chat-id {:id chat-id :messages m/absent}}
            (:chats (h/db))))
       (is (match?
            {:chat-content-received
@@ -1023,23 +1019,6 @@
               :prompt "prompt"
               :args ["arg1" "arg2"]}
              (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
-
-(deftest error-before-first-response-persists-user-message-test
-  (testing "provider error that fires before any response byte still saves the user message,
-            so the chat appears in /resume and can be rolled back to recover"
-    (h/reset-components!)
-    (let [{:keys [chat-id]}
-          (prompt!
-           {:message "boom"}
-           {:all-tools-mock (constantly [])
-            :api-mock (fn [{:keys [on-error]}]
-                        (on-error {:message "transport error"
-                                   :exception (Exception. "boom")}))})
-          messages (get-in (h/db) [:chats chat-id :messages])
-          user-msgs (filter #(= "user" (:role %)) messages)]
-      (is (seq messages) "chat should have at least the user message in history")
-      (is (= 1 (count user-msgs)))
-      (is (= "boom" (-> user-msgs first :content first :text))))))
 
 (deftest rollback-persists-to-cache-test
   (testing "rollback flushes the trimmed history to disk so it survives an ECA restart"
