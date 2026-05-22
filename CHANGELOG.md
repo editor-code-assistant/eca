@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: serialize git pulls per plugin source and clean up stale `.lock` files in the plugin cache so the recurring `Failed to update plugin source ... ORIG_HEAD.lock: File exists` warning stops resurfacing.
+
 ## 0.134.6
 
 - Markdown agents now accept `tools:` as a flat YAML list (Claude convention), normalized to `byDefault: ask` + `allow`. Previously such agents were silently dropped.
