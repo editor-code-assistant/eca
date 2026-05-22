@@ -8,7 +8,8 @@
    [eca.metrics :as metrics]
    [eca.shared :as shared])
   (:import
-   [java.io OutputStream]))
+   [java.io OutputStream]
+   [java.nio.file AtomicMoveNotSupportedException CopyOption Files StandardCopyOption]))
 
 (set! *warn-on-reflection* true)
 
@@ -169,14 +170,45 @@
     (catch Throwable e
       (logger/error logger-tag "Could not load global cache from DB" e))))
 
-(defn ^:private upsert-cache! [cache cache-file metrics]
+(defn ^:private atomic-move!
+  "Rename `src` to `dest`. Tries an atomic move first so a crash mid-rename
+   cannot leave the destination half-written; falls back to a non-atomic
+   replace on filesystems that do not support ATOMIC_MOVE."
+  [^java.io.File src ^java.io.File dest]
+  (try
+    (Files/move (.toPath src)
+                (.toPath dest)
+                (into-array CopyOption
+                            [StandardCopyOption/ATOMIC_MOVE
+                             StandardCopyOption/REPLACE_EXISTING]))
+    (catch AtomicMoveNotSupportedException _
+      (Files/move (.toPath src)
+                  (.toPath dest)
+                  (into-array CopyOption
+                              [StandardCopyOption/REPLACE_EXISTING])))))
+
+(defn ^:private upsert-cache!
+  "Persist `cache` to `cache-file` durably.
+
+   The payload is written to a sibling `<file>.tmp` first and then renamed
+   atomically over the destination. If the JVM/process dies mid-write the
+   original file stays intact, so we never trade a corrupted cache for a
+   more frequent save cadence."
+  [cache cache-file metrics]
   (try
     (metrics/task metrics :db/upsert-cache
       (io/make-parents cache-file)
-      ;; https://github.com/cognitect/transit-clj/issues/43
-      (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream cache-file))]
-        (let [writer (transit/writer os :json)]
-          (transit/write writer cache))))
+      (let [dest ^java.io.File cache-file
+            tmp  ^java.io.File (io/file (str (.getPath dest) ".tmp"))]
+        (try
+          ;; https://github.com/cognitect/transit-clj/issues/43
+          (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream tmp))]
+            (let [writer (transit/writer os :json)]
+              (transit/write writer cache)))
+          (atomic-move! tmp dest)
+          (finally
+            (when (.exists tmp)
+              (.delete tmp))))))
     (catch Throwable e
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
@@ -203,10 +235,17 @@
   (-> (select-keys db [:chats])
       (update :chats (fn [chats]
                        (into {}
-                             (comp
-                              (filter #(seq (:messages (second %))))
-                              (map (fn [[k v]]
-                                     [k (dissoc v :tool-calls)])))
+                             ;; Persist every chat that lives in memory.
+                             ;; We used to drop chats with empty :messages
+                             ;; here, but that erased chats that were
+                             ;; intentionally rolled back to empty and also
+                             ;; (combined with the late add-to-history!
+                             ;; behaviour) erased chats that hit a provider
+                             ;; error before any token arrived. Cleanup of
+                             ;; stale chats is handled by
+                             ;; cleanup-old-chats! instead.
+                             (map (fn [[k v]]
+                                    [k (dissoc v :tool-calls)]))
                              chats)))))
 
 (defn ^:private normalize-db-for-global-write [db]

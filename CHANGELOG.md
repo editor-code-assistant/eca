@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Bugfix: serialize git pulls per plugin source and clean up stale `.lock` files in the plugin cache so the recurring `Failed to update plugin source ... ORIG_HEAD.lock: File exists` warning stops resurfacing.
+- Persist chats more durably: save the user message before the LLM call, save after every assistant segment / tool output / error / rollback, and write the cache via atomic tmp+rename so long chats and errored chats always show up in `/resume`.
+- Allow swapping between Anthropic and non-Anthropic models mid-chat: history entries from the previous provider that the new api would reject are dropped, with a chat-visible notice. #209
 
 ## 0.134.6
 

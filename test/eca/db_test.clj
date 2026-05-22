@@ -1,7 +1,12 @@
 (ns eca.db-test
   (:require
+   [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
-   [eca.db :as db]))
+   [cognitect.transit :as transit]
+   [eca.db :as db])
+  (:import
+   [java.io File]))
 
 (set! *warn-on-reflection* true)
 
@@ -57,3 +62,51 @@
       (is (some? (get-in @db* [:chats "old-chat"]))
           "Old chat should be kept when cleanup is disabled")
       (is (false? @cache-updated?)))))
+
+(defn ^:private read-transit-file ^Object [^File f]
+  (with-open [is (io/input-stream f)]
+    (transit/read (transit/reader is :json))))
+
+(deftest atomic-upsert-cache-test
+  (testing "writes via tmp file then atomically renames so a crash mid-write cannot truncate the destination"
+    (let [tmpdir (str (fs/create-temp-dir))
+          cache-file (File. ^String tmpdir "db.transit.json")
+          tmp-file (File. (str (.getPath cache-file) ".tmp"))
+          upsert! @#'db/upsert-cache!]
+      (try
+        (upsert! {:version db/version :chats {"c1" {:id "c1"}}} cache-file nil)
+        (is (.exists cache-file) "destination should exist after a successful write")
+        (is (not (.exists tmp-file)) "tmp file should be cleaned up after the rename")
+        (is (= db/version (:version (read-transit-file cache-file)))
+            "written payload should round-trip")
+        (finally (fs/delete-tree tmpdir))))))
+
+(deftest stale-tmp-does-not-corrupt-next-write-test
+  (testing "a leftover .tmp file from a previous crashed save is replaced cleanly by the next save"
+    (let [tmpdir (str (fs/create-temp-dir))
+          cache-file (File. ^String tmpdir "db.transit.json")
+          tmp-file (File. (str (.getPath cache-file) ".tmp"))
+          upsert! @#'db/upsert-cache!]
+      (try
+        (io/make-parents tmp-file)
+        (spit tmp-file "garbage from a previous crash")
+        (upsert! {:version db/version :chats {"c1" {:id "c1"}}} cache-file nil)
+        (is (.exists cache-file))
+        (is (not (.exists tmp-file))
+            "stale .tmp from a previous run should not survive the next save")
+        (is (= db/version (:version (read-transit-file cache-file))))
+        (finally (fs/delete-tree tmpdir))))))
+
+(deftest normalize-preserves-empty-message-chats-test
+  (let [normalize @#'db/normalize-db-for-workspace-write
+        result (normalize {:chats {"empty" {:id "empty" :messages []}
+                                   "no-msgs-key" {:id "no-msgs-key"}
+                                   "with-msg" {:id "with-msg"
+                                               :messages [{:role "user" :content "hi"}]
+                                               :tool-calls {"t1" {:status :completed}}}}})]
+    (testing "chats with empty :messages are kept (e.g. after rollback or early provider error)"
+      (is (contains? (:chats result) "empty")))
+    (testing "chats without a :messages key are also kept"
+      (is (contains? (:chats result) "no-msgs-key")))
+    (testing ":tool-calls runtime state is stripped before persisting"
+      (is (not (contains? (get-in result [:chats "with-msg"]) :tool-calls))))))

@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.prompt :as f.prompt]
@@ -114,8 +115,12 @@
             :api-mock
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
+      ;; Chats now keep the user message even when the LLM call errors out
+      ;; before any response byte, so the chat shows up in /resume and can
+      ;; be rolled back to recover.
       (is (match?
-           {chat-id {:id chat-id :messages m/absent}}
+           {chat-id {:id chat-id
+                     :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
            (:chats (h/db))))
       (is (match?
            {:chat-content-received
@@ -1019,6 +1024,45 @@
               :args ["arg1" "arg2"]}
              (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
 
+(deftest error-before-first-response-persists-user-message-test
+  (testing "provider error that fires before any response byte still saves the user message,
+            so the chat appears in /resume and can be rolled back to recover"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "boom"}
+           {:all-tools-mock (constantly [])
+            :api-mock (fn [{:keys [on-error]}]
+                        (on-error {:message "transport error"
+                                   :exception (Exception. "boom")}))})
+          messages (get-in (h/db) [:chats chat-id :messages])
+          user-msgs (filter #(= "user" (:role %)) messages)]
+      (is (seq messages) "chat should have at least the user message in history")
+      (is (= 1 (count user-msgs)))
+      (is (= "boom" (-> user-msgs first :content first :text))))))
+
+(deftest rollback-persists-to-cache-test
+  (testing "rollback flushes the trimmed history to disk so it survives an ECA restart"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "hi"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received]}]
+              (on-first-response-received {:type :text :text "hello"})
+              (on-message-received {:type :text :text "hello"})
+              (on-message-received {:type :finish}))})
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])
+          save-calls* (atom 0)]
+      (with-redefs [db/update-workspaces-cache! (fn [_ _] (swap! save-calls* inc))]
+        (f.chat/rollback-chat {:chat-id chat-id
+                               :include ["messages" "tools"]
+                               :content-id first-content-id}
+                              (h/db*) (h/messenger) (h/metrics)))
+      (is (pos? @save-calls*)
+          "rollback-chat should persist the trimmed history immediately"))))
+
 (deftest rollback-chat-test
   (testing "Rollback chat removes messages after content-id"
     (h/reset-components!)
@@ -1069,7 +1113,7 @@
         (is (= {} (f.chat/rollback-chat
                    {:chat-id chat-id
                     :include ["messages" "tools"]
-                    :content-id second-content-id} (h/db*) (h/messenger))))
+                    :content-id second-content-id} (h/db*) (h/messenger) (h/metrics))))
 
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?

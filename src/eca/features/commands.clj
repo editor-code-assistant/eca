@@ -478,15 +478,17 @@
                                               flags (->> (:messages chat)
                                                          (filter #(= "flag" (:role %)))
                                                          (map #(get-in % [:content :text])))]
-                                          (if (> msgs-count 0)
-                                            (str s (format "%s - %s - %s%s\n"
-                                                           (inc (.indexOf ^PersistentVector chats-ids chat-id))
-                                                           (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
-                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))
-                                                           (if (seq flags)
-                                                             (str " 🚩 " (string/join ", " flags))
-                                                             "")))
-                                            s)))
+                                          ;; List every persisted chat, even ones with zero user
+                                          ;; messages (e.g. a chat that hit a provider error very
+                                          ;; early, or one rolled back to empty). The user can
+                                          ;; resume any of them and rollback to recover.
+                                          (str s (format "%s - %s - %s%s\n"
+                                                         (inc (.indexOf ^PersistentVector chats-ids chat-id))
+                                                         (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
+                                                         (or (:title chat) (format "No chat title (%s user messages)" msgs-count))
+                                                         (if (seq flags)
+                                                           (str " 🚩 " (string/join ", " flags))
+                                                           "")))))
                                       ""
                                       chats-ids)
                                      "Run `/resume <chat-id>` or `/resume latest`"))

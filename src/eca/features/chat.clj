@@ -461,21 +461,24 @@
                (assoc chat-ctx :auto-compacted? true)))))
     nil))
 
-(defn ^:private assert-compatible-apis-between-models!
-  "Ensure new request is compatible with last api used.
-   E.g. Anthropic is not compatible with openai and vice versa."
+(defn ^:private log-api-switch!
+  "Log when the user swaps to a model whose api differs from the chat's
+   `:last-api`. Cross-api history reconciliation is handled by
+   `eca.llm-api/sanitize-past-messages-for-api`, which drops entries whose
+   opaque ids the new provider would reject and triggers a chat-visible
+   notice via `:on-history-sanitized`. This used to throw outright (#209)."
   [db chat-id provider model config]
   (let [current-api (:api (llm-api/provider->api-handler provider model config))
         last-api (get-in db [:chats chat-id :last-api])]
-    (cond
-      (not last-api) nil
-      (not current-api) nil
-
-      (or (and (= :anthropic current-api)
-               (not= :anthropic last-api))
-          (and (not= :anthropic current-api)
-               (= :anthropic last-api)))
-      (throw (ex-info "Incompatible past messages in chat.\nAnthropic models are only compatible with other Anthropic models, switch models or start a new chat." {})))))
+    (when (and last-api current-api (not= last-api current-api))
+      (logger/info logger-tag
+                   (format "Model swap detected: last-api=%s current-api=%s"
+                           (name last-api) (name current-api))
+                   {:chat-id chat-id
+                    :last-api last-api
+                    :current-api current-api
+                    :provider provider
+                    :model model}))))
 
 (defn ^:private consume-steer-message!
   "Reads and clears any pending steer message for the chat in a single swap.
@@ -668,8 +671,30 @@
             reasonings* (atom {})
             server-tool-times* (atom {})
             pending-server-tool-uses* (atom {})
-            add-to-history! (fn [msg]
-                              (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+            ;; Origin api of every reason/tool_call/server_tool_* entry written
+            ;; during this prompt. Used by the cross-api history sanitizer in
+            ;; eca.llm-api so a later swap to a different model can drop entries
+            ;; whose opaque ids (Anthropic signatures, OpenAI rs_*/encrypted_content,
+            ;; toolu_*/call_* tool ids) the new provider would reject. #209
+            current-api (:api (llm-api/provider->api-handler provider model config))
+            add-to-history! (fn [{:keys [role content] :as msg}]
+                              (let [tagged (if (and current-api
+                                                    (map? content)
+                                                    (#{"reason" "tool_call" "tool_call_output"
+                                                       "server_tool_use" "server_tool_result"} role))
+                                             (assoc msg :content (assoc content :api current-api))
+                                             msg)]
+                                (swap! db* update-in [:chats chat-id :messages] (fnil conj []) tagged)
+                                ;; Persist after meaningful history mutations so a
+                                ;; long-running chat is recoverable mid-loop even if
+                                ;; ECA dies (crash, kill, host reboot) before the
+                                ;; end-of-prompt save runs. tool_call and
+                                ;; server_tool_use are skipped because they are
+                                ;; always paired with the corresponding *_output /
+                                ;; *_result entry appended right after, which
+                                ;; triggers the save in their place.
+                                (when-not (#{"tool_call" "server_tool_use"} role)
+                                  (db/update-workspaces-cache! @db* metrics))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  (lifecycle/send-content! chat-ctx :system (merge {:type :usage} usage))))
@@ -680,7 +705,7 @@
                                  (or (and (not (get-in db [:chats chat-id :title]))
                                           (not retitle?))
                                      retitle?))]
-        (assert-compatible-apis-between-models! db chat-id provider model config)
+        (log-api-switch! db chat-id provider model config)
         (when generate-title?
           ;; On retitle (3rd prompt), flatten the conversation into a single
           ;; user message instead of replaying it as role-structured past-messages.
@@ -722,9 +747,19 @@
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
-          (future* config
-            (try
-              (llm-api/sync-or-async-prompt!
+          (do
+            ;; Persist user messages synchronously BEFORE dispatching the
+            ;; async LLM call. Previously this happened in
+            ;; :on-first-response-received, which meant a provider error
+            ;; that fired before the first response byte (auth failure,
+            ;; connection drop, HTTP error) left the chat with no user
+            ;; message on disk and no way to /resume it.
+            (doseq [message user-messages]
+              (add-to-history!
+               (assoc message :content-id (:user-content-id chat-ctx))))
+            (future* config
+              (try
+                (llm-api/sync-or-async-prompt!
                {:model model
                 :provider provider
                 :model-capabilities model-capabilities
@@ -761,11 +796,31 @@
                                                         :state :running
                                                         :text (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
                                                                       reason (quot delay-ms 1000) attempt max-retries)})))
+                :on-history-sanitized (fn [{:keys [dropped-count dropped-apis target-api]}]
+                                        (let [from-label (->> dropped-apis
+                                                              (remove nil?)
+                                                              (map name)
+                                                              sort
+                                                              (string/join ", "))]
+                                          (logger/info logger-tag
+                                                       (format "Dropped %d cross-provider history entries on switch to %s"
+                                                               dropped-count (some-> target-api name))
+                                                       {:chat-id chat-id
+                                                        :dropped-count dropped-count
+                                                        :dropped-apis dropped-apis})
+                                          (lifecycle/send-content!
+                                           chat-ctx :system
+                                           {:type :text
+                                            :text (format "Note: dropped %d history %s from a previous provider (%s) because the current model (%s) cannot reuse its opaque ids. Reasoning context is lost across providers; tool calls were also removed if they originated elsewhere."
+                                                          dropped-count
+                                                          (if (= 1 dropped-count) "entry" "entries")
+                                                          (if (seq from-label) from-label "unknown")
+                                                          (some-> target-api name))})))
                 :on-first-response-received (fn [& _]
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
-                                              (doseq [message user-messages]
-                                                (add-to-history!
-                                                 (assoc message :content-id (:user-content-id chat-ctx))))
+                                              ;; User messages are persisted synchronously before
+                                              ;; the LLM call (see above). This callback only marks
+                                              ;; the API in use and flips the UI to "Generating".
                                               (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider model config)))
                                               (lifecycle/send-content! chat-ctx :system {:type :progress
                                                                                          :state :running
@@ -1051,6 +1106,11 @@
                                     (do
                                       (when-not stopping?
                                         (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))}))
+                                      ;; Defensive save: finish-chat-prompt! can short-circuit when
+                                      ;; :prompt-finished? was already set or the prompt-id rotated,
+                                      ;; which would leave a chat that hit an error without a save.
+                                      ;; Persist explicitly so users can always /resume an errored chat.
+                                      (db/update-workspaces-cache! @db* metrics)
                                       (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
@@ -1059,6 +1119,9 @@
                     (add-to-history! {:role "assistant"
                                       :content [{:type :text :text @received-msgs*}]}))
                   (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
+                  ;; Belt-and-suspenders: persist before finish-chat-prompt!,
+                  ;; which may short-circuit. See note above in :on-error.
+                  (db/update-workspaces-cache! @db* metrics)
                   (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))
               (finally
                 (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
@@ -1068,7 +1131,7 @@
                   ;; otherwise the belated statusChanged causes duplicate finished handling.
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
                     (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle}))
-                  (db/update-workspaces-cache! @db* metrics))))))))))
+                  (db/update-workspaces-cache! @db* metrics)))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
@@ -1508,7 +1571,7 @@
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."
-  [{:keys [chat-id content-id include]} db* messenger]
+  [{:keys [chat-id content-id include]} db* messenger metrics]
   (let [include (if (seq include)
                   (set include)
                   ;; backwards compatibility
@@ -1531,6 +1594,10 @@
         (io/delete-file path true)))
     (when new-messages
       (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+      ;; Rollback is the user's recovery tool for a chat that got into a bad
+      ;; state. Persist immediately so the cleaned-up history survives a
+      ;; restart instead of relying on the next unrelated save.
+      (db/update-workspaces-cache! @db* metrics)
       (messenger/chat-cleared
        messenger
        {:chat-id chat-id

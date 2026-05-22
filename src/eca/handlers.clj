@@ -243,7 +243,7 @@
 
 (defn chat-rollback [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-rollback
-    (f.chat/rollback-chat params db* messenger)))
+    (f.chat/rollback-chat params db* messenger metrics)))
 
 (defn chat-add-flag [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-add-flag
