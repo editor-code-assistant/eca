@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.135.1
+
 - Fix `invalid_grant` errors when multiple ECA processes race to refresh the same OAuth token. #462
 
 ## 0.135.0
