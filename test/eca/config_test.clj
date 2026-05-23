@@ -749,3 +749,35 @@
                                            nil)
     (is (match? {:config-updated [{:chat {:select-variant "high"}}]}
                 (h/messages)))))
+
+(deftest agent-modes-test
+  (testing "scalar string :mode is honored"
+    (is (= #{"primary"} (config/agent-modes {:mode "primary"})))
+    (is (= #{"subagent"} (config/agent-modes {:mode "subagent"}))))
+  (testing "list :mode is honored"
+    (is (= #{"primary"} (config/agent-modes {:mode ["primary"]})))
+    (is (= #{"subagent"} (config/agent-modes {:mode ["subagent"]})))
+    (is (= #{"primary" "subagent"}
+           (config/agent-modes {:mode ["primary" "subagent"]}))))
+  (testing "duplicates in list :mode collapse via set semantics"
+    (is (= #{"primary"} (config/agent-modes {:mode ["primary" "primary"]}))))
+  (testing "absent, nil, or empty :mode defaults to both primary and subagent"
+    (is (= #{"primary" "subagent"} (config/agent-modes {})))
+    (is (= #{"primary" "subagent"} (config/agent-modes {:mode nil})))
+    (is (= #{"primary" "subagent"} (config/agent-modes {:mode []})))))
+
+(deftest primary-agent-names-test
+  (testing "includes agents whose effective modes contain 'primary'"
+    (let [config {:agent {"a-primary" {:mode "primary"}
+                          "a-subagent-only" {:mode "subagent"}
+                          "a-list-subagent-only" {:mode ["subagent"]}
+                          "a-list-both" {:mode ["primary" "subagent"]}
+                          "a-unspecified" {:description "no mode set"}}}
+          names (set (config/primary-agent-names config))]
+      (is (contains? names "a-primary"))
+      (is (contains? names "a-list-both"))
+      (is (contains? names "a-unspecified"))
+      (is (not (contains? names "a-subagent-only")))
+      (is (not (contains? names "a-list-subagent-only")))))
+  (testing "empty agent map returns empty"
+    (is (empty? (config/primary-agent-names {:agent {}})))))

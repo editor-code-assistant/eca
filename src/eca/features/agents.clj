@@ -66,7 +66,9 @@
     (cond-> {}
       inherit (assoc :inherit (str inherit))
       description (assoc :description description)
-      mode (assoc :mode (str mode))
+      mode (assoc :mode (if (sequential? mode)
+                          (mapv str mode)
+                          (str mode)))
       model (assoc :defaultModel (str model))
       steps (assoc :maxSteps (long steps))
       (seq body) (assoc :systemPrompt body)

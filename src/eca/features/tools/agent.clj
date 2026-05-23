@@ -29,7 +29,7 @@
   [config]
   (->> (:agent config)
        (keep (fn [[agent-name agent-config]]
-               (when (and (= "subagent" (:mode agent-config))
+               (when (and (contains? (config/agent-modes agent-config) "subagent")
                           (:description agent-config))
                  {:name agent-name
                   :description (:description agent-config)

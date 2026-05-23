@@ -286,11 +286,28 @@
 
 (def ^:private fallback-agent "code")
 
+(def ^:private default-modes #{"primary" "subagent"})
+
+(defn agent-modes
+  "Returns the effective set of modes for an agent config.
+
+   The `:mode` field accepts either a single string (e.g. \"primary\") or a
+   collection of strings (e.g. [\"primary\" \"subagent\"]). When `:mode` is
+   absent, nil, or an empty collection, defaults to both `primary` and
+   `subagent`."
+  [agent-config]
+  (let [mode (:mode agent-config)]
+    (cond
+      (string? mode) #{mode}
+      (and (coll? mode) (seq mode)) (set mode)
+      :else default-modes)))
+
 (defn primary-agent-names
-  "Returns the names of agents that are not subagents (mode is nil or not \"subagent\")."
+  "Returns the names of agents usable as primary (i.e. whose effective
+   modes include \"primary\")."
   [config]
   (->> (:agent config)
-       (remove (fn [[_ v]] (= "subagent" (:mode v))))
+       (filter (fn [[_ v]] (contains? (agent-modes v) "primary")))
        (map key)
        distinct))
 

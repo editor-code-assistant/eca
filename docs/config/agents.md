@@ -8,10 +8,18 @@ description: "Configure ECA agents and subagents: custom system prompts, model s
 
 When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, skills and more.
 
-There are 2 types of agents defined via `mode` field (when absent, defaults to primary):
+Agents have a `mode` field that controls where they can be used. It accepts either a single string or a list:
 
-- `primary`: main agents, used in chat, can spawn subagents.
+- `primary`: main agent, used in chat, can spawn subagents.
 - `subagent`: an agent allowed to be spawned inside a chat to do a specific task and return a output to the primary agent.
+
+Examples:
+
+- `mode: "primary"` — only selectable as a chat agent.
+- `mode: "subagent"` — only spawnable by another agent.
+- `mode: ["primary", "subagent"]` — usable in both roles.
+
+When `mode` is not set, the agent is usable in both roles (equivalent to `["primary", "subagent"]`).
 
 ## Built-in agents
 
@@ -95,7 +103,7 @@ The major advantages of subagents are:
 
 Subagents can be configured in config or markdown and support/require these fields:
 
-- `mode` (required): `subagent` always, this is what differs a primary agent from a subagent for ECA.
+- `mode`: set to `"subagent"` (or `["subagent"]`) to restrict an agent to subagent use only. Omit or include `"primary"` to also allow chat use.
 - `description` (required): a short summary of what this subagent will do, this is important to primary agent knows when to delegate to it.
 - `systemPrompt` or the markdown content (required unless using `inherit`): Instructions for the subagent to what do when receive a task.
 

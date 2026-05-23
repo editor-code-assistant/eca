@@ -32,9 +32,10 @@
   (or (get-in config [:agent agent-name :prompts key])
       (get-in config [:prompts key])))
 
-(defn ^:private eca-chat-prompt [agent-name config]
+(defn ^:private eca-chat-prompt [agent-name config chat-id db]
   (let [agent-config (get-in config [:agent agent-name])
-        subagent-prompt (and (= "subagent" (:mode agent-config))
+        is-subagent? (boolean (get-in db [:chats chat-id :subagent]))
+        subagent-prompt (and is-subagent?
                              (:systemPrompt agent-config))
         config-prompt (get-config-prompt :chat agent-name config)
         legacy-config-prompt (:systemPrompt agent-config)
@@ -207,7 +208,7 @@
                                "</path-scoped-rules>"])
         has-static-rules? (seq rendered-static-rules)]
     (multi-str
-     (shared/safe-selmer-render (eca-chat-prompt agent-name config)
+     (shared/safe-selmer-render (eca-chat-prompt agent-name config chat-id db)
                                 selmer-ctx "chat-prompt")
      (when (or has-static-rules? path-scoped-section)
        ["## Rules"

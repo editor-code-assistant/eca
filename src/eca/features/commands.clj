@@ -225,7 +225,7 @@
 
 (defn ^:private subagents-msg [config]
   (let [subagents (->> (:agent config)
-                       (filter (fn [[_ v]] (= "subagent" (:mode v))))
+                       (filter (fn [[_ v]] (contains? (config/agent-modes v) "subagent")))
                        (sort-by first))]
     (if (empty? subagents)
       "No subagents configured, double check your configuration via json or markdown."

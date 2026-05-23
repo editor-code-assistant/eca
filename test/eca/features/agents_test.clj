@@ -123,12 +123,24 @@
           config (#'agents/md->agent-config parsed)]
       (is (nil? (:toolCall config)))))
 
-  (testing "agent with no mode produces config without :mode (defaults to primary)"
-    (let [parsed (shared/parse-md "---\ndescription: A primary agent\n---\n\nDo work.")
+  (testing "agent with no mode produces config without :mode (consumers default to both modes)"
+    (let [parsed (shared/parse-md "---\ndescription: An unspecified-mode agent\n---\n\nDo work.")
           config (#'agents/md->agent-config parsed)]
-      (is (= "A primary agent" (:description config)))
+      (is (= "An unspecified-mode agent" (:description config)))
       (is (= "Do work." (:systemPrompt config)))
       (is (nil? (:mode config)))))
+
+  (testing "YAML list mode is preserved as a vector of strings"
+    (let [md (str "---\n"
+                  "description: Dual-role\n"
+                  "mode:\n"
+                  "  - primary\n"
+                  "  - subagent\n"
+                  "---\n\n"
+                  "Body.")
+          parsed (shared/parse-md md)
+          config (#'agents/md->agent-config parsed)]
+      (is (= ["primary" "subagent"] (:mode config)))))
 
   (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
     (let [md (str "---\n"

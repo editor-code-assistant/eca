@@ -19,7 +19,9 @@
            "general" {:mode "subagent"
                       :description "General purpose agent"}
            "code" {:mode "primary"
-                   :description "Code agent"}}
+                   :description "Code agent"}
+           "swiss-knife" {:mode ["primary" "subagent"]
+                          :description "Works as primary or subagent"}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]"
                      {:variants {"low" {:thinking {:type "adaptive"}}
                                  "medium" {:thinking {:type "adaptive"}}
@@ -653,8 +655,10 @@
     (let [desc (:description (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
       (is (re-find #"- explorer:" desc))
       (is (re-find #"- general:" desc))
+      (is (re-find #"- swiss-knife:" desc)
+          "agents whose :mode list includes subagent should appear in subagent list")
       (is (not (re-find #"- code:" desc))
-          "primary agents should not appear in subagent list")))
+          "primary-only agents should not appear in subagent list")))
 
   (testing "summary-fn formats agent name with activity"
     (let [summary-fn (:summary-fn (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
