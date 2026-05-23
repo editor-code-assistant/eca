@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [cognitect.transit :as transit]
+   [eca.cache :as cache]
    [eca.db :as db])
   (:import
    [java.io File]))
@@ -96,6 +97,94 @@
             "stale .tmp from a previous run should not survive the next save")
         (is (= db/version (:version (read-transit-file cache-file))))
         (finally (fs/delete-tree tmpdir))))))
+
+(deftest sync-auth-from-cache!-adopts-fresher-disk-tokens-test
+  (testing "when on-disk :auth has a different :expires-at, in-memory state is overwritten"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [fresh-auth {:type :auth/oauth
+                            :mode :max
+                            :step :login/done
+                            :refresh-token "fresh-refresh"
+                            :api-key "fresh-access"
+                            :expires-at 9999999999}
+                disk-db (atom {:auth {"anthropic" fresh-auth}})
+                _ (db/update-global-cache! @disk-db nil)
+                stale-mem (atom {:auth {"anthropic" {:type :auth/oauth
+                                                     :mode :max
+                                                     :step :login/done
+                                                     :refresh-token "stale-refresh"
+                                                     :api-key "stale-access"
+                                                     :expires-at 1000}}})
+                updated? (db/sync-auth-from-cache! stale-mem "anthropic" nil)]
+            (is updated?)
+            (is (= "fresh-refresh" (get-in @stale-mem [:auth "anthropic" :refresh-token])))
+            (is (= "fresh-access" (get-in @stale-mem [:auth "anthropic" :api-key])))
+            (is (= 9999999999 (get-in @stale-mem [:auth "anthropic" :expires-at]))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest sync-auth-from-cache!-noop-when-disk-matches-memory-test
+  (testing "when on-disk :expires-at matches memory, no update happens"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [auth {:type :auth/oauth
+                      :refresh-token "same"
+                      :api-key "same"
+                      :expires-at 7777}
+                disk-db (atom {:auth {"anthropic" auth}})
+                _ (db/update-global-cache! @disk-db nil)
+                mem (atom {:auth {"anthropic" auth}})
+                updated? (db/sync-auth-from-cache! mem "anthropic" nil)]
+            (is (not updated?))
+            (is (= auth (get-in @mem [:auth "anthropic"]))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest sync-auth-from-cache!-noop-when-no-disk-cache-test
+  (testing "when no global cache file exists, returns falsy and leaves memory untouched"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [mem (atom {:auth {"anthropic" {:refresh-token "x" :expires-at 1}}})
+                updated? (db/sync-auth-from-cache! mem "anthropic" nil)]
+            (is (not updated?))
+            (is (= "x" (get-in @mem [:auth "anthropic" :refresh-token]))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest with-global-cache-lock-runs-body-and-releases-test
+  (testing "the lock can be acquired sequentially without leaking handles"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [ran (atom 0)]
+            (db/with-global-cache-lock (swap! ran inc))
+            (db/with-global-cache-lock (swap! ran inc))
+            (is (= 2 @ran)))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest with-global-cache-lock-serializes-concurrent-threads-test
+  (testing "two threads acquiring the lock cannot interleave inside the body"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [inside (atom 0)
+                max-inside (atom 0)
+                iterations 50
+                worker (fn []
+                         (dotimes [_ iterations]
+                           (db/with-global-cache-lock
+                             (let [v (swap! inside inc)]
+                               (swap! max-inside max v)
+                               ;; small spin so a non-locking impl would observe overlap
+                               (Thread/sleep 1)
+                               (swap! inside dec)))))
+                f1 (future (worker))
+                f2 (future (worker))]
+            @f1 @f2
+            (is (= 1 @max-inside)
+                "no two threads should ever be inside the locked body at the same time"))
+          (finally (fs/delete-tree tmpdir)))))))
 
 (deftest normalize-preserves-empty-message-chats-test
   (let [normalize @#'db/normalize-db-for-workspace-write

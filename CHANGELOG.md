@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix `invalid_grant` errors when multiple ECA processes race to refresh the same OAuth token. #462
+
 ## 0.135.0
 
 - Persist chats more durably: save after every assistant segment / tool output / error / rollback, and write the cache via atomic tmp+rename so long chats no longer get lost on crash or restart.

@@ -8,7 +8,8 @@
    [eca.metrics :as metrics]
    [eca.shared :as shared])
   (:import
-   [java.io OutputStream]
+   [java.io OutputStream RandomAccessFile]
+   [java.nio.channels FileChannel FileLock]
    [java.nio.file AtomicMoveNotSupportedException CopyOption Files StandardCopyOption]))
 
 (set! *warn-on-reflection* true)
@@ -261,6 +262,63 @@
   (-> (normalize-db-for-global-write db)
       (assoc :version version)
       (upsert-cache! (transit-global-db-file) metrics)))
+
+(def ^:private global-cache-lock-sentinel (Object.))
+
+(defn ^:private global-cache-lock-file []
+  (io/file (cache/global-dir) "db.transit.json.lock"))
+
+(defn with-global-cache-lock-fn
+  "Run `f` while holding both a JVM-wide mutex and an OS advisory exclusive
+   lock on a sidecar of the global cache file. The JVM mutex avoids
+   `OverlappingFileLockException` when two threads in the same ECA server
+   race a renew; the file lock serializes across `eca server` processes
+   that share `~/.cache/eca/`. Blocks until both are acquired."
+  [f]
+  (locking global-cache-lock-sentinel
+    (let [^java.io.File lock-file (global-cache-lock-file)
+          _ (io/make-parents lock-file)
+          ^RandomAccessFile raf (RandomAccessFile. lock-file "rw")
+          ^FileChannel channel (.getChannel raf)
+          lock-ref (volatile! nil)]
+      (try
+        (vreset! lock-ref ^FileLock (.lock channel))
+        (f)
+        (finally
+          (when-let [^FileLock lock @lock-ref]
+            (try (.release lock)
+                 (catch Throwable e
+                   (logger/warn logger-tag "Could not release global cache lock" e))))
+          (try (.close channel) (catch Throwable _))
+          (try (.close raf) (catch Throwable _)))))))
+
+(defmacro with-global-cache-lock
+  "See `with-global-cache-lock-fn`. Runs `body` while holding the lock."
+  [& body]
+  `(with-global-cache-lock-fn (fn [] ~@body)))
+
+(defn sync-auth-from-cache!
+  "Re-read the global cache from disk and, if its `:auth` entry for `provider`
+   has a different `:expires-at` than the in-memory copy, overwrite the
+   in-memory `[:auth provider]` with the disk version. This lets a process
+   that lost a token-refresh race adopt the winner's freshly rotated tokens
+   instead of POSTing with a stale refresh token.
+
+   Returns a truthy value when in-memory state was updated."
+  [db* provider metrics]
+  (try
+    (when-let [disk-auth (some-> (read-global-cache metrics) :auth (get provider))]
+      (let [in-mem-auth (get-in @db* [:auth provider])]
+        (when (and (:expires-at disk-auth)
+                   (not= (:expires-at disk-auth) (:expires-at in-mem-auth)))
+          (logger/info logger-tag
+                       (format "Adopting %s auth tokens refreshed by peer process (expires-at %s)"
+                               provider (:expires-at disk-auth)))
+          (swap! db* assoc-in [:auth provider] disk-auth)
+          true)))
+    (catch Throwable e
+      (logger/warn logger-tag "Could not sync auth from cache" e)
+      false)))
 
 (defn cleanup-old-chats!
   "Deletes chats older than retention-days from the db and flushes the workspace cache.
