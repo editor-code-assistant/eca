@@ -690,10 +690,22 @@
           "examples": ["code", "plan", "explorer"]
         },
         "mode": {
-          "type": "string",
-          "description": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
-          "markdownDescription": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
-          "enum": ["primary", "subagent"]
+          "description": "Roles this agent can be used in. Accepts either a single string ('primary' or 'subagent') or a list (e.g. ['primary', 'subagent']). 'primary' means selectable as a chat agent; 'subagent' means spawnable by another agent. Defaults to both when absent.",
+          "markdownDescription": "Roles this agent can be used in. Accepts either a single string (`\"primary\"` or `\"subagent\"`) or a list (e.g. `[\"primary\", \"subagent\"]`). `primary` means selectable as a chat agent; `subagent` means spawnable by another agent. Defaults to both when absent.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["primary", "subagent"]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["primary", "subagent"]
+              },
+              "uniqueItems": true
+            }
+          ]
         },
         "description": {
           "type": "string",
