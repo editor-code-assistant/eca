@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.135.2
+
 - Bugfix: occasional `NoSuchFileException` when persisting the DB cache; each save now uses a unique temp file and concurrent writers to the same file are serialized in-process.
 
 ## 0.135.1
