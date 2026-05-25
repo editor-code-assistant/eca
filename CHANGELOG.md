@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: occasional `NoSuchFileException` when persisting the DB cache; each save now uses a unique temp file and concurrent writers to the same file are serialized in-process.
+
 ## 0.135.1
 
 - Fix `invalid_grant` errors when multiple ECA processes race to refresh the same OAuth token. #462

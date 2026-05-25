@@ -98,6 +98,38 @@
         (is (= db/version (:version (read-transit-file cache-file))))
         (finally (fs/delete-tree tmpdir))))))
 
+(deftest upsert-cache!-handles-concurrent-writers-test
+  (testing "many threads writing to the same cache-file do not error and leave a valid snapshot"
+    (let [tmpdir (str (fs/create-temp-dir))
+          cache-file (File. ^String tmpdir "db.transit.json")
+          upsert! @#'db/upsert-cache!
+          n 32
+          payloads (mapv (fn [i] {:version db/version
+                                  :chats {"c" {:id (str "c" i)}}})
+                         (range n))]
+      (try
+        (let [start-gate (java.util.concurrent.CountDownLatch. 1)
+              futs (mapv (fn [payload]
+                           (future
+                             (.await start-gate)
+                             (upsert! payload cache-file nil)))
+                         payloads)]
+          (.countDown start-gate)
+          (doseq [f futs] @f))
+        (is (.exists cache-file)
+            "destination should exist after concurrent writes")
+        (let [final (read-transit-file cache-file)]
+          (is (= db/version (:version final))
+              "destination should round-trip as a valid Transit payload")
+          (is (some #(= % final) payloads)
+              "final destination should equal one of the written snapshots (last-writer-wins)"))
+        (let [stragglers (->> (.listFiles (File. ^String tmpdir))
+                              (filter (fn [^File f]
+                                        (.endsWith (.getName f) ".tmp"))))]
+          (is (empty? stragglers)
+              "no leftover *.tmp files should remain after the writers finish"))
+        (finally (fs/delete-tree tmpdir))))))
+
 (deftest sync-auth-from-cache!-adopts-fresher-disk-tokens-test
   (testing "when on-disk :auth has a different :expires-at, in-memory state is overwritten"
     (let [tmpdir (str (fs/create-temp-dir))]

@@ -10,7 +10,9 @@
   (:import
    [java.io OutputStream RandomAccessFile]
    [java.nio.channels FileChannel FileLock]
-   [java.nio.file AtomicMoveNotSupportedException CopyOption Files StandardCopyOption]))
+   [java.nio.file AtomicMoveNotSupportedException CopyOption Files StandardCopyOption]
+   [java.nio.file.attribute FileAttribute]
+   [java.util.concurrent ConcurrentHashMap]))
 
 (set! *warn-on-reflection* true)
 
@@ -188,28 +190,60 @@
                   (into-array CopyOption
                               [StandardCopyOption/REPLACE_EXISTING])))))
 
+(defonce ^:private ^ConcurrentHashMap file-locks (ConcurrentHashMap.))
+
+(defn ^:private file-lock
+  "Return a process-wide JVM monitor keyed by the absolute path of `f`.
+   Concurrent writers targeting the same cache file synchronize on this
+   monitor so they cannot race on the temp-file rename."
+  ^Object [^java.io.File f]
+  (let [^ConcurrentHashMap m file-locks
+        k (.getAbsolutePath f)]
+    (or (.get m k)
+        (let [o (Object.)]
+          (or (.putIfAbsent m k o) o)))))
+
 (defn ^:private upsert-cache!
   "Persist `cache` to `cache-file` durably.
 
-   The payload is written to a sibling `<file>.tmp` first and then renamed
-   atomically over the destination. If the JVM/process dies mid-write the
-   original file stays intact, so we never trade a corrupted cache for a
-   more frequent save cadence."
+   The payload is written to a unique sibling temp file first and then
+   renamed atomically over the destination. If the JVM/process dies
+   mid-write the original file stays intact, so we never trade a corrupted
+   cache for a more frequent save cadence. Concurrent writers in the same
+   process targeting the same `cache-file` are serialized on `file-lock`
+   so they cannot race on the rename."
   [cache cache-file metrics]
   (try
     (metrics/task metrics :db/upsert-cache
       (io/make-parents cache-file)
-      (let [dest ^java.io.File cache-file
-            tmp  ^java.io.File (io/file (str (.getPath dest) ".tmp"))]
-        (try
-          ;; https://github.com/cognitect/transit-clj/issues/43
-          (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream tmp))]
-            (let [writer (transit/writer os :json)]
-              (transit/write writer cache)))
-          (atomic-move! tmp dest)
-          (finally
-            (when (.exists tmp)
-              (.delete tmp))))))
+      (let [dest ^java.io.File cache-file]
+        ;; `file-lock` interns the lock object in `file-locks`, so it is
+        ;; not actually local to this scope; suppress the false positive.
+        #_{:clj-kondo/ignore [:locking-suspicious-lock]}
+        (locking (file-lock dest)
+          ;; Best-effort cleanup of the legacy fixed-name `<dest>.tmp` left by
+          ;; pre-unique-tmp versions of ECA. Safe to delete because new code
+          ;; only ever creates random-suffixed temps via Files/createTempFile.
+          (let [legacy-tmp ^java.io.File (io/file (str (.getPath dest) ".tmp"))]
+            (when (.exists legacy-tmp)
+              (try (.delete legacy-tmp) (catch Throwable _))))
+          (let [parent ^java.io.File (.getParentFile dest)
+                prefix (str (.getName dest) ".")
+                tmp ^java.io.File (.toFile
+                                   (Files/createTempFile
+                                    (.toPath parent)
+                                    prefix
+                                    ".tmp"
+                                    (make-array FileAttribute 0)))]
+            (try
+              ;; https://github.com/cognitect/transit-clj/issues/43
+              (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream tmp))]
+                (let [writer (transit/writer os :json)]
+                  (transit/write writer cache)))
+              (atomic-move! tmp dest)
+              (finally
+                (when (.exists tmp)
+                  (.delete tmp))))))))
     (catch Throwable e
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
