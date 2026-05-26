@@ -79,27 +79,30 @@
                 (swap! db* assoc :providers-config-hash new-providers-hash)
                 (models/sync-models! db* config (fn [models]
                                                   (let [db @db*
-                                                        default-model (f.chat/default-model db config)
+                                                        ;; Plugin resolution can finish while model sync is running;
+                                                        ;; re-read config so agent notifications don't use stale data.
+                                                        fresh-config (config/all db)
+                                                        default-model (f.chat/default-model db fresh-config)
                                                         default-agent-name (config/validate-agent-name
-                                                                            (or (:defaultAgent (:chat config))
-                                                                                (:defaultAgent config))
-                                                                            config)
-                                                        default-agent-config (get-in config [:agent default-agent-name])
-                                                        variants (model-variants config default-model)]
+                                                                            (or (:defaultAgent (:chat fresh-config))
+                                                                                (:defaultAgent fresh-config))
+                                                                            fresh-config)
+                                                        default-agent-config (get-in fresh-config [:agent default-agent-name])
+                                                        variants (model-variants fresh-config default-model)]
                                                     (config/notify-fields-changed-only!
                                                      {:chat
                                                       {:models (sort (keys models))
-                                                       :agents (config/primary-agent-names config)
+                                                       :agents (config/primary-agent-names fresh-config)
                                                        :select-model default-model
                                                        :select-agent default-agent-name
                                                        :variants (or variants [])
                                                        :select-variant (select-variant default-agent-config variants)
-                                                       :welcome-message (welcome-message config)
+                                                       :welcome-message (welcome-message fresh-config)
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
                                                        :default-model default-model
                                                        :default-agent default-agent-name
                                                        ;; Legacy: backward compat for clients using old key names
-                                                       :behaviors (distinct (keys (:agent config)))
+                                                       :behaviors (distinct (keys (:agent fresh-config)))
                                                        :select-behavior default-agent-name
                                                        :default-behavior default-agent-name}}
                                                      messenger
