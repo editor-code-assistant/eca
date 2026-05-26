@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix plugin primary agents being dropped from the selector when model sync finishes after plugin resolution.
+- Fix `nix run` failing because the completion auth-renew test wrote to the read-only sandbox HOME. #467
 
 ## 0.135.2
 
