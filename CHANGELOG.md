@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.135.3
+
 - Fix plugin primary agents being dropped from the selector when model sync finishes after plugin resolution.
 - Fix `nix run` failing because the completion auth-renew test wrote to the read-only sandbox HOME. #467
 - Fix `streamIdleTimeoutSeconds` and `cacheRetention` being ignored for custom providers using the Anthropic API. #470
