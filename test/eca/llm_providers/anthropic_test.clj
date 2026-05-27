@@ -452,3 +452,21 @@
                                 :tool_use_id "call-2"
                                 :content "ok\n"}]}
                     (first out)))))))
+
+(deftest max-tokens-input-overflow?-test
+  (let [overflow? #'llm-providers.anthropic/max-tokens-input-overflow?]
+    (testing "Z.AI-style overflow: huge input, tiny output vs 32k cap"
+      (is (true? (overflow? {:input_tokens 202525 :output_tokens 225} 32000))))
+    (testing "tiny output vs a moderately large cap is still treated as overflow"
+      (is (true? (overflow? {:input_tokens 50000 :output_tokens 100} 8000))))
+    (testing "output near the requested cap is a genuine output cap"
+      (is (false? (overflow? {:input_tokens 5000 :output_tokens 31900} 32000)))
+      (is (false? (overflow? {:input_tokens 5000 :output_tokens 7000} 8000))))
+    (testing "output exactly half of cap is treated as genuine cap (boundary)"
+      (is (false? (overflow? {:input_tokens 5000 :output_tokens 16000} 32000))))
+    (testing "small requested caps never trigger overflow reclassification"
+      (is (false? (overflow? {:input_tokens 1000 :output_tokens 100} 500)))
+      (is (false? (overflow? {:input_tokens 1000 :output_tokens 50} 3999))))
+    (testing "missing :output_tokens defaults to 0 and trips the heuristic"
+      (is (true? (overflow? {} 32000)))
+      (is (true? (overflow? {:input_tokens 100000} 32000))))))

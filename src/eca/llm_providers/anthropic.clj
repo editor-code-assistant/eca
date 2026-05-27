@@ -353,6 +353,17 @@
                                         :cache_control cache-control}])
          (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
 
+(defn ^:private max-tokens-input-overflow?
+  "Heuristic: when stop_reason is 'max_tokens' but output was barely
+   produced relative to the requested cap, the underlying cause is
+   almost certainly input-side context overflow rather than a genuine
+   output cap. Some Anthropic-compatible providers (e.g. Z.AI) signal
+   context overflow this way instead of returning HTTP 400."
+  [usage requested-max-tokens]
+  (let [output-tokens (or (:output_tokens usage) 0)]
+    (and (>= requested-max-tokens 4000)
+         (< output-tokens (quot requested-max-tokens 2)))))
+
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
@@ -520,8 +531,16 @@
                                                                        :finish-reason (-> data :delta :stop_reason)}))
                                                (throw (ex-info "Stream ended with empty response"
                                                                {:error/type :premature-stop})))
-                                  "max_tokens" (on-message-received {:type :limit-reached
-                                                                     :tokens (:usage data)})
+                                  "max_tokens" (let [usage (:usage data)
+                                                     requested-max-tokens (or max-output-tokens 32000)]
+                                                 (if (max-tokens-input-overflow? usage requested-max-tokens)
+                                                   (on-error {:error/type :context-overflow
+                                                              :message (format "Context overflow detected (input_tokens=%d, output_tokens=%d, max_tokens=%d)"
+                                                                               (or (:input_tokens usage) 0)
+                                                                               (or (:output_tokens usage) 0)
+                                                                               requested-max-tokens)})
+                                                   (on-message-received {:type :limit-reached
+                                                                         :tokens usage})))
                                   nil))
               "message_stop" (when-not @has-stop-reason?*
                                (if @has-content?*

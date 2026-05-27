@@ -533,6 +533,37 @@
                  (h/messages))
                 "Should show auto-compact attempt and then the final error")))))))
 
+(deftest limit-reached-clears-compact-flags-test
+  (testing ":limit-reached handler clears stale compacting?/auto-compacting? flags so /compact can be retried"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Do something"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-message-received]}]
+              (let [chat-id (-> @(h/db*) :chats keys first)]
+                ;; Simulate /compact (and a prior auto-compact attempt) being in
+                ;; flight when the LLM aborts with stop_reason "max_tokens" but
+                ;; the heuristic considers it a genuine output cap. Without the
+                ;; fix the chat stays stuck with :compacting? true forever.
+                (swap! (h/db*) update-in [:chats chat-id]
+                       assoc :compacting? true :auto-compacting? true)
+                (on-message-received
+                 {:type :limit-reached
+                  :tokens {:input_tokens 200000 :output_tokens 32000}})))})]
+      (is (nil? (get-in (h/db) [:chats chat-id :compacting?]))
+          "compacting? must be cleared so the user can retry /compact")
+      (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?]))
+          "auto-compacting? must also be cleared")
+      (is (match?
+           {:chat-content-received
+            (m/embeds [{:role :system
+                        :content {:type :text
+                                  :text #(string/includes? % "API limit reached. Tokens:")}}])}
+           (h/messages))
+          "Should still surface the API limit reached system message"))))
+
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
    :content {:id id

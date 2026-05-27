@@ -839,6 +839,7 @@
                                                              {:type :text
                                                               :text (str "API limit reached. Tokens: "
                                                                          (json/generate-string (:tokens msg)))})
+                                                            (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
                                                             (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
                                          :finish (let [response-text @received-msgs*
                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
