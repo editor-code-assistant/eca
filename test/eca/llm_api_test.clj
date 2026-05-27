@@ -4,6 +4,7 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
+   [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.secrets :as secrets]
    [eca.test-helper :as h]))
@@ -288,6 +289,34 @@
           :sync? false}))
       (is (not (true? (:image-generation @captured*)))
           "openai handler should NOT receive :image-generation true when capability is off"))))
+
+(deftest prompt-forwards-stream-idle-timeout-and-cache-retention-to-anthropic-handler-test
+  (testing "custom provider with :api anthropic forwards :stream-idle-timeout-seconds and :cache-retention to chat!"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.anthropic/chat!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "my-proxy"
+          :model "claude-sonnet-4-6"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :model-name "claude-sonnet-4-6"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :past-messages []
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:streamIdleTimeoutSeconds 300
+                   :providers {"my-proxy" {:api "anthropic"
+                                           :url "https://my-proxy.example.com/v1"
+                                           :key "test-key"
+                                           :cacheRetention "long"
+                                           :models {"claude-sonnet-4-6" {}}}}}
+          :sync? false}))
+      (is (= "long" (:cache-retention @captured*))
+          "anthropic handler should receive :cache-retention from provider-config")
+      (is (= 300 (:stream-idle-timeout-seconds @captured*))
+          "anthropic handler should receive :stream-idle-timeout-seconds from top-level config"))))
 
 (deftest retry-delay-ms-test
   ;; Formula: (quot capped 2) + rand(0, capped)

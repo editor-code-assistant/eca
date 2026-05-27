@@ -394,7 +394,9 @@
             :http-client http-client
             :api-url api-url
             :api-key api-key
-            :cancelled? cancelled?}
+            :cancelled? cancelled?
+            :cache-retention (:cacheRetention provider-config)
+            :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
            callbacks))
 
         :else
