@@ -3,6 +3,7 @@
 ## Unreleased
 
 - `bg_job` now shows the job name (from `shell_command`'s `background` arg) in `list`, `read_output` and `kill` outputs, e.g. `Background job "dev-server" (job-1) killed.`.
+- Add Claude Opus 4.8 support.
 
 ## 0.135.3
 

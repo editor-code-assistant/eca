@@ -128,6 +128,8 @@
     "anthropic/claude-opus-4-5-20251101"
     "anthropic/claude-opus-4.7"
     "anthropic/claude-opus-4-7"
+    "anthropic/claude-opus-4.8"
+    "anthropic/claude-opus-4-8"
     "anthropic/claude-haiku-4-5-20251001"})
 
 (defn ^:private all
