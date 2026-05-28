@@ -254,6 +254,13 @@
         (let [result (handler {"action" "list"} {})]
           (is (match? {:error false
                        :contents [{:type :text :text #"job-\d+.*npm run dev"}]}
+                      result))))
+
+      (testing "list includes quoted job name when summary is set"
+        (bg/register-shell-job! {:label "npm test" :summary "dev-server" :process (mock-process) :working-directory "/tmp"})
+        (let [result (handler {"action" "list"} {})]
+          (is (match? {:error false
+                       :contents [{:type :text :text #"\"dev-server\" \(job-\d+\).*npm test"}]}
                       result)))))))
 
 (deftest bg-job-tool-read-output-test
@@ -276,6 +283,13 @@
                                           {:text "oops" :stream :stderr}] :total-lines 2})
           (is (match? {:error false
                        :contents [{:type :text :text #"hello\n\[stderr\] oops"}]}
+                      (handler {"action" "read_output" "job_id" (:id job)} {})))))
+
+      (testing "read_output header includes quoted job name when summary is set"
+        (let [job (bg/register-shell-job! {:label "test" :summary "my-job" :process (mock-process) :working-directory "/tmp"})]
+          (reset! (:output* job) {:lines [{:text "hi" :stream :stdout}] :total-lines 1})
+          (is (match? {:error false
+                       :contents [{:type :text :text #"Job \"my-job\" \(job-\d+\) — running"}]}
                       (handler {"action" "read_output" "job_id" (:id job)} {}))))))))
 
 (deftest bg-job-tool-kill-test
@@ -303,6 +317,19 @@
           (bg/kill-job! (:id job))
           (is (match? {:error true
                        :contents [{:type :text :text #"not running"}]}
+                      (handler {"action" "kill" "job_id" (:id job)} {})))))
+
+      (testing "kill running job with summary includes name in output"
+        (let [job (bg/register-shell-job! {:label "server3" :summary "my-server" :process (mock-process) :working-directory "/tmp"})]
+          (is (match? {:error false
+                       :contents [{:type :text :text #"Background job \"my-server\" \(job-\d+\) killed\."}]}
+                      (handler {"action" "kill" "job_id" (:id job)} {})))))
+
+      (testing "kill already-stopped job with summary"
+        (let [job (bg/register-shell-job! {:label "server4" :summary "another-server" :process (mock-process) :working-directory "/tmp"})]
+          (bg/kill-job! (:id job))
+          (is (match? {:error true
+                       :contents [{:type :text :text #"Background job \"another-server\" \(job-\d+\) is not running"}]}
                       (handler {"action" "kill" "job_id" (:id job)} {}))))))))
 
 (deftest bg-job-tool-unknown-action-test

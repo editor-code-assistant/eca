@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `bg_job` now shows the job name (from `shell_command`'s `background` arg) in `list`, `read_output` and `kill` outputs, e.g. `Background job "dev-server" (job-1) killed.`.
+
 ## 0.135.3
 
 - Fix plugin primary agents being dropped from the selector when model sync finishes after plugin resolution.
