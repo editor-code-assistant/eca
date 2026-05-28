@@ -9,6 +9,7 @@
    [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.oauth :as oauth]
    [eca.shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
@@ -164,27 +165,26 @@
                              :encrypted_content (:external-id content)}])
                 "server_tool_use" []
                 "server_tool_result" []
-              [(-> msg
-                   (dissoc :content-id)
-                   (update :content (fn [c]
-                                      (if (string? c)
-                                        c
-                                        (keep #(case (name (:type %))
+                [(-> msg
+                     (update :content (fn [c]
+                                        (if (string? c)
+                                          c
+                                          (keep #(case (name (:type %))
 
-                                                 "text"
-                                                 (assoc % :type (if (= "user" role)
-                                                                  "input_text"
-                                                                  "output_text"))
+                                                   "text"
+                                                   (assoc % :type (if (= "user" role)
+                                                                    "input_text"
+                                                                    "output_text"))
 
-                                                 "image"
-                                                 (when supports-image?
-                                                   {:type "input_image"
-                                                    :image_url (format "data:%s;base64,%s"
-                                                                       (:media-type %)
-                                                                       (:base64 %))})
+                                                   "image"
+                                                   (when supports-image?
+                                                     {:type      "input_image"
+                                                      :image_url (format "data:%s;base64,%s"
+                                                                         (:media-type %)
+                                                                         (:base64 %))})
 
-                                                 %)
-                                              c)))))])))
+                                                   %)
+                                                c)))))])))
           messages))
 
 (defn ^:private ->tools [tools web-search image-generation]
@@ -353,21 +353,22 @@
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
                   (when-let [{:keys [new-messages tools fresh-api-key provider-auth]} (on-tools-called tool-calls)]
-                    (reset! tool-call-by-item-id* {})
-                    (base-responses-request!
-                     {:rid (llm-util/gen-rid)
-                      :body (assoc body
-                                   :input (normalize-messages new-messages supports-image?)
-                                   :tools (->tools tools web-search image-generation))
-                      :api-url api-url
-                      :url-relative-path url-relative-path
-                      :api-key (or fresh-api-key api-key)
-                      :account-id (or (:account-id provider-auth) account-id)
-                      :http-client http-client
-                      :extra-headers extra-headers
-                      :auth-type auth-type
-                      :on-error on-error
-                      :on-stream handle-stream}))
+                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)]
+                      (reset! tool-call-by-item-id* {})
+                      (base-responses-request!
+                       {:rid (llm-util/gen-rid)
+                        :body (assoc body
+                                     :input (normalize-messages new-messages supports-image?)
+                                     :tools (->tools tools web-search image-generation))
+                        :api-url api-url
+                        :url-relative-path url-relative-path
+                        :api-key (or fresh-api-key api-key)
+                        :account-id (or (:account-id provider-auth) account-id)
+                        :http-client http-client
+                        :extra-headers extra-headers
+                        :auth-type auth-type
+                        :on-error on-error
+                        :on-stream handle-stream})))
                   (on-message-received {:type :finish
                                         :finish-reason (-> data :response :status)})))
 

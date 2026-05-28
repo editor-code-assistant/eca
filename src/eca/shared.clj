@@ -428,15 +428,18 @@
   ;; Append compact marker tombstone + summary to preserve full history
   (swap! db* (fn [db]
                (let [summary (get-in db [:chats chat-id :last-summary])
-                     messages (get-in db [:chats chat-id :messages] [])]
+                     messages (get-in db [:chats chat-id :messages] [])
+                     now (System/currentTimeMillis)]
                  (assoc-in db [:chats chat-id :messages]
                            (conj messages
                                  {:role "compact_marker"
-                                  :content {:auto? (boolean auto-compact?)}}
+                                  :content {:auto? (boolean auto-compact?)}
+                                  :created-at now}
                                  {:role "user"
                                   :content [{:type :text
                                              :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                        summary)}]})))))
+                                                        summary)}]
+                                  :created-at now})))))
 
   ;; Zero chat usage and clear transient per-chat rule validations.
   (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules)

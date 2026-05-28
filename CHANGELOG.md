@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- New `eca read-chat` CLI command for streaming raw chat DB cache records as JSONL.
+
 ## 0.136.0
 
 - Anthropic Opus 4.8: send volatile (dynamic) instructions as a mid-conversation system message so the cached conversation history isn't invalidated each turn.

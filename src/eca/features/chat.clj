@@ -678,12 +678,13 @@
             ;; toolu_*/call_* tool ids) the new provider would reject. #209
             current-api (:api (llm-api/provider->api-handler provider model config))
             add-to-history! (fn [{:keys [role content] :as msg}]
-                              (let [tagged (if (and current-api
+                              (let [with-ts (update msg :created-at #(or % (System/currentTimeMillis)))
+                                    tagged (if (and current-api
                                                     (map? content)
                                                     (#{"reason" "tool_call" "tool_call_output"
                                                        "server_tool_use" "server_tool_result"} role))
-                                             (assoc msg :content (assoc content :api current-api))
-                                             msg)]
+                                             (assoc with-ts :content (assoc content :api current-api))
+                                             with-ts)]
                                 (swap! db* update-in [:chats chat-id :messages] (fnil conj []) tagged)
                                 ;; Persist after meaningful history mutations so a
                                 ;; long-running chat is recoverable mid-loop even if
@@ -1622,7 +1623,7 @@
         insert-idx (find-last-message-idx messages content-id)]
     (when insert-idx
       (let [flag-id (str (random-uuid))
-            flag-msg {:role "flag" :content {:text text} :content-id flag-id}
+            flag-msg {:role "flag" :content {:text text} :content-id flag-id :created-at (System/currentTimeMillis)}
             insert-after (inc insert-idx)
             new-messages (into (subvec messages 0 insert-after)
                                (cons flag-msg (subvec messages insert-after)))]

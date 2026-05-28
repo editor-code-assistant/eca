@@ -82,12 +82,30 @@
       (is (zero? dropped-count))
       (is (= past messages))))
 
+  (testing "internal-only top-level message fields are stripped before provider serialization"
+    (let [past [{:role "user"
+                 :content [{:type :text :text "hi"}]
+                 :created-at 123
+                 :content-id "c1"}
+                {:role "assistant"
+                 :content [{:type :text :text "ok"}]
+                 :created-at 456
+                 :content-id "c2"}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (zero? dropped-count))
+      (is (= [{:role "user" :content [{:type :text :text "hi"}]}
+              {:role "assistant" :content [{:type :text :text "ok"}]}]
+             messages))
+      (is (every? #(not (contains? % :created-at)) messages))
+      (is (every? #(not (contains? % :content-id)) messages))))
+
   (testing "mixed history: tagged foreign entries dropped, untagged + matching kept"
     (let [past [{:role "user" :content [{:type :text :text "u1"}]}
                 {:role "reason" :content {:id "r0" :text "legacy"}}                            ; untagged → kept
                 {:role "reason" :content {:id "r1" :text "t" :api :anthropic}}                 ; foreign → dropped
                 {:role "reason" :content {:id "r2" :text "t" :api :openai-chat}}               ; matching → kept
-                {:role "assistant" :content [{:type :text :text "a"}]}]
+                {:role "assistant" :content [{:type :text :text "a"}] :created-at 999}]
           {:keys [messages dropped-count dropped-apis]}
           (llm-api/sanitize-past-messages-for-api :openai-chat past)]
       (is (= 1 dropped-count))
@@ -95,7 +113,8 @@
       (is (= 4 (count messages)))
       (is (= ["user" "reason" "reason" "assistant"] (mapv :role messages)))
       (is (= ["r0" "r2"]
-             (->> messages (filter #(= "reason" (:role %))) (map #(get-in % [:content :id]))))))))
+             (->> messages (filter #(= "reason" (:role %))) (map #(get-in % [:content :id])))))
+      (is (not (contains? (last messages) :created-at))))))
 
 (deftest default-model-test
   (testing "Custom provider defaultModel present"
@@ -268,6 +287,86 @@
           :sync? false}))
       (is (= true (:image-generation @captured*))
           "openai handler should receive :image-generation true")))
+
+  (testing "openai branch strips internal top-level message fields before reaching handler"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-5.2"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :image-generation? false
+                               :model-name "gpt-5.2"}
+          :user-messages [{:role "user"
+                           :content [{:type :text :text "hi"}]
+                           :created-at 111
+                           :content-id "user-1"}]
+          :past-messages [{:role "assistant"
+                           :content [{:type :text :text "ok"}]
+                           :created-at 222
+                           :content-id "past-1"}]
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
+          :sync? false}))
+      (is (= [{:role "user" :content [{:type :text :text "hi"}]}]
+             (:user-messages @captured*)))
+      (is (= [{:role "assistant" :content [{:type :text :text "ok"}]}]
+             (:past-messages @captured*)))))
+
+  (testing "openai tool-call replay strips internal top-level message fields before follow-up request"
+    (let [seen-bodies* (atom [])]
+      (with-redefs [eca.llm-providers.openai/normalize-messages
+                    (fn [messages _supports-image?] (vec messages))
+                    eca.llm-providers.openai/base-responses-request!
+                    (fn [{:keys [body on-stream]}]
+                      (swap! seen-bodies* conj body)
+                      (if (= 1 (count @seen-bodies*))
+                        (on-stream "response.completed"
+                                   {:response {:status "completed"
+                                               :usage {:input_tokens 1 :output_tokens 1}
+                                               :output [{:type "function_call"
+                                                         :id "item_1"
+                                                         :call_id "call_1"
+                                                         :name "demo/tool"
+                                                         :arguments "{}"}]}})
+                        (on-stream "response.completed"
+                                   {:response {:status "completed"
+                                               :usage {:input_tokens 1 :output_tokens 1}
+                                               :output []}}))
+                      :ok)]
+        (llm-providers.openai/create-response!
+         {:model "gpt-5.2"
+          :instructions nil
+          :reason? false
+          :supports-image? false
+          :api-key "test-key"
+          :api-url "https://api.openai.com"
+          :past-messages []
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :tools [{:full-name "demo/tool" :description "d" :parameters {}}]
+          :web-search false
+          :image-generation false}
+         {:on-message-received identity
+          :on-error identity
+          :on-prepare-tool-call identity
+          :on-reason identity
+          :on-usage-updated identity
+          :on-server-web-search identity
+          :on-server-image-generation identity
+          :on-tools-called (fn [_]
+                             {:new-messages [{:role "assistant"
+                                              :content [{:type :text :text "after tool"}]
+                                              :created-at 333
+                                              :content-id "replay-1"}]
+                              :tools []})}))
+      (is (= 2 (count @seen-bodies*)))
+      (is (= [{:role "assistant"
+               :content [{:type :text :text "after tool"}]}]
+             (:input (second @seen-bodies*))))))
 
   (testing "openai branch forwards :image-generation false (or nil) when capability is off"
     (let [captured* (atom nil)]

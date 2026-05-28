@@ -21,6 +21,7 @@
    [eca.llm-providers.z-ai]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -167,7 +168,8 @@
 
 (defn sanitize-past-messages-for-api
   "Drops history entries whose opaque provider-specific ids would make the
-   request invalid under `target-api`. Returns a map:
+   request invalid under `target-api`, then strips internal-only top-level
+   message metadata before provider serialization. Returns a map:
      :messages      - sanitized past-messages vector
      :dropped-count - number of entries removed
      :dropped-apis  - set of origin apis whose entries were dropped
@@ -176,7 +178,7 @@
   [target-api past-messages]
   (let [past (vec past-messages)
         incompatible? (partial entry-incompatible-with-api? target-api)
-        kept (filterv (complement incompatible?) past)
+        kept (into [] (comp (remove incompatible?) (map message-sanitize/strip-internal-message-fields)) past)
         dropped (filterv incompatible? past)]
     {:messages kept
      :dropped-count (count dropped)
@@ -221,6 +223,7 @@
         {past-messages :messages
          sanitized-dropped-count :dropped-count
          sanitized-dropped-apis :dropped-apis} (sanitize-past-messages-for-api (:api api-handler) past-messages)
+        user-messages (message-sanitize/sanitize-outbound-messages user-messages)
         _ (when (and on-history-sanitized (pos? sanitized-dropped-count))
             (try
               (on-history-sanitized {:dropped-count sanitized-dropped-count
