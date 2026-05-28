@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Anthropic Opus 4.8: send volatile (dynamic) instructions as a mid-conversation system message so the cached conversation history isn't invalidated each turn.
+
 ## 0.135.4
 
 - `bg_job` now shows the job name (from `shell_command`'s `background` arg) in `list`, `read_output` and `kill` outputs, e.g. `Background job "dev-server" (job-1) killed.`.

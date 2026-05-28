@@ -470,3 +470,53 @@
     (testing "missing :output_tokens defaults to 0 and trips the heuristic"
       (is (true? (overflow? {} 32000)))
       (is (true? (overflow? {:input_tokens 100000} 32000))))))
+
+(deftest finalize-messages-test
+  (let [cache {:type "ephemeral"}
+        finalize #'llm-providers.anthropic/finalize-messages]
+    (testing "mid-system? false behaves like add-cache-to-last-message (no trailing system message)"
+      (is (match?
+           [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}]
+           (finalize [{:role "user" :content "hi"}] cache false "DYN"))))
+    (testing "mid-system? true appends dynamic as a trailing system message, cache stays on the prior turn"
+      (is (match?
+           [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}
+            {:role "system" :content [{:type "text" :text "DYN"}]}]
+           (finalize [{:role "user" :content "hi"}] cache true "DYN"))))
+    (testing "the trailing system message carries no cache_control so it stays uncached"
+      (is (nil? (-> (finalize [{:role "user" :content "hi"}] cache true "DYN")
+                    last :content first :cache_control))))))
+
+(deftest chat!-mid-conversation-system-test
+  (let [base-params {:model "claude-opus-4-8"
+                     :api-url "http://localhost:1"
+                     :api-key "fake-key"
+                     :auth-type :auth/key
+                     :instructions {:static "STATIC" :dynamic "DYNAMIC"}
+                     :user-messages [{:role "user" :content "hello"}]
+                     :past-messages []}
+        run! (fn [params]
+               (let [req* (atom nil)]
+                 (with-client-proxied {}
+                   (fn handler [req]
+                     (reset! req* req)
+                     {:status 200 :body {:content [{:text "ok"}]}})
+                   (llm-providers.anthropic/chat! params nil))
+                 (:body @req*)))]
+    (testing "flag off keeps dynamic instructions in the cached :system prefix"
+      (let [body (run! (assoc base-params :mid-conversation-system? false))]
+        (is (some #(= "DYNAMIC" (:text %)) (:system body))
+            "dynamic block present in :system")
+        (is (not-any? #(= "system" (:role %)) (:messages body))
+            "no system-role entry inside the messages array")))
+    (testing "flag on moves dynamic out of :system into a trailing system message after the user turn"
+      (let [body (run! (assoc base-params :mid-conversation-system? true))]
+        (is (some #(= "STATIC" (:text %)) (:system body))
+            "static block still in :system")
+        (is (not-any? #(= "DYNAMIC" (:text %)) (:system body))
+            "dynamic block removed from :system")
+        (is (match? {:role "system" :content [{:type "text" :text "DYNAMIC"}]}
+                    (last (:messages body)))
+            "dynamic appended as the trailing system message")
+        (is (= "user" (:role (last (butlast (:messages body)))))
+            "trailing system message follows a user turn")))))

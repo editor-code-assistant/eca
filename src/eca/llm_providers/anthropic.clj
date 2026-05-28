@@ -353,6 +353,20 @@
                                         :cache_control cache-control}])
          (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
 
+(defn ^:private finalize-messages
+  "Adds the trailing cache breakpoint and, when `mid-system?`, appends the
+   volatile `dynamic` instructions as a `role: \"system\"` entry after the last
+   (user) turn. The cache breakpoint stays on the last real user/tool turn so
+   the volatile system entry is left uncached and the stable history prefix
+   keeps being cached across turns instead of being invalidated whenever
+   `dynamic` changes."
+  [messages cache-control mid-system? dynamic]
+  (let [cached (add-cache-to-last-message messages cache-control)]
+    (if mid-system?
+      (conj cached {:role "system"
+                    :content [{:type "text" :text dynamic}]})
+      cached)))
+
 (defn ^:private max-tokens-input-overflow?
   "Heuristic: when stop_reason is 'max_tokens' but output was barely
    produced relative to the requested cap, the underlying cause is
@@ -367,7 +381,7 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload extra-headers supports-image? http-client cancelled?
+           tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
            stream-idle-timeout-seconds cache-retention]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
@@ -380,14 +394,21 @@
         {:keys [static dynamic]} (if (map? instructions)
                                     instructions
                                     {:static instructions :dynamic nil})
+        ;; Opus 4.8+ accepts `role: system` entries inside the messages array.
+        ;; When supported, the volatile dynamic instructions move out of the
+        ;; cached :system prefix into a trailing system message, so a changing
+        ;; dynamic block no longer invalidates the cached conversation history.
+        mid-system? (and mid-conversation-system?
+                         (not (string/blank? dynamic))
+                         (= "user" (:role (last messages))))
         system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
                                {:type "text" :text static :cache_control cache-control}]
-                        (not (string/blank? dynamic))
+                        (and (not (string/blank? dynamic)) (not mid-system?))
                         (conj {:type "text" :text dynamic :cache_control cache-control}))
         body (merge
               (assoc-some
                {:model model
-                :messages (add-cache-to-last-message messages cache-control)
+                :messages (finalize-messages messages cache-control mid-system? dynamic)
                 :max_tokens (or max-output-tokens 32000)
                 :stream stream?
                 :tools (add-cache-to-last-tool (->tools tools web-search) cache-control)
@@ -506,7 +527,7 @@
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
                                                                     merge-adjacent-tool-results
-                                                                    (add-cache-to-last-message cache-control))]
+                                                                    (finalize-messages cache-control mid-system? dynamic))]
                                                    (reset! content-block* {})
                                                    (base-request!
                                                     {:rid (llm-util/gen-rid)

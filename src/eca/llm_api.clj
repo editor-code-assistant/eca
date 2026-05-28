@@ -211,6 +211,7 @@
         reason? (:reason? model-capabilities)
         supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)
+        mid-conversation-system? (:mid-conversation-system? model-capabilities)
         image-generation (:image-generation? model-capabilities)
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
@@ -280,6 +281,7 @@
           :past-messages past-messages
           :tools tools
           :web-search web-search
+          :mid-conversation-system? mid-conversation-system?
           :extra-payload extra-payload
           :extra-headers extra-headers
           :api-url api-url
