@@ -264,14 +264,58 @@
     (when (= version (:version cache))
       cache)))
 
+(defn ^:private chat-recency [chat]
+  (or (:updated-at chat) (:created-at chat) 0))
+
+(defn ^:private merge-chats
+  "Merges chat maps into one. On a duplicate chat id, keeps the entry with the
+   greater recency (`:updated-at`, falling back to `:created-at`), so a newer
+   chat is never clobbered by a staler copy living in another cache dir."
+  [chat-maps]
+  (reduce (fn [acc chats]
+            (reduce-kv (fn [m id chat]
+                         (if-let [existing (get m id)]
+                           (if (> (chat-recency chat) (chat-recency existing))
+                             (assoc m id chat)
+                             m)
+                           (assoc m id chat)))
+                       acc
+                       chats))
+          {}
+          chat-maps))
+
+(defn consolidate-workspace-cache!
+  "Heals chat caches that fragmented across multiple directories for the same
+   workspace set (legacy hash-only dirs, or dirs prefixed from a different folder
+   order). Merges every matching cache into the canonical dir (newest chat wins)
+   and removes the redundant dirs. Best-effort and idempotent."
+  [workspaces metrics]
+  (try
+    (let [redundant (cache/redundant-workspace-cache-files workspaces "db.transit.json" shared/uri->filename)]
+      (when (seq redundant)
+        (let [canonical (transit-global-by-workspaces-db-file workspaces)
+              caches (keep #(read-cache % metrics) (cons canonical redundant))
+              merged (merge-chats (map :chats caches))]
+          (logger/info logger-tag (str "Consolidating " (count redundant) " redundant workspace cache dir(s) into " canonical))
+          (upsert-cache! {:chats merged :version version} canonical metrics)
+          (doseq [^java.io.File f redundant]
+            (try
+              (fs/delete-tree (.getParentFile f))
+              (catch Throwable e
+                (logger/warn logger-tag (str "Could not remove redundant cache dir " (.getParentFile f)) e)))))))
+    (catch Throwable e
+      (logger/warn logger-tag "Could not consolidate workspace cache" e))))
+
 (defn load-db-from-cache! [db* config metrics]
   (when-not (:pureConfig config)
     (when-let [global-cache (read-global-cache metrics)]
       (logger/info logger-tag "Loading from global-cache caches...")
       (swap! db* shared/deep-merge global-cache))
-    (when-let [global-by-workspace-cache (read-global-by-workspaces-cache (:workspace-folders @db*) metrics)]
-      (logger/info logger-tag "Loading from workspace-cache caches...")
-      (swap! db* shared/deep-merge global-by-workspace-cache))))
+    (let [workspaces (:workspace-folders @db*)]
+      (consolidate-workspace-cache! workspaces metrics)
+      (when-let [global-by-workspace-cache (read-global-by-workspaces-cache workspaces metrics)]
+        (logger/info logger-tag "Loading from workspace-cache caches...")
+        (swap! db* shared/deep-merge global-by-workspace-cache)))))
 
 (defn ^:private normalize-db-for-workspace-write [db]
   (-> (select-keys db [:chats])

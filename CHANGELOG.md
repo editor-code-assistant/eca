@@ -3,6 +3,7 @@
 ## Unreleased
 
 - New `eca read-chat` CLI command for streaming raw chat DB cache records as JSONL.
+- Fix chats randomly disappearing from `/resume` after restart: key the workspace chat cache on the order-independent workspace hash and merge caches fragmented across differently-named dirs. (eca-intellij #20)
 
 ## 0.136.0
 

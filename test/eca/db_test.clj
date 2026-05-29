@@ -5,7 +5,8 @@
    [clojure.test :refer [deftest is testing]]
    [cognitect.transit :as transit]
    [eca.cache :as cache]
-   [eca.db :as db])
+   [eca.db :as db]
+   [eca.shared :as shared])
   (:import
    [java.io File]))
 
@@ -231,3 +232,26 @@
       (is (contains? (:chats result) "no-msgs-key")))
     (testing ":tool-calls runtime state is stripped before persisting"
       (is (not (contains? (get-in result [:chats "with-msg"]) :tool-calls))))))
+
+(deftest consolidate-workspace-cache!-merges-and-removes-redundant-dirs-test
+  (testing "merges chats from a hash-only dir into the canonical dir (newest wins) and removes the redundant dir"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [workspaces [{:uri "file:///home/user/projX"}]
+                canonical (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)
+                ws-hash (cache/workspaces-hash workspaces shared/uri->filename)
+                hash-only-dir (io/file (cache/global-dir) ws-hash)
+                hash-only-file (io/file hash-only-dir "db.transit.json")
+                upsert! @#'db/upsert-cache!]
+            ;; canonical holds an older copy of chat "a"
+            (upsert! {:version db/version :chats {"a" {:id "a" :updated-at 100 :title "old-a"}}} canonical nil)
+            ;; a legacy hash-only dir holds a newer "a" plus an extra chat "b"
+            (upsert! {:version db/version :chats {"a" {:id "a" :updated-at 200 :title "new-a"}
+                                                  "b" {:id "b" :updated-at 50 :title "b"}}} hash-only-file nil)
+            (db/consolidate-workspace-cache! workspaces nil)
+            (let [merged (:chats (read-transit-file canonical))]
+              (is (= #{"a" "b"} (set (keys merged))) "all chats end up in the canonical dir")
+              (is (= "new-a" (get-in merged ["a" :title])) "newest :updated-at wins on conflict")
+              (is (not (fs/exists? hash-only-dir)) "redundant dir is removed")))
+          (finally (fs/delete-tree tmpdir)))))))
