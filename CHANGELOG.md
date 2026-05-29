@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prompt now renders context as labeled `## Static Contexts` and `## Dynamic Contexts` sections, with Project Environment Context no longer wedged between them.
+
 ## 0.136.1
 
 - New `eca read-chat` CLI command for streaming raw chat DB cache records as JSONL.

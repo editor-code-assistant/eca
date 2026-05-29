@@ -234,13 +234,13 @@
          skills)
         "</skills>"
         ""])
-     (when (seq stable-contexts)
-       ["## Contexts"
-        ""
-        (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
-     ""
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
-                                selmer-ctx "additional-system-info"))))
+                                selmer-ctx "additional-system-info")
+     ""
+     (when (seq stable-contexts)
+       ["## Static Contexts"
+        ""
+        (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))]))))
 
 (defn build-dynamic-instructions
   "Builds the volatile portion of the system prompt: cursor/MCP resource contexts
@@ -249,7 +249,9 @@
   (let [volatile-contexts (filter #(volatile-context-types (:type %)) refined-contexts)
         result (multi-str
                 (when (seq volatile-contexts)
-                  (contexts-str volatile-contexts nil nil))
+                  ["## Dynamic Contexts"
+                   ""
+                   (contexts-str volatile-contexts nil nil)])
                 (mcp-instructions-section db))]
     (when-not (string/blank? result) result)))
 
