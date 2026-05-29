@@ -397,7 +397,8 @@
            ;; :status (keyword) is initialized by the state transition machinery
            ;; :approved?* (promise) is initialized by the :init-approval-promise action
            ;; :future-cleanup-complete?* (promise) is initialized by the :init-future-cleanup-promise action
-           ;; :arguments (map) is initialized by the :init-arguments action
+           ;; :arguments (map), :summary, :details and :manual-approval are
+           ;; initialized by the :init-arguments action
            ;; :start-time (long) is initialized by the :set-start-time action
            ;; :future (future) is initialized by the :add-future action
            ;; :resources (map) is updated by the :add-resources and remove-resources actions
@@ -419,8 +420,12 @@
            (:future-cleanup-complete?* event-data))
 
     :init-arguments
-    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :arguments]
-           (:arguments event-data))
+    (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
+           #(-> %
+                (assoc :arguments (:arguments event-data))
+                (assoc-some :summary (:summary event-data)
+                            :details (:details event-data)
+                            :manual-approval (:manual-approval event-data))))
 
     :set-decision-reason
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :decision-reason]
