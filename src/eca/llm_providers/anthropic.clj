@@ -9,6 +9,7 @@
    [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
@@ -253,7 +254,6 @@
                             :content (:raw-content content)}]})
 
             (-> msg
-                (dissoc :content-id)
                 (update :content (fn [c]
                                    (if (string? c)
                                      (string/trim c)
@@ -523,6 +523,7 @@
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
                                                  (let [messages (-> new-messages
+                                                                    message-sanitize/sanitize-outbound-messages
                                                                     group-parallel-tool-calls
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants

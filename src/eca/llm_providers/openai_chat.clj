@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.shared :refer [assoc-some deep-merge join-api-url]]
    [hato.client :as http]))
 
@@ -525,7 +526,8 @@
                                        tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
                                   (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tools-to-call)]
-                                    (let [pruned-messages (prune-history new-messages reasoning-history)
+                                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)
+                                          pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
                                                                   (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end)))

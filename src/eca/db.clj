@@ -75,7 +75,8 @@
                         :prompt-cache ::any-map
                         :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason" "compact_marker" "flag" "server_tool_use" "server_tool_result")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
-                                    :content-id :string}]
+                                    :content-id :string
+                                    :created-at :number}]
                         :task {:next-id :number
                                :active-summary (or :string nil)
                                :tasks [{:id :number
@@ -161,14 +162,20 @@
 (defn ^:private transit-global-by-workspaces-db-file [workspaces]
   (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename))
 
+(defn read-transit-file
+  "Read and return the transit+json data from a cache file.
+   Returns nil when the file does not exist. Throws on I/O or parse errors."
+  [^java.io.File cache-file]
+  (when (fs/exists? cache-file)
+    (with-open [is (io/input-stream cache-file)]
+      (transit/read (transit/reader is :json)))))
+
 (defn ^:private read-cache [cache-file metrics]
   (try
     (metrics/task metrics :db/read-cache
-      (if (fs/exists? cache-file)
-        (let [cache (with-open [is (io/input-stream cache-file)]
-                      (transit/read (transit/reader is :json)))]
-          (when (= version (:version cache))
-            cache))
+      (if-let [cache (read-transit-file cache-file)]
+        (when (= version (:version cache))
+          cache)
         (logger/info logger-tag (str "No existing DB cache found for " cache-file))))
     (catch Throwable e
       (logger/error logger-tag "Could not load global cache from DB" e))))
