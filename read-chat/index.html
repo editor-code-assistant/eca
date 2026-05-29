@@ -6,29 +6,29 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Configure ECA Remote: control your ECA session from a web browser.">
+        <meta name="description" content="Stream raw ECA chat history from the DB cache as JSONL: list chats, filter messages by time or role.">
       
       
       
-        <link rel="canonical" href="https://eca.dev/config/remote/">
+        <link rel="canonical" href="https://eca.dev/read-chat/">
       
       
-        <link rel="prev" href="../metrics/">
+        <link rel="prev" href="../workflows/">
       
       
-        <link rel="next" href="../network/">
+        <link rel="next" href="../install/">
       
       
-      <link rel="icon" href="../../images/logo.svg">
+      <link rel="icon" href="../images/logo.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
     
     
       
-        <title>Remote - ECA - Editor Code Assistant</title>
+        <title>Read Chat CLI - ECA - Editor Code Assistant</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.342714a4.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.342714a4.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../../stylesheets/layout.css">
+      <link rel="stylesheet" href="../stylesheets/layout.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
   
@@ -78,9 +78,9 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Remote - ECA - Editor Code Assistant" />
-  <meta property="og:description" content="Configure ECA Remote: control your ECA session from a web browser." />
-  <meta property="og:url" content="https://eca.dev/config/remote/" />
+  <meta property="og:title" content="Read Chat CLI - ECA - Editor Code Assistant" />
+  <meta property="og:description" content="Stream raw ECA chat history from the DB cache as JSONL: list chats, filter messages by time or role." />
+  <meta property="og:url" content="https://eca.dev/read-chat/" />
   <meta property="og:image" content="https://eca.dev/images/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -88,8 +88,8 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Remote - ECA - Editor Code Assistant" />
-  <meta name="twitter:description" content="Configure ECA Remote: control your ECA session from a web browser." />
+  <meta name="twitter:title" content="Read Chat CLI - ECA - Editor Code Assistant" />
+  <meta name="twitter:description" content="Stream raw ECA chat history from the DB cache as JSONL: list chats, filter messages by time or role." />
   <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
   </head>
@@ -104,7 +104,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#remote" class="md-skip">
+        <a href="#read-chat" class="md-skip">
           Skip to content
         </a>
       
@@ -118,9 +118,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="ECA - Editor Code Assistant" class="md-header__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
+    <a href=".." title="ECA - Editor Code Assistant" class="md-header__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
       
-  <img src="../../images/logo.svg" alt="logo">
+  <img src="../images/logo.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -137,7 +137,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Remote
+              Read Chat CLI
             
           </span>
         </div>
@@ -224,7 +224,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../.." class="md-tabs__link">
+        <a href=".." class="md-tabs__link">
           
   
   
@@ -240,11 +240,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../features/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../features/" class="md-tabs__link">
           
   
   
@@ -264,7 +266,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../install/" class="md-tabs__link">
+        <a href="../install/" class="md-tabs__link">
           
   
   
@@ -280,13 +282,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../introduction/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../config/introduction/" class="md-tabs__link">
           
   
   
@@ -304,7 +304,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../protocol/" class="md-tabs__link">
+      <a href="../protocol/" class="md-tabs__link">
         
   
   
@@ -323,7 +323,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../troubleshooting/" class="md-tabs__link">
+      <a href="../troubleshooting/" class="md-tabs__link">
         
   
   
@@ -396,9 +396,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="ECA - Editor Code Assistant" class="md-nav__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
+    <a href=".." title="ECA - Editor Code Assistant" class="md-nav__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
       
-  <img src="../../images/logo.svg" alt="logo">
+  <img src="../images/logo.svg" alt="logo">
 
     </a>
     ECA - Editor Code Assistant
@@ -470,7 +470,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -497,28 +497,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
-        
-          
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -531,7 +534,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             Features
@@ -545,7 +548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../features/" class="md-nav__link">
+      <a href="../features/" class="md-nav__link">
         
   
   
@@ -568,7 +571,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../workflows/" class="md-nav__link">
+      <a href="../workflows/" class="md-nav__link">
         
   
   
@@ -588,10 +591,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../read-chat/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Read Chat CLI
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -602,6 +627,152 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      Quick start
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Modes
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#listing-mode-no-chat-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      Listing mode (no --chat-id)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detail-mode-chat-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      Detail mode (--chat-id)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Options
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#role-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      Role values
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-content-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      Message content shape
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#date-formats" class="md-nav__link">
+    <span class="md-ellipsis">
+      Date formats
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Date formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#messages-without-timestamps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Messages without timestamps
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scripting-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Scripting examples
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#db-version-mismatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      DB version mismatch
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Errors
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -666,7 +837,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../install/" class="md-nav__link">
+      <a href="../install/" class="md-nav__link">
         
   
   
@@ -693,31 +864,28 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -730,7 +898,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Configuration
@@ -744,7 +912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../introduction/" class="md-nav__link">
+      <a href="../config/introduction/" class="md-nav__link">
         
   
   
@@ -767,7 +935,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../template/" class="md-nav__link">
+      <a href="../config/template/" class="md-nav__link">
         
   
   
@@ -790,7 +958,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/" class="md-nav__link">
+      <a href="../config/models/" class="md-nav__link">
         
   
   
@@ -813,7 +981,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tools/" class="md-nav__link">
+      <a href="../config/tools/" class="md-nav__link">
         
   
   
@@ -836,7 +1004,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../variants/" class="md-nav__link">
+      <a href="../config/variants/" class="md-nav__link">
         
   
   
@@ -859,7 +1027,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../skills/" class="md-nav__link">
+      <a href="../config/skills/" class="md-nav__link">
         
   
   
@@ -882,7 +1050,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rules/" class="md-nav__link">
+      <a href="../config/rules/" class="md-nav__link">
         
   
   
@@ -905,7 +1073,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../commands/" class="md-nav__link">
+      <a href="../config/commands/" class="md-nav__link">
         
   
   
@@ -928,7 +1096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agents/" class="md-nav__link">
+      <a href="../config/agents/" class="md-nav__link">
         
   
   
@@ -951,7 +1119,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../hooks/" class="md-nav__link">
+      <a href="../config/hooks/" class="md-nav__link">
         
   
   
@@ -974,7 +1142,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../completion/" class="md-nav__link">
+      <a href="../config/completion/" class="md-nav__link">
         
   
   
@@ -997,7 +1165,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rewrite/" class="md-nav__link">
+      <a href="../config/rewrite/" class="md-nav__link">
         
   
   
@@ -1020,7 +1188,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../context-management/" class="md-nav__link">
+      <a href="../config/context-management/" class="md-nav__link">
         
   
   
@@ -1043,7 +1211,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../plugins/" class="md-nav__link">
+      <a href="../config/plugins/" class="md-nav__link">
         
   
   
@@ -1066,7 +1234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../metrics/" class="md-nav__link">
+      <a href="../config/metrics/" class="md-nav__link">
         
   
   
@@ -1086,32 +1254,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    Remote
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../config/remote/" class="md-nav__link">
         
   
   
@@ -1122,53 +1268,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#connection-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      Connection Methods
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#config-options" class="md-nav__link">
-    <span class="md-ellipsis">
-      Config Options
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#web-ui" class="md-nav__link">
-    <span class="md-ellipsis">
-      Web UI
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1181,7 +1280,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../network/" class="md-nav__link">
+      <a href="../config/network/" class="md-nav__link">
         
   
   
@@ -1204,7 +1303,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/" class="md-nav__link">
+      <a href="../config/examples/" class="md-nav__link">
         
   
   
@@ -1234,7 +1333,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../protocol/" class="md-nav__link">
+      <a href="../protocol/" class="md-nav__link">
         
   
   
@@ -1256,7 +1355,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1342,27 +1441,126 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#connection-methods" class="md-nav__link">
+  <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
-      Connection Methods
+      Quick start
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#config-options" class="md-nav__link">
+  <a href="#modes" class="md-nav__link">
     <span class="md-ellipsis">
-      Config Options
+      Modes
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#listing-mode-no-chat-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      Listing mode (no --chat-id)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detail-mode-chat-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      Detail mode (--chat-id)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Options
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#role-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      Role values
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-content-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      Message content shape
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#web-ui" class="md-nav__link">
+  <a href="#date-formats" class="md-nav__link">
     <span class="md-ellipsis">
-      Web UI
+      Date formats
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Date formats">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#messages-without-timestamps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Messages without timestamps
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scripting-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Scripting examples
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#db-version-mismatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      DB version mismatch
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Errors
     </span>
   </a>
   
@@ -1387,125 +1585,240 @@
   
 
 
-<h1 id="remote">Remote<a class="headerlink" href="#remote" title="Permanent link">#</a></h1>
-<p>ECA Remote lets you control, approve, and observe your ECA session from a web browser.
-When enabled, ECA starts an embedded HTTPS server that the web frontend at <a href="https://web.eca.dev">web.eca.dev</a> connects to in real-time.</p>
-<p><img alt="" src="../../images/features/remote.png" /></p>
-<h2 id="connection-methods">Connection Methods<a class="headerlink" href="#connection-methods" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="lan--private-ips" name="__tabbed_1" type="radio" /><input id="vpn--tailscale" name="__tabbed_1" type="radio" /><input id="local-docker" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="lan--private-ips">LAN / Private IPs</label><label for="vpn--tailscale">VPN / Tailscale</label><label for="local-docker">Local Docker</label></div>
+<h1 id="read-chat">read-chat<a class="headerlink" href="#read-chat" title="Permanent link">#</a></h1>
+<p>Inspect ECA's chat database offline by reading <code>db.transit.json</code> directly. No running server is required.</p>
+<p>Output is always <strong>raw JSONL</strong> (one JSON object per line) in the persisted internal shape, making it suitable for debugging, export, and programmatic processing.</p>
+<h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c1"># List all chats (newest first)</span>
+eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json
+
+<span class="c1"># Resolve the cache from the session&#39;s workspace folders</span>
+eca<span class="w"> </span>read-chat<span class="w"> </span>--workspace<span class="w"> </span>~/Code/Clojure/eca<span class="w"> </span>--workspace<span class="w"> </span>~/Code/Clojure/eca-worktrees/add-read-chat-command
+
+<span class="c1"># Stream raw messages from a specific chat</span>
+eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span>--chat-id<span class="w"> </span>&lt;chat-id&gt;
+
+<span class="c1"># Last 10 user messages from the past hour</span>
+eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>&lt;chat-id&gt;<span class="w"> </span>--since<span class="w"> </span>1h<span class="w"> </span>--role<span class="w"> </span>user<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">10</span>
+</code></pre></div>
+<h2 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">#</a></h2>
+<h3 id="listing-mode-no-chat-id">Listing mode (no <code>--chat-id</code>)<a class="headerlink" href="#listing-mode-no-chat-id" title="Permanent link">#</a></h3>
+<p>Prints one summary object per chat, sorted by <code>:updated-at</code> descending. Fields: <code>id</code>, <code>title</code>, <code>status</code>, <code>model</code>, <code>created-at</code>, <code>updated-at</code>, <code>user-prompt-count</code>.</p>
+<p><code>--since</code>/<code>--until</code> filter by chat <code>:updated-at</code>.</p>
+<h3 id="detail-mode-chat-id">Detail mode (<code>--chat-id</code>)<a class="headerlink" href="#detail-mode-chat-id" title="Permanent link">#</a></h3>
+<p>Prints one message object per line in chronological order. Fields include <code>role</code>, <code>content</code>, <code>content-id</code>, <code>created-at</code>, and any other persisted fields.</p>
+<p><code>--since</code>/<code>--until</code> filter by message <code>:created-at</code>.</p>
+<h2 id="options">Options<a class="headerlink" href="#options" title="Permanent link">#</a></h2>
+<p><code>read-chat</code> accepts <strong>options only</strong>; positional arguments are rejected.</p>
+<p>Provide exactly one input source: <code>--db-cache-path</code> or one or more <code>--workspace</code> paths.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--db-cache-path &lt;PATH&gt;</code></td>
+<td>Path to <code>db.transit.json</code>.</td>
+</tr>
+<tr>
+<td><code>--workspace &lt;PATH&gt;</code></td>
+<td>Workspace folder; repeat in the original session order.</td>
+</tr>
+<tr>
+<td><code>--chat-id &lt;ID&gt;</code></td>
+<td>Focus on a chat; omit to list all chats.</td>
+</tr>
+<tr>
+<td><code>--role &lt;ROLE&gt;</code></td>
+<td>Filter messages by exact <code>role</code> string (requires <code>--chat-id</code>).</td>
+</tr>
+<tr>
+<td><code>--since &lt;DATE&gt;</code></td>
+<td>Start date (inclusive).</td>
+</tr>
+<tr>
+<td><code>--until &lt;DATE&gt;</code></td>
+<td>End date (exclusive).</td>
+</tr>
+<tr>
+<td><code>-h</code>, <code>--help</code></td>
+<td>Print help.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="role-values">Role values<a class="headerlink" href="#role-values" title="Permanent link">#</a></h3>
+<p>Common <code>--role</code> filters: <code>user</code>, <code>assistant</code>, <code>tool_call</code>, <code>tool_call_output</code>, <code>reason</code>, <code>server_tool_use</code>, <code>server_tool_result</code>, <code>image_generation_call</code>, <code>compact_marker</code>, <code>flag</code>.</p>
+<h2 id="message-content-shape">Message content shape<a class="headerlink" href="#message-content-shape" title="Permanent link">#</a></h2>
+<ul>
+<li>Plain text may be a string.</li>
+<li>Structured content is often an array like <code>[{"type":"text","text":"..."}]</code>.</li>
+<li><code>tool_call</code>: <code>content</code> map with <code>id</code>, <code>name</code>, <code>arguments</code>, <code>server</code>, <code>full-name</code>, <code>summary</code>.</li>
+<li><code>tool_call_output</code>: <code>content</code> map with <code>id</code>, <code>name</code>, <code>error</code>, <code>output</code>, <code>total-time-ms</code>.</li>
+</ul>
+<p>Tool calls and results share the same <code>content.id</code>.</p>
+<h2 id="date-formats">Date formats<a class="headerlink" href="#date-formats" title="Permanent link">#</a></h2>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Example</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Relative</td>
+<td><code>30m</code>, <code>2h</code>, <code>1d</code></td>
+<td>Minutes/hours/days ago</td>
+</tr>
+<tr>
+<td>Date</td>
+<td><code>2025-01-01</code></td>
+<td>Midnight UTC</td>
+</tr>
+<tr>
+<td>Instant</td>
+<td><code>2025-01-01T14:30:00Z</code></td>
+<td>Full ISO-8601</td>
+</tr>
+</tbody>
+</table>
+<h3 id="messages-without-timestamps">Messages without timestamps<a class="headerlink" href="#messages-without-timestamps" title="Permanent link">#</a></h3>
+<p>Messages created before <code>:created-at</code> tracking was added lack timestamps. When filtering by date, they are <strong>excluded</strong> and a stderr warning reports the drop count.</p>
+<h2 id="scripting-examples">Scripting examples<a class="headerlink" href="#scripting-examples" title="Permanent link">#</a></h2>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:10"><input checked="checked" id="last-10-messages" name="__tabbed_1" type="radio" /><input id="count-messages" name="__tabbed_1" type="radio" /><input id="extract-user-text" name="__tabbed_1" type="radio" /><input id="extract-assistant-text" name="__tabbed_1" type="radio" /><input id="list-tool-calls" name="__tabbed_1" type="radio" /><input id="list-tool-outputs" name="__tabbed_1" type="radio" /><input id="find-chats-by-model" name="__tabbed_1" type="radio" /><input id="count-user-prompts" name="__tabbed_1" type="radio" /><input id="export-a-chat" name="__tabbed_1" type="radio" /><input id="recent-chats-pretty-printed" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="last-10-messages">Last 10 messages</label><label for="count-messages">Count messages</label><label for="extract-user-text">Extract user text</label><label for="extract-assistant-text">Extract assistant text</label><label for="list-tool-calls">List tool calls</label><label for="list-tool-outputs">List tool outputs</label><label for="find-chats-by-model">Find chats by model</label><label for="count-user-prompts">Count user prompts</label><label for="export-a-chat">Export a chat</label><label for="recent-chats-pretty-printed">Recent chats, pretty-printed</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>The simplest approach — connect directly from <code>https://web.eca.dev</code> to your machine on the local network. Works in all browsers with no extra setup.</p>
-<p><strong>Config:</strong></p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something&quot;</span><span class="w"> </span><span class="c1">// optional — or ${env:MY_PASS}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">10</span>
 </code></pre></div>
-<p><strong>Steps:</strong></p>
-<ol>
-<li>
-<p>Start ECA — it logs a connection URL you can open directly:</p>
-<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=192-168-1-42.local.eca.dev:7777&amp;pass=a3f8b&amp;protocol=https
-</code></pre></div>
-</li>
-<li>
-<p>Or open <code>https://web.eca.dev</code>, enter your machine's LAN IP (e.g. <code>192.168.1.42</code>) and password — the web UI automatically resolves it to the secure <code>*.local.eca.dev</code> hostname.</p>
-</li>
-</ol>
-<p>ECA ships with a TLS certificate for <code>*.local.eca.dev</code>. On startup, the server detects your LAN IP and serves HTTPS using a hostname like <code>192-168-1-42.local.eca.dev</code>, which resolves back to your IP via <a href="https://sslip.io">sslip.io</a> DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.</p>
-<div class="admonition note">
-<p class="admonition-title">Firewall</p>
-<p>Make sure your firewall allows incoming TCP on ports <code>7777</code>–<code>7796</code> from your LAN.
-ECA uses port <code>7777</code> by default and increments if busy.</p>
-</div>
 </div>
 <div class="tabbed-block">
-<p>For connecting from outside your LAN. <a href="https://tailscale.com">Tailscale</a> (free) creates a secure private network between your devices with valid HTTPS certificates.</p>
-<p><strong>Config:</strong></p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something-here&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-machine.tail1234.ts.net&quot;</span><span class="w"> </span><span class="c1">// optional — used in the connect URL</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
 </code></pre></div>
-<p><strong>Steps:</strong></p>
-<ol>
-<li>Install Tailscale and enable <a href="https://tailscale.com/kb/1153/enabling-https">HTTPS certificates</a></li>
-<li>
-<p>Expose ECA's port via Tailscale HTTPS serve:</p>
-<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7777</span><span class="w"> </span>https+insecure://localhost:7777
-sudo<span class="w"> </span>tailscale<span class="w"> </span>serve<span class="w"> </span>--bg<span class="w"> </span>--https<span class="w"> </span><span class="m">7778</span><span class="w"> </span>https+insecure://localhost:7778
-<span class="c1"># ... repeat for as many ports as you need (7777–7796)</span>
-</code></pre></div>
-<div class="admonition warning">
-<p class="admonition-title">Use <code>--https</code>, not <code>--tcp</code></p>
-<p><code>--tcp</code> creates a raw TCP proxy that browsers cannot connect to.
-<code>--https</code> creates a proper HTTPS reverse proxy with valid certificates.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Why <code>https+insecure://</code>?</p>
-<p>ECA's built-in server runs HTTPS with a <code>*.local.eca.dev</code> certificate.
-Tailscale Serve must connect to it over TLS (<code>https+insecure://</code>), not plain
-HTTP. The <code>+insecure</code> flag tells Tailscale to skip certificate verification
-since the local cert won't match your Tailscale hostname.</p>
-</div>
-</li>
-<li>
-<p>Start ECA — it logs a connection URL you can open directly:</p>
-<div class="highlight"><pre><span></span><code>https://web.eca.dev?host=my-machine.tail1234.ts.net:7777&amp;pass=a3f8b&amp;protocol=https
-</code></pre></div>
-</li>
-<li>
-<p>Open <code>https://web.eca.dev</code> and enter your Tailscale hostname and password</p>
-</li>
-</ol>
 </div>
 <div class="tabbed-block">
-<p>Run the web frontend locally over HTTP — useful for development or restricted environments.</p>
-<p><strong>Config:</strong></p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;something-here&quot;</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>user<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;</span>
+<span class="s1">    def content_text:</span>
+<span class="s1">      if type == &quot;string&quot; then .</span>
+<span class="s1">      elif type == &quot;array&quot; then</span>
+<span class="s1">        map(</span>
+<span class="s1">          if .type == &quot;text&quot; then .text // empty</span>
+<span class="s1">          elif .type == &quot;image&quot; then &quot;[Image: &quot; + (.&quot;media-type&quot; // &quot;unknown&quot;) + &quot;]&quot;</span>
+<span class="s1">          else empty</span>
+<span class="s1">          end</span>
+<span class="s1">        ) | join(&quot;\n&quot;)</span>
+<span class="s1">      else empty</span>
+<span class="s1">      end;</span>
+<span class="s1">    .content | content_text</span>
+<span class="s1">  &#39;</span>
 </code></pre></div>
-<p><strong>Steps:</strong></p>
-<ol>
-<li>
-<p>Run the web frontend locally via Docker:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>--pull<span class="o">=</span>always<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:80<span class="w"> </span>ghcr.io/editor-code-assistant/eca-web
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>assistant<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.content[]? | select(.type == &quot;text&quot;) | .text&#39;</span>
 </code></pre></div>
-</li>
-<li>
-<p>Open <code>http://localhost:8080</code> and connect to <code>localhost:7777</code></p>
-</li>
-</ol>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>tool_call<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;.content | {id, name, input: .arguments, summary, server, full_name: .&quot;full-name&quot;}&#39;</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>tool_call_output<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;</span>
+<span class="s1">    .content</span>
+<span class="s1">    | {</span>
+<span class="s1">        tool_use_id: .id,</span>
+<span class="s1">        name,</span>
+<span class="s1">        is_error: .error,</span>
+<span class="s1">        total_time_ms: .&quot;total-time-ms&quot;,</span>
+<span class="s1">        output_text: ((.output.contents // []) | map(select(.type == &quot;text&quot;) | .text // empty) | join(&quot;\n&quot;))</span>
+<span class="s1">      }</span>
+<span class="s1">  &#39;</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;select(.model | contains(&quot;claude&quot;))&#39;</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;{id: .id, count: .[&quot;user-prompt-count&quot;]}&#39;</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>&gt;<span class="w"> </span>chat-export.jsonl
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span>--since<span class="w"> </span>1d<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;{title, model, updated_at: .[&quot;updated-at&quot;]}&#39;</span>
+</code></pre></div>
 </div>
 </div>
 </div>
-<h2 id="config-options">Config Options<a class="headerlink" href="#config-options" title="Permanent link">#</a></h2>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;remote&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;enabled&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — override the hostname in the connect URL (e.g. Tailscale DNS)</span>
-<span class="w">    </span><span class="s2">&quot;host&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-machine.tail1234.ts.net&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — defaults to 7777, auto-increments up to 7796 if busy</span>
-<span class="w">    </span><span class="s2">&quot;port&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">9876</span><span class="p">,</span>
-<span class="w">    </span><span class="c1">// optional — auto-generated when unset, supports ${env:MY_PASS}</span>
-<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-secret-token&quot;</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
+<h2 id="db-version-mismatch">DB version mismatch<a class="headerlink" href="#db-version-mismatch" title="Permanent link">#</a></h2>
+<p>If the file was written by a different ECA version, a warning is printed:</p>
+<div class="highlight"><pre><span></span><code>Warning: DB version mismatch. File has version &lt;old&gt;, expected &lt;current&gt;. Output may be incomplete.
 </code></pre></div>
-<h2 id="web-ui">Web UI<a class="headerlink" href="#web-ui" title="Permanent link">#</a></h2>
-<p>The web frontend provides a connect form where you enter the host and password (or use the deep-link URL logged by ECA).</p>
-<p><strong>Auto-discovery</strong> — When you enter a host and click "Discover &amp; Connect", the web UI scans ports <code>7777</code>–<code>7796</code> in parallel and finds all running ECA instances automatically.</p>
-<p><strong>Multi-session</strong> — You can connect to multiple ECA instances simultaneously. Each connection appears as a tab in the top bar.</p>
+<p>The command still proceeds.</p>
+<h2 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">#</a></h2>
+<table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Cause</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Missing required input source</td>
+<td>Pass <code>--db-cache-path</code> or <code>--workspace</code>.</td>
+</tr>
+<tr>
+<td>Conflicting input sources</td>
+<td>Use <code>--db-cache-path</code> <strong>or</strong> <code>--workspace</code>, not both.</td>
+</tr>
+<tr>
+<td>Unknown option / unexpected argument</td>
+<td>Only named options are accepted.</td>
+</tr>
+<tr>
+<td>Invalid role usage</td>
+<td><code>--role</code> requires <code>--chat-id</code>.</td>
+</tr>
+<tr>
+<td>Missing DB file</td>
+<td>Check the path or workspace order.</td>
+</tr>
+<tr>
+<td>Read/parse error</td>
+<td>File may be locked by the running server or corrupted.</td>
+</tr>
+<tr>
+<td>Chat not found</td>
+<td>Use listing mode to find valid IDs.</td>
+</tr>
+<tr>
+<td>Invalid date format</td>
+<td>Use relative (<code>2h</code>, <code>30m</code>, <code>1d</code>) or ISO-8601.</td>
+</tr>
+</tbody>
+</table>
+<p>All errors/warnings go to <strong>stderr</strong>; JSONL goes to <strong>stdout</strong>.</p>
 
 
 
@@ -1557,22 +1870,22 @@ since the local cert won't match your Tailscale hostname.</p>
   
   <nav class="md-footer__inner md-grid" aria-label="Footer" >
     
-    <a href="../metrics/" class="md-footer__link md-footer__link--prev">
+    <a href="../workflows/" class="md-footer__link md-footer__link--prev">
       <div class="md-footer__button md-icon">
         
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
       </div>
       <div class="md-footer__title">
         <span class="md-footer__direction">Previous</span>
-        <span class="md-ellipsis">Metrics</span>
+        <span class="md-ellipsis">Workflows</span>
       </div>
     </a>
     
     
-    <a href="../network/" class="md-footer__link md-footer__link--next">
+    <a href="../install/" class="md-footer__link md-footer__link--next">
       <div class="md-footer__title">
         <span class="md-footer__direction">Next</span>
-        <span class="md-ellipsis">Network / Enterprise</span>
+        <span class="md-ellipsis">Install ECA</span>
       </div>
       <div class="md-footer__button md-icon">
         
@@ -1640,10 +1953,10 @@ since the local cert won't match your Tailscale hostname.</p>
     
     
       
-      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.expand", "navigation.sections", "content.code.copy", "content.code.select"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tabs", "navigation.expand", "navigation.sections", "content.code.copy", "content.code.select"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.56ea9cef.min.js"></script>
+      <script src="../assets/javascripts/bundle.56ea9cef.min.js"></script>
       
     
   </body>
