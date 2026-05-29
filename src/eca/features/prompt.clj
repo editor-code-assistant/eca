@@ -99,6 +99,10 @@
   ([all-tools chat-id db]
    (merge
     {:workspaceRoots (shared/workspaces-as-str db)
+     :osName (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
+     :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
+     :userName (System/getProperty "user.name")
+     :homeDir (System/getProperty "user.home")
      :isSubagent (boolean (get-in db [:chats chat-id :subagent]))}
     (reduce
      (fn [m tool]

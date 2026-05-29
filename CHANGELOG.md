@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Prompt now renders context as labeled `## Static Contexts` and `## Dynamic Contexts` sections, with Project Environment Context no longer wedged between them.
+- Prompt now renders context as labeled `## Static Contexts` and `## Dynamic Contexts` sections, with Environment Context no longer wedged between them.
+- System prompt's Environment Context section now includes OS, default shell, username and home directory.
 
 ## 0.136.1
 

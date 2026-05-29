@@ -164,12 +164,12 @@
     (is (= "static" (prompt/instructions->str {:static "static" :dynamic nil})))))
 
 (deftest build-instructions-context-sections-ordering-test
-  (testing "Static contexts are labeled and rendered after Project Environment Context"
+  (testing "Static contexts are labeled and rendered after Environment Context"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}]
           {:keys [static]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
       (is (string/includes? static "## Static Contexts"))
-      (is (string/includes? static "## Project Environment Context"))
-      (is (< (string/index-of static "## Project Environment Context")
+      (is (string/includes? static "## Environment Context"))
+      (is (< (string/index-of static "## Environment Context")
              (string/index-of static "## Static Contexts")))))
   (testing "Static contexts come before Dynamic contexts in the flattened prompt"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
