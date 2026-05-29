@@ -167,7 +167,8 @@
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
-   :chat {:title true}
+   :chat {:title true
+          :defaultTrust false}
    :rewrite {:fullFileMaxLines 2000}
    :hooks {}
    :rules []

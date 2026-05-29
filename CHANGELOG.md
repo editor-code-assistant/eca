@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `chat.defaultTrust` config to start new chats in trust mode (auto-accepting tool calls) across all editors.
 - Prompt now renders context as labeled `## Static Contexts` and `## Dynamic Contexts` sections, with Environment Context no longer wedged between them.
 - System prompt's Environment Context section now includes OS, default shell, username and home directory.
 

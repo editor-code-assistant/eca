@@ -1366,6 +1366,13 @@
                                        chats
                                        (assoc chats chat-id {:id chat-id}))))
             chat-just-created? (not (contains? (:chats old-db) chat-id))
+            ;; A freshly-created chat with no client-provided trust inherits
+            ;; the server default (chat.defaultTrust), so every editor gets
+            ;; trust-by-default without having to send anything.
+            seeded-default-trust? (and chat-just-created?
+                                       (nil? trust)
+                                       (boolean (-> config :chat :defaultTrust)))
+            effective-trust (if seeded-default-trust? true trust)
             ;; Notify observers (other clients, remote SSE viewers) about a
             ;; new client-initiated chat. Skipped on the legacy null-id path
             ;; because the prompting client learns its id from the response.
@@ -1383,11 +1390,16 @@
                                        :chat-id chat-id
                                        :agent selected-agent
                                        :agent-config agent-config
-                                       :trust trust
+                                       :trust effective-trust
                                        :variant (or variant (:variant agent-config))}
                                       :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
-            _ (when (some? trust)
-                (swap! db* assoc-in [:chats chat-id :trust] trust))]
+            _ (when (some? effective-trust)
+                (swap! db* assoc-in [:chats chat-id :trust] effective-trust))
+            ;; When we seeded the default (the client didn't ask), align the
+            ;; client's per-chat trust indicator with the auto-approval the
+            ;; server is about to apply.
+            _ (when (and seeded-default-trust? provided-chat-id)
+                (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
         (logger/with-chat-context chat-id (:parent-chat-id base-chat-ctx)
           (try
             (prompt* params base-chat-ctx)

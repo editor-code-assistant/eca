@@ -42,6 +42,17 @@
                       "openrouter" {:models {"openai/o4-mini" {}}}}}
          (#'config/all* {})))))
 
+(deftest default-trust-config-test
+  (testing "chat.defaultTrust defaults to false"
+    (reset! config/initialization-config* {:pureConfig true})
+    (is (match? {:chat {:defaultTrust false}}
+                (#'config/all* {}))))
+  (testing "chat.defaultTrust can be enabled via config"
+    (reset! config/initialization-config* {:pureConfig true
+                                           :chat {:defaultTrust true}})
+    (is (match? {:chat {:defaultTrust true}}
+                (#'config/all* {})))))
+
 (deftest deep-merge-test
   (testing "basic merge"
     (is (match?

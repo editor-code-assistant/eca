@@ -321,6 +321,12 @@
           "description": "Whether to automatically generate a title for new chats.",
           "markdownDescription": "Whether to automatically generate a title for new chats.",
           "default": true
+        },
+        "defaultTrust": {
+          "type": "boolean",
+          "description": "Whether new chats start in trust mode, auto-accepting all tool calls (never overriding deny). Applies to all editors.",
+          "markdownDescription": "Whether new chats start in trust mode, auto-accepting all tool calls (never overriding `deny`). Applies to all editors.",
+          "default": false
         }
       }
     },

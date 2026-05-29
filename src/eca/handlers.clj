@@ -91,20 +91,24 @@
                                                         variants (model-variants fresh-config default-model)]
                                                     (config/notify-fields-changed-only!
                                                      {:chat
-                                                      {:models (sort (keys models))
-                                                       :agents (config/primary-agent-names fresh-config)
-                                                       :select-model default-model
-                                                       :select-agent default-agent-name
-                                                       :variants (or variants [])
-                                                       :select-variant (select-variant default-agent-config variants)
-                                                       :welcome-message (welcome-message fresh-config)
+                                                      ;; Advertise the default trust only when enabled, so clients
+                                                      ;; keep their own defaults (e.g. emacs eca-chat-trust-enable).
+                                                      (cond-> {:models (sort (keys models))
+                                                               :agents (config/primary-agent-names fresh-config)
+                                                               :select-model default-model
+                                                               :select-agent default-agent-name
+                                                               :variants (or variants [])
+                                                               :select-variant (select-variant default-agent-config variants)
+                                                               :welcome-message (welcome-message fresh-config)
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
-                                                       :default-model default-model
-                                                       :default-agent default-agent-name
+                                                               :default-model default-model
+                                                               :default-agent default-agent-name
                                                        ;; Legacy: backward compat for clients using old key names
-                                                       :behaviors (distinct (keys (:agent fresh-config)))
-                                                       :select-behavior default-agent-name
-                                                       :default-behavior default-agent-name}}
+                                                               :behaviors (distinct (keys (:agent fresh-config)))
+                                                               :select-behavior default-agent-name
+                                                               :default-behavior default-agent-name}
+                                                        (-> fresh-config :chat :defaultTrust)
+                                                        (assoc :select-trust true))}
                                                      messenger
                                                      db*)))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models]

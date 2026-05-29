@@ -495,6 +495,37 @@
       (is (true? (get-in (h/db) [:chats chat-id :trust])))
       (is (= "My Chat" (get-in (h/db) [:chats chat-id :title]))))))
 
+(deftest prompt-default-trust-test
+  (let [finish-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                      (on-first-response-received {:type :text :text "ok"})
+                      (on-message-received {:type :text :text "ok"})
+                      (on-message-received {:type :finish}))]
+    (testing "new chat with chat.defaultTrust true seeds trust and emits per-chat select-trust"
+      (h/reset-components!)
+      (h/config! {:chat {:defaultTrust true}})
+      (let [{:keys [chat-id]} (prompt! {:message "Hi" :chat-id "default-trust-chat"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock finish-mock})]
+        (is (true? (get-in (h/db) [:chats chat-id :trust])))
+        (is (match? {:config-updated (m/embeds [{:chat {:select-trust true}
+                                                 :chat-id "default-trust-chat"}])}
+                    (h/messages)))))
+
+    (testing "explicit client trust wins over chat.defaultTrust"
+      (h/reset-components!)
+      (h/config! {:chat {:defaultTrust true}})
+      (let [{:keys [chat-id]} (prompt! {:message "Hi" :chat-id "explicit-trust-chat" :trust false}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock finish-mock})]
+        (is (false? (get-in (h/db) [:chats chat-id :trust])))))
+
+    (testing "chat.defaultTrust false (default) does not seed trust"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (prompt! {:message "Hi" :chat-id "no-default-trust-chat"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock finish-mock})]
+        (is (nil? (get-in (h/db) [:chats chat-id :trust])))))))
+
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)

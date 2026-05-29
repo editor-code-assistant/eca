@@ -328,3 +328,15 @@ Check some examples:
 Also check the `plan` agent which is safer.
 
 __The `manualApproval` setting was deprecated and replaced by the `approval` one without breaking changes__
+
+### Trust mode by default
+
+Trust mode auto-accepts all tool calls in a chat (it never overrides `deny`). Editors expose a toggle for it, and you can make **new chats start trusted** for every editor via `chat.defaultTrust`:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "chat": {
+    "defaultTrust": true
+  }
+}
+```
