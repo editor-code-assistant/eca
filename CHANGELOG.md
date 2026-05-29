@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remote REST API now surfaces tool calls awaiting approval: `GET /api/v1/chats/:id` returns `pendingToolCalls` and session/list-chats entries include `pendingApprovalCount`.
+
 ## 0.136.2
 
 - Add `chat.defaultTrust` config to start new chats in trust mode (auto-accepting tool calls) across all editors.

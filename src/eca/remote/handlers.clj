@@ -47,6 +47,38 @@
 (defn ^:private camel-keys [m]
   (shared/map->camel-cased-map m))
 
+(defn ^:private waiting-approval? [[_ tc]]
+  (= :waiting-approval (:status tc)))
+
+(defn ^:private pending-tool-calls
+  "Tool calls in :waiting-approval, shaped for the REST API so clients that
+   missed the toolCallRun SSE event can still render the approval card."
+  [chat]
+  (->> (:tool-calls chat)
+       (filter waiting-approval?)
+       (mapv (fn [[id tc]]
+               (shared/assoc-some
+                {:id id
+                 :name (:name tc)
+                 :server (:server tc)
+                 :origin (:origin tc)
+                 :arguments (:arguments tc)
+                 :manual-approval (boolean (:manual-approval tc))}
+                :summary (:summary tc)
+                :details (:details tc))))))
+
+(defn ^:private pending-approval-count [chat]
+  (->> (:tool-calls chat) (filter waiting-approval?) count))
+
+(defn ^:private chat-summary [chat]
+  (camel-keys
+   {:id (:id chat)
+    :title (:title chat)
+    :status (or (:status chat) :idle)
+    :created-at (:created-at chat)
+    :updated-at (:updated-at chat)
+    :pending-approval-count (pending-approval-count chat)}))
+
 (defn ^:private session-state
   "Builds the session state map used for both GET /session and SSE session:connected."
   [db config]
@@ -74,13 +106,7 @@
               (->> (vals (:chats db))
                    (remove :subagent)
                    (filter #(get editor-open (:id %)))
-                   (mapv (fn [chat]
-                           (camel-keys
-                            {:id (:id chat)
-                             :title (:title chat)
-                             :status (or (:status chat) :idle)
-                             :created-at (:created-at chat)
-                             :updated-at (:updated-at chat)})))))
+                   (mapv chat-summary)))
      :startedAt (when-let [ms (:started-at db)]
                   (.toString (Instant/ofEpochMilli ^long ms)))
      :welcomeMessage (handlers/welcome-message config)
@@ -112,12 +138,7 @@
         chats (->> (vals (:chats db))
                    (remove :subagent)
                    (filter #(get editor-open (:id %)))
-                   (mapv (fn [{:keys [id title status created-at updated-at]}]
-                           {:id id
-                            :title title
-                            :status (or status :idle)
-                            :createdAt created-at
-                            :updatedAt updated-at})))]
+                   (mapv chat-summary))]
     (json-response chats)))
 
 (defn handle-get-chat [{:keys [db*]} _request chat-id]
@@ -130,7 +151,8 @@
        :created-at (:created-at chat)
        :updated-at (:updated-at chat)
        :messages (or (:messages chat) [])
-       :task (:task chat)}))
+       :task (:task chat)
+       :pending-tool-calls (pending-tool-calls chat)}))
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))))
 
 (defn handle-prompt [{:keys [db*] :as components} request chat-id]

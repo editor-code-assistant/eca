@@ -51,7 +51,26 @@
     (let [response (handlers/handle-list-chats (components) nil)
           body (json/parse-string (:body response) true)]
       (is (= 1 (count body)))
-      (is (= "c1" (:id (first body)))))))
+      (is (= "c1" (:id (first body))))
+      (is (= 0 (:pendingApprovalCount (first body))))))
+
+  (testing "pendingApprovalCount reflects only :waiting-approval tool calls"
+    (swap! (h/db*) assoc
+           :chats {"c1" {:id "c1"
+                         :title "Has pending"
+                         :status :running
+                         :tool-calls {"tc-1" {:status :waiting-approval}
+                                      "tc-2" {:status :waiting-approval}
+                                      "tc-3" {:status :executing}
+                                      "tc-4" {:status :completed}}}
+                   "c2" {:id "c2" :title "No pending" :status :idle}}
+           :chat-start-fired #{"c1" "c2"})
+    (let [response (handlers/handle-list-chats (components) nil)
+          body (json/parse-string (:body response) true)
+          by-id (into {} (map (juxt :id identity) body))]
+      (is (= 2 (count body)))
+      (is (= 2 (get-in by-id ["c1" :pendingApprovalCount])))
+      (is (= 0 (get-in by-id ["c2" :pendingApprovalCount]))))))
 
 (deftest handle-get-chat-test
   (testing "returns 404 for missing chat"
@@ -66,7 +85,58 @@
           body (json/parse-string (:body response) true)]
       (is (= 200 (:status response)))
       (is (= "c1" (:id body)))
-      (is (= "My Chat" (:title body))))))
+      (is (= "My Chat" (:title body)))))
+
+  (testing "pendingToolCalls is an empty array when no tool calls are waiting"
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)]
+      (is (= 200 (:status response)))
+      (is (= [] (:pendingToolCalls body)))))
+
+  (testing "pendingToolCalls surfaces tool calls in :waiting-approval, excluding other statuses"
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1"
+            :title "T"
+            :status :running
+            :tool-calls {"tc-1" {:status :waiting-approval
+                                 :name "shell_command"
+                                 :server "eca"
+                                 :origin :native
+                                 :arguments {:command "ls"}
+                                 :manual-approval true
+                                 :summary "Run ls"
+                                 :details {:type "shellCommand"}}
+                         "tc-2" {:status :executing
+                                 :name "read_file"
+                                 :server "eca"
+                                 :origin :native
+                                 :arguments {:path "/tmp/x"}}
+                         "tc-3" {:status :completed
+                                 :name "write_file"}}})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)
+          pending (:pendingToolCalls body)]
+      (is (= 200 (:status response)))
+      (is (= 1 (count pending)))
+      (is (= {:id "tc-1"
+              :name "shell_command"
+              :server "eca"
+              :origin "native"
+              :arguments {:command "ls"}
+              :manualApproval true
+              :summary "Run ls"
+              :details {:type "shellCommand"}}
+             (first pending)))))
+
+  (testing "approved/rejected tool calls drop out of pendingToolCalls"
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1"
+            :tool-calls {"tc-1" {:status :rejected :name "x"}
+                         "tc-2" {:status :completed :name "y"}}})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)]
+      (is (= [] (:pendingToolCalls body))))))
 
 (deftest handle-stop-test
   (testing "returns 404 for missing chat"
@@ -90,7 +160,19 @@
           body (json/parse-string (:body response) true)]
       (is (= 200 (:status response)))
       (is (string? (:version body)))
-      (is (= "1.0" (:protocolVersion body))))))
+      (is (= "1.0" (:protocolVersion body)))))
+
+  (testing "chat entries include pendingApprovalCount"
+    (swap! (h/db*) assoc
+           :chats {"c1" {:id "c1" :title "Has pending" :status :running
+                         :tool-calls {"tc-1" {:status :waiting-approval}
+                                      "tc-2" {:status :executing}}}}
+           :chat-start-fired #{"c1"})
+    (let [response (handlers/handle-session (components) nil)
+          body (json/parse-string (:body response) true)
+          chat (first (:chats body))]
+      (is (= "c1" (:id chat)))
+      (is (= 1 (:pendingApprovalCount chat))))))
 
 (deftest handle-answer-question-test
   (let [inner (h/messenger)
