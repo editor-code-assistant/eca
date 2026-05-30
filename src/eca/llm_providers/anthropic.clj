@@ -97,7 +97,9 @@
                  (merge
                   (assoc-some
                    {"anthropic-version" "2023-06-01"
-                    "Content-Type" "application/json"}
+                    "Content-Type" "application/json"
+                    ;; Keep SSE uncompressed so it streams token-by-token (see :decompress-body below).
+                    "accept-encoding" "identity"}
                    "x-api-key" (when-not oauth? api-key)
                    "Authorization" (when oauth? (str "Bearer " api-key))
                    "anthropic-beta" (when oauth? "oauth-2025-04-20"))
@@ -115,6 +117,7 @@
                                    {:headers headers
                                     :body (json/generate-string body)
                                     :throw-exceptions? false
+                                    :decompress-body false
                                     :http-client (client/merge-with-global-http-client http-client)
                                     :as (if on-stream :stream :json)})]
         (if (not= 200 status)

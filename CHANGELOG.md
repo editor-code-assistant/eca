@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Anthropic: request uncompressed SSE (`accept-encoding: identity` + `:decompress-body false`) so streamed responses arrive token-by-token instead of all at once.
 - Remote REST API now surfaces tool calls awaiting approval: `GET /api/v1/chats/:id` returns `pendingToolCalls` and session/list-chats entries include `pendingApprovalCount`.
 
 ## 0.136.2
