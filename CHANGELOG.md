@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Remote REST API now surfaces tool calls awaiting approval: `GET /api/v1/chats/:id` returns `pendingToolCalls` and session/list-chats entries include `pendingApprovalCount`.
+- Add `remote.bindHost` config to force the remote server's listening interface (e.g. a Tailscale IP), binding only there with no localhost fallback.
 
 ## 0.136.2
 
