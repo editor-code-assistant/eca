@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `remote.bindHost` config to force the remote server's listening interface (e.g. a Tailscale IP), binding only there with no localhost fallback.
+
 ## 0.136.3
 
 - Anthropic: request uncompressed SSE (`accept-encoding: identity` + `:decompress-body false`) so streamed responses arrive token-by-token instead of all at once.
