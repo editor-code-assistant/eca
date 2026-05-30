@@ -348,6 +348,40 @@
         (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
         tools-with-turn-id))))
 
+(defn ^:private content-block-text
+  "Join the textual parts of a content-block field that may be a plain string
+   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
+  [v]
+  (cond
+    (string? v) v
+    (sequential? v) (->> v (keep :text) (string/join))
+    :else nil))
+
+(defn ^:private split-stream-content
+  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
+   `delta.content` as a plain string OR as an array of content blocks mixing
+   visible text ({:type \"text\" :text ...}) and thinking chunks
+   ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
+   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
+   visible text and reasoning separately instead of stringifying the raw EDN."
+  [content]
+  (cond
+    (string? content)
+    {:text content :thinking nil}
+
+    (sequential? content)
+    (reduce
+     (fn [acc block]
+       (case (some-> (:type block) name)
+         "text" (update acc :text str (or (:text block) ""))
+         "thinking" (update acc :thinking str (or (content-block-text (:thinking block)) ""))
+         acc))
+     {:text nil :thinking nil}
+     content)
+
+    :else
+    {:text nil :thinking nil}))
+
 (defn ^:private process-text-think-aware
   "Incremental parser that splits streamed content into user text and thinking blocks.
    - Maintains a rolling buffer across chunks to handle tags that may be split across chunks
@@ -369,7 +403,7 @@
         emit-think! (fn [^String s id]
                       (when (and (pos? (count s)) id)
                         (on-reason {:status :thinking :id id :text s})))]
-    (when (seq text)
+    (when (and (string? text) (seq text))
       ;; Add new text to buffer
       (swap! reasoning-state* update :buffer str text)
       (loop []
@@ -562,30 +596,36 @@
                               (doseq [choice (:choices data)]
                                 (let [delta (:delta choice)
                                       finish-reason (:finish_reason choice)]
-                                  ;; Process content if present (with thinking blocks support)
-                                  (when-let [ct (:content delta)]
-                                    (process-text-think-aware ct reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
+                                  ;; Content may be a plain string or, for reasoning models on the
+                                  ;; chat-completions API (e.g. Mistral), an array of content blocks
+                                  ;; mixing visible text and thinking chunks. Split them so thinking is
+                                  ;; routed to reasoning instead of being stringified into chat text.
+                                  (let [{text-content :text block-thinking :thinking} (split-stream-content (:content delta))
+                                        ;; o1/DeepSeek expose reasoning via dedicated fields; Mistral via thinking blocks.
+                                        reasoning-text (or (:reasoning delta)
+                                                           (:reasoning_content delta)
+                                                           (:reasoning_text delta)
+                                                           (not-empty block-thinking))]
+                                    ;; Process visible text (with thinking-tag awareness)
+                                    (when (seq text-content)
+                                      (process-text-think-aware text-content reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
 
-                                  ;; Process reasoning if present (o1 models and compatible providers)
-                                  (when-let [reasoning-text (or (:reasoning delta)
-                                                                (:reasoning_content delta)
-                                                                (:reasoning_text delta))]
-                                    (when-not (= (:type @reasoning-state*) :delta)
-                                      (start-delta-reasoning))
-                                    (on-reason {:status :thinking
-                                                :id (:id @reasoning-state*)
-                                                :text reasoning-text}))
+                                    ;; Process reasoning if present
+                                    (when reasoning-text
+                                      (when-not (= (:type @reasoning-state*) :delta)
+                                        (start-delta-reasoning))
+                                      (on-reason {:status :thinking
+                                                  :id (:id @reasoning-state*)
+                                                  :text reasoning-text}))
 
-                                  ;; Check if reasoning just stopped (delta-based)
-                                  (let [state @reasoning-state*]
-                                    (when (and (= (:type state) :delta)
-                                               (:id state)  ;; defensive check
-                                               (nil? (:reasoning delta))
-                                               (nil? (:reasoning_content delta))
-                                               (nil? (:reasoning_text delta)))
-                                      ;; Flush any buffered content before finishing reasoning
-                                      (flush-content-buffer)
-                                      (finish-reasoning! reasoning-state* on-reason)))
+                                    ;; Check if reasoning just stopped (delta-based)
+                                    (let [state @reasoning-state*]
+                                      (when (and (= (:type state) :delta)
+                                                 (:id state)  ;; defensive check
+                                                 (nil? reasoning-text))
+                                        ;; Flush any buffered content before finishing reasoning
+                                        (flush-content-buffer)
+                                        (finish-reasoning! reasoning-state* on-reason))))
 
                                   ;; Process tool calls if present
                                   (when (:tool_calls delta)
