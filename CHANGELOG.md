@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.136.3
+
 - Anthropic: request uncompressed SSE (`accept-encoding: identity` + `:decompress-body false`) so streamed responses arrive token-by-token instead of all at once.
 - Remote REST API now surfaces tool calls awaiting approval: `GET /api/v1/chats/:id` returns `pendingToolCalls` and session/list-chats entries include `pendingApprovalCount`.
 - Fix openai-chat providers (e.g. Mistral) showing raw reasoning content blocks as chat text when a reasoning variant is enabled; thinking now routes to the reasoning UI. (#477)
