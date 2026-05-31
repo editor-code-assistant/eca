@@ -134,6 +134,7 @@ The built-in commands are:
 - `/config`: Show ECA config for troubleshooting.
 - `/doctor`: Show information about ECA, useful for troubleshooting.
 - `/repo-map-show`: Show the current repoMap context of the session.
+- `/debug-chat`: Dump the current chat (obfuscated) to a file for debugging a corrupted/stuck chat.
 - `/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
 
 !!! info "Custom commands"

@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.chat.debug :as f.chat.debug]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
@@ -147,6 +148,10 @@
                        :type :native
                        :description "Check ECA details for troubleshooting."
                        :arguments []}
+                      {:name "debug-chat"
+                       :type :native
+                       :description "Dump the current chat (obfuscated) to a file for debugging. Ex: /debug-chat /tmp/out.edn"
+                       :arguments [{:name "filepath"}]}
                       {:name "repo-map-show"
                        :type :native
                        :description "Actual repoMap of current session."
@@ -573,6 +578,19 @@
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}}
+      "debug-chat" (let [{:keys [path message-count error]}
+                         (f.chat.debug/dump-chat! {:db db
+                                                   :chat-id chat-id
+                                                   :all-tools all-tools
+                                                   :filepath (first args)})
+                         text (if error
+                                (str "Failed to dump chat: " error)
+                                (multi-str (str "Chat dump written to `" path "`")
+                                           (str "Messages: " message-count)
+                                           ""
+                                           "Content is obfuscated (text/reasoning/tool input/output); share this file for debugging."))]
+                     {:type :chat-messages
+                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
       "rules" (let [roots (:workspace-folders db)

@@ -36,6 +36,7 @@
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}
+                       {:name "debug-chat" :arguments [{:name "filepath"}]}
                        {:name "repo-map-show" :arguments []}
                        {:name "rules" :arguments []}
                        {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
