@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `remote.bindHost` config to force the remote server's listening interface (e.g. a Tailscale IP), binding only there with no localhost fallback.
+- Anthropic: send `anthropic-version` when fetching `/v1/models`, fixing a 400 that forced the static models.dev fallback instead of the live model list.
 
 ## 0.136.3
 

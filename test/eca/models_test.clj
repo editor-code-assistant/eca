@@ -283,6 +283,7 @@
        {}
        models-dev-data)
       (is (= "sk-ant-test" (get-in @request* [1 :headers "x-api-key"])))
+      (is (= "2023-06-01" (get-in @request* [1 :headers "anthropic-version"])))
       (is (nil? (get-in @request* [1 :headers "Authorization"]))))))
 
 (deftest fetch-provider-models-anthropic-oauth-uses-bearer-test
@@ -299,6 +300,8 @@
        {:auth {"anthropic" {:api-key "oauth-token" :type :auth/oauth}}}
        models-dev-data)
       (is (= "Bearer oauth-token" (get-in @request* [1 :headers "Authorization"])))
+      (is (= "2023-06-01" (get-in @request* [1 :headers "anthropic-version"])))
+      (is (= "oauth-2025-04-20" (get-in @request* [1 :headers "anthropic-beta"])))
       (is (nil? (get-in @request* [1 :headers "x-api-key"]))))))
 
 (deftest fetch-provider-models-with-priority-fallback-test

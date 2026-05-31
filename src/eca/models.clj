@@ -37,8 +37,10 @@
     (client/merge-llm-headers
      (assoc-some
       {"Content-Type" "application/json"}
+      "anthropic-version" (when anthropic? "2023-06-01")
       "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
-      "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))))))
+      "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
+      "anthropic-beta" (when (and anthropic? oauth?) "oauth-2025-04-20")))))
 
 (defn ^:private fetch-models-dev-data []
   (let [{:keys [status body]} (http/get models-dev-api-url
