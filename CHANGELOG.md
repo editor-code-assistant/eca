@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.136.4
+
 - Add `/debug-chat [filepath]` command dumping an obfuscated snapshot of the current chat (message structure + model/variant/tool/status metadata) to a file for debugging stuck chats.
 - Add `remote.bindHost` config to force the remote server's listening interface (e.g. a Tailscale IP), binding only there with no localhost fallback.
 - Anthropic: send `anthropic-version` when fetching `/v1/models`, fixing a 400 that forced the static models.dev fallback instead of the live model list.
