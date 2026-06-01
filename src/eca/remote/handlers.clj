@@ -79,19 +79,36 @@
     :updated-at (:updated-at chat)
     :pending-approval-count (pending-approval-count chat)}))
 
+(defn ^:private resolve-default-model
+  "Session-level default model: explicit selection from last notified config,
+   falling back to the computed default."
+  [db config]
+  (or (get-in db [:last-config-notified :chat :select-model])
+      (f.chat/default-model db config)))
+
+(defn ^:private resolve-default-agent
+  "Session-level default agent: explicit selection from last notified config,
+   falling back to the validated configured default agent."
+  [db config]
+  (or (get-in db [:last-config-notified :chat :select-agent])
+      (config/validate-agent-name
+       (or (:defaultAgent (:chat config))
+           (:defaultAgent config))
+       config)))
+
+(defn ^:private resolve-default-variant
+  "Session-level selected variant, may be nil when none is selected."
+  [db]
+  (get-in db [:last-config-notified :chat :select-variant]))
+
 (defn ^:private session-state
   "Builds the session state map used for both GET /session and SSE session:connected."
   [db config]
   (let [last-config (:last-config-notified db)
-        default-model (or (get-in last-config [:chat :select-model])
-                          (f.chat/default-model db config))
-        default-agent-name (or (get-in last-config [:chat :select-agent])
-                               (config/validate-agent-name
-                                (or (:defaultAgent (:chat config))
-                                    (:defaultAgent config))
-                                config))
+        default-model (resolve-default-model db config)
+        default-agent-name (resolve-default-agent db config)
         variants (or (get-in last-config [:chat :variants]) [])
-        selected-variant (get-in last-config [:chat :select-variant])]
+        selected-variant (resolve-default-variant db)]
     {:version (config/eca-version)
      :protocolVersion "1.0"
      :workspaceFolders (mapv #(shared/uri->filename (:uri %)) (:workspace-folders db))
@@ -143,16 +160,23 @@
 
 (defn handle-get-chat [{:keys [db*]} _request chat-id]
   (if-let [chat (chat-or-404 db* chat-id)]
-    (json-response
-     (camel-keys
-      {:id (:id chat)
-       :title (:title chat)
-       :status (or (:status chat) :idle)
-       :created-at (:created-at chat)
-       :updated-at (:updated-at chat)
-       :messages (or (:messages chat) [])
-       :task (:task chat)
-       :pending-tool-calls (pending-tool-calls chat)}))
+    (let [db @db*
+          config (config/all db)]
+      (json-response
+       (camel-keys
+        {:id (:id chat)
+         :title (:title chat)
+         :status (or (:status chat) :idle)
+         :created-at (:created-at chat)
+         :updated-at (:updated-at chat)
+         :messages (or (:messages chat) [])
+         :task (:task chat)
+         :pending-tool-calls (pending-tool-calls chat)
+         ;; Effective selection: per-chat override if set, otherwise the
+         ;; resolved session-level default. :variant may legitimately be nil.
+         :model (or (:model chat) (resolve-default-model db config))
+         :variant (or (:variant chat) (resolve-default-variant db))
+         :agent (or (:agent chat) (resolve-default-agent db config))})))
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))))
 
 (defn handle-prompt [{:keys [db*] :as components} request chat-id]

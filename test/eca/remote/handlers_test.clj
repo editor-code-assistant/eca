@@ -136,7 +136,42 @@
                          "tc-2" {:status :completed :name "y"}}})
     (let [response (handlers/handle-get-chat (components) nil "c1")
           body (json/parse-string (:body response) true)]
-      (is (= [] (:pendingToolCalls body))))))
+      (is (= [] (:pendingToolCalls body)))))
+
+  (testing "returns per-chat model/variant/agent overrides when set"
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1" :title "T" :status :idle
+            :model "claude-custom" :variant "high" :agent "plan"})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)]
+      (is (= 200 (:status response)))
+      (is (= "claude-custom" (:model body)))
+      (is (= "high" (:variant body)))
+      (is (= "plan" (:agent body)))))
+
+  (testing "falls back to resolved session-level defaults when chat has no override"
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)
+          session (json/parse-string (:body (handlers/handle-session (components) nil)) true)]
+      (is (= 200 (:status response)))
+      (is (= (:selectModel session) (:model body)))
+      (is (= (:selectAgent session) (:agent body)))
+      (is (= (:selectedVariant session) (:variant body)))))
+
+  (testing "per-chat overrides take precedence over session-level defaults"
+    (swap! (h/db*) assoc
+           :last-config-notified {:chat {:select-model "session-model"
+                                         :select-agent "session-agent"
+                                         :select-variant "session-variant"}})
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1" :title "T" :status :idle :model "chat-model" :agent "chat-agent"})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)]
+      (is (= "chat-model" (:model body)))
+      (is (= "chat-agent" (:agent body)))
+      ;; variant has no per-chat override, so it falls back to the session value
+      (is (= "session-variant" (:variant body))))))
 
 (deftest handle-stop-test
   (testing "returns 404 for missing chat"
