@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remote REST API: `GET /api/v1/chats/:id` now exposes the chat's effective `model`, `variant` and `agent` (per-chat override, falling back to the resolved session default).
+
 ## 0.136.4
 
 - Add `/debug-chat [filepath]` command dumping an obfuscated snapshot of the current chat (message structure + model/variant/tool/status metadata) to a file for debugging stuck chats.
