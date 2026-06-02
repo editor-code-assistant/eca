@@ -239,7 +239,7 @@
                               :data (:data content)}
                              {:type "thinking"
                               :signature (:external-id content)
-                              :thinking (:text content)})]})
+                              :thinking (or (:text content) "")})]})
 
               "server_tool_use"
               (when-not foreign-api?
