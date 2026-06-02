@@ -240,6 +240,41 @@
                        {:type :text :text "Here are the results."}]}]
            result)))))
 
+(deftest reason-empty-thinking-test
+  (testing "reason message with nil :text serializes :thinking to \"\" (not nil)"
+    ;; Regression: Anthropic rejects requests where a replayed thinking block
+    ;; has a non-string :thinking field with
+    ;;   400 messages.N.content.0.thinking.thinking: Input should be a valid string
+    ;; This happens when a content_block_start of type "thinking" arrived with no
+    ;; thinking_delta before content_block_stop, leaving (:text content) nil.
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :external-id "sig1" :text nil}}]
+                    true))
+          thinking-block (-> out first :content first)]
+      (is (= 1 (count out)))
+      (is (match? {:role "assistant"
+                   :content [{:type "thinking" :signature "sig1" :thinking ""}]}
+                  (first out)))
+      (is (= "" (:thinking thinking-block)))
+      (is (string? (:thinking thinking-block)))))
+  (testing "reason message with missing :text key also serializes :thinking to \"\""
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :external-id "sig1"}}]
+                    true))]
+      (is (= "" (-> out first :content first :thinking)))))
+  (testing "reason message with present :text is preserved verbatim"
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :external-id "sig1" :text "Let me think."}}]
+                    true))]
+      (is (= "Let me think." (-> out first :content first :thinking)))))
+  (testing "redacted reason message is unaffected (no :thinking field)"
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :redacted? true :data "enc"}}]
+                    true))]
+      (is (match? {:role "assistant"
+                   :content [{:type "redacted_thinking" :data "enc"}]}
+                  (first out))))))
+
 (deftest group-parallel-tool-calls-test
   (testing "single tool call passes through unchanged")
   (is (match?

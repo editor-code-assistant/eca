@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Remote REST API: `GET /api/v1/chats/:id` now exposes the chat's effective `model`, `variant` and `agent` (per-chat override, falling back to the resolved session default).
+- Anthropic: serialize empty thinking blocks as `""` instead of nil, fixing a 400 on multi-turn chats with extended thinking. (#481)
 
 ## 0.136.4
 
