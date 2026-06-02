@@ -65,6 +65,16 @@
                           (vec (#'llm-providers.bedrock/event-stream-seq
                                 (ByteArrayInputStream. (byte-array 6)))))))
 
+  (testing "throws a clean error (not an NPE) when a frame is truncated after the prelude"
+    (let [baos (ByteArrayOutputStream.)]
+      (write-u32! baos 30) ;; total-len
+      (write-u32! baos 8)  ;; headers-len -> payload-len 6
+      (write-u32! baos 0)  ;; prelude crc
+      ;; stream ends here: headers read hits an immediate EOF mid-frame
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Truncated Bedrock event-stream frame"
+                            (vec (#'llm-providers.bedrock/event-stream-seq
+                                  (ByteArrayInputStream. (.toByteArray baos))))))))
+
   (testing "throws on a frame with negative payload length"
     (let [baos (ByteArrayOutputStream.)]
       (write-u32! baos 20) ;; total-len < headers-len + 16
@@ -115,7 +125,25 @@
 
   (testing "reasoning adds reasoning_config to additionalModelRequestFields"
     (is (match? {:additionalModelRequestFields {:reasoning_config {:type "enabled"}}}
-                (#'llm-providers.bedrock/build-body {:messages [] :reason? true})))))
+                (#'llm-providers.bedrock/build-body {:messages [] :reason? true}))))
+
+  (testing "extra-payload cannot re-enable reasoning when reason? is false"
+    (let [body (#'llm-providers.bedrock/build-body
+                {:messages []
+                 :reason? false
+                 :extra-payload {:additionalModelRequestFields
+                                 {:reasoning_config {:type "enabled"}
+                                  :foo "bar"}}})]
+      (is (nil? (get-in body [:additionalModelRequestFields :reasoning_config])))
+      (is (= "bar" (get-in body [:additionalModelRequestFields :foo])))))
+
+  (testing "extra-payload reasoning_config is preserved when reason? is true"
+    (is (match? {:additionalModelRequestFields {:reasoning_config {:budget_tokens 1024}}}
+                (#'llm-providers.bedrock/build-body
+                 {:messages []
+                  :reason? true
+                  :extra-payload {:additionalModelRequestFields
+                                  {:reasoning_config {:budget_tokens 1024}}}})))))
 
 ;; --- chat! non-streaming ---
 

@@ -161,7 +161,13 @@
     :additionalModelRequestFields (when reason?
                                     {:reasoning_config {:type "enabled"
                                                         :budget_tokens default-reasoning-budget-tokens}}))
-   (select-keys extra-payload allowed-extra-payload-keys)))
+   ;; Drop a reasoning_config smuggled through extraPayload when the caller
+   ;; didn't request reasoning — otherwise it would silently re-enable it,
+   ;; since the generic reasoning-key strip in llm-api doesn't cover Bedrock.
+   (cond-> (select-keys extra-payload allowed-extra-payload-keys)
+     (and (not reason?)
+          (get-in extra-payload [:additionalModelRequestFields :reasoning_config]))
+     (update :additionalModelRequestFields dissoc :reasoning_config))))
 
 ;; --- AWS event-stream (vnd.amazon.eventstream) binary decoder ---
 
@@ -188,6 +194,15 @@
                     (throw (ex-info "Unexpected EOF in Bedrock event-stream frame" {}))
                     (recur (+ off (long r)))))
                 buf)))))
+
+(defn ^:private read-frame-part
+  "Like `read-fully`, but a clean EOF is itself an error. Used for the
+   header/payload/CRC reads inside a frame, where EOF means a truncated
+   frame rather than the legal end-of-stream that `read-fully` allows."
+  ^bytes [^InputStream is ^long n what]
+  (or (read-fully is n)
+      (throw (ex-info (str "Truncated Bedrock event-stream frame: EOF before " what)
+                      {:expected-bytes n :part what}))))
 
 (defn ^:private parse-headers
   "Parses event-stream frame headers. Only the string header type (7) is
@@ -224,9 +239,9 @@
        (when (neg? payload-len)
          (throw (ex-info "Malformed Bedrock event-stream frame: negative payload length"
                          {:total-len total-len :headers-len headers-len})))
-       (let [headers (parse-headers (read-fully is headers-len))
-             payload (read-fully is payload-len)
-             _crc (read-fully is 4)
+       (let [headers (parse-headers (read-frame-part is headers-len "headers"))
+             payload (read-frame-part is payload-len "payload")
+             _crc (read-frame-part is 4 "CRC")
              event-type (or (get headers ":event-type")
                             (get headers ":exception-type")
                             (get headers ":message-type"))
