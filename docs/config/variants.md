@@ -23,6 +23,19 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `high`     | `{"output_config": {"effort": "high"}, "thinking": {"type": "adaptive"}}` |
     | `max`      | `{"output_config": {"effort": "max"}, "thinking": {"type": "adaptive"}}` |
 
+=== "Anthropic (opus 4.7+)"
+
+    Applies to models matching `opus-4-7`, `opus-4-8` (any separator: `-`, `.`, `_`).
+
+    | Variant    | Payload |
+    | ---------- | ------- |
+    | `default`  | `{"thinking": {"type": "adaptive", "display": "summarized"}}` |
+    | `low`      | `{"output_config": {"effort": "low"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
+    | `medium`   | `{"output_config": {"effort": "medium"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
+    | `high`     | `{"output_config": {"effort": "high"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
+    | `xhigh`    | `{"output_config": {"effort": "xhigh"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
+    | `max`      | `{"output_config": {"effort": "max"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
+
 === "OpenAI"
 
     Applies to models matching `gpt-5-3-codex`, `gpt-5-2`. Excluded for `github-copilot` provider.

@@ -1,6 +1,10 @@
 (ns eca.features.login-test
   (:require
+   [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
+   [eca.cache :as cache]
+   [eca.db :as db]
    [eca.features.login :as login]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
@@ -67,3 +71,82 @@
                                1 {}}}
 
                       @db*)))))))
+
+(def ^:private renew-auth!* @#'login/renew-auth!)
+
+(deftest renew-auth!-skips-refresh-when-peer-already-refreshed-test
+  (testing "if disk holds fresher tokens than memory, renew-auth! adopts them and does NOT call login-step"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [fresh {:type :auth/oauth :mode :max :step :login/done
+                       :refresh-token "peer-fresh" :api-key "peer-access"
+                       :expires-at 9999999999}
+                stale {:type :auth/oauth :mode :max :step :login/done
+                       :refresh-token "mine-stale" :api-key "mine-access"
+                       :expires-at 1000}
+                _ (db/update-global-cache! {:auth {"anthropic" fresh}} nil)
+                db* (atom {:auth {"anthropic" stale}})
+                step-calls (atom 0)
+                on-error-msgs (atom [])]
+            (with-redefs [login/login-step (fn [_ctx] (swap! step-calls inc))]
+              (renew-auth!* "anthropic"
+                            {:db* db* :messenger nil :config nil :metrics nil}
+                            {:on-error #(swap! on-error-msgs conj %)}))
+            (is (zero? @step-calls)
+                "login-step should not be invoked when disk has fresh tokens")
+            (is (empty? @on-error-msgs))
+            (is (= "peer-fresh" (get-in @db* [:auth "anthropic" :refresh-token])))
+            (is (= "peer-access" (get-in @db* [:auth "anthropic" :api-key])))
+            (is (= 9999999999 (get-in @db* [:auth "anthropic" :expires-at]))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest renew-auth!-refreshes-when-disk-also-stale-test
+  (testing "when memory and disk are both expired, renew-auth! invokes login-step exactly once and persists"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [stale {:type :auth/oauth :mode :max :step :login/done
+                       :refresh-token "stale" :api-key "stale-access"
+                       :expires-at 1000}
+                _ (db/update-global-cache! {:auth {"anthropic" stale}} nil)
+                db* (atom {:auth {"anthropic" stale}})
+                step-calls (atom 0)
+                on-error-msgs (atom [])]
+            (with-redefs [login/login-step
+                          (fn [{:keys [db* provider]}]
+                            (swap! step-calls inc)
+                            (swap! db* update-in [:auth provider] merge
+                                   {:refresh-token "rotated"
+                                    :api-key "rotated-access"
+                                    :expires-at 9999999999}))]
+              (renew-auth!* "anthropic"
+                            {:db* db* :messenger nil :config nil :metrics nil}
+                            {:on-error #(swap! on-error-msgs conj %)}))
+            (is (= 1 @step-calls))
+            (is (empty? @on-error-msgs))
+            (is (= "rotated" (get-in @db* [:auth "anthropic" :refresh-token])))
+            ;; And the rotated tokens should have been written to disk so the next
+            ;; process in the race sees them.
+            (let [reloaded (atom {:auth {"anthropic" {}}})]
+              (db/sync-auth-from-cache! reloaded "anthropic" nil)
+              (is (= "rotated" (get-in @reloaded [:auth "anthropic" :refresh-token])))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest renew-auth!-calls-on-error-when-login-step-throws-test
+  (testing "exceptions from the provider refresh propagate to on-error and do not persist"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [stale {:type :auth/oauth :refresh-token "stale" :expires-at 1000}
+                _ (db/update-global-cache! {:auth {"anthropic" stale}} nil)
+                db* (atom {:auth {"anthropic" stale}})
+                on-error-msgs (atom [])]
+            (with-redefs [login/login-step
+                          (fn [_ctx] (throw (ex-info "Anthropic refresh token failed" {})))]
+              (renew-auth!* "anthropic"
+                            {:db* db* :messenger nil :config nil :metrics nil}
+                            {:on-error #(swap! on-error-msgs conj %)}))
+            (is (= 1 (count @on-error-msgs)))
+            (is (= "Anthropic refresh token failed" (first @on-error-msgs))))
+          (finally (fs/delete-tree tmpdir)))))))

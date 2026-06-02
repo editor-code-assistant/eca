@@ -1,6 +1,7 @@
 (ns eca.server
   (:require
    [clojure.core.async :as async]
+   [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
    [eca.handlers :as handlers]
@@ -23,9 +24,34 @@
 
 (set! *warn-on-reflection* true)
 
+(defn ^:private format-jsonrpc-trace
+  "Adapt jsonrpc4clj verbose-trace text to ECA's log format."
+  [message]
+  (if (and (string? message)
+           (string/starts-with? message "[Trace - "))
+    (-> message
+        ;; Ours is already on the line, so strip jsonrpc4clj's redundant timestamp.
+        (string/replace #"^\[Trace - [^\]]+\] " "[TRACE] ")
+        ;; Notifications without arguments otherwise produce noisy trailing `Params: null`.
+        (string/replace #"\nParams: null\n*$" "")
+        ;; jsonrpc4clj appends blank lines as a visual separator for LSP debugging.
+        (string/replace #"\n+$" "")
+        (string/replace #"\n" "\n  "))
+    message))
+
 (defn ^:private log-wrapper-fn
-  [_level & args]
-  (apply logger/info args))
+  "Route jsonrpc4clj log/trace entries through ECA's logger.
+   jsonrpc4clj always tags trace messages as :debug, but they should
+   pass at INFO level so --verbose works independently of --log-level."
+  [level & args]
+  (let [log-fn (case level
+                 :error logger/error
+                 :warn  logger/warn
+                 :info  logger/info
+                 :debug logger/info
+                 logger/info)
+        args (cons (format-jsonrpc-trace (first args)) (rest args))]
+    (apply log-fn args)))
 
 (def ^:private remote-server* (atom nil))
 
@@ -226,10 +252,8 @@
   (eventually (handlers/rewrite-prompt (with-config components) params)))
 
 (defn ^:private monitor-server-logs [log-ch]
-  ;; NOTE: if this were moved to `initialize`, after timbre has been configured,
-  ;; the server's startup logs and traces would appear in the regular log file
-  ;; instead of the temp log file. We don't do this though because if anything
-  ;; bad happened before `initialize`, we wouldn't get any logs.
+  ;; Start monitoring immediately so startup logs and traces are not lost before
+  ;; the client sends `initialize`.
   (async/go-loop []
     (when-let [log-args (async/<! log-ch)]
       (apply log-wrapper-fn log-args)

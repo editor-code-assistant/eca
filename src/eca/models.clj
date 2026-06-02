@@ -37,8 +37,10 @@
     (client/merge-llm-headers
      (assoc-some
       {"Content-Type" "application/json"}
+      "anthropic-version" (when anthropic? "2023-06-01")
       "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
-      "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))))))
+      "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
+      "anthropic-beta" (when (and anthropic? oauth?) "oauth-2025-04-20")))))
 
 (defn ^:private fetch-models-dev-data []
   (let [{:keys [status body]} (http/get models-dev-api-url
@@ -128,7 +130,17 @@
     "anthropic/claude-opus-4-5-20251101"
     "anthropic/claude-opus-4.7"
     "anthropic/claude-opus-4-7"
+    "anthropic/claude-opus-4.8"
+    "anthropic/claude-opus-4-8"
     "anthropic/claude-haiku-4-5-20251001"})
+
+(def ^:private models-with-mid-conversation-system-support
+  "Models that accept `role: \"system\"` entries inside the messages array
+   (mid-conversation system messages), letting volatile instructions be sent
+   after a user turn without invalidating the cached history prefix.
+   Documented for Claude Opus 4.8."
+  #{"anthropic/claude-opus-4.8"
+    "anthropic/claude-opus-4-8"})
 
 (defn ^:private all
   "Return all known existing models with their capabilities and configs."
@@ -145,6 +157,7 @@
                         ;; TODO how to check for web-search mode dynamically,
                         ;; maybe fixed after web-search toolcall is implemented
                         :web-search (contains? models-with-web-search-support (str provider "/" model))
+                        :mid-conversation-system? (contains? models-with-mid-conversation-system-support (str provider "/" model))
                         :image-generation? (contains? models-with-image-generation-support (str provider "/" model))
                         :tools (get model-config "tool_call")
                         :max-output-tokens (pos-num (get-in model-config ["limit" "output"]))}
@@ -367,6 +380,7 @@
                                 {:tools true
                                  :reason? true
                                  :web-search false
+                                 :mid-conversation-system? false
                                  :image-generation? false})
                             {:model-name real-model-name})]
     [full-model model-capabilities]))

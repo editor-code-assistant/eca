@@ -240,6 +240,41 @@
                        {:type :text :text "Here are the results."}]}]
            result)))))
 
+(deftest reason-empty-thinking-test
+  (testing "reason message with nil :text serializes :thinking to \"\" (not nil)"
+    ;; Regression: Anthropic rejects requests where a replayed thinking block
+    ;; has a non-string :thinking field with
+    ;;   400 messages.N.content.0.thinking.thinking: Input should be a valid string
+    ;; This happens when a content_block_start of type "thinking" arrived with no
+    ;; thinking_delta before content_block_stop, leaving (:text content) nil.
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :external-id "sig1" :text nil}}]
+                    true))
+          thinking-block (-> out first :content first)]
+      (is (= 1 (count out)))
+      (is (match? {:role "assistant"
+                   :content [{:type "thinking" :signature "sig1" :thinking ""}]}
+                  (first out)))
+      (is (= "" (:thinking thinking-block)))
+      (is (string? (:thinking thinking-block)))))
+  (testing "reason message with missing :text key also serializes :thinking to \"\""
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :external-id "sig1"}}]
+                    true))]
+      (is (= "" (-> out first :content first :thinking)))))
+  (testing "reason message with present :text is preserved verbatim"
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :external-id "sig1" :text "Let me think."}}]
+                    true))]
+      (is (= "Let me think." (-> out first :content first :thinking)))))
+  (testing "redacted reason message is unaffected (no :thinking field)"
+    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+                    [{:role "reason" :content {:id "r1" :redacted? true :data "enc"}}]
+                    true))]
+      (is (match? {:role "assistant"
+                   :content [{:type "redacted_thinking" :data "enc"}]}
+                  (first out))))))
+
 (deftest group-parallel-tool-calls-test
   (testing "single tool call passes through unchanged")
   (is (match?
@@ -452,3 +487,71 @@
                                 :tool_use_id "call-2"
                                 :content "ok\n"}]}
                     (first out)))))))
+
+(deftest max-tokens-input-overflow?-test
+  (let [overflow? #'llm-providers.anthropic/max-tokens-input-overflow?]
+    (testing "Z.AI-style overflow: huge input, tiny output vs 32k cap"
+      (is (true? (overflow? {:input_tokens 202525 :output_tokens 225} 32000))))
+    (testing "tiny output vs a moderately large cap is still treated as overflow"
+      (is (true? (overflow? {:input_tokens 50000 :output_tokens 100} 8000))))
+    (testing "output near the requested cap is a genuine output cap"
+      (is (false? (overflow? {:input_tokens 5000 :output_tokens 31900} 32000)))
+      (is (false? (overflow? {:input_tokens 5000 :output_tokens 7000} 8000))))
+    (testing "output exactly half of cap is treated as genuine cap (boundary)"
+      (is (false? (overflow? {:input_tokens 5000 :output_tokens 16000} 32000))))
+    (testing "small requested caps never trigger overflow reclassification"
+      (is (false? (overflow? {:input_tokens 1000 :output_tokens 100} 500)))
+      (is (false? (overflow? {:input_tokens 1000 :output_tokens 50} 3999))))
+    (testing "missing :output_tokens defaults to 0 and trips the heuristic"
+      (is (true? (overflow? {} 32000)))
+      (is (true? (overflow? {:input_tokens 100000} 32000))))))
+
+(deftest finalize-messages-test
+  (let [cache {:type "ephemeral"}
+        finalize #'llm-providers.anthropic/finalize-messages]
+    (testing "mid-system? false behaves like add-cache-to-last-message (no trailing system message)"
+      (is (match?
+           [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}]
+           (finalize [{:role "user" :content "hi"}] cache false "DYN"))))
+    (testing "mid-system? true appends dynamic as a trailing system message, cache stays on the prior turn"
+      (is (match?
+           [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}
+            {:role "system" :content [{:type "text" :text "DYN"}]}]
+           (finalize [{:role "user" :content "hi"}] cache true "DYN"))))
+    (testing "the trailing system message carries no cache_control so it stays uncached"
+      (is (nil? (-> (finalize [{:role "user" :content "hi"}] cache true "DYN")
+                    last :content first :cache_control))))))
+
+(deftest chat!-mid-conversation-system-test
+  (let [base-params {:model "claude-opus-4-8"
+                     :api-url "http://localhost:1"
+                     :api-key "fake-key"
+                     :auth-type :auth/key
+                     :instructions {:static "STATIC" :dynamic "DYNAMIC"}
+                     :user-messages [{:role "user" :content "hello"}]
+                     :past-messages []}
+        run! (fn [params]
+               (let [req* (atom nil)]
+                 (with-client-proxied {}
+                   (fn handler [req]
+                     (reset! req* req)
+                     {:status 200 :body {:content [{:text "ok"}]}})
+                   (llm-providers.anthropic/chat! params nil))
+                 (:body @req*)))]
+    (testing "flag off keeps dynamic instructions in the cached :system prefix"
+      (let [body (run! (assoc base-params :mid-conversation-system? false))]
+        (is (some #(= "DYNAMIC" (:text %)) (:system body))
+            "dynamic block present in :system")
+        (is (not-any? #(= "system" (:role %)) (:messages body))
+            "no system-role entry inside the messages array")))
+    (testing "flag on moves dynamic out of :system into a trailing system message after the user turn"
+      (let [body (run! (assoc base-params :mid-conversation-system? true))]
+        (is (some #(= "STATIC" (:text %)) (:system body))
+            "static block still in :system")
+        (is (not-any? #(= "DYNAMIC" (:text %)) (:system body))
+            "dynamic block removed from :system")
+        (is (match? {:role "system" :content [{:type "text" :text "DYNAMIC"}]}
+                    (last (:messages body)))
+            "dynamic appended as the trailing system message")
+        (is (= "user" (:role (last (butlast (:messages body)))))
+            "trailing system message follows a user turn")))))

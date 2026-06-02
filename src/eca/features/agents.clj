@@ -48,37 +48,72 @@
      {}
      tool-entries)))
 
+(defn ^:private normalize-tools
+  "Coerces the YAML `tools:` value into the map form ECA expects.
+   - Map form is returned as-is (ECA convention: byDefault/allow/ask/deny).
+   - Sequential form (Claude convention: a flat list of allowed tool names)
+     is normalized to {byDefault ask, allow <list>}.
+   - Any other shape (string, number, malformed) is treated as absent."
+  [tools]
+  (cond
+    (map? tools) tools
+    (sequential? tools) {"byDefault" "ask" "allow" (vec tools)}
+    :else nil))
+
 (defn ^:private md->agent-config
   [{:keys [description mode model steps tools body inherit]}]
-  (cond-> {}
-    inherit (assoc :inherit (str inherit))
-    description (assoc :description description)
-    mode (assoc :mode (str mode))
-    model (assoc :defaultModel (str model))
-    steps (assoc :maxSteps (long steps))
-    (seq body) (assoc :systemPrompt body)
-    tools (assoc :toolCall
-                 (let [tools-map (if (map? tools) tools (into {} tools))]
-                   (cond-> {:approval {}}
-                     (get tools-map "byDefault")
-                     (assoc-in [:approval :byDefault] (get tools-map "byDefault"))
+  (let [tools-map (normalize-tools tools)]
+    (cond-> {}
+      inherit (assoc :inherit (str inherit))
+      description (assoc :description description)
+      mode (assoc :mode (if (sequential? mode)
+                          (mapv str mode)
+                          (str mode)))
+      model (assoc :defaultModel (str model))
+      steps (assoc :maxSteps (long steps))
+      (seq body) (assoc :systemPrompt body)
+      tools-map (assoc :toolCall
+                       (cond-> {:approval {}}
+                         (get tools-map "byDefault")
+                         (assoc-in [:approval :byDefault] (get tools-map "byDefault"))
 
-                     (get tools-map "allow")
-                     (assoc-in [:approval :allow] (tools-list->approval-map (get tools-map "allow")))
+                         (get tools-map "allow")
+                         (assoc-in [:approval :allow] (tools-list->approval-map (get tools-map "allow")))
 
-                     (get tools-map "deny")
-                     (assoc-in [:approval :deny] (tools-list->approval-map (get tools-map "deny")))
+                         (get tools-map "deny")
+                         (assoc-in [:approval :deny] (tools-list->approval-map (get tools-map "deny")))
 
-                     (get tools-map "ask")
-                     (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
+                         (get tools-map "ask")
+                         (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
+
+(defn ^:private agent-name-from-frontmatter
+  "Returns the agent id from YAML frontmatter `name:` when present and non-blank,
+   trimmed and lowercased. Returns nil otherwise."
+  [parsed]
+  (when-let [n (:name parsed)]
+    (let [s (-> n str string/trim)]
+      (when-not (string/blank? s)
+        (string/lower-case s)))))
+
+(defn ^:private agent-name-from-filename
+  "Returns the agent id derived from a markdown filename by stripping all
+   extensions (everything from the first `.` onward) and lowercasing.
+   Example: `architect.agent.md` -> `architect`."
+  [md-file]
+  (-> (fs/file-name md-file)
+      str
+      (string/split #"\." 2)
+      first
+      string/lower-case))
 
 (defn agent-md-file->agent
   [md-file]
   (try
-    (let [agent-name (string/lower-case (fs/strip-ext (fs/file-name md-file)))
-          content (slurp (str md-file))
+    (let [content (slurp (str md-file))
           content (interpolation/replace-dynamic-strings content (fs/parent md-file) nil)
           parsed (shared/parse-md content)
+          agent-name (or (agent-name-from-frontmatter parsed)
+                         (agent-name-from-filename md-file))
           agent-config (md->agent-config parsed)]
       (when (seq agent-config)
         [agent-name agent-config]))

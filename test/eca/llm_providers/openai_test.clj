@@ -409,7 +409,20 @@
           {:type "image_generation" :output_format "png"}]
          (#'llm-providers.openai/->tools
           [{:full-name "eca__foo" :description "d" :parameters {}}]
-          true true)))))
+          true true))))
+  (testing "function tools explicitly opt out of Responses strict mode"
+    (is (= [{:type "function"
+             :name "mcp__search_records"
+             :description "Search records"
+             :parameters {:type "object"
+                          :properties {"limit" {:type "number"}}}
+             :strict false}]
+           (#'llm-providers.openai/->tools
+            [{:full-name "mcp__search_records"
+              :description "Search records"
+              :parameters {:type "object"
+                           :properties {"limit" {:type "number"}}}}]
+            false false)))))
 
 (deftest create-response-oauth-preserves-built-in-tools-test
   (testing "OAuth requests keep web_search and image_generation when capabilities are enabled"

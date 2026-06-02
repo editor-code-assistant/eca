@@ -51,7 +51,51 @@
   "Minimum time between git pull attempts for the same source (1 hour)."
   (* 60 60 1000))
 
+(def ^:private stale-lock-threshold-ms
+  "Age above which a *.lock file inside a cached repo's .git directory is
+   considered stale and safe to remove. Set comfortably above git-timeout-ms
+   so live git operations are never disturbed."
+  (* 2 git-timeout-ms))
+
 (def ^:private last-pull-times (atom {}))
+
+(def ^:private source-locks
+  "Per source-URL monitors used to serialize git operations against the same
+   cached repo. Prevents concurrent `git pull` from leaving behind stale
+   ref/index .lock files in .git/."
+  (atom {}))
+
+(defn ^:private source-lock
+  "Returns a stable monitor object for `source-url`, creating one on first use."
+  ^Object [^String source-url]
+  (-> (swap! source-locks
+             (fn [m] (if (contains? m source-url)
+                       m
+                       (assoc m source-url (Object.)))))
+      (get source-url)))
+
+(defn ^:private cleanup-stale-git-locks!
+  "Removes *.lock files under `cache-dir`/.git/ whose mtime exceeds
+   `stale-lock-threshold-ms`. These are typically left behind by crashed or
+   previously-raced git operations and cause subsequent `git pull` to fail with
+   messages like 'cannot lock ref ...: File exists'. Best-effort: errors are
+   swallowed so cleanup never breaks a pull."
+  [^java.io.File cache-dir]
+  (let [git-dir (io/file cache-dir ".git")
+        now (System/currentTimeMillis)]
+    (when (fs/exists? git-dir)
+      (try
+        (doseq [^java.io.File f (file-seq git-dir)]
+          (when (and (.isFile f)
+                     (string/ends-with? (.getName f) ".lock"))
+            (try
+              (when (> (- now (.lastModified f)) stale-lock-threshold-ms)
+                (when (.delete f)
+                  (logger/info logger-tag "Removed stale git lock file:" (str f))))
+              (catch Exception _e nil))))
+        (catch Exception e
+          (logger/debug logger-tag "Failed scanning for stale git lock files in"
+                        (str cache-dir) (.getMessage e)))))))
 
 (defn ^:private run-git!
   "Runs a git command with a timeout and returns {:exit :out :err}."
@@ -77,30 +121,38 @@
 
 (defn ^:private clone-or-pull!
   "Clones a git repo if not cached, or pulls if already cached (respecting TTL).
-   Returns the local directory path or nil on failure."
+   Returns the local directory path or nil on failure.
+
+   Serialized per source URL so concurrent callers (e.g. parallel chats running
+   /plugins or /plugin-install) cannot overlap a `git pull` on the same .git
+   directory. The TTL check is re-evaluated inside the lock so queued callers
+   short-circuit to the cached version after the first successful pull."
   [^String source-url]
   (let [cache-dir (source-cache-path source-url)]
-    (if (fs/exists? (io/file cache-dir ".git"))
-      (if (pull-needed? source-url)
-        (let [{:keys [exit err]} (run-git! "-C" (str cache-dir) "pull" "--ff-only" "-q")]
-          (swap! last-pull-times assoc source-url (System/currentTimeMillis))
-          (if (zero? exit)
-            (do (logger/info logger-tag "Updated plugin source:" source-url)
-                cache-dir)
-            (do (logger/warn logger-tag "Failed to update plugin source, using cached version:"
-                             source-url err)
-                cache-dir)))
-        (do (logger/debug logger-tag "Plugin source recently pulled, using cached version:" source-url)
-            cache-dir))
-      (do
-        (fs/create-dirs (fs/parent cache-dir))
-        (let [{:keys [exit err]} (run-git! "clone" "--depth" "1" "-q" source-url (str cache-dir))]
-          (if (zero? exit)
-            (do (logger/info logger-tag "Cloned plugin source:" source-url)
-                (swap! last-pull-times assoc source-url (System/currentTimeMillis))
-                cache-dir)
-            (do (logger/warn logger-tag "Failed to clone plugin source:" source-url err)
-                nil)))))))
+    (locking (source-lock source-url)
+      (if (fs/exists? (io/file cache-dir ".git"))
+        (if (pull-needed? source-url)
+          (do
+            (cleanup-stale-git-locks! cache-dir)
+            (let [{:keys [exit err]} (run-git! "-C" (str cache-dir) "pull" "--ff-only" "-q")]
+              (swap! last-pull-times assoc source-url (System/currentTimeMillis))
+              (if (zero? exit)
+                (do (logger/info logger-tag "Updated plugin source:" source-url)
+                    cache-dir)
+                (do (logger/warn logger-tag "Failed to update plugin source, using cached version:"
+                                 source-url err)
+                    cache-dir))))
+          (do (logger/debug logger-tag "Plugin source recently pulled, using cached version:" source-url)
+              cache-dir))
+        (do
+          (fs/create-dirs (fs/parent cache-dir))
+          (let [{:keys [exit err]} (run-git! "clone" "--depth" "1" "-q" source-url (str cache-dir))]
+            (if (zero? exit)
+              (do (logger/info logger-tag "Cloned plugin source:" source-url)
+                  (swap! last-pull-times assoc source-url (System/currentTimeMillis))
+                  cache-dir)
+              (do (logger/warn logger-tag "Failed to clone plugin source:" source-url err)
+                  nil))))))))
 
 (defn ^:private resolve-source!
   "Resolves a plugin source to a local directory.

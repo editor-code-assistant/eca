@@ -256,10 +256,10 @@
                                                            :call-state-fn call-state-fn
                                                            :state-transition-fn state-transition-fn
                                                            :trust trust})
-                           (f.mcp/call-tool! tool-name arguments {:db db
-                                                                  :db* db*
-                                                                  :config config
-                                                                  :metrics metrics})))
+                           (f.mcp/call-tool! server-name tool-name arguments {:db db
+                                                                              :db* db*
+                                                                              :config config
+                                                                              :metrics metrics})))
                        (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name resolved-full-name :error (:error result)} metrics)
@@ -306,6 +306,18 @@
      db*
      config
      metrics)))
+
+(defn reconcile-servers!
+  "Diff MCP servers between prev-config and new-config and apply add/remove/restart
+   accordingly, pushing `tool/serverUpdated` and `tool/serverRemoved` notifications.
+   Called by the config-polling loop when the resolved config changes."
+  [prev-config new-config db* messenger metrics]
+  (let [default-agent (get new-config :defaultAgent)
+        tool-status-fn (make-tool-status-fn new-config default-agent)]
+    (f.mcp/reconcile-servers!
+     prev-config new-config db* metrics
+     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
+      :on-server-removed (partial notify-server-removed metrics messenger)})))
 
 (defn stop-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]

@@ -6,6 +6,7 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.shared :refer [assoc-some deep-merge join-api-url]]
    [hato.client :as http]))
 
@@ -161,46 +162,57 @@
 
    For 'reason' messages:
    - If :reasoning-content exists, emit as assistant message with reasoning_content field (DeepSeek-style)
-   - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)"
+   - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)
+
+   Defense-in-depth against #209: entries whose :content :api was tagged by
+   another provider (Anthropic signatures, OpenAI rs_*/encrypted_content,
+   toolu_*/call_* tool ids the chat-completions endpoint won't accept) are
+   dropped here. The primary safeguard is the central sanitizer in
+   eca.llm-api; this protects direct callers that bypass it."
   [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
-  (case role
-    "tool_call" (let [tool-call-id (or (:llm-tool-call-id content) (:id content))]
-                  {:role "assistant"
-                   :tool_calls [(cond-> {:id       tool-call-id
-                                         :type     "function"
-                                         :function {:name      (:full-name content)
-                                                    :arguments (json/generate-string (or (:arguments content) {}))}}
-                                 ;; Preserve Google Gemini thought signatures if present
-                                  (:external-id content)
-                                  (assoc-in [:extra_content :google :thought_signature]
-                                            (:external-id content)))]})
-    ;; NOTE: Image content from MCP tool results is currently flattened to
-    ;; the placeholder text `[Image: <media-type>]` via `stringfy-tool-result`,
-    ;; so multimodal models on the chat-completions API will not see prior
-    ;; images on follow-up turns. Image round-trip is implemented for
-    ;; `openai-responses` (see eca.llm-providers.openai/normalize-messages
-    ;; `tool_call_output` branch) and `anthropic`; replicating it here would
-    ;; require emitting a `tool` message followed by a synthetic `user`
-    ;; message with `image_url` content blocks, since the chat-completions
-    ;; `tool` role does not accept image content natively.
-    "tool_call_output" {:role "tool"
-                        :tool_call_id (or (:llm-tool-call-id content) (:id content))
-                        :content (llm-util/stringfy-tool-result content)}
-    "user" {:role "user"
-            :content (extract-content content supports-image?)}
-    "reason" (if (:delta-reasoning? content)
-               ;; DeepSeek-style: reasoning_content must be passed back to API
-               {:role "assistant"
-                :content ""
-                :reasoning_content (:text content)}
-               ;; Fallback: wrap in thinking tags for models that use text-based reasoning
-               {:role "assistant"
-                :content (str think-tag-start (:text content) think-tag-end)})
-    "assistant" {:role "assistant"
-                 :content (extract-content content supports-image?)}
-    "system" {:role "system"
+  (let [foreign-api? (let [origin (:api content)]
+                       (and origin (not= :openai-chat origin)))]
+    (case role
+      "tool_call" (when-not foreign-api?
+                    (let [tool-call-id (or (:llm-tool-call-id content) (:id content))]
+                      {:role "assistant"
+                       :tool_calls [(cond-> {:id       tool-call-id
+                                             :type     "function"
+                                             :function {:name      (:full-name content)
+                                                        :arguments (json/generate-string (or (:arguments content) {}))}}
+                                      ;; Preserve Google Gemini thought signatures if present
+                                      (:external-id content)
+                                      (assoc-in [:extra_content :google :thought_signature]
+                                                (:external-id content)))]}))
+      ;; NOTE: Image content from MCP tool results is currently flattened to
+      ;; the placeholder text `[Image: <media-type>]` via `stringfy-tool-result`,
+      ;; so multimodal models on the chat-completions API will not see prior
+      ;; images on follow-up turns. Image round-trip is implemented for
+      ;; `openai-responses` (see eca.llm-providers.openai/normalize-messages
+      ;; `tool_call_output` branch) and `anthropic`; replicating it here would
+      ;; require emitting a `tool` message followed by a synthetic `user`
+      ;; message with `image_url` content blocks, since the chat-completions
+      ;; `tool` role does not accept image content natively.
+      "tool_call_output" (when-not foreign-api?
+                           {:role "tool"
+                            :tool_call_id (or (:llm-tool-call-id content) (:id content))
+                            :content (llm-util/stringfy-tool-result content)})
+      "user" {:role "user"
               :content (extract-content content supports-image?)}
-    nil))
+      "reason" (when-not foreign-api?
+                 (if (:delta-reasoning? content)
+                   ;; DeepSeek-style: reasoning_content must be passed back to API
+                   {:role "assistant"
+                    :content ""
+                    :reasoning_content (:text content)}
+                   ;; Fallback: wrap in thinking tags for models that use text-based reasoning
+                   {:role "assistant"
+                    :content (str think-tag-start (:text content) think-tag-end)}))
+      "assistant" {:role "assistant"
+                   :content (extract-content content supports-image?)}
+      "system" {:role "system"
+                :content (extract-content content supports-image?)}
+      nil)))
 
 (defn ^:private merge-assistant-messages
   "Merge two assistant messages into one.
@@ -336,6 +348,40 @@
         (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
         tools-with-turn-id))))
 
+(defn ^:private content-block-text
+  "Join the textual parts of a content-block field that may be a plain string
+   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
+  [v]
+  (cond
+    (string? v) v
+    (sequential? v) (->> v (keep :text) (string/join))
+    :else nil))
+
+(defn ^:private split-stream-content
+  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
+   `delta.content` as a plain string OR as an array of content blocks mixing
+   visible text ({:type \"text\" :text ...}) and thinking chunks
+   ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
+   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
+   visible text and reasoning separately instead of stringifying the raw EDN."
+  [content]
+  (cond
+    (string? content)
+    {:text content :thinking nil}
+
+    (sequential? content)
+    (reduce
+     (fn [acc block]
+       (case (some-> (:type block) name)
+         "text" (update acc :text str (or (:text block) ""))
+         "thinking" (update acc :thinking str (or (content-block-text (:thinking block)) ""))
+         acc))
+     {:text nil :thinking nil}
+     content)
+
+    :else
+    {:text nil :thinking nil}))
+
 (defn ^:private process-text-think-aware
   "Incremental parser that splits streamed content into user text and thinking blocks.
    - Maintains a rolling buffer across chunks to handle tags that may be split across chunks
@@ -357,7 +403,7 @@
         emit-think! (fn [^String s id]
                       (when (and (pos? (count s)) id)
                         (on-reason {:status :thinking :id id :text s})))]
-    (when (seq text)
+    (when (and (string? text) (seq text))
       ;; Add new text to buffer
       (swap! reasoning-state* update :buffer str text)
       (loop []
@@ -514,7 +560,8 @@
                                        tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
                                   (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tools-to-call)]
-                                    (let [pruned-messages (prune-history new-messages reasoning-history)
+                                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)
+                                          pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
                                                                   (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end)))
@@ -549,30 +596,36 @@
                               (doseq [choice (:choices data)]
                                 (let [delta (:delta choice)
                                       finish-reason (:finish_reason choice)]
-                                  ;; Process content if present (with thinking blocks support)
-                                  (when-let [ct (:content delta)]
-                                    (process-text-think-aware ct reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
+                                  ;; Content may be a plain string or, for reasoning models on the
+                                  ;; chat-completions API (e.g. Mistral), an array of content blocks
+                                  ;; mixing visible text and thinking chunks. Split them so thinking is
+                                  ;; routed to reasoning instead of being stringified into chat text.
+                                  (let [{text-content :text block-thinking :thinking} (split-stream-content (:content delta))
+                                        ;; o1/DeepSeek expose reasoning via dedicated fields; Mistral via thinking blocks.
+                                        reasoning-text (or (:reasoning delta)
+                                                           (:reasoning_content delta)
+                                                           (:reasoning_text delta)
+                                                           (not-empty block-thinking))]
+                                    ;; Process visible text (with thinking-tag awareness)
+                                    (when (seq text-content)
+                                      (process-text-think-aware text-content reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
 
-                                  ;; Process reasoning if present (o1 models and compatible providers)
-                                  (when-let [reasoning-text (or (:reasoning delta)
-                                                                (:reasoning_content delta)
-                                                                (:reasoning_text delta))]
-                                    (when-not (= (:type @reasoning-state*) :delta)
-                                      (start-delta-reasoning))
-                                    (on-reason {:status :thinking
-                                                :id (:id @reasoning-state*)
-                                                :text reasoning-text}))
+                                    ;; Process reasoning if present
+                                    (when reasoning-text
+                                      (when-not (= (:type @reasoning-state*) :delta)
+                                        (start-delta-reasoning))
+                                      (on-reason {:status :thinking
+                                                  :id (:id @reasoning-state*)
+                                                  :text reasoning-text}))
 
-                                  ;; Check if reasoning just stopped (delta-based)
-                                  (let [state @reasoning-state*]
-                                    (when (and (= (:type state) :delta)
-                                               (:id state)  ;; defensive check
-                                               (nil? (:reasoning delta))
-                                               (nil? (:reasoning_content delta))
-                                               (nil? (:reasoning_text delta)))
-                                      ;; Flush any buffered content before finishing reasoning
-                                      (flush-content-buffer)
-                                      (finish-reasoning! reasoning-state* on-reason)))
+                                    ;; Check if reasoning just stopped (delta-based)
+                                    (let [state @reasoning-state*]
+                                      (when (and (= (:type state) :delta)
+                                                 (:id state)  ;; defensive check
+                                                 (nil? reasoning-text))
+                                        ;; Flush any buffered content before finishing reasoning
+                                        (flush-content-buffer)
+                                        (finish-reasoning! reasoning-state* on-reason))))
 
                                   ;; Process tool calls if present
                                   (when (:tool_calls delta)

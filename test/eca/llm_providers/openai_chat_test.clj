@@ -780,6 +780,12 @@
      :content-buffer (:buffer @reasoning-state*)}))
 
 (deftest process-text-think-aware-test
+  (testing "non-string content (e.g. a Mistral content-block array) is ignored, never stringified as chat text"
+    (is (match?
+         {:content-buffer ""
+          :callbacks-called []}
+         (process-text-think-aware
+          [[{:type "thinking" :thinking [{:type "text" :text "secret"}] :closed true}]]))))
   (testing "complete tag by chunk"
     (is (match?
          {:content-buffer " mate!"
@@ -856,6 +862,29 @@
             total-emitted (apply str (map second text-calls))]
         (is (<= (- (count long-text) 6) (count total-emitted) (count long-text))
             "Should emit almost all text, keeping only a small buffer")))))
+
+(deftest split-stream-content-test
+  (testing "plain string content passes through as text"
+    (is (= {:text "Hello there" :thinking nil}
+           (#'llm-providers.openai-chat/split-stream-content "Hello there"))))
+  (testing "nil content yields neither text nor thinking"
+    (is (= {:text nil :thinking nil}
+           (#'llm-providers.openai-chat/split-stream-content nil))))
+  (testing "Mistral-style array: nested thinking chunks are separated from visible text"
+    (is (= {:text "Hello!" :thinking "Let me think"}
+           (#'llm-providers.openai-chat/split-stream-content
+            [{:type "thinking" :thinking [{:type "text" :text "Let me "} {:type "text" :text "think"}] :closed true}
+             {:type "text" :text "Hello!"}]))))
+  (testing "thinking field may be a plain string"
+    (is (= {:text "$$3$$" :thinking "There are 3 r"}
+           (#'llm-providers.openai-chat/split-stream-content
+            [{:type "thinking" :thinking "There are 3 r" :closed true}
+             {:type "text" :text "$$3$$"}]))))
+  (testing "unknown block types are ignored"
+    (is (= {:text "ok" :thinking nil}
+           (#'llm-providers.openai-chat/split-stream-content
+            [{:type "image_url" :image_url {:url "data:..."}}
+             {:type "text" :text "ok"}])))))
 
 (deftest finish-reasoning-error-handling-test
   (testing "finish-reasoning should not call on-reason when :id is nil (regression test)"

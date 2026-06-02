@@ -219,20 +219,29 @@
     [server (if lan-ip "127.0.0.1+lan" "127.0.0.1")]))
 
 (defn ^:private try-start-jetty-any-host
-  "Tries to start Jetty on the given port. On Windows with active tunnel
-   interfaces (Tailscale, WireGuard, etc.), skips the 0.0.0.0 wildcard bind
-   because Windows would capture traffic on the tunnel interface, preventing
-   services like `tailscale serve` from terminating TLS on the same port.
-   Otherwise attempts 0.0.0.0 first for full connectivity, falling back to
-   127.0.0.1 + LAN IP connector.
+  "Tries to start Jetty on the given port.
+   When bind-host is provided, binds ONLY to that interface (no fallback).
+   On Windows with active tunnel interfaces (Tailscale, WireGuard, etc.),
+   skips the 0.0.0.0 wildcard bind because Windows would capture traffic on
+   the tunnel interface, preventing services like `tailscale serve` from
+   terminating TLS on the same port.
+   Otherwise attempts 0.0.0.0 first, falling back to 127.0.0.1 + LAN IP connector.
    Returns [server bind-host] on success, nil if all fail."
-  [handler port lan-ip ^SSLContext ssl-context]
-  (if (and shared/windows-os? (has-tunnel-interfaces?))
+  [handler port lan-ip ^SSLContext ssl-context bind-host]
+  (cond
+    ;; Explicit bind host: bind only there, no wildcard attempt or fallback.
+    bind-host
+    (when-let [server (try-start-jetty handler port bind-host ssl-context)]
+      [server bind-host])
+
     ;; On Windows with tunnel interfaces, bind only to specific interfaces
     ;; to avoid stealing traffic from Tailscale/WireGuard virtual interfaces.
+    (and shared/windows-os? (has-tunnel-interfaces?))
     (do (logger/debug logger-tag "Tunnel interface detected on Windows, binding to specific interfaces only")
         (start-on-specific-interfaces handler port lan-ip ssl-context))
+
     ;; Default: try 0.0.0.0 first, fall back to specific interfaces
+    :else
     (if-let [server (try-start-jetty handler port "0.0.0.0" ssl-context)]
       [server "0.0.0.0"]
       (start-on-specific-interfaces handler port lan-ip ssl-context))))
@@ -241,12 +250,12 @@
   "Tries sequential ports starting from base-port up to max-port-attempts.
    For each port, tries all bind-hosts before moving to the next port.
    Returns [server actual-port bind-host] on success, nil if all attempts fail."
-  [handler base-port lan-ip ssl-context]
+  [handler base-port lan-ip ssl-context bind-host]
   (loop [port base-port
          attempts 0]
     (when (< attempts max-port-attempts)
-      (if-let [[server bind-host] (try-start-jetty-any-host handler port lan-ip ssl-context)]
-        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bind-host]
+      (if-let [[server actual-bind-host] (try-start-jetty-any-host handler port lan-ip ssl-context bind-host)]
+        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) actual-bind-host]
         (do (logger/debug logger-tag (str "Port " port " in use, trying " (inc port) "..."))
             (recur (inc port) (inc attempts)))))))
 
@@ -261,7 +270,13 @@
         remote-config (:remote config)]
     (when (:enabled remote-config)
       (let [token (or (:password remote-config) (auth/generate-token))
-            host-base (or (:host remote-config) (detect-host))
+            bind-host (:bindHost remote-config)
+            host-base (or (:host remote-config)
+                          ;; Default the display host to the explicit bind host
+                          ;; (e.g. a Tailscale IP) unless it's the wildcard.
+                          (when (and bind-host (not= bind-host "0.0.0.0"))
+                            bind-host)
+                          (detect-host))
             lan-ip (detect-lan-ip)
             user-port (:port remote-config)
             ssl-context (build-server-ssl-context)
@@ -275,13 +290,13 @@
           (if-let [[^Server jetty-server actual-port bind-host]
                    (if user-port
                      ;; User-specified port: single attempt, try all bind hosts
-                     (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip ssl-context)]
+                     (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip ssl-context bind-host)]
                        [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bh]
                        (do (logger/warn logger-tag "Port" user-port "is already in use."
                                         "Remote server will not start.")
                            nil))
                      ;; Default: try sequential ports starting from default-port
-                     (or (start-with-retry handler default-port lan-ip ssl-context)
+                     (or (start-with-retry handler default-port lan-ip ssl-context bind-host)
                          (do (logger/warn logger-tag
                                           (str "Could not bind to ports " default-port "-"
                                                (+ default-port (dec max-port-attempts))

@@ -321,6 +321,12 @@
           "description": "Whether to automatically generate a title for new chats.",
           "markdownDescription": "Whether to automatically generate a title for new chats.",
           "default": true
+        },
+        "defaultTrust": {
+          "type": "boolean",
+          "description": "Whether new chats start in trust mode, auto-accepting all tool calls (never overriding deny). Applies to all editors.",
+          "markdownDescription": "Whether new chats start in trust mode, auto-accepting all tool calls (never overriding `deny`). Applies to all editors.",
+          "default": false
         }
       }
     },
@@ -388,11 +394,20 @@
         },
         "host": {
           "type": "string",
-          "description": "Host used in the logged URL for web.eca.dev to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via InetAddress/getLocalHost.",
-          "markdownDescription": "Host used in the logged URL for `web.eca.dev` to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via `InetAddress/getLocalHost`.",
+          "description": "Host used in the logged URL for web.eca.dev to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via InetAddress/getLocalHost. This is display-only and does not affect which interface the server binds to (see bindHost).",
+          "markdownDescription": "Host used in the logged URL for `web.eca.dev` to connect back to. Can be a LAN IP, public IP, domain, or tunnel URL. When unset, auto-detected via `InetAddress/getLocalHost`. This is display-only and does not affect which interface the server binds to (see `bindHost`).",
           "examples": [
             "192.168.1.42",
             "myserver.example.com"
+          ]
+        },
+        "bindHost": {
+          "type": "string",
+          "description": "Network interface the HTTP server binds to. When unset, ECA auto-detects. Set this to pin the server to a specific interface — e.g. a Tailscale/WireGuard IP, or '0.0.0.0' to bind all interfaces.",
+          "markdownDescription": "Network interface the HTTP server binds to. When unset, ECA auto-detects. Set this to pin the server to a specific interface — e.g. a Tailscale/WireGuard IP, or `0.0.0.0` to bind all interfaces.",
+          "examples": [
+            "100.101.146.110",
+            "0.0.0.0"
           ]
         },
         "port": {
@@ -691,10 +706,22 @@
           "examples": ["code", "plan", "explorer"]
         },
         "mode": {
-          "type": "string",
-          "description": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
-          "markdownDescription": "Agent mode. 'primary' for standalone agents, 'subagent' for agent-spawnable agents.",
-          "enum": ["primary", "subagent"]
+          "description": "Roles this agent can be used in. Accepts either a single string ('primary' or 'subagent') or a list (e.g. ['primary', 'subagent']). 'primary' means selectable as a chat agent; 'subagent' means spawnable by another agent. Defaults to both when absent.",
+          "markdownDescription": "Roles this agent can be used in. Accepts either a single string (`\"primary\"` or `\"subagent\"`) or a list (e.g. `[\"primary\", \"subagent\"]`). `primary` means selectable as a chat agent; `subagent` means spawnable by another agent. Defaults to both when absent.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["primary", "subagent"]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["primary", "subagent"]
+              },
+              "uniqueItems": true
+            }
+          ]
         },
         "description": {
           "type": "string",

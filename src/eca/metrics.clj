@@ -39,11 +39,14 @@
   (format-time-delta-ms start-time (System/nanoTime)))
 
 (defn metrify-task [{:keys [task-id metrics time]}]
-  (logger/info (str task-id " " time))
-  (try
-    (count! metrics (str "task-" (name task-id)) 1 (default-attrs))
-    (catch Exception e
-      (logger/error e))))
+  (let [ns-name (namespace task-id)
+        tag (when ns-name (str "[" (.toUpperCase ^String (name ns-name)) "]"))
+        task-name (name task-id)]
+    (logger/info (if tag (str tag " " task-name " " time) (str task-name " " time)))
+    (try
+      (count! metrics (str "task-" (name task-id)) 1 (default-attrs))
+      (catch Exception e
+        (logger/error e)))))
 
 (defmacro task*
   "Executes `body` logging `message` formatted with the time spent

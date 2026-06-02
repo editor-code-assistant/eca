@@ -3,9 +3,12 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
    [eca.shared :refer [multi-str]]))
+
+(def ^:private logger-tag "[LOGIN]")
 
 (defmulti login-step (fn [ctx] [(:provider ctx) (:step ctx)]))
 
@@ -78,14 +81,27 @@
    {:keys [db* messenger config metrics]}
    {:keys [on-error]}]
   (try
-    (login-step
-     {:provider provider
-      :metrics metrics
-      :messenger messenger
-      :config config
-      :step :login/renew-token
-      :db* db*})
-    (db/update-global-cache! @db* metrics)
+    ;; Serialize across ECA processes that share `~/.cache/eca/db.transit.json`.
+    ;; OAuth refresh tokens are single-use, so two concurrent processes
+    ;; both POSTing with the same token would have one win and the other
+    ;; receive `invalid_grant`. Holding the cache lock + re-reading disk
+    ;; lets the loser adopt the winner's rotated tokens instead. #462
+    (db/with-global-cache-lock
+      (db/sync-auth-from-cache! db* provider metrics)
+      (let [expires-at (get-in @db* [:auth provider :expires-at])
+            now-plus-60 (+ 60 (quot (System/currentTimeMillis) 1000))]
+        (if (and expires-at (> (long expires-at) now-plus-60))
+          (logger/info logger-tag
+                       (format "Skipping %s renew; peer process already refreshed." provider))
+          (do
+            (login-step
+             {:provider provider
+              :metrics metrics
+              :messenger messenger
+              :config config
+              :step :login/renew-token
+              :db* db*})
+            (db/update-global-cache! @db* metrics)))))
     (catch Exception e
       (on-error (.getMessage e)))))
 

@@ -8,10 +8,18 @@ description: "Configure ECA agents and subagents: custom system prompts, model s
 
 When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, skills and more.
 
-There are 2 types of agents defined via `mode` field (when absent, defaults to primary):
+Agents have a `mode` field that controls where they can be used. It accepts either a single string or a list:
 
-- `primary`: main agents, used in chat, can spawn subagents.
+- `primary`: main agent, used in chat, can spawn subagents.
 - `subagent`: an agent allowed to be spawned inside a chat to do a specific task and return a output to the primary agent.
+
+Examples:
+
+- `mode: "primary"` — only selectable as a chat agent.
+- `mode: "subagent"` — only spawnable by another agent.
+- `mode: ["primary", "subagent"]` — usable in both roles.
+
+When `mode` is not set, the agent is usable in both roles (equivalent to `["primary", "subagent"]`).
 
 ## Built-in agents
 
@@ -95,7 +103,7 @@ The major advantages of subagents are:
 
 Subagents can be configured in config or markdown and support/require these fields:
 
-- `mode` (required): `subagent` always, this is what differs a primary agent from a subagent for ECA.
+- `mode`: set to `"subagent"` (or `["subagent"]`) to restrict an agent to subagent use only. Omit or include `"primary"` to also allow chat use.
 - `description` (required): a short summary of what this subagent will do, this is important to primary agent knows when to delegate to it.
 - `systemPrompt` or the markdown content (required unless using `inherit`): Instructions for the subagent to what do when receive a task.
 
@@ -124,6 +132,10 @@ Subagents can be configured in config or markdown and support/require these fiel
     You should run sleep 1 and return "I slept 1 second"
     ```
     
+    !!! info "Agent id"
+
+        The agent id (the key under `agent`) is taken from the YAML `name:` field when present (trimmed and lowercased). Otherwise it falls back to the filename with all extensions stripped, so `architect.agent.md` becomes `architect`. This keeps Claude Code / OpenCode plugin agent files working without renaming.
+
     !!! info "Pattern-based tool approval in markdown"
 
         You can append a regex pattern in parentheses after a tool name to restrict approval to calls matching the pattern. Currently only `eca__shell_command` supports this — the pattern is matched against its `command` argument. Multiple entries for the same tool are automatically merged.
@@ -137,6 +149,18 @@ Subagents can be configured in config or markdown and support/require these fiel
         ```
 
         This is equivalent to `argsMatchers` in JSON config. Patterns on tools other than `eca__shell_command` are currently ignored.
+
+    !!! info "Claude-compatible tools list"
+
+        For Claude Code / OpenCode plugin compatibility, `tools` can also be given as a flat YAML list. It is treated as `byDefault: ask` plus the list as `allow`:
+
+        ```yaml
+        tools:
+          - eca__read_file
+          - eca__grep
+        ```
+
+        The entries must be ECA tool ids for the allowlist to take effect; unknown names are accepted but will not match any real tool.
 
     !!! info "Tool call approval"
         

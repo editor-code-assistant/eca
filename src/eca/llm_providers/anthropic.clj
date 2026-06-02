@@ -9,6 +9,7 @@
    [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
@@ -96,7 +97,9 @@
                  (merge
                   (assoc-some
                    {"anthropic-version" "2023-06-01"
-                    "Content-Type" "application/json"}
+                    "Content-Type" "application/json"
+                    ;; Keep SSE uncompressed so it streams token-by-token (see :decompress-body below).
+                    "accept-encoding" "identity"}
                    "x-api-key" (when-not oauth? api-key)
                    "Authorization" (when oauth? (str "Bearer " api-key))
                    "anthropic-beta" (when oauth? "oauth-2025-04-20"))
@@ -114,6 +117,7 @@
                                    {:headers headers
                                     :body (json/generate-string body)
                                     :throw-exceptions? false
+                                    :decompress-body false
                                     :http-client (client/merge-with-global-http-client http-client)
                                     :as (if on-stream :stream :json)})]
         (if (not= 200 status)
@@ -175,72 +179,84 @@
 
 (defn ^:private normalize-messages [past-messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]
-          (case role
-            "tool_call" {:role "assistant"
-                         :content [{:type "tool_use"
-                                    :id (:id content)
-                                    :name (:full-name content)
-                                    :input (or (:arguments content) {})}]}
+          ;; Defense-in-depth against #209: entries whose :content :api was
+          ;; tagged by a different provider (toolu_*/call_*, OpenAI rs_*/
+          ;; encrypted_content, Anthropic signatures) are unsafe to forward to
+          ;; Anthropic. The primary safeguard is the central sanitizer in
+          ;; eca.llm-api/sanitize-past-messages-for-api; this check protects
+          ;; direct callers that bypass it.
+          (let [foreign-api? (let [origin (:api content)]
+                               (and origin (not= :anthropic origin)))]
+            (case role
+              "tool_call" (when-not foreign-api?
+                            {:role "assistant"
+                             :content [{:type "tool_use"
+                                        :id (:id content)
+                                        :name (:full-name content)
+                                        :input (or (:arguments content) {})}]})
 
-            "tool_call_output"
-            ;; Anthropic's tool_result `content` field accepts a list of
-            ;; mixed text + image blocks natively, so when the tool returned
-            ;; image content and the model supports image input, emit a
-            ;; single tool_result whose content is the textual portion plus
-            ;; one image block per image. Falls back to the legacy text-only
-            ;; string shape when there are no images or the model is not
-            ;; multimodal (preserves prior behavior).
-            (let [contents (-> content :output :contents)
-                  image-contents (when supports-image?
-                                   (seq (filter #(= :image (:type %)) contents)))
-                  text (llm-util/stringfy-tool-result content)]
-              {:role "user"
-               :content [{:type "tool_result"
-                          :tool_use_id (:id content)
-                          :content (if image-contents
-                                     (into [{:type "text" :text text}]
-                                           (map (fn [img]
-                                                  {:type "image"
-                                                   :source {:type "base64"
-                                                            :media_type (or (:media-type img) "image/png")
-                                                            :data (:base64 img)}}))
-                                           image-contents)
-                                     text)}]})
+              "tool_call_output"
+              ;; Anthropic's tool_result `content` field accepts a list of
+              ;; mixed text + image blocks natively, so when the tool returned
+              ;; image content and the model supports image input, emit a
+              ;; single tool_result whose content is the textual portion plus
+              ;; one image block per image. Falls back to the legacy text-only
+              ;; string shape when there are no images or the model is not
+              ;; multimodal (preserves prior behavior).
+              (when-not foreign-api?
+                (let [contents (-> content :output :contents)
+                      image-contents (when supports-image?
+                                       (seq (filter #(= :image (:type %)) contents)))
+                      text (llm-util/stringfy-tool-result content)]
+                  {:role "user"
+                   :content [{:type "tool_result"
+                              :tool_use_id (:id content)
+                              :content (if image-contents
+                                         (into [{:type "text" :text text}]
+                                               (map (fn [img]
+                                                      {:type "image"
+                                                       :source {:type "base64"
+                                                                :media_type (or (:media-type img) "image/png")
+                                                                :data (:base64 img)}}))
+                                               image-contents)
+                                         text)}]}))
 
-            ;; OpenAI-emitted image_generation_call history entries are
-            ;; replayed for Anthropic as user-role image blocks (Anthropic
-            ;; doesn't have an analogous tool, but it accepts inline base64
-            ;; images, so the model can still see prior generations).
-            "image_generation_call" (when supports-image?
-                                      {:role "user"
-                                       :content [{:type "image"
-                                                  :source {:data (:base64 content)
-                                                           :media_type (:media-type content)
-                                                           :type "base64"}}]})
-            "reason"
-            {:role "assistant"
-             :content [(if (:redacted? content)
-                         {:type "redacted_thinking"
-                          :data (:data content)}
-                         {:type "thinking"
-                          :signature (:external-id content)
-                          :thinking (:text content)})]}
+              ;; OpenAI-emitted image_generation_call history entries are
+              ;; replayed for Anthropic as user-role image blocks (Anthropic
+              ;; doesn't have an analogous tool, but it accepts inline base64
+              ;; images, so the model can still see prior generations).
+              "image_generation_call" (when supports-image?
+                                        {:role "user"
+                                         :content [{:type "image"
+                                                    :source {:data (:base64 content)
+                                                             :media_type (:media-type content)
+                                                             :type "base64"}}]})
+              "reason"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [(if (:redacted? content)
+                             {:type "redacted_thinking"
+                              :data (:data content)}
+                             {:type "thinking"
+                              :signature (:external-id content)
+                              :thinking (or (:text content) "")})]})
 
-            "server_tool_use"
-            {:role "assistant"
-             :content [{:type "server_tool_use"
-                        :id (:id content)
-                        :name (:name content)
-                        :input (or (:input content) {})}]}
+              "server_tool_use"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [{:type "server_tool_use"
+                            :id (:id content)
+                            :name (:name content)
+                            :input (or (:input content) {})}]})
 
-            "server_tool_result"
-            {:role "assistant"
-             :content [{:type "web_search_tool_result"
-                        :tool_use_id (:tool-use-id content)
-                        :content (:raw-content content)}]}
+              "server_tool_result"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [{:type "web_search_tool_result"
+                            :tool_use_id (:tool-use-id content)
+                            :content (:raw-content content)}]})
 
             (-> msg
-                (dissoc :content-id)
                 (update :content (fn [c]
                                    (if (string? c)
                                      (string/trim c)
@@ -259,7 +275,7 @@
                                                              :type "base64"}})
 
                                                  %))
-                                            c))))))))
+                                            c)))))))))
         past-messages))
 
 (defn ^:private group-parallel-tool-calls
@@ -340,10 +356,35 @@
                                         :cache_control cache-control}])
          (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
 
+(defn ^:private finalize-messages
+  "Adds the trailing cache breakpoint and, when `mid-system?`, appends the
+   volatile `dynamic` instructions as a `role: \"system\"` entry after the last
+   (user) turn. The cache breakpoint stays on the last real user/tool turn so
+   the volatile system entry is left uncached and the stable history prefix
+   keeps being cached across turns instead of being invalidated whenever
+   `dynamic` changes."
+  [messages cache-control mid-system? dynamic]
+  (let [cached (add-cache-to-last-message messages cache-control)]
+    (if mid-system?
+      (conj cached {:role "system"
+                    :content [{:type "text" :text dynamic}]})
+      cached)))
+
+(defn ^:private max-tokens-input-overflow?
+  "Heuristic: when stop_reason is 'max_tokens' but output was barely
+   produced relative to the requested cap, the underlying cause is
+   almost certainly input-side context overflow rather than a genuine
+   output cap. Some Anthropic-compatible providers (e.g. Z.AI) signal
+   context overflow this way instead of returning HTTP 400."
+  [usage requested-max-tokens]
+  (let [output-tokens (or (:output_tokens usage) 0)]
+    (and (>= requested-max-tokens 4000)
+         (< output-tokens (quot requested-max-tokens 2)))))
+
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search extra-payload extra-headers supports-image? http-client cancelled?
+           tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
            stream-idle-timeout-seconds cache-retention]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
@@ -356,14 +397,21 @@
         {:keys [static dynamic]} (if (map? instructions)
                                     instructions
                                     {:static instructions :dynamic nil})
+        ;; Opus 4.8+ accepts `role: system` entries inside the messages array.
+        ;; When supported, the volatile dynamic instructions move out of the
+        ;; cached :system prefix into a trailing system message, so a changing
+        ;; dynamic block no longer invalidates the cached conversation history.
+        mid-system? (and mid-conversation-system?
+                         (not (string/blank? dynamic))
+                         (= "user" (:role (last messages))))
         system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
                                {:type "text" :text static :cache_control cache-control}]
-                        (not (string/blank? dynamic))
+                        (and (not (string/blank? dynamic)) (not mid-system?))
                         (conj {:type "text" :text dynamic :cache_control cache-control}))
         body (merge
               (assoc-some
                {:model model
-                :messages (add-cache-to-last-message messages cache-control)
+                :messages (finalize-messages messages cache-control mid-system? dynamic)
                 :max_tokens (or max-output-tokens 32000)
                 :stream stream?
                 :tools (add-cache-to-last-tool (->tools tools web-search) cache-control)
@@ -478,11 +526,12 @@
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
                                                  (let [messages (-> new-messages
+                                                                    message-sanitize/sanitize-outbound-messages
                                                                     group-parallel-tool-calls
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
                                                                     merge-adjacent-tool-results
-                                                                    (add-cache-to-last-message cache-control))]
+                                                                    (finalize-messages cache-control mid-system? dynamic))]
                                                    (reset! content-block* {})
                                                    (base-request!
                                                     {:rid (llm-util/gen-rid)
@@ -507,8 +556,16 @@
                                                                        :finish-reason (-> data :delta :stop_reason)}))
                                                (throw (ex-info "Stream ended with empty response"
                                                                {:error/type :premature-stop})))
-                                  "max_tokens" (on-message-received {:type :limit-reached
-                                                                     :tokens (:usage data)})
+                                  "max_tokens" (let [usage (:usage data)
+                                                     requested-max-tokens (or max-output-tokens 32000)]
+                                                 (if (max-tokens-input-overflow? usage requested-max-tokens)
+                                                   (on-error {:error/type :context-overflow
+                                                              :message (format "Context overflow detected (input_tokens=%d, output_tokens=%d, max_tokens=%d)"
+                                                                               (or (:input_tokens usage) 0)
+                                                                               (or (:output_tokens usage) 0)
+                                                                               requested-max-tokens)})
+                                                   (on-message-received {:type :limit-reached
+                                                                         :tokens usage})))
                                   nil))
               "message_stop" (when-not @has-stop-reason?*
                                (if @has-content?*

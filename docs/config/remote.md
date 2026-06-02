@@ -87,6 +87,20 @@ When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.
 
     4. Open `https://web.eca.dev` and enter your Tailscale hostname and password
 
+    !!! tip "Binding to a specific interface"
+        Set `bindHost` to pin the server to a specific interface — e.g. your
+        Tailscale IP — instead of the default auto-detection. ECA then binds
+        only that interface:
+
+        ```javascript title="~/.config/eca/config.json"
+        {
+          "remote": {
+            "enabled": true,
+            "bindHost": "100.101.146.110"
+          }
+        }
+        ```
+
 === "Local Docker"
 
     Run the web frontend locally over HTTP — useful for development or restricted environments.
@@ -118,8 +132,12 @@ When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.
 {
   "remote": {
     "enabled": true,
-    // optional — override the hostname in the connect URL (e.g. Tailscale DNS)
+    // optional — override the hostname in the connect URL (e.g. Tailscale DNS).
+    // Display-only; does NOT change which interface the server binds to.
     "host": "my-machine.tail1234.ts.net",
+    // optional — pin the interface the server binds to (e.g. a Tailscale IP).
+    // When unset, ECA auto-detects. Use "0.0.0.0" to bind all interfaces.
+    "bindHost": "100.101.146.110",
     // optional — defaults to 7777, auto-increments up to 7796 if busy
     "port": 9876,
     // optional — auto-generated when unset, supports ${env:MY_PASS}

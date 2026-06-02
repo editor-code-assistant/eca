@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.prompt :as f.prompt]
@@ -13,6 +14,26 @@
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
+
+(deftest list-chats-test
+  (testing "uses map key as :id even when value lacks an :id field
+            (regression: legacy DB rows pre-date the per-chat :id field
+            and would otherwise come back as :id nil, breaking chat/open)"
+    (let [db {:chats {"c1" {:title "With id" :messages [{} {}] :updated-at 2}
+                      "c2" {:id "stale-id" :title "Mismatched" :messages [{}] :updated-at 1}
+                      "c3" {:title "Subagent" :subagent true :messages [{}] :updated-at 3}}}
+          {:keys [chats]} (f.chat/list-chats db {})]
+      (is (= 2 (count chats)))
+      (is (every? :id chats))
+      (is (= ["c1" "c2"] (mapv :id chats)))))
+
+  (testing "respects :limit"
+    (let [db {:chats {"c1" {:title "a" :messages [] :updated-at 3}
+                      "c2" {:title "b" :messages [] :updated-at 2}
+                      "c3" {:title "c" :messages [] :updated-at 1}}}
+          {:keys [chats]} (f.chat/list-chats db {:limit 2})]
+      (is (= 2 (count chats)))
+      (is (= ["c1" "c2"] (mapv :id chats))))))
 
 (h/reset-components-before-test)
 
@@ -474,6 +495,37 @@
       (is (true? (get-in (h/db) [:chats chat-id :trust])))
       (is (= "My Chat" (get-in (h/db) [:chats chat-id :title]))))))
 
+(deftest prompt-default-trust-test
+  (let [finish-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                      (on-first-response-received {:type :text :text "ok"})
+                      (on-message-received {:type :text :text "ok"})
+                      (on-message-received {:type :finish}))]
+    (testing "new chat with chat.defaultTrust true seeds trust and emits per-chat select-trust"
+      (h/reset-components!)
+      (h/config! {:chat {:defaultTrust true}})
+      (let [{:keys [chat-id]} (prompt! {:message "Hi" :chat-id "default-trust-chat"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock finish-mock})]
+        (is (true? (get-in (h/db) [:chats chat-id :trust])))
+        (is (match? {:config-updated (m/embeds [{:chat {:select-trust true}
+                                                 :chat-id "default-trust-chat"}])}
+                    (h/messages)))))
+
+    (testing "explicit client trust wins over chat.defaultTrust"
+      (h/reset-components!)
+      (h/config! {:chat {:defaultTrust true}})
+      (let [{:keys [chat-id]} (prompt! {:message "Hi" :chat-id "explicit-trust-chat" :trust false}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock finish-mock})]
+        (is (false? (get-in (h/db) [:chats chat-id :trust])))))
+
+    (testing "chat.defaultTrust false (default) does not seed trust"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (prompt! {:message "Hi" :chat-id "no-default-trust-chat"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock finish-mock})]
+        (is (nil? (get-in (h/db) [:chats chat-id :trust])))))))
+
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)
@@ -511,6 +563,37 @@
                                         :text "\n\ntoken limit exceeded"}}])}
                  (h/messages))
                 "Should show auto-compact attempt and then the final error")))))))
+
+(deftest limit-reached-clears-compact-flags-test
+  (testing ":limit-reached handler clears stale compacting?/auto-compacting? flags so /compact can be retried"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Do something"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-message-received]}]
+              (let [chat-id (-> @(h/db*) :chats keys first)]
+                ;; Simulate /compact (and a prior auto-compact attempt) being in
+                ;; flight when the LLM aborts with stop_reason "max_tokens" but
+                ;; the heuristic considers it a genuine output cap. Without the
+                ;; fix the chat stays stuck with :compacting? true forever.
+                (swap! (h/db*) update-in [:chats chat-id]
+                       assoc :compacting? true :auto-compacting? true)
+                (on-message-received
+                 {:type :limit-reached
+                  :tokens {:input_tokens 200000 :output_tokens 32000}})))})]
+      (is (nil? (get-in (h/db) [:chats chat-id :compacting?]))
+          "compacting? must be cleared so the user can retry /compact")
+      (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?]))
+          "auto-compacting? must also be cleared")
+      (is (match?
+           {:chat-content-received
+            (m/embeds [{:role :system
+                        :content {:type :text
+                                  :text #(string/includes? % "API limit reached. Tokens:")}}])}
+           (h/messages))
+          "Should still surface the API limit reached system message"))))
 
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
@@ -999,6 +1082,28 @@
               :args ["arg1" "arg2"]}
              (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
 
+(deftest rollback-persists-to-cache-test
+  (testing "rollback flushes the trimmed history to disk so it survives an ECA restart"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "hi"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received]}]
+              (on-first-response-received {:type :text :text "hello"})
+              (on-message-received {:type :text :text "hello"})
+              (on-message-received {:type :finish}))})
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])
+          save-calls* (atom 0)]
+      (with-redefs [db/update-workspaces-cache! (fn [_ _] (swap! save-calls* inc))]
+        (f.chat/rollback-chat {:chat-id chat-id
+                               :include ["messages" "tools"]
+                               :content-id first-content-id}
+                              (h/db*) (h/messenger) (h/metrics)))
+      (is (pos? @save-calls*)
+          "rollback-chat should persist the trimmed history immediately"))))
+
 (deftest rollback-chat-test
   (testing "Rollback chat removes messages after content-id"
     (h/reset-components!)
@@ -1049,7 +1154,7 @@
         (is (= {} (f.chat/rollback-chat
                    {:chat-id chat-id
                     :include ["messages" "tools"]
-                    :content-id second-content-id} (h/db*) (h/messenger))))
+                    :content-id second-content-id} (h/db*) (h/messenger) (h/metrics))))
 
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?

@@ -32,9 +32,10 @@
   (or (get-in config [:agent agent-name :prompts key])
       (get-in config [:prompts key])))
 
-(defn ^:private eca-chat-prompt [agent-name config]
+(defn ^:private eca-chat-prompt [agent-name config chat-id db]
   (let [agent-config (get-in config [:agent agent-name])
-        subagent-prompt (and (= "subagent" (:mode agent-config))
+        is-subagent? (boolean (get-in db [:chats chat-id :subagent]))
+        subagent-prompt (and is-subagent?
                              (:systemPrompt agent-config))
         config-prompt (get-config-prompt :chat agent-name config)
         legacy-config-prompt (:systemPrompt agent-config)
@@ -98,6 +99,10 @@
   ([all-tools chat-id db]
    (merge
     {:workspaceRoots (shared/workspaces-as-str db)
+     :osName (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
+     :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
+     :userName (System/getProperty "user.name")
+     :homeDir (System/getProperty "user.home")
      :isSubagent (boolean (get-in db [:chats chat-id :subagent]))}
     (reduce
      (fn [m tool]
@@ -207,7 +212,7 @@
                                "</path-scoped-rules>"])
         has-static-rules? (seq rendered-static-rules)]
     (multi-str
-     (shared/safe-selmer-render (eca-chat-prompt agent-name config)
+     (shared/safe-selmer-render (eca-chat-prompt agent-name config chat-id db)
                                 selmer-ctx "chat-prompt")
      (when (or has-static-rules? path-scoped-section)
        ["## Rules"
@@ -233,13 +238,13 @@
          skills)
         "</skills>"
         ""])
-     (when (seq stable-contexts)
-       ["## Contexts"
-        ""
-        (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))])
-     ""
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
-                                selmer-ctx "additional-system-info"))))
+                                selmer-ctx "additional-system-info")
+     ""
+     (when (seq stable-contexts)
+       ["## Static Contexts"
+        ""
+        (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))]))))
 
 (defn build-dynamic-instructions
   "Builds the volatile portion of the system prompt: cursor/MCP resource contexts
@@ -248,7 +253,9 @@
   (let [volatile-contexts (filter #(volatile-context-types (:type %)) refined-contexts)
         result (multi-str
                 (when (seq volatile-contexts)
-                  (contexts-str volatile-contexts nil nil))
+                  ["## Dynamic Contexts"
+                   ""
+                   (contexts-str volatile-contexts nil nil)])
                 (mcp-instructions-section db))]
     (when-not (string/blank? result) result)))
 

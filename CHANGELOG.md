@@ -2,8 +2,86 @@
 
 ## Unreleased
 
-- Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
+- Remote REST API: `GET /api/v1/chats/:id` now exposes the chat's effective `model`, `variant` and `agent` (per-chat override, falling back to the resolved session default).
+- Anthropic: serialize empty thinking blocks as `""` instead of nil, fixing a 400 on multi-turn chats with extended thinking. (#481)
 - Add AWS Bedrock provider using the native `Converse`/`ConverseStream` APIs with bearer-token auth, supporting models not available on Bedrock's OpenAI-compatible endpoint (e.g. Claude inference profiles). #254
+
+## 0.136.4
+
+- Add `/debug-chat [filepath]` command dumping an obfuscated snapshot of the current chat (message structure + model/variant/tool/status metadata) to a file for debugging stuck chats.
+- Add `remote.bindHost` config to force the remote server's listening interface (e.g. a Tailscale IP), binding only there with no localhost fallback.
+- Anthropic: send `anthropic-version` when fetching `/v1/models`, fixing a 400 that forced the static models.dev fallback instead of the live model list.
+
+## 0.136.3
+
+- Anthropic: request uncompressed SSE (`accept-encoding: identity` + `:decompress-body false`) so streamed responses arrive token-by-token instead of all at once.
+- Remote REST API now surfaces tool calls awaiting approval: `GET /api/v1/chats/:id` returns `pendingToolCalls` and session/list-chats entries include `pendingApprovalCount`.
+- Fix openai-chat providers (e.g. Mistral) showing raw reasoning content blocks as chat text when a reasoning variant is enabled; thinking now routes to the reasoning UI. (#477)
+
+## 0.136.2
+
+- Add `chat.defaultTrust` config to start new chats in trust mode (auto-accepting tool calls) across all editors.
+- Prompt now renders context as labeled `## Static Contexts` and `## Dynamic Contexts` sections, with Environment Context no longer wedged between them.
+- System prompt's Environment Context section now includes OS, default shell, username and home directory.
+
+## 0.136.1
+
+- New `eca read-chat` CLI command for streaming raw chat DB cache records as JSONL.
+- Fix chats randomly disappearing from `/resume` after restart: key the workspace chat cache on the order-independent workspace hash and merge caches fragmented across differently-named dirs. (eca-intellij #20)
+
+## 0.136.0
+
+- Anthropic Opus 4.8: send volatile (dynamic) instructions as a mid-conversation system message so the cached conversation history isn't invalidated each turn.
+
+## 0.135.4
+
+- `bg_job` now shows the job name (from `shell_command`'s `background` arg) in `list`, `read_output` and `kill` outputs, e.g. `Background job "dev-server" (job-1) killed.`.
+- Add Claude Opus 4.8 support.
+
+## 0.135.3
+
+- Fix plugin primary agents being dropped from the selector when model sync finishes after plugin resolution.
+- Fix `nix run` failing because the completion auth-renew test wrote to the read-only sandbox HOME. #467
+- Fix `streamIdleTimeoutSeconds` and `cacheRetention` being ignored for custom providers using the Anthropic API. #470
+- Fix `/compact` getting stuck when Anthropic-compatible providers signal context overflow via stop_reason `max_tokens` (e.g. Z.AI). #471
+
+## 0.135.2
+
+- Bugfix: occasional `NoSuchFileException` when persisting the DB cache; each save now uses a unique temp file and concurrent writers to the same file are serialized in-process.
+
+## 0.135.1
+
+- Fix `invalid_grant` errors when multiple ECA processes race to refresh the same OAuth token. #462
+
+## 0.135.0
+
+- Persist chats more durably: save after every assistant segment / tool output / error / rollback, and write the cache via atomic tmp+rename so long chats no longer get lost on crash or restart.
+- Allow swapping between Anthropic and non-Anthropic models mid-chat: history entries from the previous provider that the new api would reject are dropped, with a chat-visible notice. #209
+- Agents' `mode` field now accepts a list (e.g. `["primary", "subagent"]`) in addition to a single string; when `mode` is absent, agents are usable as both primary and subagent.
+
+## 0.134.6
+
+- Markdown agents now accept `tools:` as a flat YAML list (Claude convention), normalized to `byDefault: ask` + `allow`. Previously such agents were silently dropped.
+
+## 0.134.5
+
+- Markdown agents now honor the YAML `name:` field and strip all filename extensions for the agent id (e.g. `foo.agent.md` → `foo`), matching Claude/OpenCode plugin conventions.
+
+## 0.134.4
+
+- Bugfix: `chat/list` was returning `:id nil` for chats persisted before the per-chat `:id` field was added to the DB schema. The projection now derives `:id` from the chat map key, so legacy rows show up with a usable id and become resumable via `chat/open`.
+
+## 0.134.3
+
+- Live-reload config files: edits to global/local/custom config now reconcile MCP servers (add/remove/restart) and refresh tool lists in the UI without restart.
+- Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
+
+## 0.134.2
+
+- Bugfix: OpenAI Responses tool calls now opt out of strict schema normalization so optional tool parameters remain optional.
+- Bugfix: MCP tool calls now route to the selected server when multiple servers expose the same tool name.
+- Use a JSON-RPC `ping` (instead of `initialize`) for the OAuth auth-discovery probe, so the probe POST is never counted as a real handshake by servers or tests that track requests by method name.
+- Guard subagent activity labels against overly long model-generated text.
 
 ## 0.134.1
 
@@ -12,7 +90,6 @@
 ## 0.134.0
 
 - Support including `AGENTS.md` files from parent directories of each workspace folder via new `includeParentAgentsFiles` config flag (disabled by default), ordered outermost parent first.
-- Replace custom stderr-print logger with Logback/SLF4J: timestamps, log levels, chat-id MDC context, third-party noise suppression (root at WARN, `eca` at INFO), and proper cross-thread context propagation in `future*`. #253
 - Fix MCP OAuth auto-discovery for servers that only return a 401 + `www-authenticate` challenge when probed with a valid JSON-RPC initialize request (e.g. Figma).
 - Mark MCP servers as failed when the initialize handshake returns no result, instead of silently appearing as running.
 

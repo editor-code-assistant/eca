@@ -93,7 +93,8 @@
                             :requiresAuth? true
                             :models {"claude-sonnet-4-6" {}
                                      "claude-opus-4-6" {}
-                                     "claude-opus-4-7" {}}}
+                                     "claude-opus-4-7" {}
+                                     "claude-opus-4-8" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
@@ -166,7 +167,8 @@
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
-   :chat {:title true}
+   :chat {:title true
+          :defaultTrust false}
    :rewrite {:fullFileMaxLines 2000}
    :hooks {}
    :rules []
@@ -191,7 +193,7 @@
               :shellCommand {:summaryMaxLength 35}
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
-                     ".*opus[-._]4[-._]7" {:variants anthropic-v2-variants}
+                     ".*opus[-._]4[-._][78]" {:variants anthropic-v2-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*deepseek[-._]v4[-._]pro" {:variants deepseek-variants
@@ -286,11 +288,28 @@
 
 (def ^:private fallback-agent "code")
 
+(def ^:private default-modes #{"primary" "subagent"})
+
+(defn agent-modes
+  "Returns the effective set of modes for an agent config.
+
+   The `:mode` field accepts either a single string (e.g. \"primary\") or a
+   collection of strings (e.g. [\"primary\" \"subagent\"]). When `:mode` is
+   absent, nil, or an empty collection, defaults to both `primary` and
+   `subagent`."
+  [agent-config]
+  (let [mode (:mode agent-config)]
+    (cond
+      (string? mode) #{mode}
+      (and (coll? mode) (seq mode)) (set mode)
+      :else default-modes)))
+
 (defn primary-agent-names
-  "Returns the names of agents that are not subagents (mode is nil or not \"subagent\")."
+  "Returns the names of agents usable as primary (i.e. whose effective
+   modes include \"primary\")."
   [config]
   (->> (:agent config)
-       (remove (fn [[_ v]] (= "subagent" (:mode v))))
+       (filter (fn [[_ v]] (contains? (agent-modes v) "primary")))
        (map key)
        distinct))
 
@@ -328,7 +347,8 @@
         (some-> (safe-read-json-string (slurp config-file) (var *custom-config-error*))
                 (parse-dynamic-string-values (fs/file (fs/parent config-file))))))))
 
-(def ^:private config-from-custom (memoize config-from-custom*))
+(def ^:private config-from-custom
+  (memoize/ttl config-from-custom* :ttl/threshold ttl-cache-config-ms))
 
 (defn global-config-file ^File []
   (io/file (shared/global-config-dir) "config.json"))
@@ -610,16 +630,42 @@
     ;; all good
     :else nil))
 
-(defn listen-for-changes! [db*]
-  (while (not (:stopping @db*))
-    (Thread/sleep ^long listen-idle-ms)
-    (let [db @db*
-          new-config (all db)
-          new-config-hash (hash new-config)]
-      (when (not= new-config-hash (:config-hash db))
-        (swap! db* assoc :config-hash new-config-hash)
-        (doseq [config-updated-fns (vals (:config-updated-fns db))]
-          (config-updated-fns new-config))))))
+(defn ^:private maybe-notify-validation-error! [messenger prev-error new-error]
+  (when (and new-error (not= new-error prev-error))
+    (try
+      (messenger/showMessage messenger
+                             {:type "warning"
+                              :message (format "Failed to parse '%s' config, check stderr logs."
+                                               new-error)})
+      (catch Exception e
+        (logger/warn logger-tag "Failed to notify config validation error:" (.getMessage e))))))
+
+(defn listen-for-changes!
+  "Polling loop that detects config changes and dispatches to registered
+   `:config-updated-fns` listeners. Listeners receive `[prev-config new-config]`
+   so they can diff against the last seen snapshot (e.g. MCP reconciliation).
+   Parse/validation failures surface to the client via `$/showMessage`."
+  [db* messenger]
+  (loop [prev-config nil
+         prev-validation-error nil]
+    (when-not (:stopping @db*)
+      (Thread/sleep ^long listen-idle-ms)
+      (let [db @db*
+            new-config (try (all db)
+                            (catch Exception e
+                              (logger/warn logger-tag "Error reloading config:" (.getMessage e))
+                              prev-config))
+            new-validation-error (validation-error)]
+        (maybe-notify-validation-error! messenger prev-validation-error new-validation-error)
+        (let [new-config-hash (hash new-config)]
+          (when (not= new-config-hash (:config-hash db))
+            (swap! db* assoc :config-hash new-config-hash)
+            (doseq [config-updated-fns (vals (:config-updated-fns db))]
+              (try
+                (config-updated-fns prev-config new-config)
+                (catch Exception e
+                  (logger/error logger-tag "Error in config-updated fn:" (.getMessage e)))))))
+        (recur new-config new-validation-error)))))
 
 (defn diff-keeping-vectors
   "Like (second (clojure.data/diff a b)) but if a value is a vector, keep vector value from b.

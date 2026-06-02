@@ -10,12 +10,26 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[AGENT-TOOL]")
+(def ^:private activity-summary-max-length 40)
+
+(defn normalize-arguments
+  "Normalize spawn_agent arguments before display, history, and invocation."
+  [arguments]
+  (let [activity (when (string? (get arguments "activity"))
+                   (-> (get arguments "activity")
+                       str/trim
+                       (str/replace #"\s+" " ")))]
+    (if (str/blank? activity)
+      (dissoc arguments "activity")
+      (assoc arguments "activity" (if (> (count activity) activity-summary-max-length)
+                                    (str (subs activity 0 activity-summary-max-length) "...")
+                                    activity)))))
 
 (defn ^:private all-agents
   [config]
   (->> (:agent config)
        (keep (fn [[agent-name agent-config]]
-               (when (and (= "subagent" (:mode agent-config))
+               (when (and (contains? (config/agent-modes agent-config) "subagent")
                           (:description agent-config))
                  {:name agent-name
                   :description (:description agent-config)
@@ -64,7 +78,9 @@
               :name "spawn_agent"
               :server "eca"
               :origin "native"
-              :summary (format "%s: %s" agent-name activity)
+              :summary (if activity
+                         (format "%s: %s" agent-name activity)
+                         agent-name)
               :arguments arguments
               :details (cond-> {:type :subagent
                                 :subagent-chat-id subagent-chat-id
@@ -107,9 +123,10 @@
   "Handler for the spawn_agent tool.
    Spawns a subagent to perform a focused task and returns the result."
   [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn trust]}]
-  (let [agent-name (get arguments "agent")
+  (let [arguments (normalize-arguments arguments)
+        agent-name (get arguments "agent")
         task (get arguments "task")
-        activity (get arguments "activity" "working")
+        activity (get arguments "activity")
         db @db*
 
         ;; Check for nesting - prevent subagents from spawning other subagents
@@ -267,12 +284,13 @@
                                            :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
                                "variant"  {:type        "string"
                                            :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
-                  :required   ["agent" "task" "activity"]}
+                  :required   ["agent" "task"]}
     :handler     #'spawn-agent
     :summary-fn  (fn [{:keys [args]}]
                    (if-let [agent-name (get args "agent")]
-                     (let [activity (get args "activity" "working")]
-                       (format "%s: %s" agent-name activity))
+                     (if-let [activity (get (normalize-arguments args) "activity")]
+                       (format "%s: %s" agent-name activity)
+                       agent-name)
                      "Spawning agent"))}})
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent

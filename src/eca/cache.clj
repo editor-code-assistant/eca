@@ -17,14 +17,20 @@
                        (io/file (System/getProperty "user.home") ".cache"))]
     (io/file cache-home "eca")))
 
-(defn workspaces-hash
-  "Returns an 8-char base64 (URL-safe, no padding) hash key for the given workspace set."
+(defn ^:private sorted-workspace-paths
+  "Absolute workspace paths, de-duplicated and sorted, so the result is stable
+   regardless of the order the editor reports its workspace folders."
   [workspaces uri->filename-fn]
-  (let [paths (->> workspaces
-                   (map #(str (fs/absolutize (fs/file (uri->filename-fn (:uri %))))))
-                   (distinct)
-                   (sort))
-        joined (string/join ":" paths)
+  (->> workspaces
+       (map #(str (fs/absolutize (fs/file (uri->filename-fn (:uri %))))))
+       (distinct)
+       (sort)))
+
+(defn workspaces-hash
+  "Returns an 8-char base64 (URL-safe, no padding) hash key for the given workspace set.
+   Order-independent: the same set of folders always yields the same hash."
+  [workspaces uri->filename-fn]
+  (let [joined (string/join ":" (sorted-workspace-paths workspaces uri->filename-fn))
         md (java.security.MessageDigest/getInstance "SHA-256")
         digest (.digest (doto md (.update (.getBytes joined "UTF-8"))))
         encoder (-> (java.util.Base64/getUrlEncoder)
@@ -38,15 +44,15 @@
 
 (defn ^:private workspace-dir-name
   "Returns a human-readable directory name for the workspace cache.
-   Format: <sanitized-project-name>_<hash>, or just <hash> if no name is available."
+   Format: <sanitized-project-name>_<hash>, or just <hash> if no name is available.
+   The prefix comes from the sorted-first workspace path so it stays stable
+   regardless of folder order; it is purely cosmetic - the <hash> is the identity."
   [workspaces uri->filename-fn]
   (let [hash (workspaces-hash workspaces uri->filename-fn)
-        first-uri (some-> workspaces first :uri)
-        project-name (when first-uri
-                       (some-> (uri->filename-fn first-uri)
-                               fs/file-name
-                               str
-                               not-empty))
+        project-name (some-> (first (sorted-workspace-paths workspaces uri->filename-fn))
+                             fs/file-name
+                             str
+                             not-empty)
         sanitized (when project-name
                     (let [s (string/replace project-name #"[^a-zA-Z0-9._-]" "_")]
                       (subs s 0 (min max-prefix-length (count s)))))]
@@ -54,28 +60,34 @@
       (str sanitized "_" hash)
       hash)))
 
-(defn ^:private migrate-workspace-cache-dir!
-  "Migrates old hash-only workspace cache directory to new human-readable format."
-  [^File old-dir ^File new-dir]
-  (try
-    (fs/move old-dir new-dir)
-    (logger/info logger-tag (str "Migrated workspace cache from " old-dir " to " new-dir))
-    (catch Exception e
-      (logger/warn logger-tag "Failed to migrate workspace cache directory:" (.getMessage e)))))
-
 (defn workspace-cache-file
-  "Returns a File object for a workspace-specific cache file."
+  "Returns a File object for a workspace-specific cache file.
+   The directory identity is the order-independent <hash>; the human-readable
+   prefix is cosmetic. Healing of caches fragmented across differently-named
+   dirs for the same workspace is handled by eca.db/consolidate-workspace-cache!."
   [workspaces filename uri->filename-fn]
-  (let [dir-name (workspace-dir-name workspaces uri->filename-fn)
-        hash-only (workspaces-hash workspaces uri->filename-fn)
-        base (global-dir)
-        new-dir (io/file base dir-name)
-        old-dir (io/file base hash-only)]
-    (when (and (not= dir-name hash-only)
-               (not (fs/exists? new-dir))
-               (fs/exists? old-dir))
-      (migrate-workspace-cache-dir! old-dir new-dir))
-    (io/file new-dir filename)))
+  (io/file (global-dir) (workspace-dir-name workspaces uri->filename-fn) filename))
+
+(defn redundant-workspace-cache-files
+  "Returns the cache files named `filename` that live in directories belonging to
+   the same workspace set as the canonical dir but under a different name - i.e.
+   legacy hash-only dirs, or dirs prefixed from a different folder order. The
+   canonical dir is excluded. Used to heal fragmented chat caches."
+  [workspaces filename uri->filename-fn]
+  (let [hash (workspaces-hash workspaces uri->filename-fn)
+        canonical-dir-name (workspace-dir-name workspaces uri->filename-fn)
+        base (global-dir)]
+    (if (fs/exists? base)
+      (->> (fs/list-dir base)
+           (filter fs/directory?)
+           (map #(str (fs/file-name %)))
+           (filter (fn [n] (or (= n hash)
+                               (string/ends-with? n (str "_" hash)))))
+           (remove #(= % canonical-dir-name))
+           (map #(io/file base % filename))
+           (filter fs/exists?)
+           (vec))
+      [])))
 
 (def ^:private tool-call-outputs-dir-name "toolCallOutputs")
 (def ^:private plugins-dir-name "plugins")

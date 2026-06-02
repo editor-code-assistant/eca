@@ -6,9 +6,12 @@
 
 (set! *warn-on-reflection* true)
 
-;; ---------------------------------------------------------------------------
-;; Action handlers
-;; ---------------------------------------------------------------------------
+(defn ^:private job-prefix
+  "Render `\"<name>\" (job-id)` when the job has a `:summary`, otherwise just the id."
+  [{:keys [id summary]}]
+  (if-let [s (not-empty summary)]
+    (str "\"" s "\" (" id ")")
+    id))
 
 (defn ^:private action-list [_arguments]
   (let [jobs (remove :notified (bg/list-jobs))]
@@ -16,9 +19,8 @@
       (tools.util/single-text-content
        (string/join
         "\n"
-        (map (fn [{:keys [id type label summary status exit-code] :as job}]
-               (str "- " id
-                    (when summary (str " (" summary ")"))
+        (map (fn [{:keys [type label status exit-code] :as job}]
+               (str "- " (job-prefix job)
                     " [" (name type) "] "
                     (name status)
                     (when exit-code (str " (exit " exit-code ")"))
@@ -30,30 +32,29 @@
 (defn ^:private action-read-output [{:keys [job-id]}]
   (if-let [result (bg/read-output! job-id)]
     (let [{:keys [lines dropped status exit-code]} result
+          prefix (if-let [job (bg/get-job job-id)]
+                   (job-prefix job)
+                   job-id)
           output (if (seq lines)
                    (string/join "\n" (map bg/format-output-line lines))
                    "(no new output)")]
       (tools.util/single-text-content
-       (str "Job " job-id " — " (name status)
+       (str "Job " prefix " — " (name status)
             (when exit-code (str " (exit " exit-code ")"))
             (when (pos? dropped) (str "\n[" dropped " lines dropped from buffer]"))
             "\n\n" output)))
     (tools.util/single-text-content (str "Background job " job-id " not found.") true)))
 
 (defn ^:private action-kill [{:keys [job-id]}]
-  (if (bg/get-job job-id)
+  (if-let [job (bg/get-job job-id)]
     (if (bg/kill-job! job-id)
-      (tools.util/single-text-content (str "Background job " job-id " killed."))
+      (tools.util/single-text-content (str "Background job " (job-prefix job) " killed."))
       (let [current-status (:status (bg/get-job job-id))]
         (tools.util/single-text-content
-         (str "Background job " job-id " is not running"
+         (str "Background job " (job-prefix job) " is not running"
               (when current-status (str " (status: " (name current-status) ")")) ".")
          true)))
     (tools.util/single-text-content (str "Background job " job-id " not found.") true)))
-
-;; ---------------------------------------------------------------------------
-;; Tool handler
-;; ---------------------------------------------------------------------------
 
 (defn ^:private bg-job [arguments _ctx]
   (let [action (get arguments "action")
@@ -68,10 +69,6 @@
                (tools.util/single-text-content "job_id is required for kill action." true))
       (tools.util/single-text-content (str "Unknown action: " action ". Use list, read_output, or kill.") true))))
 
-;; ---------------------------------------------------------------------------
-;; Tool definition
-;; ---------------------------------------------------------------------------
-
 (def definitions
   {"bg_job"
    {:description (tools.util/read-tool-description "bg_job")
@@ -84,10 +81,14 @@
                  :required ["action"]}
     :summary-fn (fn [{:keys [args]}]
                   (let [action (get args "action")
-                        job-id (get args "job_id")]
+                        job-id (get args "job_id")
+                        label (when job-id
+                                (if-let [job (bg/get-job job-id)]
+                                  (job-prefix job)
+                                  job-id))]
                     (case action
                       "list" "Listing background jobs"
-                      "read_output" (str "Reading output of " job-id)
-                      "kill" (str "Killing " job-id)
+                      "read_output" (str "Reading output of " label)
+                      "kill" (str "Killing " label)
                       "Managing background job")))
     :handler #'bg-job}})

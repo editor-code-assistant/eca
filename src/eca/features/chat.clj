@@ -128,20 +128,20 @@
                                           m))
                                       (assoc-some {} :content-id content-id)
                                       message-content)
-                       image-entries (keep
-                                      (fn [content]
-                                        (when (= :image (:type content))
-                                          {:role role
-                                           :content {:type :image
-                                                     :media-type (:media-type content)
-                                                     :base64 (:base64 content)}}))
-                                      message-content)
+                        image-entries (keep
+                                       (fn [content]
+                                         (when (= :image (:type content))
+                                           {:role role
+                                            :content {:type :image
+                                                      :media-type (:media-type content)
+                                                      :base64 (:base64 content)}}))
+                                       message-content)
                        ;; Drop the text entry when there's no actual text and no image-only content
                        ;; would have produced an empty `{}` content map.
-                       text-entries (if (:type text-content)
-                                      [{:role role :content text-content}]
-                                      [])]
-                   (vec (concat text-entries image-entries)))
+                        text-entries (if (:type text-content)
+                                       [{:role role :content text-content}]
+                                       [])]
+                    (vec (concat text-entries image-entries)))
     "tool_call" [{:role :assistant
                   :content {:type :toolCallPrepare
                             :origin (:origin message-content)
@@ -461,21 +461,24 @@
                (assoc chat-ctx :auto-compacted? true)))))
     nil))
 
-(defn ^:private assert-compatible-apis-between-models!
-  "Ensure new request is compatible with last api used.
-   E.g. Anthropic is not compatible with openai and vice versa."
+(defn ^:private log-api-switch!
+  "Log when the user swaps to a model whose api differs from the chat's
+   `:last-api`. Cross-api history reconciliation is handled by
+   `eca.llm-api/sanitize-past-messages-for-api`, which drops entries whose
+   opaque ids the new provider would reject and triggers a chat-visible
+   notice via `:on-history-sanitized`. This used to throw outright (#209)."
   [db chat-id provider model config]
   (let [current-api (:api (llm-api/provider->api-handler provider model config))
         last-api (get-in db [:chats chat-id :last-api])]
-    (cond
-      (not last-api) nil
-      (not current-api) nil
-
-      (or (and (= :anthropic current-api)
-               (not= :anthropic last-api))
-          (and (not= :anthropic current-api)
-               (= :anthropic last-api)))
-      (throw (ex-info "Incompatible past messages in chat.\nAnthropic models are only compatible with other Anthropic models, switch models or start a new chat." {})))))
+    (when (and last-api current-api (not= last-api current-api))
+      (logger/info logger-tag
+                   (format "Model swap detected: last-api=%s current-api=%s"
+                           (name last-api) (name current-api))
+                   {:chat-id chat-id
+                    :last-api last-api
+                    :current-api current-api
+                    :provider provider
+                    :model model}))))
 
 (defn ^:private consume-steer-message!
   "Reads and clears any pending steer message for the chat in a single swap.
@@ -668,8 +671,31 @@
             reasonings* (atom {})
             server-tool-times* (atom {})
             pending-server-tool-uses* (atom {})
-            add-to-history! (fn [msg]
-                              (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+            ;; Origin api of every reason/tool_call/server_tool_* entry written
+            ;; during this prompt. Used by the cross-api history sanitizer in
+            ;; eca.llm-api so a later swap to a different model can drop entries
+            ;; whose opaque ids (Anthropic signatures, OpenAI rs_*/encrypted_content,
+            ;; toolu_*/call_* tool ids) the new provider would reject. #209
+            current-api (:api (llm-api/provider->api-handler provider model config))
+            add-to-history! (fn [{:keys [role content] :as msg}]
+                              (let [with-ts (update msg :created-at #(or % (System/currentTimeMillis)))
+                                    tagged (if (and current-api
+                                                    (map? content)
+                                                    (#{"reason" "tool_call" "tool_call_output"
+                                                       "server_tool_use" "server_tool_result"} role))
+                                             (assoc with-ts :content (assoc content :api current-api))
+                                             with-ts)]
+                                (swap! db* update-in [:chats chat-id :messages] (fnil conj []) tagged)
+                                ;; Persist after meaningful history mutations so a
+                                ;; long-running chat is recoverable mid-loop even if
+                                ;; ECA dies (crash, kill, host reboot) before the
+                                ;; end-of-prompt save runs. tool_call and
+                                ;; server_tool_use are skipped because they are
+                                ;; always paired with the corresponding *_output /
+                                ;; *_result entry appended right after, which
+                                ;; triggers the save in their place.
+                                (when-not (#{"tool_call" "server_tool_use"} role)
+                                  (db/update-workspaces-cache! @db* metrics))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  (lifecycle/send-content! chat-ctx :system (merge {:type :usage} usage))))
@@ -680,7 +706,7 @@
                                  (or (and (not (get-in db [:chats chat-id :title]))
                                           (not retitle?))
                                      retitle?))]
-        (assert-compatible-apis-between-models! db chat-id provider model config)
+        (log-api-switch! db chat-id provider model config)
         (when generate-title?
           ;; On retitle (3rd prompt), flatten the conversation into a single
           ;; user message instead of replaying it as role-structured past-messages.
@@ -761,6 +787,26 @@
                                                         :state :running
                                                         :text (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
                                                                       reason (quot delay-ms 1000) attempt max-retries)})))
+                :on-history-sanitized (fn [{:keys [dropped-count dropped-apis target-api]}]
+                                        (let [from-label (->> dropped-apis
+                                                              (remove nil?)
+                                                              (map name)
+                                                              sort
+                                                              (string/join ", "))]
+                                          (logger/info logger-tag
+                                                       (format "Dropped %d cross-provider history entries on switch to %s"
+                                                               dropped-count (some-> target-api name))
+                                                       {:chat-id chat-id
+                                                        :dropped-count dropped-count
+                                                        :dropped-apis dropped-apis})
+                                          (lifecycle/send-content!
+                                           chat-ctx :system
+                                           {:type :text
+                                            :text (format "Note: dropped %d history %s from a previous provider (%s) because the current model (%s) cannot reuse its opaque ids. Reasoning context is lost across providers; tool calls were also removed if they originated elsewhere."
+                                                          dropped-count
+                                                          (if (= 1 dropped-count) "entry" "entries")
+                                                          (if (seq from-label) from-label "unknown")
+                                                          (some-> target-api name))})))
                 :on-first-response-received (fn [& _]
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
@@ -778,8 +824,8 @@
                                                    (lifecycle/send-content! chat-ctx :assistant {:type :text :text (:text msg)}))
                                          :url (lifecycle/send-content! chat-ctx :assistant {:type :url :title (:title msg) :url (:url msg)})
                                          :image (let [client-content {:type :image
-                                                                       :media-type (:media-type msg)
-                                                                       :base64 (:base64 msg)}
+                                                                      :media-type (:media-type msg)
+                                                                      :base64 (:base64 msg)}
                                                       history-content (assoc-some
                                                                        {:media-type (:media-type msg)
                                                                         :base64 (:base64 msg)}
@@ -794,6 +840,7 @@
                                                              {:type :text
                                                               :text (str "API limit reached. Tokens: "
                                                                          (json/generate-string (:tokens msg)))})
+                                                            (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
                                                             (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))
                                          :finish (let [response-text @received-msgs*
                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
@@ -1051,6 +1098,11 @@
                                     (do
                                       (when-not stopping?
                                         (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))}))
+                                      ;; Defensive save: finish-chat-prompt! can short-circuit when
+                                      ;; :prompt-finished? was already set or the prompt-id rotated,
+                                      ;; which would leave a chat that hit an error without a save.
+                                      ;; Persist explicitly so users can always /resume an errored chat.
+                                      (db/update-workspaces-cache! @db* metrics)
                                       (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
@@ -1059,6 +1111,9 @@
                     (add-to-history! {:role "assistant"
                                       :content [{:type :text :text @received-msgs*}]}))
                   (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
+                  ;; Belt-and-suspenders: persist before finish-chat-prompt!,
+                  ;; which may short-circuit. See note above in :on-error.
+                  (db/update-workspaces-cache! @db* metrics)
                   (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect))))
               (finally
                 (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
@@ -1311,6 +1366,13 @@
                                        chats
                                        (assoc chats chat-id {:id chat-id}))))
             chat-just-created? (not (contains? (:chats old-db) chat-id))
+            ;; A freshly-created chat with no client-provided trust inherits
+            ;; the server default (chat.defaultTrust), so every editor gets
+            ;; trust-by-default without having to send anything.
+            seeded-default-trust? (and chat-just-created?
+                                       (nil? trust)
+                                       (boolean (-> config :chat :defaultTrust)))
+            effective-trust (if seeded-default-trust? true trust)
             ;; Notify observers (other clients, remote SSE viewers) about a
             ;; new client-initiated chat. Skipped on the legacy null-id path
             ;; because the prompting client learns its id from the response.
@@ -1328,48 +1390,56 @@
                                        :chat-id chat-id
                                        :agent selected-agent
                                        :agent-config agent-config
-                                       :trust trust
+                                       :trust effective-trust
                                        :variant (or variant (:variant agent-config))}
                                       :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id]))
-            _ (when (some? trust)
-                (swap! db* assoc-in [:chats chat-id :trust] trust))]
-        (try
-          (prompt* params base-chat-ctx)
-          (catch Exception e
-            (logger/error e)
-            (lifecycle/send-content! base-chat-ctx :system {:type :text
-                                                            :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
-            (lifecycle/finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
-            {:chat-id chat-id
-             :model "error"
-             :status :error}))))))
+            _ (when (some? effective-trust)
+                (swap! db* assoc-in [:chats chat-id :trust] effective-trust))
+            ;; When we seeded the default (the client didn't ask), align the
+            ;; client's per-chat trust indicator with the auto-approval the
+            ;; server is about to apply.
+            _ (when (and seeded-default-trust? provided-chat-id)
+                (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
+        (logger/with-chat-context chat-id (:parent-chat-id base-chat-ctx)
+          (try
+            (prompt* params base-chat-ctx)
+            (catch Exception e
+              (logger/error e)
+              (lifecycle/send-content! base-chat-ctx :system {:type :text
+                                                              :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+              (lifecycle/finish-chat-prompt! :idle (dissoc base-chat-ctx :on-finished-side-effect))
+              {:chat-id chat-id
+               :model "error"
+               :status :error})))))))
 
 (defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
-  (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
-    (logger/warn logger-tag "tool-call-approve ignored: unknown chat or tool-call"
-                 {:chat-id chat-id :tool-call-id tool-call-id})
-    (let [chat-ctx {:chat-id chat-id
-                    :db* db*
-                    :metrics metrics
-                    :messenger messenger}]
-      (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
-                                {:reason {:code :user-choice-allow
-                                          :text "Tool call allowed by user choice"}})
-      (when (= "session" save)
-        (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
-          (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true))))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
+      (logger/warn logger-tag "tool-call-approve ignored: unknown chat or tool-call"
+                   {:chat-id chat-id :tool-call-id tool-call-id})
+      (let [chat-ctx {:chat-id chat-id
+                      :db* db*
+                      :metrics metrics
+                      :messenger messenger}]
+        (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
+                                  {:reason {:code :user-choice-allow
+                                            :text "Tool call allowed by user choice"}})
+        (when (= "session" save)
+          (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
+            (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true)))))))
 
 (defn tool-call-reject [{:keys [chat-id tool-call-id]} db* messenger metrics]
-  (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
-    (logger/warn logger-tag "tool-call-reject ignored: unknown chat or tool-call"
-                 {:chat-id chat-id :tool-call-id tool-call-id})
-    (let [chat-ctx {:chat-id chat-id
-                    :db* db*
-                    :metrics metrics
-                    :messenger messenger}]
-      (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
-                                {:reason {:code :user-choice-deny
-                                          :text "Tool call rejected by user choice"}}))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
+      (logger/warn logger-tag "tool-call-reject ignored: unknown chat or tool-call"
+                   {:chat-id chat-id :tool-call-id tool-call-id})
+      (let [chat-ctx {:chat-id chat-id
+                      :db* db*
+                      :metrics metrics
+                      :messenger messenger}]
+        (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
+                                  {:reason {:code :user-choice-deny
+                                            :text "Tool call rejected by user choice"}})))))
 
 (defn query-context
   [{:keys [query contexts chat-id]}
@@ -1402,52 +1472,55 @@
 
 (defn prompt-steer
   [{:keys [chat-id message]} db*]
-  (when (and (string? message)
-             (not (string/blank? message))
-             (identical? :running (get-in @db* [:chats chat-id :status])))
-    (logger/info logger-tag "Steer message received" {:chat-id chat-id})
-    (swap! db* update-in [:chats chat-id :steer-message]
-           (fn [existing] (if existing (str existing "\n" message) message)))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (when (and (string? message)
+               (not (string/blank? message))
+               (identical? :running (get-in @db* [:chats chat-id :status])))
+      (logger/info logger-tag "Steer message received" {:chat-id chat-id})
+      (swap! db* update-in [:chats chat-id :steer-message]
+             (fn [existing] (if existing (str existing "\n" message) message))))))
 
 (defn prompt-steer-remove
   "Drop any pending steer message for the chat.
    No-op if no steer message is pending or the chat is not present.
    Idempotent: cancelling an already-consumed steer is silent."
   [{:keys [chat-id]} db*]
-  (let [removed?* (volatile! false)]
-    (swap! db* (fn [db]
-                 (if (get-in db [:chats chat-id :steer-message])
-                   (do (vreset! removed?* true)
-                       (update-in db [:chats chat-id] dissoc :steer-message))
-                   db)))
-    (when @removed?*
-      (logger/info logger-tag "Steer message removed" {:chat-id chat-id}))))
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (let [removed?* (volatile! false)]
+      (swap! db* (fn [db]
+                   (if (get-in db [:chats chat-id :steer-message])
+                     (do (vreset! removed?* true)
+                         (update-in db [:chats chat-id] dissoc :steer-message))
+                     db)))
+      (when @removed?*
+        (logger/info logger-tag "Steer message removed" {:chat-id chat-id})))))
 
 (defn prompt-stop
   ([params db* messenger metrics]
    (prompt-stop params db* messenger metrics {}))
   ([{:keys [chat-id]} db* messenger metrics {:keys [silent?]}]
-   (when (identical? :running (get-in @db* [:chats chat-id :status]))
-     ;; Set :stopping immediately to prevent race with stream callbacks
-     ;; that check status via assert-chat-not-stopped! or cancelled?
-     (swap! db* assoc-in [:chats chat-id :status] :stopping)
-     (let [chat-ctx {:chat-id chat-id
-                     :db* db*
-                     :metrics metrics
-                     :messenger messenger
-                     :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
-       (when-not silent?
-         (lifecycle/send-content! chat-ctx :system {:type :text
-                                                    :text "\nPrompt stopped"}))
+   (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+     (when (identical? :running (get-in @db* [:chats chat-id :status]))
+       ;; Set :stopping immediately to prevent race with stream callbacks
+       ;; that check status via assert-chat-not-stopped! or cancelled?
+       (swap! db* assoc-in [:chats chat-id :status] :stopping)
+       (let [chat-ctx {:chat-id chat-id
+                       :db* db*
+                       :metrics metrics
+                       :messenger messenger
+                       :parent-chat-id (get-in @db* [:chats chat-id :parent-chat-id])}]
+         (when-not silent?
+           (lifecycle/send-content! chat-ctx :system {:type :text
+                                                      :text "\nPrompt stopped"}))
 
-       ;; Handle each active tool call
-       (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-         (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                   {:reason {:code :user-prompt-stop
-                                             :text "Tool call rejected because of user prompt stop"}}))
-       ;; Clear compacting flags so finish-chat-prompt! isn't blocked
-       (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
-       (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect))))))
+         ;; Handle each active tool call
+         (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+           (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
+                                     {:reason {:code :user-prompt-stop
+                                               :text "Tool call rejected because of user prompt stop"}}))
+         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
+         (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+         (lifecycle/finish-chat-prompt! :stopping (dissoc chat-ctx :on-finished-side-effect)))))))
 
 (defn delete-chat
   [{:keys [chat-id]} db* messenger config metrics]
@@ -1502,7 +1575,7 @@
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."
-  [{:keys [chat-id content-id include]} db* messenger]
+  [{:keys [chat-id content-id include]} db* messenger metrics]
   (let [include (if (seq include)
                   (set include)
                   ;; backwards compatibility
@@ -1525,6 +1598,10 @@
         (io/delete-file path true)))
     (when new-messages
       (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+      ;; Rollback is the user's recovery tool for a chat that got into a bad
+      ;; state. Persist immediately so the cleaned-up history survives a
+      ;; restart instead of relying on the next unrelated save.
+      (db/update-workspaces-cache! @db* metrics)
       (messenger/chat-cleared
        messenger
        {:chat-id chat-id
@@ -1558,7 +1635,7 @@
         insert-idx (find-last-message-idx messages content-id)]
     (when insert-idx
       (let [flag-id (str (random-uuid))
-            flag-msg {:role "flag" :content {:text text} :content-id flag-id}
+            flag-msg {:role "flag" :content {:text text} :content-id flag-id :created-at (System/currentTimeMillis)}
             insert-after (inc insert-idx)
             new-messages (into (subvec messages 0 insert-after)
                                (cons flag-msg (subvec messages insert-after)))]
@@ -1618,16 +1695,19 @@
    client sidebar. Subagent chats are excluded. Supports optional
    `:limit` (positive int) and `:sort-by` (`:updated-at` or `:created-at`;
    default `:updated-at`). Results are sorted descending by the chosen
-   timestamp, falling back to the other when the primary is nil."
+   timestamp, falling back to the other when the primary is nil.
+   The map key is used as the authoritative `:id` because legacy DB rows
+   may have been persisted without an `:id` inside the value, and clients
+   need a non-nil id to call `chat/open`."
   [db {:keys [limit] sort-key :sort-by}]
   (let [primary (or sort-key :updated-at)
         secondary (if (= primary :updated-at) :created-at :updated-at)
-        chats (->> (vals (:chats db))
-                   (remove :subagent)
-                   (sort-by (fn [c] (or (get c primary) (get c secondary) 0)) >)
-                   (mapv (fn [{:keys [id title status created-at updated-at model messages]}]
+        chats (->> (:chats db)
+                   (remove (fn [[_ v]] (:subagent v)))
+                   (sort-by (fn [[_ v]] (or (get v primary) (get v secondary) 0)) >)
+                   (mapv (fn [[k {:keys [title status created-at updated-at model messages]}]]
                            (assoc-some
-                            {:id id
+                            {:id k
                              :title title
                              :status (or status :idle)
                              :message-count (count messages)}

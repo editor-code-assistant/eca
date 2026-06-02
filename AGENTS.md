@@ -4,32 +4,42 @@ ECA Agent Guide (AGENTS.md)
   - All-in-one debug CLI (JVM, nREPL): `bb debug-cli`
   - Production CLI (JVM): `bb prod-cli`  |  Production JAR: `bb prod-jar`
   - In production we use a native image (GraalVM, `GRAALVM_HOME` set): `bb native-cli`
+
 - Test (Kaocha via `:test` alias):
   - Run all unit tests: `bb test`  (same as `clojure -M:test`)
   - Run a single unit test namespace: `clojure -M:test --focus eca.main-test`
   - Run a single unit test var: `clojure -M:test --focus eca.main-test/parse-opts-test`
   - Run all integration tests (requires built `./eca` or `eca.exe`): `bb integration-test`
   - Run a single integration test: `bb integration-test --dev --ns integration.chat.mcp-remote-test`
+
 - Lint/format:
   - Lint: `clj-kondo --lint src test dev integration-test`
   - Formatting not enforced; follow idiomatic Clojure (`cljfmt` optional).
+
 - Namespaces/imports:
   - One file per `ns`; always `(set! *warn-on-reflection* true)` near top.
   - Group `:require` as: Clojure stdlib, third‑party, then `eca.*`; sort within groups.
   - Prefer `:as` aliases; avoid `:refer` except in tests (`clojure.test` and what you use).
+
 - Naming/types/data:
   - kebab-case for fns/vars, `eca.<area>[.<subarea>]` for namespaces.
   - Use snake/camel case only when mirroring external data keys.
   - Prefer immutable maps/vectors/sets; use namespaced keywords for domain data.
   - Add type hints only to remove reflection where it shows up.
+
 - Errors/logging/flows:
   - Use `ex-info` with data for exceptional paths; return `{:result-code ...}` maps from CLI flows.
   - Never `println` for app logs; use `eca.logger/error|warn|info|debug` (stderr-based).
+  - If a chat-scoped function contains any `logger/...` call, wrap the relevant body in `logger/with-chat-context`. Pass both `chat-id` and the current chat’s `parent-chat-id`.
+  - Consider wrapping chat-scoped functions that call downstream code known to log, or that start `future*` work whose logs should be attributed to the chat. If there is no downstream logging, `with-chat-context` is unnecessary; instead, consider whether the function should log an important chat lifecycle event.
+
 - Tests:
   - Use `clojure.test` + `nubank/matcher-combinators`; keep tests deterministic.
   - Put shared test helpers under `test/eca/test_helper.clj`.
-- Use java class typing to avoid GraalVM reflection issues
-- Avoid adding too many comments, only add essential or when you think is really important to mention something. 
-- ECA's protocol specification of client <-> server lives in docs/protocol.md
-- If changing ECA config structure, remember to update its docs/config.json
-- When adding support to a new feature or fixing a existing github issue, add a entry to Unreleased in CHANGELOG.md if not already there as last entry, be really concise, implementation details not needed, mention the issue number in the end if you know it's related to one.
+
+- General:
+  - Use java class typing to avoid GraalVM reflection issues
+  - Avoid adding too many comments, only add essential or when you think is really important to mention something.
+  - ECA's protocol specification of client <-> server lives in docs/protocol.md
+  - If changing ECA config structure, remember to update its docs/config.json
+  - When adding support to a new feature or fixing a existing github issue, add a entry to Unreleased in CHANGELOG.md if not already there as last entry, be really concise (max 180 chars), implementation details not needed, mention the issue number in the end if you know it's related to one.

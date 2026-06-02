@@ -9,7 +9,7 @@
   (when (not= "0.1.0" (:version server))
     (when ask-approval?
       (let [path (get args "file_path")
-            {:keys [error contents]} (f.mcp/call-tool! name (assoc args "dry_run" "new-source") {:db db})]
+            {:keys [error contents]} (f.mcp/call-tool! (:name server) name (assoc args "dry_run" "new-source") {:db db})]
         (when-not error
           (when-let [new-source (some->> contents (filter #(= :text (:type %))) first :text)]
             (let [{:keys [added removed diff]} (diff/diff (if new-file?

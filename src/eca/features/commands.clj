@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.chat.debug :as f.chat.debug]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
@@ -147,6 +148,10 @@
                        :type :native
                        :description "Check ECA details for troubleshooting."
                        :arguments []}
+                      {:name "debug-chat"
+                       :type :native
+                       :description "Dump the current chat (obfuscated) to a file for debugging. Ex: /debug-chat /tmp/out.edn"
+                       :arguments [{:name "filepath"}]}
                       {:name "repo-map-show"
                        :type :native
                        :description "Actual repoMap of current session."
@@ -225,7 +230,7 @@
 
 (defn ^:private subagents-msg [config]
   (let [subagents (->> (:agent config)
-                       (filter (fn [[_ v]] (= "subagent" (:mode v))))
+                       (filter (fn [[_ v]] (contains? (config/agent-modes v) "subagent")))
                        (sort-by first))]
     (if (empty? subagents)
       "No subagents configured, double check your configuration via json or markdown."
@@ -478,15 +483,17 @@
                                               flags (->> (:messages chat)
                                                          (filter #(= "flag" (:role %)))
                                                          (map #(get-in % [:content :text])))]
-                                          (if (> msgs-count 0)
-                                            (str s (format "%s - %s - %s%s\n"
-                                                           (inc (.indexOf ^PersistentVector chats-ids chat-id))
-                                                           (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
-                                                           (or (:title chat) (format "No chat title (%s user messages)" msgs-count))
-                                                           (if (seq flags)
-                                                             (str " 🚩 " (string/join ", " flags))
-                                                             "")))
-                                            s)))
+                                          ;; List every persisted chat, even ones with zero user
+                                          ;; messages (e.g. a chat that hit a provider error very
+                                          ;; early, or one rolled back to empty). The user can
+                                          ;; resume any of them and rollback to recover.
+                                          (str s (format "%s - %s - %s%s\n"
+                                                         (inc (.indexOf ^PersistentVector chats-ids chat-id))
+                                                         (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
+                                                         (or (:title chat) (format "No chat title (%s user messages)" msgs-count))
+                                                         (if (seq flags)
+                                                           (str " 🚩 " (string/join ", " flags))
+                                                           "")))))
                                       ""
                                       chats-ids)
                                      "Run `/resume <chat-id>` or `/resume latest`"))
@@ -571,6 +578,19 @@
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}}
       "doctor" {:type :chat-messages
                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (doctor-msg db config)}]}]}}}
+      "debug-chat" (let [{:keys [path message-count error]}
+                         (f.chat.debug/dump-chat! {:db db
+                                                   :chat-id chat-id
+                                                   :all-tools all-tools
+                                                   :filepath (first args)})
+                         text (if error
+                                (str "Failed to dump chat: " error)
+                                (multi-str (str "Chat dump written to `" path "`")
+                                           (str "Messages: " message-count)
+                                           ""
+                                           "Content is obfuscated (text/reasoning/tool input/output); share this file for debugging."))]
+                     {:type :chat-messages
+                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
       "rules" (let [roots (:workspace-folders db)

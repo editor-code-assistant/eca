@@ -121,7 +121,72 @@
   (testing "agent with no tools config omits toolCall"
     (let [parsed (shared/parse-md "---\ndescription: No tools\n---\n\nPrompt")
           config (#'agents/md->agent-config parsed)]
+      (is (nil? (:toolCall config)))))
+
+  (testing "agent with no mode produces config without :mode (consumers default to both modes)"
+    (let [parsed (shared/parse-md "---\ndescription: An unspecified-mode agent\n---\n\nDo work.")
+          config (#'agents/md->agent-config parsed)]
+      (is (= "An unspecified-mode agent" (:description config)))
+      (is (= "Do work." (:systemPrompt config)))
+      (is (nil? (:mode config)))))
+
+  (testing "YAML list mode is preserved as a vector of strings"
+    (let [md (str "---\n"
+                  "description: Dual-role\n"
+                  "mode:\n"
+                  "  - primary\n"
+                  "  - subagent\n"
+                  "---\n\n"
+                  "Body.")
+          parsed (shared/parse-md md)
+          config (#'agents/md->agent-config parsed)]
+      (is (= ["primary" "subagent"] (:mode config)))))
+
+  (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
+    (let [md (str "---\n"
+                  "description: Reviewer\n"
+                  "tools:\n"
+                  "  - read\n"
+                  "  - search\n"
+                  "  - agent\n"
+                  "---\n\n"
+                  "Body.")
+          parsed (shared/parse-md md)
+          config (#'agents/md->agent-config parsed)]
+      (is (match? {:description "Reviewer"
+                   :systemPrompt "Body."
+                   :toolCall {:approval {:byDefault "ask"
+                                         :allow {"read" {}
+                                                 "search" {}
+                                                 "agent" {}}}}}
+                  config))))
+
+  (testing "tools as a malformed string is ignored without crashing the agent"
+    (let [config (#'agents/md->agent-config {:description "no tools" :tools "read"})]
+      (is (= "no tools" (:description config)))
+      (is (nil? (:toolCall config)))))
+
+  (testing "tools as a number is ignored without crashing the agent"
+    (let [config (#'agents/md->agent-config {:description "no tools" :tools 42})]
+      (is (= "no tools" (:description config)))
       (is (nil? (:toolCall config))))))
+
+(deftest normalize-tools-test
+  (testing "map form passes through unchanged"
+    (is (= {"byDefault" "ask" "allow" ["read"]}
+           (#'agents/normalize-tools {"byDefault" "ask" "allow" ["read"]}))))
+  (testing "vector form is wrapped as byDefault=ask + allow"
+    (is (= {"byDefault" "ask" "allow" ["read" "search"]}
+           (#'agents/normalize-tools ["read" "search"]))))
+  (testing "list form (clojure list) is also accepted"
+    (is (= {"byDefault" "ask" "allow" ["read" "search"]}
+           (#'agents/normalize-tools '("read" "search")))))
+  (testing "nil returns nil"
+    (is (nil? (#'agents/normalize-tools nil))))
+  (testing "string returns nil (treated as malformed)"
+    (is (nil? (#'agents/normalize-tools "read"))))
+  (testing "number returns nil (treated as malformed)"
+    (is (nil? (#'agents/normalize-tools 42)))))
 
 (deftest md-agents-from-directory-test
   (let [tmp-dir (fs/create-temp-dir)
@@ -277,5 +342,101 @@
                  "Prompt."))
       (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "My-Reviewer.md"))]
         (is (= "my-reviewer" agent-name)))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest agent-name-from-frontmatter-test
+  (testing "honors YAML name and lowercases it"
+    (is (= "some-role" (#'agents/agent-name-from-frontmatter {:name "Some-Role"}))))
+  (testing "trims surrounding whitespace"
+    (is (= "foo" (#'agents/agent-name-from-frontmatter {:name "  Foo  "}))))
+  (testing "stringifies non-string values"
+    (is (= "123" (#'agents/agent-name-from-frontmatter {:name 123}))))
+  (testing "returns nil when name is absent"
+    (is (nil? (#'agents/agent-name-from-frontmatter {:description "no name"}))))
+  (testing "returns nil when name is blank"
+    (is (nil? (#'agents/agent-name-from-frontmatter {:name "   "})))
+    (is (nil? (#'agents/agent-name-from-frontmatter {:name ""})))))
+
+(deftest agent-name-from-filename-test
+  (testing "single extension"
+    (is (= "architect" (#'agents/agent-name-from-filename (fs/file "architect.md")))))
+  (testing "multi-extension Claude-style file"
+    (is (= "architect" (#'agents/agent-name-from-filename (fs/file "architect.agent.md")))))
+  (testing "lowercases the result"
+    (is (= "my-agent" (#'agents/agent-name-from-filename (fs/file "My-Agent.md")))))
+  (testing "handles filenames with multiple dots"
+    (is (= "foo" (#'agents/agent-name-from-filename (fs/file "foo.bar.baz.md"))))))
+
+(deftest claude-tools-list-loads-agent-test
+  (let [tmp-dir (fs/create-temp-dir)
+        agents-dir (fs/file tmp-dir "agents")]
+    (try
+      (fs/create-dirs agents-dir)
+      ;; Lucas's exact reproducer: tools as a YAML list (Claude convention).
+      (spit (fs/file agents-dir "glp-engineer.agent.md")
+            (str "---\n"
+                 "name: GLP-Reviewer\n"
+                 "description: \"Review any design document with DRC-style structured feedback and rubric scoring\"\n"
+                 "tools:\n"
+                 "  - read\n"
+                 "  - search\n"
+                 "  - agent\n"
+                 "---\n\n"
+                 "You are a reviewer."))
+      (let [result (#'agents/agent-md-file->agent (fs/file agents-dir "glp-engineer.agent.md"))]
+        (testing "agent is loaded (not silently dropped by tools-list parse error)"
+          (is (some? result)))
+        (testing "agent id comes from YAML name"
+          (is (= "glp-reviewer" (first result))))
+        (testing "description is preserved"
+          (is (= "Review any design document with DRC-style structured feedback and rubric scoring"
+                 (get-in (second result) [:description])))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest agent-id-precedence-test
+  (let [tmp-dir (fs/create-temp-dir)
+        agents-dir (fs/file tmp-dir "agents")]
+    (try
+      (fs/create-dirs agents-dir)
+      (testing "YAML name wins over filename"
+        (spit (fs/file agents-dir "Whatever.md")
+              (str "---\n"
+                   "name: My-Custom-Name\n"
+                   "description: Name override\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "Whatever.md"))]
+          (is (= "my-custom-name" agent-name))))
+
+      (testing "Claude-style .agent.md falls back to part before first dot when no YAML name"
+        (spit (fs/file agents-dir "architect.agent.md")
+              (str "---\n"
+                   "description: Architect persona\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "architect.agent.md"))]
+          (is (= "architect" agent-name))))
+
+      (testing "YAML name wins over multi-extension filename"
+        (spit (fs/file agents-dir "engineer.agent.md")
+              (str "---\n"
+                   "name: senior-engineer\n"
+                   "description: Engineer persona\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "engineer.agent.md"))]
+          (is (= "senior-engineer" agent-name))))
+
+      (testing "blank YAML name falls back to filename"
+        (spit (fs/file agents-dir "fallback.md")
+              (str "---\n"
+                   "name: \"   \"\n"
+                   "description: Blank name\n"
+                   "---\n\n"
+                   "Body."))
+        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "fallback.md"))]
+          (is (= "fallback" agent-name))))
       (finally
         (fs/delete-tree tmp-dir)))))

@@ -83,41 +83,43 @@
       (let [result (dir-name [] identity)]
         (is (re-matches #".{8}" result))))
 
-    (testing "uses first workspace name when multiple workspaces"
-      (let [workspaces [{:uri "/home/user/first-project"}
-                        {:uri "/home/user/second-project"}]
-            result (dir-name workspaces identity)]
-        (is (re-matches #"first-project_.{8}" result))))))
+    (testing "uses sorted-first workspace name regardless of folder order"
+      (let [a {:uri "/home/user/first-project"}
+            b {:uri "/home/user/second-project"}]
+        (is (re-matches #"first-project_.{8}" (dir-name [a b] identity)))
+        (is (= (dir-name [a b] identity) (dir-name [b a] identity)))))))
 
-(deftest workspace-cache-file-migration-test
-  (testing "migrates old hash-only directory to new format"
+(deftest workspaces-hash-order-independent-test
+  (testing "the same set of folders hashes the same regardless of order"
+    (let [a {:uri "/home/user/aaa"}
+          b {:uri "/home/user/bbb"}]
+      (is (= (cache/workspaces-hash [a b] identity)
+             (cache/workspaces-hash [b a] identity))))))
+
+(deftest workspace-cache-file-stable-test
+  (testing "resolves to the same canonical file regardless of folder order"
+    (with-temp-cache-dir
+      (let [a {:uri "/home/user/aaa"}
+            b {:uri "/home/user/bbb"}]
+        (is (= (str (cache/workspace-cache-file [a b] "db.transit.json" identity))
+               (str (cache/workspace-cache-file [b a] "db.transit.json" identity))))))))
+
+(deftest redundant-workspace-cache-files-test
+  (testing "finds legacy hash-only and differently-prefixed dirs for the same workspace, excluding canonical"
     (with-temp-cache-dir
       (let [workspaces [{:uri "/home/user/my-project"}]
-            hash-only (cache/workspaces-hash workspaces identity)
-            old-dir (io/file (cache/global-dir) hash-only)]
-        ;; Create old-format directory with a cache file
-        (fs/create-dirs old-dir)
-        (spit (io/file old-dir "db.transit.json") "{}")
-
-        (let [result (cache/workspace-cache-file workspaces "db.transit.json" identity)]
-          (is (not (fs/exists? old-dir)) "Old directory should be renamed")
-          (is (fs/exists? (.getParentFile result)) "New directory should exist")
-          (is (= "{}" (slurp result)) "Migrated file content should be preserved")
-          (is (re-find #"my-project_" (str result)) "New path should contain project name")))))
-
-  (testing "does not migrate when new directory already exists"
-    (with-temp-cache-dir
-      (let [workspaces [{:uri "/home/user/my-project"}]
-            hash-only (cache/workspaces-hash workspaces identity)
-            old-dir (io/file (cache/global-dir) hash-only)
-            result-before (cache/workspace-cache-file workspaces "db.transit.json" identity)
-            new-dir (.getParentFile result-before)]
-        ;; Create both directories
-        (fs/create-dirs old-dir)
-        (spit (io/file old-dir "db.transit.json") "old")
-        (fs/create-dirs new-dir)
-        (spit (io/file new-dir "db.transit.json") "new")
-
-        (let [result (cache/workspace-cache-file workspaces "db.transit.json" identity)]
-          (is (fs/exists? old-dir) "Old directory should remain untouched")
-          (is (= "new" (slurp result)) "Should use new directory content"))))))
+            ws-hash (cache/workspaces-hash workspaces identity)
+            base (cache/global-dir)
+            canonical (cache/workspace-cache-file workspaces "db.transit.json" identity)
+            hash-only-file (io/file base ws-hash "db.transit.json")
+            other-prefixed-file (io/file base (str "old_" ws-hash) "db.transit.json")]
+        (fs/create-dirs (.getParentFile canonical))
+        (spit canonical "canonical")
+        (fs/create-dirs (.getParentFile hash-only-file))
+        (spit hash-only-file "legacy")
+        (fs/create-dirs (.getParentFile other-prefixed-file))
+        (spit other-prefixed-file "other")
+        (let [redundant (set (map str (cache/redundant-workspace-cache-files workspaces "db.transit.json" identity)))]
+          (is (contains? redundant (str hash-only-file)))
+          (is (contains? redundant (str other-prefixed-file)))
+          (is (not (contains? redundant (str canonical)))))))))

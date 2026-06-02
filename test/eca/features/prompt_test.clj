@@ -145,7 +145,8 @@
       (is (string/includes? static "<file path=\"foo.clj\">(ns foo)</file>"))
       (is (not (string/includes? static "cursor")))
       (is (string? dynamic))
-      (is (string/includes? dynamic "cursor"))))
+      (is (string/includes? dynamic "cursor"))
+      (is (string/includes? dynamic "## Dynamic Contexts"))))
 
   (testing "mcpResource context goes into :dynamic, not :static"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
@@ -161,6 +162,24 @@
     (is (= "static\ndynamic" (prompt/instructions->str {:static "static" :dynamic "dynamic"}))))
   (testing "flattens map with nil dynamic to just static"
     (is (= "static" (prompt/instructions->str {:static "static" :dynamic nil})))))
+
+(deftest build-instructions-context-sections-ordering-test
+  (testing "Static contexts are labeled and rendered after Environment Context"
+    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}]
+          {:keys [static]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+      (is (string/includes? static "## Static Contexts"))
+      (is (string/includes? static "## Environment Context"))
+      (is (< (string/index-of static "## Environment Context")
+             (string/index-of static "## Static Contexts")))))
+  (testing "Static contexts come before Dynamic contexts in the flattened prompt"
+    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
+                            {:type :cursor :path "bar.clj"
+                             :position {:start {:line 1 :character 0}
+                                        :end {:line 1 :character 2}}}]
+          flat (prompt/instructions->str
+                (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db)))]
+      (is (< (string/index-of flat "## Static Contexts")
+             (string/index-of flat "## Dynamic Contexts"))))))
 
 (deftest build-instructions-rule-condition-test
   (testing "renders rule content using Selmer condition variables"

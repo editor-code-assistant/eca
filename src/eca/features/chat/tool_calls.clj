@@ -4,6 +4,7 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.mcp :as f.tools.mcp]
    [eca.features.tools.util :as tools.util]
    [eca.llm-util :as llm-util]
@@ -396,7 +397,8 @@
            ;; :status (keyword) is initialized by the state transition machinery
            ;; :approved?* (promise) is initialized by the :init-approval-promise action
            ;; :future-cleanup-complete?* (promise) is initialized by the :init-future-cleanup-promise action
-           ;; :arguments (map) is initialized by the :init-arguments action
+           ;; :arguments (map), :summary, :details and :manual-approval are
+           ;; initialized by the :init-arguments action
            ;; :start-time (long) is initialized by the :set-start-time action
            ;; :future (future) is initialized by the :add-future action
            ;; :resources (map) is updated by the :add-resources and remove-resources actions
@@ -418,8 +420,12 @@
            (:future-cleanup-complete?* event-data))
 
     :init-arguments
-    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :arguments]
-           (:arguments event-data))
+    (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
+           #(-> %
+                (assoc :arguments (:arguments event-data))
+                (assoc-some :summary (:summary event-data)
+                            :details (:details event-data)
+                            :manual-approval (:manual-approval event-data))))
 
     :set-decision-reason
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :decision-reason]
@@ -665,18 +671,25 @@
                            :as resolved-tool}                            (f.tools/resolve-tool full-name all-tools)
                           full-name                                      (or (:full-name resolved-tool) full-name)
                           server-name                                    (:name server)
+                          spawn-agent?                                   (and (= :native origin)
+                                                                               (= "eca" server-name)
+                                                                               (= "spawn_agent" name))
+                          arguments                                      (if parameters
+                                                                           (tools.util/omit-optional-empty-string-args parameters (:arguments tool-call))
+                                                                           (:arguments tool-call))
                           tool-call                                      (assoc tool-call
                                                                                 :full-name full-name
-                                                                                :arguments (if parameters
-                                                                                             (tools.util/omit-optional-empty-string-args parameters (:arguments tool-call))
-                                                                                             (:arguments tool-call)))
+                                                                                :arguments (cond-> arguments
+                                                                                             spawn-agent? f.tools.agent/normalize-arguments))
                           decision-plan                                  (decide-tool-call-action
                                                                           tool-call all-tools @db* config agent chat-id
                                                                           {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
                                                                            :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
                                                                            :trust                 (get-in @db* [:chats chat-id :trust])})
-                          {:keys [decision arguments hook-rejected? reason hook-continue
+                          {:keys [decision hook-rejected? reason hook-continue
                                   hook-stop-reason arguments-modified?]} decision-plan
+                          arguments (cond-> (:arguments decision-plan)
+                                      spawn-agent? f.tools.agent/normalize-arguments)
                           _ (when arguments-modified?
                               (lifecycle/send-content! chat-ctx :system {:type :hookActionFinished
                                                                          :action-type "shell"

@@ -263,6 +263,21 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
       }
     }
     ```
+    
+=== "Qwen"
+
+    Double check if for your API the url is the same.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "qwen": {
+            "api": "openai-chat",
+            "url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            "key": "sk-ws-..."
+        }
+    }
+    ```
 
 === "Z.ai"
 

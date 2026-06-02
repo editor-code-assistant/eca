@@ -5,6 +5,7 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.shared :refer [deep-merge join-api-url]]
    [hato.client :as http]))
 
@@ -101,25 +102,40 @@
         tools))
 
 (defn ^:private normalize-messages [messages]
-  (mapv (fn [{:keys [role content] :as msg}]
-          (case role
-            "tool_call" {:role "assistant" :tool-calls [{:type "function"
-                                                         :function (-> content
-                                                                       (assoc :name (:full-name content))
-                                                                       (dissoc :full-name))}]}
-            ;; NOTE: Image content from MCP tool results is flattened to
-            ;; placeholder text via `stringfy-tool-result`. Image round-trip
-            ;; is implemented for openai-responses and anthropic; see those
-            ;; providers' `tool_call_output` branches for the pattern.
-            "tool_call_output" {:role "tool" :content (llm-util/stringfy-tool-result content)}
-            "reason" {:role "assistant" :content (:text content)}
-            {:role (:role msg)
-             :content (if (string? (:content msg))
-                        (:content msg)
-                        (-> msg :content first :text))
-             ;; TODO add image supprt
-             ;; :images []
-             }))
+  ;; Defense-in-depth against #209: skip entries whose :content :api was
+  ;; tagged by another provider. Ollama's chat shape doesn't carry
+  ;; provider-specific opaque ids, but foreign tool_call/server_tool_*
+  ;; entries can still confuse the request. The central sanitizer in
+  ;; eca.llm-api drops these first; this guard protects direct callers.
+  (into []
+        (keep (fn [{:keys [role content] :as msg}]
+                (let [foreign-api? (let [origin (:api content)]
+                                     (and origin (not= :ollama origin)))]
+                  (case role
+                    "tool_call" (when-not foreign-api?
+                                  {:role "assistant"
+                                   :tool-calls [{:type "function"
+                                                 :function (-> content
+                                                               (assoc :name (:full-name content))
+                                                               (dissoc :full-name))}]})
+                    ;; NOTE: Image content from MCP tool results is flattened to
+                    ;; placeholder text via `stringfy-tool-result`. Image round-trip
+                    ;; is implemented for openai-responses and anthropic; see those
+                    ;; providers' `tool_call_output` branches for the pattern.
+                    "tool_call_output" (when-not foreign-api?
+                                         {:role "tool"
+                                          :content (llm-util/stringfy-tool-result content)})
+                    "reason" (when-not foreign-api?
+                               {:role "assistant" :content (:text content)})
+                    "server_tool_use" nil
+                    "server_tool_result" nil
+                    {:role (:role msg)
+                     :content (if (string? (:content msg))
+                                (:content msg)
+                                (-> msg :content first :text))
+                     ;; TODO add image supprt
+                     ;; :images []
+                     }))))
         messages))
 
 (defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers extra-payload]}
@@ -155,15 +171,16 @@
                              (if-let [tool-call (get @tool-calls* rid)]
                                  ;; TODO support multiple tool calls
                                (when-let [{:keys [new-messages tools]} (on-tools-called [tool-call])]
-                                 (swap! tool-calls* dissoc rid)
-                                 (base-chat-request!
-                                  {:rid (llm-util/gen-rid)
-                                   :url url
-                                   :body (assoc body :messages (normalize-messages new-messages)
-                                                :tools (->tools tools))
-                                   :extra-headers extra-headers
-                                   :on-error on-error
-                                   :on-stream handle-stream}))
+                                 (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)]
+                                   (swap! tool-calls* dissoc rid)
+                                   (base-chat-request!
+                                    {:rid (llm-util/gen-rid)
+                                     :url url
+                                     :body (assoc body :messages (normalize-messages new-messages)
+                                                  :tools (->tools tools))
+                                     :extra-headers extra-headers
+                                     :on-error on-error
+                                     :on-stream handle-stream})))
                                (on-message-received {:type :finish
                                                      :finish-reason done_reason}))
 

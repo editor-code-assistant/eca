@@ -370,19 +370,25 @@
 (defmacro future*
   "Wrapper for future unless in tests. In non-test envs we spawn a Thread and
    return a promise (derefable) to avoid relying on clojure.core/future which
-   can behave differently in some REPL tooling environments."
+   can behave differently in some REPL tooling environments.
+
+   Automatically propagates logger context from the calling thread to the spawned
+   thread, so log calls inside the future inherit chat-id and other context."
   [config & body]
-  `(if (= "test" (:env ~config))
-     ~@body
-     (let [p# (promise)
-           t# (Thread. (fn []
-                         (try
-                           (deliver p# (do ~@body))
-                           (catch Throwable e#
-                             ;; deliver the Throwable so deref can inspect it if needed
-                             (deliver p# e#)))))]
-       (.start t#)
-       p#)))
+  `(let [context# (logger/capture-context)]
+     (if (= "test" (:env ~config))
+       (logger/with-context context# ~@body)
+       (let [p# (promise)
+             t# (Thread.
+                 (fn []
+                   (logger/with-context context#
+                     (try
+                       (deliver p# (do ~@body))
+                       (catch Throwable e#
+                         ;; deliver the Throwable so deref can inspect it if needed
+                         (deliver p# e#))))))]
+         (.start t#)
+         p#))))
 
 (defn get-workspaces
   "Returns a vector of all workspace folder paths.
@@ -422,15 +428,18 @@
   ;; Append compact marker tombstone + summary to preserve full history
   (swap! db* (fn [db]
                (let [summary (get-in db [:chats chat-id :last-summary])
-                     messages (get-in db [:chats chat-id :messages] [])]
+                     messages (get-in db [:chats chat-id :messages] [])
+                     now (System/currentTimeMillis)]
                  (assoc-in db [:chats chat-id :messages]
                            (conj messages
                                  {:role "compact_marker"
-                                  :content {:auto? (boolean auto-compact?)}}
+                                  :content {:auto? (boolean auto-compact?)}
+                                  :created-at now}
                                  {:role "user"
                                   :content [{:type :text
                                              :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                        summary)}]})))))
+                                                        summary)}]
+                                  :created-at now})))))
 
   ;; Zero chat usage and clear transient per-chat rule validations.
   (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules)

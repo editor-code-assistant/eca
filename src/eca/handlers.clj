@@ -79,32 +79,52 @@
                 (swap! db* assoc :providers-config-hash new-providers-hash)
                 (models/sync-models! db* config (fn [models]
                                                   (let [db @db*
-                                                        default-model (f.chat/default-model db config)
+                                                        ;; Plugin resolution can finish while model sync is running;
+                                                        ;; re-read config so agent notifications don't use stale data.
+                                                        fresh-config (config/all db)
+                                                        default-model (f.chat/default-model db fresh-config)
                                                         default-agent-name (config/validate-agent-name
-                                                                            (or (:defaultAgent (:chat config))
-                                                                                (:defaultAgent config))
-                                                                            config)
-                                                        default-agent-config (get-in config [:agent default-agent-name])
-                                                        variants (model-variants config default-model)]
+                                                                            (or (:defaultAgent (:chat fresh-config))
+                                                                                (:defaultAgent fresh-config))
+                                                                            fresh-config)
+                                                        default-agent-config (get-in fresh-config [:agent default-agent-name])
+                                                        variants (model-variants fresh-config default-model)]
                                                     (config/notify-fields-changed-only!
                                                      {:chat
-                                                      {:models (sort (keys models))
-                                                       :agents (config/primary-agent-names config)
-                                                       :select-model default-model
-                                                       :select-agent default-agent-name
-                                                       :variants (or variants [])
-                                                       :select-variant (select-variant default-agent-config variants)
-                                                       :welcome-message (welcome-message config)
+                                                      ;; Advertise the default trust only when enabled, so clients
+                                                      ;; keep their own defaults (e.g. emacs eca-chat-trust-enable).
+                                                      (cond-> {:models (sort (keys models))
+                                                               :agents (config/primary-agent-names fresh-config)
+                                                               :select-model default-model
+                                                               :select-agent default-agent-name
+                                                               :variants (or variants [])
+                                                               :select-variant (select-variant default-agent-config variants)
+                                                               :welcome-message (welcome-message fresh-config)
                                                           ;; Deprecated, remove after changing emacs, vscode and intellij.
-                                                       :default-model default-model
-                                                       :default-agent default-agent-name
+                                                               :default-model default-model
+                                                               :default-agent default-agent-name
                                                        ;; Legacy: backward compat for clients using old key names
-                                                       :behaviors (distinct (keys (:agent config)))
-                                                       :select-behavior default-agent-name
-                                                       :default-behavior default-agent-name}}
+                                                               :behaviors (distinct (keys (:agent fresh-config)))
+                                                               :select-behavior default-agent-name
+                                                               :default-behavior default-agent-name}
+                                                        (-> fresh-config :chat :defaultTrust)
+                                                        (assoc :select-trust true))}
                                                      messenger
                                                      db*)))))))]
-      (swap! db* assoc-in [:config-updated-fns :sync-models] #(sync-models-and-notify! %))
+      (swap! db* assoc-in [:config-updated-fns :sync-models]
+             (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
+      (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
+             (fn [prev-config new-config]
+               (f.tools/reconcile-servers! prev-config new-config db* messenger metrics)))
+      (swap! db* assoc-in [:config-updated-fns :tool-refresh]
+             (fn [prev-config new-config]
+               (when (and prev-config
+                          (or (not= (:disabledTools prev-config) (:disabledTools new-config))
+                              (not= (:toolCall prev-config) (:toolCall new-config))
+                              (not= (:agent prev-config) (:agent new-config))))
+                 (let [default-agent (get new-config :defaultAgent)
+                       tool-status-fn (f.tools/make-tool-status-fn new-config default-agent)]
+                   (f.tools/refresh-tool-servers! tool-status-fn db* messenger new-config)))))
       (shared/future* config
         (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
             (sync-models-and-notify! config)
@@ -122,7 +142,7 @@
           :content {:type :text
                     :text (format "\nFailed to parse '%s' config, check stderr logs, double check your config and restart\n"
                                   error)}}))
-      (config/listen-for-changes! db*))
+      (config/listen-for-changes! db* messenger))
     (future
       (send-progress! db* messenger {:type "start" :taskId "plugins" :title "Resolving plugins"})
       (try
@@ -230,7 +250,7 @@
 
 (defn chat-rollback [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-rollback
-    (f.chat/rollback-chat params db* messenger)))
+    (f.chat/rollback-chat params db* messenger metrics)))
 
 (defn chat-add-flag [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-add-flag

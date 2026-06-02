@@ -4,11 +4,117 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
+   [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.secrets :as secrets]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
+
+(deftest sanitize-past-messages-for-api-test
+  (testing "drops anthropic-origin reason when target is :openai-chat"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "reason" :content {:id "r1" :external-id "sig-xyz" :text "thinking"
+                                          :api :anthropic}}
+                {:role "assistant" :content [{:type :text :text "ok"}]}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= 1 dropped-count))
+      (is (= #{:anthropic} dropped-apis))
+      (is (= 2 (count messages)))
+      (is (= ["user" "assistant"] (mapv :role messages)))))
+
+  (testing "drops openai-responses-origin reason when target is :anthropic"
+    (let [past [{:role "reason" :content {:id "rs_abc" :external-id "encrypted-blob" :text "thinking"
+                                          :api :openai-responses}}
+                {:role "user" :content [{:type :text :text "hi"}]}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :anthropic past)]
+      (is (= 1 dropped-count))
+      (is (= #{:openai-responses} dropped-apis))
+      (is (= 1 (count messages)))
+      (is (= "user" (:role (first messages))))))
+
+  (testing "drops tool_call/tool_call_output pairs whose :api differs from target"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "tool_call" :content {:id "toolu_aaa" :full-name "read"
+                                             :api :anthropic}}
+                {:role "tool_call_output" :content {:id "toolu_aaa" :output {:contents []}
+                                                    :api :anthropic}}
+                {:role "user" :content [{:type :text :text "next"}]}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= 2 dropped-count) "tool_call and tool_call_output both removed")
+      (is (= 2 (count messages)))
+      (is (every? #(= "user" (:role %)) messages))))
+
+  (testing "drops anthropic server_tool_use and server_tool_result on switch away"
+    (let [past [{:role "server_tool_use" :content {:id "stu_1" :name "web_search"
+                                                   :api :anthropic}}
+                {:role "server_tool_result" :content {:tool-use-id "stu_1" :raw-content {}
+                                                      :api :anthropic}}
+                {:role "user" :content [{:type :text :text "k"}]}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-responses past)]
+      (is (= 2 dropped-count))
+      (is (= [{:role "user" :content [{:type :text :text "k"}]}] messages))))
+
+  (testing "same-api round-trip preserves all entries"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "reason" :content {:id "r1" :external-id "sig" :text "t"
+                                          :api :anthropic}}
+                {:role "tool_call" :content {:id "toolu_a" :full-name "read"
+                                             :api :anthropic}}
+                {:role "tool_call_output" :content {:id "toolu_a" :output {:contents []}
+                                                    :api :anthropic}}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :anthropic past)]
+      (is (zero? dropped-count))
+      (is (empty? dropped-apis))
+      (is (= past messages))))
+
+  (testing "untagged (legacy) entries are preserved as-is"
+    (let [past [{:role "user" :content [{:type :text :text "hi"}]}
+                {:role "reason" :content {:id "r1" :external-id "sig" :text "t"}}
+                {:role "tool_call" :content {:id "toolu_a" :full-name "read"}}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (zero? dropped-count))
+      (is (= past messages))))
+
+  (testing "internal-only top-level message fields are stripped before provider serialization"
+    (let [past [{:role "user"
+                 :content [{:type :text :text "hi"}]
+                 :created-at 123
+                 :content-id "c1"}
+                {:role "assistant"
+                 :content [{:type :text :text "ok"}]
+                 :created-at 456
+                 :content-id "c2"}]
+          {:keys [messages dropped-count]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (zero? dropped-count))
+      (is (= [{:role "user" :content [{:type :text :text "hi"}]}
+              {:role "assistant" :content [{:type :text :text "ok"}]}]
+             messages))
+      (is (every? #(not (contains? % :created-at)) messages))
+      (is (every? #(not (contains? % :content-id)) messages))))
+
+  (testing "mixed history: tagged foreign entries dropped, untagged + matching kept"
+    (let [past [{:role "user" :content [{:type :text :text "u1"}]}
+                {:role "reason" :content {:id "r0" :text "legacy"}}                            ; untagged → kept
+                {:role "reason" :content {:id "r1" :text "t" :api :anthropic}}                 ; foreign → dropped
+                {:role "reason" :content {:id "r2" :text "t" :api :openai-chat}}               ; matching → kept
+                {:role "assistant" :content [{:type :text :text "a"}] :created-at 999}]
+          {:keys [messages dropped-count dropped-apis]}
+          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= 1 dropped-count))
+      (is (= #{:anthropic} dropped-apis))
+      (is (= 4 (count messages)))
+      (is (= ["user" "reason" "reason" "assistant"] (mapv :role messages)))
+      (is (= ["r0" "r2"]
+             (->> messages (filter #(= "reason" (:role %))) (map #(get-in % [:content :id])))))
+      (is (not (contains? (last messages) :created-at))))))
 
 (deftest default-model-test
   (testing "Custom provider defaultModel present"
@@ -182,6 +288,86 @@
       (is (= true (:image-generation @captured*))
           "openai handler should receive :image-generation true")))
 
+  (testing "openai branch strips internal top-level message fields before reaching handler"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-5.2"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :image-generation? false
+                               :model-name "gpt-5.2"}
+          :user-messages [{:role "user"
+                           :content [{:type :text :text "hi"}]
+                           :created-at 111
+                           :content-id "user-1"}]
+          :past-messages [{:role "assistant"
+                           :content [{:type :text :text "ok"}]
+                           :created-at 222
+                           :content-id "past-1"}]
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
+          :sync? false}))
+      (is (= [{:role "user" :content [{:type :text :text "hi"}]}]
+             (:user-messages @captured*)))
+      (is (= [{:role "assistant" :content [{:type :text :text "ok"}]}]
+             (:past-messages @captured*)))))
+
+  (testing "openai tool-call replay strips internal top-level message fields before follow-up request"
+    (let [seen-bodies* (atom [])]
+      (with-redefs [eca.llm-providers.openai/normalize-messages
+                    (fn [messages _supports-image?] (vec messages))
+                    eca.llm-providers.openai/base-responses-request!
+                    (fn [{:keys [body on-stream]}]
+                      (swap! seen-bodies* conj body)
+                      (if (= 1 (count @seen-bodies*))
+                        (on-stream "response.completed"
+                                   {:response {:status "completed"
+                                               :usage {:input_tokens 1 :output_tokens 1}
+                                               :output [{:type "function_call"
+                                                         :id "item_1"
+                                                         :call_id "call_1"
+                                                         :name "demo/tool"
+                                                         :arguments "{}"}]}})
+                        (on-stream "response.completed"
+                                   {:response {:status "completed"
+                                               :usage {:input_tokens 1 :output_tokens 1}
+                                               :output []}}))
+                      :ok)]
+        (llm-providers.openai/create-response!
+         {:model "gpt-5.2"
+          :instructions nil
+          :reason? false
+          :supports-image? false
+          :api-key "test-key"
+          :api-url "https://api.openai.com"
+          :past-messages []
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :tools [{:full-name "demo/tool" :description "d" :parameters {}}]
+          :web-search false
+          :image-generation false}
+         {:on-message-received identity
+          :on-error identity
+          :on-prepare-tool-call identity
+          :on-reason identity
+          :on-usage-updated identity
+          :on-server-web-search identity
+          :on-server-image-generation identity
+          :on-tools-called (fn [_]
+                             {:new-messages [{:role "assistant"
+                                              :content [{:type :text :text "after tool"}]
+                                              :created-at 333
+                                              :content-id "replay-1"}]
+                              :tools []})}))
+      (is (= 2 (count @seen-bodies*)))
+      (is (= [{:role "assistant"
+               :content [{:type :text :text "after tool"}]}]
+             (:input (second @seen-bodies*))))))
+
   (testing "openai branch forwards :image-generation false (or nil) when capability is off"
     (let [captured* (atom nil)]
       (with-redefs [llm-providers.openai/create-response!
@@ -202,6 +388,34 @@
           :sync? false}))
       (is (not (true? (:image-generation @captured*)))
           "openai handler should NOT receive :image-generation true when capability is off"))))
+
+(deftest prompt-forwards-stream-idle-timeout-and-cache-retention-to-anthropic-handler-test
+  (testing "custom provider with :api anthropic forwards :stream-idle-timeout-seconds and :cache-retention to chat!"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.anthropic/chat!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "my-proxy"
+          :model "claude-sonnet-4-6"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :model-name "claude-sonnet-4-6"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :past-messages []
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:streamIdleTimeoutSeconds 300
+                   :providers {"my-proxy" {:api "anthropic"
+                                           :url "https://my-proxy.example.com/v1"
+                                           :key "test-key"
+                                           :cacheRetention "long"
+                                           :models {"claude-sonnet-4-6" {}}}}}
+          :sync? false}))
+      (is (= "long" (:cache-retention @captured*))
+          "anthropic handler should receive :cache-retention from provider-config")
+      (is (= 300 (:stream-idle-timeout-seconds @captured*))
+          "anthropic handler should receive :stream-idle-timeout-seconds from top-level config"))))
 
 (deftest retry-delay-ms-test
   ;; Formula: (quot capped 2) + rand(0, capped)

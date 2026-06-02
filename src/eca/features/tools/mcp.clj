@@ -31,6 +31,42 @@
 
 (def ^:private logger-tag "[MCP]")
 
+(defn ^:private traffic-log
+  "Log MCP traffic message at DEBUG level with direction arrow."
+  [direction msg]
+  (logger/debug logger-tag (str direction " " msg)))
+
+(def ^:private mcp-traffic-logger
+  "Routes plumcp MCP traffic through ECA's Logback logger at DEBUG level.
+   Visible with --log-level debug, suppressed at default INFO."
+  (reify pp/ITrafficLogger
+    (log-http-request [_ req]
+      (traffic-log "-->" (format "HTTP %s %s" (-> req :request-method name .toUpperCase) (or (:uri req) "?"))))
+    (log-http-response [_ resp]
+      (traffic-log "<--" (format "HTTP %d" (:status resp))))
+    (log-http-failure [_ failure]
+      (traffic-log "<--" (str "HTTP failure: " failure)))
+    (log-incoming-jsonrpc-request [_ req]
+      (traffic-log "<--" (format "request %s %s" (or (:id req) "#") (:method req))))
+    (log-outgoing-jsonrpc-request [_ req]
+      (traffic-log "-->" (format "request %s %s" (or (:id req) "#") (:method req))))
+    (log-incoming-jsonrpc-success [_ id result]
+      (traffic-log "<--" (format "success %s %s" (or id "#") result)))
+    (log-outgoing-jsonrpc-success [_ id result]
+      (traffic-log "-->" (format "success %s %s" (or id "#") result)))
+    (log-incoming-jsonrpc-failure [_ id error]
+      (traffic-log "<--" (format "error %s code=%d" (or id "#") (get-in error [:error :code]))))
+    (log-outgoing-jsonrpc-failure [_ id error]
+      (traffic-log "-->" (format "error %s code=%d" (or id "#") (get-in error [:error :code]))))
+    (log-incoming-jsonrpc-notification [_ notif]
+      (traffic-log "<--" (str "notification " (:method notif))))
+    (log-outgoing-jsonrpc-notification [_ notif]
+      (traffic-log "-->" (str "notification " (:method notif))))
+    (log-mcpcall-failure [_ error]
+      (traffic-log "<--" (str "call failure: " error)))
+    (log-mcp-sse-message [_ msg]
+      (traffic-log "<--" (str "SSE " msg)))))
+
 (def ^:private init-threads*
   "Tracks in-flight MCP server initialization threads (server-name → Thread)
    so they can be interrupted during shutdown."
@@ -141,6 +177,7 @@
                  :primitives {:roots (mapv #(pcap/make-root-item (:uri %)
                                                                  {:name (:name %)})
                                            workspaces)}
+                 :traffic-logger mcp-traffic-logger
                  :notification-handlers
                  {;; Uses custom wrapping instead of non-blocking-handler to coordinate
                   ;; a promise that await-pending-tools-refresh can block on.
@@ -557,6 +594,65 @@
   (with-init-thread name
     (initialize-server! name db* config metrics on-server-updated)))
 
+(defn restart-server-async!
+  "Spawn a daemon thread that stops the server (if running) and re-initializes
+   it. Used by reconciliation when an MCP server's config changed out-of-band."
+  [server-name db* config metrics on-server-updated]
+  (let [t (Thread.
+           (fn []
+             ;; stop runs outside with-init-thread because stop-server! interrupts
+             ;; any thread registered in init-threads* for this name.
+             (when (get-in @db* [:mcp-clients server-name :client])
+               (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+             (with-init-thread server-name
+               (initialize-server! server-name db* config metrics on-server-updated))))]
+    (.setName t (str "mcp-restart-" server-name))
+    (.setDaemon t true)
+    (.start t)))
+
+(defn reconcile-servers!
+  "Diff `:mcpServers` in `prev-config` vs `new-config` and apply lifecycle ops:
+   - added (in new, not in old): start async (or emit disabled status)
+   - removed (in old, not in new): stop + emit serverRemoved
+   - changed (config differs): restart async
+
+   No-op on the first tick (prev-config nil) since `initialize-servers-async!`
+   handles the initial start. Respects `:pureConfig`."
+  [prev-config new-config db* metrics {:keys [on-server-updated on-server-removed]}]
+  (when (and prev-config (not (:pureConfig new-config)))
+    (let [old (or (:mcpServers prev-config) {})
+          new (or (:mcpServers new-config) {})
+          old-keys (set (keys old))
+          new-keys (set (keys new))
+          removed (remove new-keys old-keys)
+          added (remove old-keys new-keys)
+          changed (filter (fn [k] (not= (get old k) (get new k)))
+                          (filter new-keys old-keys))]
+      (doseq [k removed]
+        (let [server-name (name k)]
+          (logger/info logger-tag (format "Reconcile: removing server '%s'" server-name))
+          (future
+            (try
+              (when (get-in @db* [:mcp-clients server-name :client])
+                (stop-server! server-name db* prev-config {:on-server-updated on-server-updated}))
+              (swap! db* update :mcp-auth dissoc server-name)
+              (when on-server-removed
+                (on-server-removed {:name server-name}))
+              (catch Exception e
+                (logger/error logger-tag (format "Reconcile remove failed for '%s': %s"
+                                                 server-name (.getMessage e))))))))
+      (doseq [k added]
+        (let [server-name (name k)
+              server-config (get new k)]
+          (logger/info logger-tag (format "Reconcile: adding server '%s'" server-name))
+          (if (get server-config :disabled false)
+            (on-server-updated (->server server-name server-config :disabled @db*))
+            (start-single-server-async! server-name db* new-config metrics on-server-updated))))
+      (doseq [k changed]
+        (let [server-name (name k)]
+          (logger/info logger-tag (format "Reconcile: restarting server '%s' (config changed)" server-name))
+          (restart-server-async! server-name db* new-config metrics on-server-updated))))))
+
 (defn logout-server!
   "Logout from an MCP server by clearing stored OAuth credentials and restarting it."
   [name db* config metrics {:keys [on-server-updated]}]
@@ -860,13 +956,11 @@
     (do-call-tool new-client name arguments nil)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
-(defn call-tool! [name arguments {:keys [db db* config metrics]}]
-  (if-let [[server-name mcp-client needs-reinit?*]
-           (->> (:mcp-clients db)
-                (keep (fn [[sn {:keys [client tools needs-reinit?*]}]]
-                        (when (some #(= name (:name %)) tools)
-                          [sn client needs-reinit?*])))
-                first)]
+(defn call-tool! [server-name name arguments {:keys [db db* config metrics]}]
+  (if-let [[mcp-client needs-reinit?*]
+           (when-let [{:keys [client tools needs-reinit?*]} (get-in db [:mcp-clients server-name])]
+             (when (some #(= name (:name %)) tools)
+               [client needs-reinit?*]))]
     (if (and needs-reinit?* @needs-reinit?* db* config metrics)
       ;; Already flagged — reinit before attempting the call
       (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
@@ -881,7 +975,7 @@
           (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
 
           :else result)))
-    (tool-call-error (format "Tool '%s' not found in any connected MCP server" name))))
+    (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
 
 (defn all-prompts [db]
   (into []
