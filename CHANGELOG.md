@@ -4,6 +4,7 @@
 
 - Remote REST API: `GET /api/v1/chats/:id` now exposes the chat's effective `model`, `variant` and `agent` (per-chat override, falling back to the resolved session default).
 - Anthropic: serialize empty thinking blocks as `""` instead of nil, fixing a 400 on multi-turn chats with extended thinking. (#481)
+- Add AWS Bedrock provider using the native `Converse`/`ConverseStream` APIs with bearer-token auth, supporting models not available on Bedrock's OpenAI-compatible endpoint (e.g. Claude inference profiles). #254
 
 ## 0.136.4
 

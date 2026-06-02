@@ -6,6 +6,7 @@
    [eca.features.prompt :as f.prompt]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.azure]
+   [eca.llm-providers.bedrock :as llm-providers.bedrock]
    [eca.llm-providers.copilot]
    [eca.llm-providers.deepseek]
    [eca.llm-providers.errors :as llm-providers.errors]
@@ -144,6 +145,8 @@
                          :handler llm-providers.anthropic/chat!}
             "openai-chat" {:api :openai-chat
                            :handler llm-providers.openai-chat/chat-completion!}
+            "bedrock" {:api :bedrock
+                       :handler llm-providers.bedrock/chat!}
             nil)))
 
 (def ^:private reasoning-keys-by-api

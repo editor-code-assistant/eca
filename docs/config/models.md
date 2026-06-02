@@ -168,6 +168,34 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
     }
     ```
 
+=== "AWS Bedrock"
+
+    Uses the native Bedrock `Converse`/`ConverseStream` APIs, so models that are not exposed on Bedrock's OpenAI-compatible endpoint (e.g. Claude inference profiles) are reachable.
+
+    Authentication uses a bearer token (`AWS_BEARER_TOKEN_BEDROCK`); the region is part of the runtime URL. `models` are Bedrock model ids or inference-profile ids.
+
+    1. Login via the chat command `/login`.
+    2. Type 'bedrock' and send it.
+    3. Specify your API key, runtime URL and at least one model.
+    4. Done, it should be saved to your global config.
+
+    or manually via config:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "bedrock": {
+          "api": "bedrock",
+          "url": "https://bedrock-runtime.us-east-1.amazonaws.com",
+          "key": "${env:AWS_BEARER_TOKEN_BEDROCK}",
+          "models": {
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0": {}
+          }
+        }
+      }
+    }
+    ```
+
 === "Mistral"
 
     The property `max_completion_token` is set to `null`, because Mistral does not support it.

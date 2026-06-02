@@ -523,7 +523,8 @@
           "enum": [
             "openai-responses",
             "openai-chat",
-            "anthropic"
+            "anthropic",
+            "bedrock"
           ]
         },
         "fetchModels": {
