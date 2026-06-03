@@ -813,6 +813,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#merge-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      Merge order
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#dynamic-string-contents" class="md-nav__link">
     <span class="md-ellipsis">
       Dynamic string contents
@@ -1385,6 +1394,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#merge-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      Merge order
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#dynamic-string-contents" class="md-nav__link">
     <span class="md-ellipsis">
       Dynamic string contents
@@ -1440,7 +1458,7 @@
 <p>Installation has moved to its own page. See <strong><a href="../../install/">Install ECA</a></strong> for a guided walkthrough covering editor plugins (Emacs, VS Code, Neovim, IntelliJ), the Desktop app, and manual install methods (script, Homebrew, mise, GitHub Releases).</p>
 <h2 id="ways-to-configure">Ways to configure<a class="headerlink" href="#ways-to-configure" title="Permanent link">#</a></h2>
 <p>There are multiples ways to configure ECA:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="global-config-file" name="__tabbed_1" type="radio" /><input id="local-config-file" name="__tabbed_1" type="radio" /><input id="initializationoptions" name="__tabbed_1" type="radio" /><input id="env-var" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="global-config-file">Global config file</label><label for="local-config-file">Local Config file</label><label for="initializationoptions">InitializationOptions</label><label for="env-var">Env var</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:5"><input checked="checked" id="global-config-file" name="__tabbed_1" type="radio" /><input id="local-config-file" name="__tabbed_1" type="radio" /><input id="initializationoptions" name="__tabbed_1" type="radio" /><input id="env-var" name="__tabbed_1" type="radio" /><input id="extra-config-files" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="global-config-file">Global config file</label><label for="local-config-file">Local Config file</label><label for="initializationoptions">InitializationOptions</label><label for="env-var">Env var</label><label for="extra-config-files">Extra config files</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>Convenient for users and multiple projects</p>
@@ -1469,8 +1487,27 @@
 <div class="highlight"><pre><span></span><code><span class="nv">ECA_CONFIG</span><span class="o">=</span><span class="s1">&#39;{&quot;myConfig&quot;: &quot;my_value&quot;}&#39;</span><span class="w"> </span>eca<span class="w"> </span>server
 </code></pre></div>
 </div>
+<div class="tabbed-block">
+<p>Merge extra files last, useful for machine-specific or uncommitted overrides (e.g. gitignored <code>*.local.json</code> files):</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;extraConfigs&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/eca/config.local.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;.eca/config.local.json&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Relative paths resolve against the workspace root; <code>~</code> and absolute paths are supported. Missing files are logged and skipped.</p>
 </div>
 </div>
+</div>
+<h3 id="merge-order">Merge order<a class="headerlink" href="#merge-order" title="Permanent link">#</a></h3>
+<p>Config sources are deep merged from lowest to highest priority (later sources win on conflicts):</p>
+<ol>
+<li>Built-in defaults</li>
+<li><code>initializationOptions</code> (from the editor's <code>initialize</code> request)</li>
+<li><code>ECA_CONFIG</code> env var</li>
+<li>Global config file <code>~/.config/eca/config.json</code> (or the <code>--config-file</code> path, which replaces the global/local lookup)</li>
+<li>Local project config <code>.eca/config.json</code> (per workspace root)</li>
+<li>Files listed in <code>extraConfigs</code>, in their listed order</li>
+</ol>
+<p>Deep merge means nested maps are merged recursively, while scalars and arrays from a higher-priority source replace (not concatenate) the lower-priority value.</p>
 <h3 id="dynamic-string-contents">Dynamic string contents<a class="headerlink" href="#dynamic-string-contents" title="Permanent link">#</a></h3>
 <p>It's possible to retrieve content of any configs with a string value using the <code>${key:value}</code> approach, being <code>key</code>:</p>
 <ul>
@@ -1593,7 +1630,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 3, 2026 15:02:39 UTC">June 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 3, 2026 15:48:12 UTC">June 3, 2026</span>
   </span>
 
     
