@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Remote endpoint now lists resumed and forked chats immediately, without waiting for the first prompt.
 - Fix resumed chats being permanently missing from the remote `GET /session` and `GET /chats` endpoints.
 
 ## 0.138.1
