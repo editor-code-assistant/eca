@@ -63,9 +63,23 @@
           (assoc metadata :body (string/trim (string/join "\n" body-lines)))))
       {:body (string/trim content)})))
 
+(defn named-arg-names
+  "Returns the ordered, distinct {{name}} placeholder names found in content.
+   Captures only the leading identifier so Selmer filters/tags like
+   {{city|upper}} still yield the variable name (\"city\")."
+  [content]
+  (if (string/blank? content)
+    []
+    (->> (re-seq #"\{\{\s*([a-zA-Z_][a-zA-Z0-9_-]*)" (str content))
+         (mapv second)
+         (distinct)
+         (vec))))
+
 (defn extract-args-from-content
-  "Parses command/skill content for $ARGN, $N, $ARGS, and $ARGUMENTS placeholders
-   and returns the corresponding :arguments vector for command metadata.
+  "Parses command/skill content for $ARGN, $N, $ARGS, $ARGUMENTS and {{name}}
+   placeholders and returns the corresponding :arguments vector for command
+   metadata. Positional ($1/$ARGS) and named ({{name}}) placeholders cannot be
+   mixed in the same content; doing so throws an ex-info.
    Returns an empty vector when no argument placeholders are found."
   [content]
   (if (string/blank? content)
@@ -75,14 +89,23 @@
                      (re-seq #"\$(?:ARG)?(\d+)" content))
           has-varargs (some #(string/includes? content %)
                             ["$ARGS" "$ARGUMENTS"])
+          named (named-arg-names content)
           max-n (when (seq nums) (apply max nums))
           declared-count (cond
                            max-n     max-n
                            has-varargs 1)]
-      (if declared-count
+      (when (and (seq named) declared-count)
+        (throw (ex-info "Cannot mix positional ($1/$ARGS) and named ({{name}}) arguments"
+                        {:named named})))
+      (cond
+        (seq named)
+        (mapv (fn [n] {:name n :required true}) named)
+
+        declared-count
         (vec (for [i (range 1 (inc declared-count))]
                {:name (str "arg" i) :required true}))
-        []))))
+
+        :else []))))
 
 ;; Walks up from a non-existing path to find the nearest existing ancestor,
 ;; canonicalizes it (resolving symlinks), then re-attaches the missing segments.

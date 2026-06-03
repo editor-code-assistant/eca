@@ -18,6 +18,7 @@
    [eca.interpolation :as interpolation]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
@@ -48,30 +49,61 @@
     (fs/directory? path) (filter markdown-file? (fs/glob path "**" {:follow-links true}))
     :else [path]))
 
+(defn ^:private normalize-frontmatter-arg [a]
+  (when (map? a)
+    (let [g (fn [k] (if (contains? a k) (get a k) (get a (keyword k))))]
+      (cond-> {}
+        (some? (g "name")) (assoc :name (str (g "name")))
+        (some? (g "description")) (assoc :description (str (g "description")))
+        (some? (g "required")) (assoc :required (boolean (g "required")))))))
+
+(defn ^:private merge-command-args
+  "Enriches detected args (the source of truth for order/names) with metadata
+   from the frontmatter `arguments` list. Named args match by name; positional
+   args (arg1, arg2, ...) match by index, letting frontmatter rename them."
+  [detected frontmatter-args named?]
+  (let [fm (mapv normalize-frontmatter-arg frontmatter-args)]
+    (vec (map-indexed
+          (fn [idx arg]
+            (let [fm-match (if named?
+                             (first (filter #(= (:name %) (:name arg)) fm))
+                             (nth fm idx nil))]
+              (merge arg fm-match)))
+          detected))))
+
 (defn ^:private command-file->command [type file opts]
-  (let [base (normalize-command-name file)
-        content (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)]
-    (cond-> {:name (if-let [plugin (:plugin opts)]
-                     (shared/prefixed-name plugin base)
-                     base)
-             :path (str (fs/canonicalize file))
-             :type type
-             :content content
-             :arguments (shared/extract-args-from-content content)}
-      (:plugin opts) (assoc :plugin (:plugin opts)))))
+  (try
+    (let [base (normalize-command-name file)
+          raw (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)
+          {:keys [description body] fm-args :arguments} (shared/parse-md raw)
+          body (or body raw)
+          named? (boolean (seq (shared/named-arg-names body)))
+          detected (shared/extract-args-from-content body)]
+      (cond-> {:name (if-let [plugin (:plugin opts)]
+                       (shared/prefixed-name plugin base)
+                       base)
+               :path (str (fs/canonicalize file))
+               :type type
+               :content body
+               :arguments (merge-command-args detected fm-args named?)}
+        description (assoc :description description)
+        (:plugin opts) (assoc :plugin (:plugin opts))))
+    (catch Exception e
+      (logger/warn "[commands]" (format "Error parsing command file '%s': %s" (str file) (ex-message e)))
+      nil)))
 
 (defn ^:private global-file-commands []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
                             (io/file (config/get-property "user.home") ".config"))
         commands-dir (io/file xdg-config-home "eca" "commands")]
-    (map #(command-file->command :user-global-file % {})
-         (configured-command-files commands-dir))))
+    (keep #(command-file->command :user-global-file % {})
+          (configured-command-files commands-dir))))
 
 (defn ^:private local-file-commands [roots]
   (->> roots
        (mapcat (fn [{:keys [uri]}]
                  (configured-command-files (fs/file (shared/uri->filename uri) ".eca" "commands"))))
-       (map #(command-file->command :user-local-file % {}))))
+       (keep #(command-file->command :user-local-file % {}))))
 
 (defn ^:private config-commands [config roots]
   (->> (get config :commands)
@@ -85,7 +117,7 @@
                    (mapcat (fn [{:keys [uri]}]
                              (configured-command-files (fs/file (shared/uri->filename uri) path)))
                            roots))
-                 (map #(command-file->command :user-config % opts))))))))
+                 (keep #(command-file->command :user-config % opts))))))))
 
 (defn ^:private custom-commands [config roots]
   (concat (config-commands config roots)
@@ -183,7 +215,7 @@
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
-                            :description (:path custom)
+                            :description (or (:description custom) (:path custom))
                             :arguments (:arguments custom)})
                          (custom-commands config (:workspace-folders db)))
         skills-cmds (->> (f.skills/all config (:workspace-folders db))
@@ -198,16 +230,21 @@
             custom-cmds)))
 
 (defn ^:private substitute-args [content args]
-  (let [args-joined (string/join " " args)
-        content-with-args (-> content
-                              (string/replace "$ARGS" args-joined)
-                              (string/replace "$ARGUMENTS" args-joined))]
-    (reduce (fn [c [i arg]]
-              (-> c
-                  (string/replace (str "$ARG" (inc i)) arg)
-                  (string/replace (str "$" (inc i)) arg)))
-            content-with-args
-            (map-indexed vector args))))
+  (let [named (shared/named-arg-names content)]
+    (if (seq named)
+      (shared/safe-selmer-render content
+                                 (zipmap (map keyword named) args)
+                                 "custom-command")
+      (let [args-joined (string/join " " args)
+            content-with-args (-> content
+                                  (string/replace "$ARGS" args-joined)
+                                  (string/replace "$ARGUMENTS" args-joined))]
+        (reduce (fn [c [i arg]]
+                  (-> c
+                      (string/replace (str "$ARG" (inc i)) arg)
+                      (string/replace (str "$" (inc i)) arg)))
+                content-with-args
+                (map-indexed vector args))))))
 
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))

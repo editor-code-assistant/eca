@@ -91,6 +91,38 @@
                      (ex-message e)))]
       (is (= "YAML frontmatter must be a mapping" result)))))
 
+(deftest named-arg-names-test
+  (testing "returns ordered distinct names"
+    (is (= ["city" "units"]
+           (shared/named-arg-names "Weather for {{city}} in {{units}}, again {{city}}"))))
+  (testing "ignores surrounding spaces and selmer filters"
+    (is (= ["city"]
+           (shared/named-arg-names "{{ city | upper }}"))))
+  (testing "empty when no named placeholders"
+    (is (= [] (shared/named-arg-names "no names here")))
+    (is (= [] (shared/named-arg-names nil)))
+    (is (= [] (shared/named-arg-names "")))))
+
+(deftest extract-args-from-content-named-test
+  (testing "detects named placeholders as required args"
+    (is (= [{:name "city" :required true}
+            {:name "units" :required true}]
+           (shared/extract-args-from-content "Report {{city}} in {{units}}"))))
+  (testing "named placeholders are distinct and keep first-seen order"
+    (is (= [{:name "city" :required true}]
+           (shared/extract-args-from-content "{{city}} and {{city}}"))))
+  (testing "throws when mixing positional and named placeholders"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Cannot mix"
+                          (shared/extract-args-from-content "Use $1 and {{city}}")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"Cannot mix"
+                          (shared/extract-args-from-content "Use $ARGS and {{city}}"))))
+  (testing "positional and no-arg behavior unchanged"
+    (is (= [{:name "arg1" :required true}]
+           (shared/extract-args-from-content "Hello $ARG1")))
+    (is (= [] (shared/extract-args-from-content "no placeholders")))))
+
 (deftest tokens->cost-test
   (let [model-capabilities {:input-token-cost 0.01
                             :output-token-cost 0.02

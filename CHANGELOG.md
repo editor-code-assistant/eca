@@ -4,6 +4,7 @@
 
 - Git tool: commit/PR attribution now includes the active model (and variant when set), e.g. `Generated with ECA (anthropic/opus-4.8 - high)`.
 - `/login` warns when a configured/env API key (e.g. `OPENAI_API_KEY`) takes precedence over login auth, plus docs make the precedence explicit. (#485)
+- Custom commands support optional YAML frontmatter `description` and named `{{name}}` arguments (with per-arg description/required). (#484)
 
 ## 0.137.0
 

@@ -70,7 +70,15 @@
 
   (testing "replaces both $ARGn and $n placeholders"
     (is (= "A:x B:x"
-           (#'f.commands/substitute-args "A:$ARG1 B:$1" ["x"])))))
+           (#'f.commands/substitute-args "A:$ARG1 B:$1" ["x"]))))
+
+  (testing "renders named {{placeholders}} via selmer mapping args by order"
+    (is (= "Weather for Paris in metric"
+           (#'f.commands/substitute-args "Weather for {{city}} in {{units}}" ["Paris" "metric"]))))
+
+  (testing "named placeholders without a provided arg render empty"
+    (is (= "Weather for Paris in "
+           (#'f.commands/substitute-args "Weather for {{city}} in {{units}}" ["Paris"])))))
 
 (deftest config-commands-plugin-prefix-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -136,6 +144,89 @@
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
                 result (vec (#'f.commands/custom-commands config []))]
             (is (= [] (:arguments (first result)))))))
+
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest command-frontmatter-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (testing "frontmatter description and named arguments are parsed"
+        (let [cmd-file (fs/file tmp-dir "weather.md")]
+          (spit cmd-file (string/join "\n"
+                                      ["---"
+                                       "description: Generate a weather report"
+                                       "arguments:"
+                                       "  - name: city"
+                                       "    description: City to report on"
+                                       "    required: true"
+                                       "  - name: units"
+                                       "    description: metric or imperial"
+                                       "    required: false"
+                                       "---"
+                                       "Weather for {{city}} using {{units}} units."]))
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                result (first (#'f.commands/custom-commands config []))]
+            (is (= "weather" (:name result)))
+            (is (= "Generate a weather report" (:description result)))
+            (is (= "Weather for {{city}} using {{units}} units." (:content result)))
+            (is (= [{:name "city" :description "City to report on" :required true}
+                    {:name "units" :description "metric or imperial" :required false}]
+                   (:arguments result))))))
+
+      (testing "frontmatter arguments enrich positional args by index"
+        (let [cmd-file (fs/file tmp-dir "pos.md")]
+          (spit cmd-file (string/join "\n"
+                                      ["---"
+                                       "arguments:"
+                                       "  - name: city"
+                                       "    description: City name"
+                                       "---"
+                                       "Weather for $1"]))
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                result (first (#'f.commands/custom-commands config []))]
+            (is (= [{:name "city" :description "City name" :required true}]
+                   (:arguments result))))))
+
+      (testing "command without frontmatter still loads with positional args"
+        (let [cmd-file (fs/file tmp-dir "plain.md")]
+          (spit cmd-file "Hello $ARG1")
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                result (first (#'f.commands/custom-commands config []))]
+            (is (nil? (:description result)))
+            (is (= "Hello $ARG1" (:content result)))
+            (is (= [{:name "arg1" :required true}] (:arguments result))))))
+
+      (testing "command mixing positional and named placeholders is skipped"
+        (let [cmd-file (fs/file tmp-dir "bad.md")]
+          (spit cmd-file "Use $1 and {{city}}")
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}]
+            (is (empty? (#'f.commands/custom-commands config []))))))
+
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest custom-command-description-fallback-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (testing "falls back to the file path when no frontmatter description"
+        (let [cmd-file (fs/file tmp-dir "nodesc.md")]
+          (spit cmd-file "Body $ARG1")
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                cmd (->> (f.commands/all-commands {:workspace-folders []} config)
+                         (filter #(= "nodesc" (:name %)))
+                         first)]
+            (is (= :custom-prompt (:type cmd)))
+            (is (= (str (fs/canonicalize cmd-file)) (:description cmd))))))
+
+      (testing "uses the frontmatter description when present"
+        (let [cmd-file (fs/file tmp-dir "withdesc.md")]
+          (spit cmd-file (string/join "\n" ["---" "description: My desc" "---" "Body"]))
+          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
+                cmd (->> (f.commands/all-commands {:workspace-folders []} config)
+                         (filter #(= "withdesc" (:name %)))
+                         first)]
+            (is (= "My desc" (:description cmd))))))
 
       (finally
         (fs/delete-tree tmp-dir)))))
