@@ -13,7 +13,7 @@ Provide a concise `summary` (2-3 words) of what is being done.
 git commit -m "$(cat <<'EOF'
 Commit message here.
 
-🤖 Generated with [eca](https://eca.dev)
+🤖 Generated with [ECA](https://eca.dev){% if fullModel %} ({{fullModel}}{% if variant %} - {{variant}}{% endif %}){% endif %}
 
 Co-Authored-By: eca-agent <git@eca.dev>
 EOF
@@ -33,7 +33,7 @@ gh pr create --title "the pr title" --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points>
 
-🤖 Generated with [eca](https://eca.dev)
+🤖 Generated with [ECA](https://eca.dev){% if fullModel %} ({{fullModel}}{% if variant %} - {{variant}}{% endif %}){% endif %}
 EOF
 )"
 </example>

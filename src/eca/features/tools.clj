@@ -139,7 +139,9 @@
                     (assoc :name name)
                     (replace-string-values-with-vars
                      {:workspaceRoots   (tools.util/workspace-roots-strs db)
-                      :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])}))]))
+                      :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])
+                      :fullModel        (get-in db [:chats chat-id :model])
+                      :variant          (get-in db [:chats chat-id :variant])}))]))
    (merge {}
           f.tools.filesystem/definitions
           f.tools.shell/definitions

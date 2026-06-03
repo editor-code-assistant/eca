@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Git tool: commit/PR attribution now includes the active model (and variant when set), e.g. `Generated with ECA (anthropic/opus-4.8 - high)`.
+
 ## 0.137.0
 
 - Remote REST API: `GET /api/v1/chats/:id` now exposes the chat's effective `model`, `variant` and `agent` (per-chat override, falling back to the resolved session default).
