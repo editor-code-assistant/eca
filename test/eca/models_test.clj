@@ -405,3 +405,52 @@
       (is (match?
            ["anthropic/claude-sonnet-4-6" {:image-generation? false}]
            (#'models/build-model-capabilities all-models "anthropic" "claude-sonnet-4-6" {}))))))
+
+(deftest config-overrides->capabilities-test
+  (testing "Translates limit and per-1M cost into internal capability keys"
+    (let [caps (#'models/config-overrides->capabilities
+                {:limit {:context 131072 :output 8192}
+                 :cost {:input 1.5 :output 6.0 :cacheRead 0.15 :cacheWrite 3.0}})]
+      (is (= {:context 131072 :output 8192} (:limit caps)))
+      (is (= 8192 (:max-output-tokens caps)))
+      (is (< 1.49e-6 (:input-token-cost caps) 1.51e-6))
+      (is (< 5.99e-6 (:output-token-cost caps) 6.01e-6))
+      (is (< 1.49e-7 (:input-cache-read-token-cost caps) 1.51e-7))
+      (is (< 2.99e-6 (:input-cache-creation-token-cost caps) 3.01e-6))))
+
+  (testing "Keeps zero cost for free local models"
+    (let [caps (#'models/config-overrides->capabilities {:cost {:input 0 :output 0}})]
+      (is (zero? (:input-token-cost caps)))
+      (is (zero? (:output-token-cost caps)))))
+
+  (testing "Partial limit override only sets provided sub-keys"
+    (is (= {:limit {:context 200000}}
+           (#'models/config-overrides->capabilities {:limit {:context 200000}}))))
+
+  (testing "Drops non-positive limits"
+    (is (= {} (#'models/config-overrides->capabilities {:limit {:context 0 :output -1}}))))
+
+  (testing "Returns empty map for nil/empty config"
+    (is (= {} (#'models/config-overrides->capabilities nil)))
+    (is (= {} (#'models/config-overrides->capabilities {})))))
+
+(deftest build-model-capabilities-overrides-test
+  (testing "Config overrides win over and deep-merge with known models.dev limits"
+    (let [all-models {"provider/m" {:tools true :reason? true :limit {:context 1000 :output 100}}}
+          [full caps] (#'models/build-model-capabilities
+                       all-models "provider" "m"
+                       {:limit {:context 2000} :cost {:input 0 :output 0}})]
+      (is (= "provider/m" full))
+      ;; context overridden, output preserved from models.dev
+      (is (= {:context 2000 :output 100} (:limit caps)))
+      (is (zero? (:input-token-cost caps)))
+      (is (true? (:tools caps)))))
+
+  (testing "Unknown model gains a context limit and max-output from config override"
+    (let [[full caps] (#'models/build-model-capabilities
+                       {} "local" "qwen"
+                       {:limit {:context 131072 :output 8192}})]
+      (is (= "local/qwen" full))
+      (is (= {:context 131072 :output 8192} (:limit caps)))
+      (is (= 8192 (:max-output-tokens caps)))
+      (is (= "qwen" (:model-name caps))))))

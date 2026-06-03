@@ -373,6 +373,8 @@ Schema:
 | `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
 | `models <model> modelName`        | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
 | `models <model> reasoningHistory` | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
+| `models <model> limit`            | map     | Override token limits `{ context, output }` (overrides models.dev); useful for local models or to cap a known model's context window | No       |
+| `models <model> cost`             | map     | Override pricing `{ input, output, cacheRead, cacheWrite }`, per 1M tokens (overrides models.dev)            | No       |
 | `cacheRetention`                  | string  | Prompt cache retention for Anthropic: `"short"` (5-min, default) or `"long"` (1-hour, higher write cost). Only applies to direct Anthropic API. | No       |
 | `fetchModels`                     | boolean | Enable/disable automatic model loading from `models.dev` (enabled by default when `api` is set)              | No       |
 
@@ -421,6 +423,29 @@ Examples:
     ```
 
     This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
+
+=== "Override limits & pricing (local models)"
+
+    Models that models.dev doesn't know about (e.g. a local model served via an OpenAI-compatible endpoint) have no context window or pricing, so the usage display shows no upper limit and auto-compaction never triggers. Set `limit` and/or `cost` to fix this. These values override models.dev, so you can also cap a known model's context window. Costs are per 1M tokens.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "my-local": {
+          "api": "openai-chat",
+          "url": "http://localhost:8000/v1",
+          "models": {
+            "qwen3-coder-30b": {
+              "limit": { "context": 131072, "output": 8192 },
+              "cost": { "input": 0, "output": 0 } // free local model
+            }
+          }
+        }
+      }
+    }
+    ```
+
+    The same `limit`/`cost` config works for Ollama models (under the `ollama` provider, keyed by the model name without the `ollama/` prefix).
 
 === "Reasoning in conversation history"
 	`reasoningHistory` - Controls whether and how the model's reasoning (thinking blocks, reasoning_content) is included in conversation history sent to the model.

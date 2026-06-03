@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow overriding a model's context/output token limits and pricing per model in config (`limit`/`cost`), enabling the usage display and auto-compaction for local/custom models. (#46)
+
 ## 0.138.0
 
 - Git tool: commit/PR attribution now includes the active model (and variant when set), e.g. `Generated with ECA (anthropic/opus-4.8 - high)`.

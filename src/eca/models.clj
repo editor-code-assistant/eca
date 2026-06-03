@@ -354,35 +354,72 @@
                              provider (count provider-models))))
       provider-models)))
 
+(defn ^:private cost-per-1m->per-token
+  "models.dev and user config express token costs per 1M tokens; internally we
+   store cost per single token."
+  [n]
+  (some-> n float (/ one-million)))
+
+(defn ^:private config-overrides->capabilities
+  "Translate a user's per-model `:limit`/`:cost` config into internal capability
+   keys, letting users override context/output limits and pricing for models
+   models.dev doesn't know (e.g. local models) or cap a known one. Costs are
+   given per 1M tokens, like models.dev."
+  [model-config]
+  (let [limit (:limit model-config)
+        cost (:cost model-config)
+        limit-overrides (assoc-some {}
+                                    :context (pos-num (:context limit))
+                                    :output (pos-num (:output limit)))]
+    (assoc-some {}
+                :limit (not-empty limit-overrides)
+                :max-output-tokens (pos-num (:output limit))
+                :input-token-cost (cost-per-1m->per-token (:input cost))
+                :output-token-cost (cost-per-1m->per-token (:output cost))
+                :input-cache-creation-token-cost (cost-per-1m->per-token (:cacheWrite cost))
+                :input-cache-read-token-cost (cost-per-1m->per-token (:cacheRead cost)))))
+
+(defn ^:private merge-capabilities
+  "Deep-merges capability maps so overriding only part of `:limit` (e.g. just
+   `:context`) keeps the other sub-keys; scalars are overwritten."
+  [base overrides]
+  (merge-with (fn [a b]
+                (if (and (map? a) (map? b))
+                  (merge a b)
+                  b))
+              base
+              overrides))
+
 (defn ^:private build-model-capabilities
   "Build capabilities for a single model, looking up from known models database."
   [all-models provider model model-config]
   (let [real-model-name (or (:modelName model-config) model)
         full-real-model (str provider "/" real-model-name)
         full-model (str provider "/" model)
-        model-capabilities (merge
-                            (or (get all-models full-real-model)
-                                ;; when real-model-name already includes a provider prefix
-                                ;; (e.g. "anthropic/claude-opus-4-6"), try direct lookup
-                                (get all-models real-model-name)
-                                ;; we guess the capabilities from
-                                ;; the first model with same name
-                                (when-let [found-full-model
-                                           (->> (keys all-models)
-                                                (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
-                                                                                                                   #"(.+/)"
-                                                                                                                   ""))
-                                                                (shared/normalize-model-name (second (shared/full-model->provider+model %))))
-                                                             (= (shared/normalize-model-name real-model-name)
-                                                                (shared/normalize-model-name (second (shared/full-model->provider+model %))))))
-                                                first)]
-                                  (get all-models found-full-model))
-                                {:tools true
-                                 :reason? true
-                                 :web-search false
-                                 :mid-conversation-system? false
-                                 :image-generation? false})
-                            {:model-name real-model-name})]
+        base-capabilities (or (get all-models full-real-model)
+                              ;; when real-model-name already includes a provider prefix
+                              ;; (e.g. "anthropic/claude-opus-4-6"), try direct lookup
+                              (get all-models real-model-name)
+                              ;; we guess the capabilities from
+                              ;; the first model with same name
+                              (when-let [found-full-model
+                                         (->> (keys all-models)
+                                              (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
+                                                                                                                 #"(.+/)"
+                                                                                                                 ""))
+                                                              (shared/normalize-model-name (second (shared/full-model->provider+model %))))
+                                                           (= (shared/normalize-model-name real-model-name)
+                                                              (shared/normalize-model-name (second (shared/full-model->provider+model %))))))
+                                              first)]
+                                (get all-models found-full-model))
+                              {:tools true
+                               :reason? true
+                               :web-search false
+                               :mid-conversation-system? false
+                               :image-generation? false})
+        model-capabilities (-> (merge-capabilities base-capabilities
+                                                   (config-overrides->capabilities model-config))
+                               (assoc :model-name real-model-name))]
     [full-model model-capabilities]))
 
 (defn ^:private merge-provider-models
@@ -464,11 +501,14 @@
                                   :tools (boolean (some #(= % "tools") capabilities))
                                   :reason? (boolean (some #(= % "thinking") capabilities)))))
                        (llm-providers.ollama/list-models {:api-url ollama-api-url}))
+        ollama-models-config (get-in config [:providers "ollama" :models])
         local-models (reduce
                       (fn [models {:keys [model] :as ollama-model}]
                         (assoc models
                                (str config/ollama-model-prefix model)
-                               (select-keys ollama-model [:tools :reason?])))
+                               (merge-capabilities
+                                (select-keys ollama-model [:tools :reason?])
+                                (config-overrides->capabilities (get ollama-models-config model)))))
                       {}
                       ollama-models)
         authenticated-models (into {}
