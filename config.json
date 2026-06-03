@@ -543,8 +543,8 @@
             "string",
             "null"
           ],
-          "description": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}, ${netrc:host} or ${cmd:pass show eca/api-key}.",
-          "markdownDescription": "API key for authentication. Supports dynamic strings like `${env:MY_API_KEY}`, `${netrc:host}` or `${cmd:pass show eca/api-key}`."
+          "description": "API key for authentication. Supports dynamic strings like ${env:MY_API_KEY}, ${netrc:host} or ${cmd:pass show eca/api-key}. Takes precedence over login/OAuth auth (including when resolved from a <PROVIDER>_API_KEY env var), so it can incur paid API usage even when logged in.",
+          "markdownDescription": "API key for authentication. Supports dynamic strings like `${env:MY_API_KEY}`, `${netrc:host}` or `${cmd:pass show eca/api-key}`. Takes precedence over login/OAuth auth (including when resolved from a `<PROVIDER>_API_KEY` env var), so it can incur paid API usage even when logged in."
         },
         "keyRc": {
           "type": "string",

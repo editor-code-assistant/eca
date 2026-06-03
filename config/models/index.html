@@ -1762,6 +1762,10 @@ Copilot Pro and Pro+: <code>api.individual.githubcopilot.com</code></p>
 <li><code>OPENAI_API_KEY</code> for OpenAI</li>
 <li><code>ANTHROPIC_API_KEY</code> for Anthropic</li>
 </ul>
+<div class="admonition warning">
+<p class="admonition-title">API keys take precedence over login/subscription auth</p>
+<p>A configured API key — including one provided via <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GOOGLE_API_KEY</code>, etc. — <strong>takes precedence over <code>/login</code> (OAuth/subscription) auth</strong>. If such a key is set, ECA uses it and may incur <strong>paid API usage</strong>, even when you are logged in with a subscription. Unset the env var (or remove the provider <code>key</code>) to use your login instead. ECA also warns about this during <code>/login</code> when a key is already configured.</p>
+</div>
 <div class="admonition info">
 <p class="admonition-title">Variants</p>
 <p>ECA supports the variants concept, allowing to customize the payload of models and quickly changing via UI, <strong>useful for swaping different reasoning efforts</strong>, for more information check <a href="../variants/">variants section</a></p>
@@ -1992,7 +1996,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
 - <a href="https://everything.curl.dev/usingcurl/netrc">Curl Netrc documentation</a>
 - <a href="https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html">GNU Inetutils .netrc documentation</a></p>
 <p>Notes:
-- Authentication priority (short): <code>key</code> (with dynamic string pase support) &gt; OAuth.
+- Authentication priority: a configured <code>key</code> (with dynamic string parse support, including <code>${env:OPENAI_API_KEY}</code>-style defaults that resolve from environment variables) takes precedence over <code>/login</code> (OAuth/subscription) auth, which in turn takes precedence over a bare <code>&lt;PROVIDER&gt;_API_KEY</code> env var. A configured/env key can therefore incur paid API usage even when you are logged in.
 - All providers with API key auth can use credential files.</p>
 <h3 id="retry-rules">Retry Rules<a class="headerlink" href="#retry-rules" title="Permanent link">#</a></h3>
 <p>ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using <code>retryRules</code> to handle additional status codes or error patterns.</p>
@@ -2046,7 +2050,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 3, 2026 14:07:35 UTC">June 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 3, 2026 14:30:15 UTC">June 3, 2026</span>
   </span>
 
     
