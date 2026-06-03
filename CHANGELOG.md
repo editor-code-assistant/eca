@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix resumed chats being permanently missing from the remote `GET /session` and `GET /chats` endpoints.
+
 ## 0.138.1
 
 - Allow overriding a model's context/output token limits and pricing per model in config (`limit`/`cost`), enabling the usage display and auto-compaction for local/custom models. (#46)
