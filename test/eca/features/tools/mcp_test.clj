@@ -7,8 +7,10 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.tools.mcp :as mcp]
    [eca.network :as network]
+   [eca.oauth :as oauth]
    [plumcp.core.api.mcp-client :as pmc]
    [plumcp.core.client.http-client-transport :as phct]
    [plumcp.core.protocol :as pp]
@@ -489,3 +491,129 @@
                            :description ""
                            :title ""
                            :inputSchema {}}))))))
+
+(def ^:private auth-error-message? #'mcp/auth-error-message?)
+
+(deftest auth-error-message?-test
+  (testing "auth/session failures are flagged (servers that omit an HTTP status)"
+    (doseq [m ["Unauthorized"
+               "Authentication required"
+               "Invalid authorization header"
+               "invalid token"
+               "access token is no longer valid"
+               "token expired"
+               "Session expired, please re-authenticate"
+               "Upstream returned HTTP 401"
+               "got 403 forbidden"]]
+      (is (true? (auth-error-message? m)) (str "should flag: " m))))
+  (testing "ordinary tool errors are not flagged"
+    (doseq [m ["spreadsheet not found"
+               "invalid range A1:Z9"
+               "rate limit exceeded"
+               "internal server hiccup"
+               ""
+               nil]]
+      (is (not (auth-error-message? m)) (str "should not flag: " m)))))
+
+(deftest try-refresh-token!-reuses-persisted-client-test
+  (testing "refresh reuses persisted client-id/secret (skips DCR) and preserves them"
+    (let [db* (atom {:mcp-auth {"s" {:type :auth/oauth
+                                     :url "https://example.com/mcp"
+                                     :access-token "old-access"
+                                     :refresh-token "refresh-1"
+                                     :expires-at 1
+                                     :client-id "client-abc"
+                                     :client-secret "secret-xyz"}}})
+          oauth-info-args* (atom nil)]
+      (with-redefs [oauth/oauth-info (fn [url cid csecret _port _cname]
+                                       (reset! oauth-info-args* {:url url :client-id cid :client-secret csecret})
+                                       {:token-endpoint "https://example.com/token"
+                                        :client-id cid
+                                        :client-secret csecret
+                                        :resource url})
+                    oauth/refresh-token! (fn [_te _cid _rt & _opts]
+                                           {:access-token "new-access"
+                                            :refresh-token "refresh-2"
+                                            :expires-at 9999})
+                    db/update-global-cache! (fn [_db _metrics] nil)]
+        (is (true? (#'mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
+        (is (= {:url "https://example.com/mcp"
+                :client-id "client-abc"
+                :client-secret "secret-xyz"}
+               @oauth-info-args*)
+            "oauth-info called with the persisted client identity, not a fresh DCR")
+        (is (= {:type :auth/oauth
+                :url "https://example.com/mcp"
+                :access-token "new-access"
+                :refresh-token "refresh-2"
+                :expires-at 9999
+                :client-id "client-abc"
+                :client-secret "secret-xyz"}
+               (get-in @db* [:mcp-auth "s"]))
+            "new tokens merged in, client identity preserved"))))
+
+  (testing "configured clientId/clientSecret take precedence over persisted"
+    (let [db* (atom {:mcp-auth {"s" {:type :auth/oauth
+                                     :url "https://example.com/mcp"
+                                     :refresh-token "refresh-1"
+                                     :client-id "persisted-id"
+                                     :client-secret "persisted-secret"}}})
+          oauth-info-args* (atom nil)]
+      (with-redefs [oauth/oauth-info (fn [url cid csecret _port _cname]
+                                       (reset! oauth-info-args* {:client-id cid :client-secret csecret})
+                                       {:token-endpoint "https://example.com/token"
+                                        :client-id cid :client-secret csecret :resource url})
+                    oauth/refresh-token! (fn [_te _cid _rt & _opts]
+                                           {:access-token "a" :refresh-token "r" :expires-at 2})
+                    db/update-global-cache! (fn [_db _metrics] nil)]
+        (#'mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil
+                                  {:clientId "cfg-id" :clientSecret "cfg-secret"})
+        (is (= {:client-id "cfg-id" :client-secret "cfg-secret"} @oauth-info-args*)))))
+
+  (testing "no-op (no DCR) when there is no stored refresh token"
+    (let [db* (atom {:mcp-auth {"s" {:type :auth/oauth :access-token "a"}}})
+          oauth-called?* (atom false)]
+      (with-redefs [oauth/oauth-info (fn [& _] (reset! oauth-called?* true) nil)]
+        (is (nil? (#'mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
+        (is (false? @oauth-called?*) "oauth-info must not run without a refresh token")))))
+
+(deftest do-call-tool-flags-reinit-on-auth-error-test
+  (testing "JSON-RPC error without HTTP status but auth-like message flags reinit"
+    (let [needs-reinit?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    ((:on-error call-opts) "id-1" {:message "Unauthorized: token expired"})
+                                    nil)]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (is (true? @needs-reinit?*))))
+
+  (testing "ordinary JSON-RPC error without HTTP status does not flag reinit"
+    (let [needs-reinit?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    ((:on-error call-opts) "id-1" {:message "spreadsheet not found"})
+                                    nil)]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (is (false? @needs-reinit?*))))
+
+  (testing "HTTP 401 still flags reinit"
+    (let [needs-reinit?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    ((:on-error call-opts) "id-1" {:message "boom" :plumcp.core/http-status 401})
+                                    nil)]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (is (true? @needs-reinit?*)))))
+
+(deftest reinitialize-server!-refreshes-before-init-test
+  (testing "forces a token refresh before re-initializing (heals server-side expiry)"
+    (let [calls* (atom [])]
+      (with-redefs-fn {#'pp/stop-client-transport! (fn [_t _g] nil)
+                       #'mcp/try-refresh-token! (fn [name _db* url _metrics _config]
+                                                  (swap! calls* conj [:refresh name url])
+                                                  true)
+                       #'mcp/initialize-server! (fn [name _db* _config _metrics _cb]
+                                                  (swap! calls* conj [:init name]))}
+        (fn []
+          (#'mcp/reinitialize-server! "s" :old-client (atom {:mcp-clients {"s" {}}})
+           {:mcpServers {"s" {:url "https://example.com/mcp"}}}
+           nil)))
+      (is (= [[:refresh "s" "https://example.com/mcp"] [:init "s"]] @calls*)
+          "refresh runs before init, scoped to the server's url"))))

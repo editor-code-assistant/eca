@@ -335,12 +335,18 @@
    Returns true if refresh succeeded, false otherwise."
   [name db* url metrics {:keys [clientId clientSecret oauthPort clientName]}]
   (let [mcp-auth (get-in @db* [:mcp-auth name])
-        {:keys [refresh-token]} mcp-auth]
+        {:keys [refresh-token]} mcp-auth
+        ;; Reuse the client the refresh token was minted under instead of running
+        ;; Dynamic Client Registration again. Servers with non-idempotent DCR (e.g.
+        ;; RunLayer) issue a new client_id per registration, which would orphan the
+        ;; refresh token. Configured values still take precedence over persisted ones.
+        client-id (or (some-> clientId replace-env-vars) (:client-id mcp-auth))
+        client-secret (or (some-> clientSecret replace-env-vars) (:client-secret mcp-auth))]
     (when refresh-token
       (logger/info logger-tag (format "Attempting to refresh token for MCP server '%s'" name))
       (when-let [oauth-info (oauth/oauth-info (replace-env-vars url)
-                                              (some-> clientId replace-env-vars)
-                                              (some-> clientSecret replace-env-vars)
+                                              client-id
+                                              client-secret
                                               oauthPort
                                               (some-> clientName replace-env-vars))]
         (when-let [new-tokens (oauth/refresh-token!
@@ -571,11 +577,18 @@
           ;; flushed to the browser, so synchronous stop-oauth-server! is safe here.
           :on-success (fn [{:keys [code]}]
                         (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
-                          (swap! db* assoc-in [:mcp-auth name] {:type :auth/oauth
-                                                                :url (:url server-config)
-                                                                :refresh-token refresh-token
-                                                                :access-token access-token
-                                                                :expires-at expires-at}))
+                          ;; Persist the client identity the tokens were minted under so refreshes
+                          ;; reuse it. Servers with non-idempotent Dynamic Client Registration (e.g.
+                          ;; RunLayer) issue a new client_id per registration; without this, a later
+                          ;; refresh would re-register and orphan the refresh token.
+                          (swap! db* assoc-in [:mcp-auth name] (cond-> {:type :auth/oauth
+                                                                        :url (:url server-config)
+                                                                        :refresh-token refresh-token
+                                                                        :access-token access-token
+                                                                        :expires-at expires-at
+                                                                        :client-id (:client-id oauth-info)}
+                                                                 (:client-secret oauth-info)
+                                                                 (assoc :client-secret (:client-secret oauth-info)))))
                         (oauth/stop-oauth-server! callback-port)
                         (db/update-global-cache! @db* metrics)
                         (initialize-server! name db* config metrics on-server-updated))
@@ -890,11 +903,18 @@
 (defn ^:private reinitialize-server!
   "Re-initialize an MCP server after a transport error (HTTP 401/403/5xx).
    Stops the old transport without attempting disconnect (the session is already
-   gone server-side), then runs a fresh initialize-server! cycle."
+   gone server-side), then runs a fresh initialize-server! cycle.
+   Proactively attempts a token refresh first: a server-side token rejection can
+   arrive before our local expiry clock predicts it, so forcing a refresh here
+   heals the session without falling back to a full browser re-auth. No-op when
+   there is no stored refresh token (e.g. static-auth servers)."
   [server-name old-client db* config metrics]
   (logger/info logger-tag (format "Re-initializing MCP server '%s'" server-name))
   (try (pp/stop-client-transport! (pcs/?transport old-client) false) (catch Exception _))
   (swap! db* update :mcp-clients dissoc server-name)
+  (let [server-config (get-in config [:mcpServers server-name])]
+    (when-let [url (:url server-config)]
+      (try-refresh-token! server-name db* url metrics server-config)))
   (initialize-server! server-name db* config metrics (constantly nil)))
 
 (def ^:private tool-call-timeout-ms 120000)
@@ -911,6 +931,25 @@
       (= 403 (long status))
       (<= 500 (long status))))
 
+(defn ^:private auth-error-message?
+  "Heuristic for auth/session failures that some servers (e.g. RunLayer) surface
+   as a JSON-RPC error without an HTTP status. Kept narrow to avoid treating
+   ordinary tool errors as auth failures."
+  [msg]
+  (when (string? msg)
+    (let [m (string/lower-case msg)]
+      (boolean
+       (or (string/includes? m "unauthorized")
+           (string/includes? m "authentication")
+           (string/includes? m "authorization")
+           (string/includes? m "invalid token")
+           (string/includes? m "invalid_token")
+           (string/includes? m "access token")
+           (string/includes? m "token expired")
+           (string/includes? m "session expired")
+           (string/includes? m "401")
+           (string/includes? m "403"))))))
+
 (defn ^:private do-call-tool
   "Execute a tool call. Delegates timeout handling to plumcp via :timeout-millis.
    All non-200 HTTP errors are returned as JSON-RPC errors by plumcp with
@@ -920,13 +959,19 @@
     (let [error-msg* (atom nil)
           call-opts {:timeout-millis tool-call-timeout-ms
                      :on-error (fn [_id jsonrpc-error]
-                                 (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")]
+                                 (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")
+                                       http-status (:plumcp.core/http-status jsonrpc-error)]
                                    (logger/warn logger-tag "Error calling tool:" (format-jsonrpc-error jsonrpc-error))
                                    (reset! error-msg* msg)
-                                   (when-let [http-status (:plumcp.core/http-status jsonrpc-error)]
-                                     (when (and needs-reinit?* (reinit-worthy-http-status? http-status))
-                                       (logger/warn logger-tag (format "HTTP %d error, flagging for re-initialization" http-status))
-                                       (reset! needs-reinit?* true))))
+                                   (when (and needs-reinit?*
+                                              (or (and http-status (reinit-worthy-http-status? http-status))
+                                                  ;; Some servers (e.g. RunLayer) report an expired session
+                                                  ;; as a JSON-RPC error without an HTTP status.
+                                                  (and (nil? http-status) (auth-error-message? msg))))
+                                     (logger/warn logger-tag
+                                                  (format "Auth/transport error (%s), flagging for re-initialization"
+                                                          (if http-status (str "HTTP " http-status) "no HTTP status")))
+                                     (reset! needs-reinit?* true)))
                                  nil)}
           result (try
                    (pmc/call-tool mcp-client name arguments call-opts)

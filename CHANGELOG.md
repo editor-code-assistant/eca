@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP OAuth: persist and reuse the dynamically-registered client on token refresh, so servers with non-idempotent DCR (e.g. RunLayer) refresh instead of forcing a browser re-login, and recover from expired-token tool errors automatically.
+
 ## 0.138.1
 
 - Allow overriding a model's context/output token limits and pricing per model in config (`limit`/`cost`), enabling the usage display and auto-compaction for local/custom models. (#46)
