@@ -13,6 +13,22 @@
       "description": "JSON Schema reference for editor validation support.",
       "markdownDescription": "JSON Schema reference for editor validation support."
     },
+    "extraConfigs": {
+      "type": "array",
+      "description": "Additional config file paths (relative to workspace root or absolute, ~ supported) deep merged last, overriding all other config sources. Missing paths are logged and skipped.",
+      "markdownDescription": "Additional config file paths (relative to workspace root or absolute, `~` supported) deep merged last, overriding all other config sources. Missing paths are logged and skipped.\n\nUseful for machine-specific or uncommitted overrides, e.g. `~/.config/eca/config.local.json` or `.eca/config.local.json`.",
+      "items": {
+        "type": "string"
+      },
+      "examples": [
+        [
+          "~/.config/eca/config.local.json"
+        ],
+        [
+          ".eca/config.local.json"
+        ]
+      ]
+    },
     "providers": {
       "type": "object",
       "description": "LLM provider configurations. Each key is the provider name.",

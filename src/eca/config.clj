@@ -6,6 +6,8 @@
   3. local config-file: searching from a local `.eca/config.json` file.
   4. `initializatonOptions` sent in `initialize` request.
 
+  Finally, any files listed in `:extraConfigs` are deep merged last, overriding all of the above.
+
   When `:config-file` from cli option is passed, it uses that instead of searching default locations."
   (:require
    [babashka.fs :as fs]
@@ -33,6 +35,7 @@
 (def ^:dynamic *custom-config-error* false)
 (def ^:dynamic *global-config-error* false)
 (def ^:dynamic *local-config-error* false)
+(def ^:dynamic *extra-config-error* false)
 
 (def ^:private listen-idle-ms 3000)
 
@@ -174,6 +177,7 @@
    :rules []
    :commands []
    :skills []
+   :extraConfigs []
    :disabledTools []
    :toolCall {:approval {:byDefault "ask"
                          :allow {"eca__compact_chat" {}
@@ -396,6 +400,42 @@
                         (last args)))
          maps))
 
+(defn ^:private resolve-extra-config-file
+  "Resolves an `:extraConfigs` path entry to a `File`. Absolute paths (and `~`)
+   are used as-is; relative paths resolve against the first workspace root, or
+   the process cwd when there are no workspace roots."
+  ^File [path roots]
+  (let [expanded (fs/expand-home (str path))]
+    (if (fs/absolute? expanded)
+      (fs/file expanded)
+      (if-let [root (some-> (first roots) :uri shared/uri->filename)]
+        (fs/file (fs/path root (str expanded)))
+        (fs/file expanded)))))
+
+(defn ^:private config-from-extra-configs
+  "Reads and deep-merges every existing file listed in `:extraConfigs`, in
+   listed order (later entries win). Missing paths are logged and skipped;
+   parse errors are logged, surfaced via `*extra-config-error*` and skipped.
+   Non-recursive: an `:extraConfigs` declared inside an extra file is ignored."
+  [paths roots]
+  (let [paths (cond
+                (string? paths) [paths]
+                (sequential? paths) paths
+                :else [])]
+    (reduce
+     (fn [final-config path]
+       (let [^File config-file (resolve-extra-config-file path roots)]
+         (if (.exists config-file)
+           (deep-merge final-config
+                       (or (some-> (safe-read-json-string (slurp config-file) (var *extra-config-error*))
+                                   (parse-dynamic-string-values (fs/file (fs/parent config-file))))
+                           {}))
+           (do
+             (logger/warn logger-tag (format "extraConfigs path not found, skipping: %s" (.getPath config-file)))
+             final-config))))
+     {}
+     paths)))
+
 (defn ^:private resolve-agent-inheritance
   "Resolves :inherit keys in agent configs. When an agent has :inherit \"other\",
    its config is deep-merged on top of the parent agent's config (child wins).
@@ -586,7 +626,9 @@
                 (merge-config (when-not pure-config? (config-from-global-file)))
                 (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db))))))
           ;; Plugin config merges after all file configs (user local config wins via later merge)
-          (merge-config $ plugin-config))
+          (merge-config $ plugin-config)
+          ;; extraConfigs merge last, overriding all previous sources
+          (merge-config $ (config-from-extra-configs (:extraConfigs $) (:workspace-folders db))))
         ;; Append plugin commands/rules (vector concat, not deep-merge replace)
         (cond->
          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
@@ -626,6 +668,7 @@
     *env-var-config-error* "ENV"
     *global-config-error* "global"
     *local-config-error* "local"
+    *extra-config-error* "extraConfigs"
 
     ;; all good
     :else nil))

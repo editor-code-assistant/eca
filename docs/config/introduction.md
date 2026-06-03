@@ -52,6 +52,31 @@ There are multiples ways to configure ECA:
     ECA_CONFIG='{"myConfig": "my_value"}' eca server
     ```
 
+=== "Extra config files"
+
+    Merge extra files last, useful for machine-specific or uncommitted overrides (e.g. gitignored `*.local.json` files):
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "extraConfigs": ["~/.config/eca/config.local.json", ".eca/config.local.json"]
+    }
+    ```
+
+    Relative paths resolve against the workspace root; `~` and absolute paths are supported. Missing files are logged and skipped.
+
+### Merge order
+
+Config sources are deep merged from lowest to highest priority (later sources win on conflicts):
+
+1. Built-in defaults
+2. `initializationOptions` (from the editor's `initialize` request)
+3. `ECA_CONFIG` env var
+4. Global config file `~/.config/eca/config.json` (or the `--config-file` path, which replaces the global/local lookup)
+5. Local project config `.eca/config.json` (per workspace root)
+6. Files listed in `extraConfigs`, in their listed order
+
+Deep merge means nested maps are merged recursively, while scalars and arrays from a higher-priority source replace (not concatenate) the lower-priority value.
+
 ### Dynamic string contents
 
 It's possible to retrieve content of any configs with a string value using the `${key:value}` approach, being `key`:

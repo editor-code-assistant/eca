@@ -9,6 +9,7 @@
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.secrets :as secrets]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -52,6 +53,44 @@
                                            :chat {:defaultTrust true}})
     (is (match? {:chat {:defaultTrust true}}
                 (#'config/all* {})))))
+
+(deftest extra-configs-test
+  (testing "extraConfigs is deep merged last, overriding earlier sources"
+    (let [extra (fs/file (fs/create-temp-dir) "extra.json")]
+      (spit extra (json/generate-string {:defaultAgent "from-extra"
+                                         :chat {:defaultTrust true}}))
+      (reset! config/initialization-config* {:pureConfig true
+                                             :defaultAgent "plan"
+                                             :chat {:defaultTrust false}
+                                             :extraConfigs [(str extra)]})
+      (let [result (#'config/all* {})]
+        (is (= "from-extra" (:defaultAgent result)))
+        (is (true? (get-in result [:chat :defaultTrust]))))))
+
+  (testing "later extraConfigs entries win over earlier ones"
+    (let [dir (fs/create-temp-dir)
+          first-file (fs/file dir "first.json")
+          second-file (fs/file dir "second.json")]
+      (spit first-file (json/generate-string {:defaultAgent "first"}))
+      (spit second-file (json/generate-string {:defaultAgent "second"}))
+      (reset! config/initialization-config* {:pureConfig true
+                                             :extraConfigs [(str first-file) (str second-file)]})
+      (is (= "second" (:defaultAgent (#'config/all* {}))))))
+
+  (testing "missing extraConfigs paths are skipped without throwing"
+    (reset! config/initialization-config* {:pureConfig true
+                                           :defaultAgent "plan"
+                                           :extraConfigs ["/this/path/does/not/exist.json"]})
+    (is (= "plan" (:defaultAgent (#'config/all* {})))))
+
+  (testing "relative extraConfigs paths resolve against the workspace root"
+    (let [dir (fs/create-temp-dir)]
+      (spit (fs/file dir "rel.json") (json/generate-string {:defaultAgent "from-rel"}))
+      (reset! config/initialization-config* {:pureConfig true
+                                             :defaultAgent "plan"
+                                             :extraConfigs ["rel.json"]})
+      (is (= "from-rel"
+             (:defaultAgent (#'config/all* {:workspace-folders [{:uri (shared/filename->uri (str dir))}]})))))))
 
 (deftest deep-merge-test
   (testing "basic merge"
