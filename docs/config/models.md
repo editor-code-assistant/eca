@@ -338,6 +338,10 @@ Example:
 - `OPENAI_API_KEY` for OpenAI
 - `ANTHROPIC_API_KEY` for Anthropic
 
+!!! warning "API keys take precedence over login/subscription auth"
+
+    A configured API key — including one provided via `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, etc. — **takes precedence over `/login` (OAuth/subscription) auth**. If such a key is set, ECA uses it and may incur **paid API usage**, even when you are logged in with a subscription. Unset the env var (or remove the provider `key`) to use your login instead. ECA also warns about this during `/login` when a key is already configured.
+
 !!! info "Variants"
 
     ECA supports the variants concept, allowing to customize the payload of models and quickly changing via UI, __useful for swaping different reasoning efforts__, for more information check [variants section](./variants.md)
@@ -514,7 +518,7 @@ Further reading on credential file formats:
 - [GNU Inetutils .netrc documentation](https://www.gnu.org/software/inetutils/manual/html_node/The-_002enetrc-file.html)
 
 Notes:
-- Authentication priority (short): `key` (with dynamic string pase support) > OAuth.
+- Authentication priority: a configured `key` (with dynamic string parse support, including `${env:OPENAI_API_KEY}`-style defaults that resolve from environment variables) takes precedence over `/login` (OAuth/subscription) auth, which in turn takes precedence over a bare `<PROVIDER>_API_KEY` env var. A configured/env key can therefore incur paid API usage even when you are logged in.
 - All providers with API key auth can use credential files.
 
 ### Retry Rules

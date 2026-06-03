@@ -118,6 +118,23 @@
          :env-var (when (= source "env") env-var-name)))
       {:status "unauthenticated"})))
 
+(defn key-auth-override-warning
+  "When a configured/env API key would take precedence over login auth for
+   `provider-name`, returns a warning string to show the user during `/login`,
+   else nil. Mirrors the precedence in `llm-util/provider-api-key`, where a
+   configured `:key` (including the `${env:..._API_KEY}` defaults) and a bare
+   `<PROVIDER>_API_KEY` env var both win over OAuth/login auth."
+  [provider-name config]
+  (let [config-key (not-empty (get-in config [:providers provider-name :key]))
+        env-var-name (->env-var-name provider-name)
+        env-key (config/get-env env-var-name)]
+    (when (or config-key env-key)
+      (format (str "⚠️ An API key is already configured for `%s` (e.g. the `%s` environment variable "
+                   "or a `key` in your ECA config). Configured API keys take precedence over login auth, "
+                   "so ECA may keep using the API key — which can incur paid API usage — even after you log in. "
+                   "Unset `%s` (or remove the provider `key`) to use your login instead.")
+              provider-name env-var-name env-var-name))))
+
 (def ^:private provider-settings-exclude-keys
   #{:key :keyRc :requiresAuth? :requiresAuth :models})
 

@@ -72,6 +72,25 @@
 
                       @db*)))))))
 
+(deftest login-step-warns-about-configured-key-test
+  (testing "selecting a provider during /login warns when a configured key overrides login auth"
+    (let [msg-log (atom [])
+          send-msg! (fn [msg] (swap! msg-log conj msg))
+          db* (atom {:auth {"github-copilot" {}}
+                     :chats {0 {}}})]
+      (with-redefs [http/post (constantly {:body {:user_code "1234"
+                                                  :decide_code "5678"
+                                                  :verification_uri "https://mock.github.com/login/device"}})]
+        (login/login-step {:provider nil
+                           :step :login/start
+                           :chat-id 0
+                           :input "github-copilot"
+                           :config {:providers {"github-copilot" {:key "ghp_test"}}}
+                           :db* db*
+                           :send-msg! send-msg!}))
+      (is (some #(re-find #"take precedence over login auth" %) @msg-log)
+          "a precedence warning should be among the sent messages"))))
+
 (def ^:private renew-auth!* @#'login/renew-auth!)
 
 (deftest renew-auth!-skips-refresh-when-peer-already-refreshed-test

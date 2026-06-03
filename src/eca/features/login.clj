@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.providers :as f.providers]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
@@ -16,12 +17,14 @@
   (send-msg! "Error: Unknown login step"))
 
 ;; No provider selected
-(defmethod login-step [nil :login/start] [{:keys [db* chat-id input send-msg!] :as ctx}]
+(defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg!] :as ctx}]
   (let [provider (string/trim input)
         providers (->> @db* :auth keys sort)]
     (if (get-in @db* [:auth provider])
       (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
           (swap! db* assoc-in [:auth provider] {:step :login/start})
+          (when-let [warning (f.providers/key-auth-override-warning provider config)]
+            (send-msg! warning))
           (login-step (assoc ctx :provider provider)))
       (send-msg! (multi-str
                    (reduce
