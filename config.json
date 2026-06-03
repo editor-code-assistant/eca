@@ -699,6 +699,52 @@
           ],
           "default": "all"
         },
+        "limit": {
+          "type": "object",
+          "description": "Override the model's token limits (overrides models.dev). Useful for local models or to cap a known model's context window.",
+          "markdownDescription": "Override the model's token limits (overrides models.dev). Useful for local models or to cap a known model's context window.",
+          "properties": {
+            "context": {
+              "type": "integer",
+              "description": "Context window size in tokens (drives the usage display and auto-compaction).",
+              "markdownDescription": "Context window size in tokens (drives the usage display and auto-compaction)."
+            },
+            "output": {
+              "type": "integer",
+              "description": "Maximum output tokens.",
+              "markdownDescription": "Maximum output tokens."
+            }
+          },
+          "additionalProperties": false
+        },
+        "cost": {
+          "type": "object",
+          "description": "Override the model's pricing (overrides models.dev). Costs are per 1M tokens.",
+          "markdownDescription": "Override the model's pricing (overrides models.dev). Costs are per 1M tokens.",
+          "properties": {
+            "input": {
+              "type": "number",
+              "description": "Cost per 1M input tokens.",
+              "markdownDescription": "Cost per 1M input tokens."
+            },
+            "output": {
+              "type": "number",
+              "description": "Cost per 1M output tokens.",
+              "markdownDescription": "Cost per 1M output tokens."
+            },
+            "cacheRead": {
+              "type": "number",
+              "description": "Cost per 1M cached input tokens read.",
+              "markdownDescription": "Cost per 1M cached input tokens read."
+            },
+            "cacheWrite": {
+              "type": "number",
+              "description": "Cost per 1M cached input tokens written.",
+              "markdownDescription": "Cost per 1M cached input tokens written."
+            }
+          },
+          "additionalProperties": false
+        },
         "variants": {
           "type": "object",
           "description": "Named payload presets for this model. Merged with built-in variants; same-name entries override built-ins. Setting a variant to {} removes that built-in variant.",
