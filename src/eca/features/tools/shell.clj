@@ -59,7 +59,8 @@
                         :dir cwd
                         :out out-mode
                         :err out-mode
-                        :continue true}
+                        :continue true
+                        :extra-env {"ECA_EXECUTABLE" @shared/eca-executable*}}
                  input (assoc :in input)))))
 
 (def ^:private initial-output-wait-ms 2000)
@@ -167,52 +168,52 @@
         work-dir (resolve-work-dir db user-work-dir)
         _ (logger/debug logger-tag "Running command:" command-args)
         result (try
-                   (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                   (start-shell-process! (cond-> {:cwd work-dir
-                                                                   :script command-args}
-                                                           shell-path (assoc :shell-path shell-path)
-                                                           shell-args (assoc :shell-args shell-args))))]
-                     (do
-                       (state-transition-fn :resources-created {:resources {:process proc}})
-                       (try (deref proc
-                                   timeout
-                                   ::timeout)
-                            (catch InterruptedException e
-                              (let [msg (or (.getMessage e) "Shell tool call was interrupted")]
-                                (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
-                                (tools.util/tool-call-destroy-resource! "eca__shell_command" :process proc)
-                                (state-transition-fn :resources-destroyed {:resources [:process]})
-                                {:exit 1 :err msg}))))
-                     {:exit 1 :err "Tool call is :stopping, so shell process not spawned"})
-                   (catch Exception e
-                     (let [msg (or (.getMessage e) "Caught an Exception during execution of the shell tool")]
-                       (logger/warn logger-tag "Got an Exception during execution" {:message msg})
-                       {:exit 1 :err msg}))
-                   (finally
-                     (let [state (call-state-fn)]
-                       (when-let [resources (:resources state)]
-                         (doseq [[res-kwd res] resources]
-                           (tools.util/tool-call-destroy-resource! "eca__shell_command" res-kwd res))
-                         (when (#{:executing :stopping} (:status state))
-                           (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
-          err (some-> (:err result) string/trim)
-          out (some-> (:out result) string/trim)]
-      (if (= result ::timeout)
-        (do
-          (logger/debug logger-tag "Command timed out after " timeout " ms")
-          (tools.util/single-text-content (str "Command timed out after " timeout " ms") true))
-        (do
-          (logger/debug logger-tag "Command executed:" result)
-          {:error (not (zero? (:exit result)))
-           :contents (remove nil?
-                             (concat [{:type :text
-                                       :text (str "Exit code: " (:exit result))}]
-                                     (when-not (string/blank? err)
-                                       [{:type :text
-                                         :text (str "Stderr:\n" err)}])
-                                     (when-not (string/blank? out)
-                                       [{:type :text
-                                         :text (str "Stdout:\n" out)}])))}))))
+                 (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
+                                 (start-shell-process! (cond-> {:cwd work-dir
+                                                                :script command-args}
+                                                         shell-path (assoc :shell-path shell-path)
+                                                         shell-args (assoc :shell-args shell-args))))]
+                   (do
+                     (state-transition-fn :resources-created {:resources {:process proc}})
+                     (try (deref proc
+                                 timeout
+                                 ::timeout)
+                          (catch InterruptedException e
+                            (let [msg (or (.getMessage e) "Shell tool call was interrupted")]
+                              (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
+                              (tools.util/tool-call-destroy-resource! "eca__shell_command" :process proc)
+                              (state-transition-fn :resources-destroyed {:resources [:process]})
+                              {:exit 1 :err msg}))))
+                   {:exit 1 :err "Tool call is :stopping, so shell process not spawned"})
+                 (catch Exception e
+                   (let [msg (or (.getMessage e) "Caught an Exception during execution of the shell tool")]
+                     (logger/warn logger-tag "Got an Exception during execution" {:message msg})
+                     {:exit 1 :err msg}))
+                 (finally
+                   (let [state (call-state-fn)]
+                     (when-let [resources (:resources state)]
+                       (doseq [[res-kwd res] resources]
+                         (tools.util/tool-call-destroy-resource! "eca__shell_command" res-kwd res))
+                       (when (#{:executing :stopping} (:status state))
+                         (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
+        err (some-> (:err result) string/trim)
+        out (some-> (:out result) string/trim)]
+    (if (= result ::timeout)
+      (do
+        (logger/debug logger-tag "Command timed out after " timeout " ms")
+        (tools.util/single-text-content (str "Command timed out after " timeout " ms") true))
+      (do
+        (logger/debug logger-tag "Command executed:" result)
+        {:error (not (zero? (:exit result)))
+         :contents (remove nil?
+                           (concat [{:type :text
+                                     :text (str "Exit code: " (:exit result))}]
+                                   (when-not (string/blank? err)
+                                     [{:type :text
+                                       :text (str "Stderr:\n" err)}])
+                                   (when-not (string/blank? out)
+                                     [{:type :text
+                                       :text (str "Stdout:\n" out)}])))}))))
 
 (defn ^:private shell-command [arguments ctx]
   (or (tools.util/invalid-arguments arguments [["working_directory" #(or (nil? %)

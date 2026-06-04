@@ -46,6 +46,7 @@
                         :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                        {:name "plugin-uninstall"
                         :arguments [{:name "plugin" :description "Plugin name" :required true}]}
+                       {:name "hooks" :arguments []}
                        {:name "eca-info" :arguments nil}]}
            resp))))
 

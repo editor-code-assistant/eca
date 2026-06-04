@@ -11,6 +11,7 @@
    [eca.messenger :as messenger]
    [selmer.parser :as selmer])
   (:import
+   [java.lang ProcessHandle]
    [java.net URI]
    [java.nio.file Paths]
    [java.time Instant ZoneId ZoneOffset]
@@ -30,6 +31,22 @@
     (mapv java->clj x)
 
     :else x))
+
+(def eca-executable*
+  "Absolute path and JVM flags used to launch this ECA process.
+   For a native binary this is just the executable path.
+   For a JVM launch it includes the java command, JVM flags, and -jar path.
+   Delayed so native-image builds do not capture build-time JVM process info."
+  (delay
+    (let [info     (.info (ProcessHandle/current))
+          command  (.orElse (.command info) nil)
+          cmd-line (.orElse (.commandLine info) nil)]
+      (or (when cmd-line
+            (let [parts   (string/split cmd-line #"\s+")
+                  jar-idx (first (keep-indexed #(when (= "-jar" %2) %1) parts))]
+              (when jar-idx
+                (string/join " " (take (+ jar-idx 2) parts)))))
+          command))))
 
 (defn parse-md
   "Parses YAML frontmatter and body from a markdown string.
@@ -513,3 +530,7 @@
      (catch Exception e
        (logger/warn "[SELMER]" (format "Failed to render template '%s': %s" label (ex-message e)))
        fallback))))
+
+(defn not-blank [s]
+  (when (and (string? s) (not (string/blank? s)))
+    s))

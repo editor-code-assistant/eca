@@ -2,6 +2,7 @@
   (:require
    [babashka.fs :as fs]
    [cheshire.core :as json]
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.config :as config]
    [eca.features.commands :as commands]
@@ -272,7 +273,9 @@
           (is (= secret
                  (get-in result [:config-fragment :quotedSecret])))
           (is (= (str "node " plugin-root "/hooks/check.js")
-                 (get-in result [:config-fragment :hooks :PostToolUse 0 :hooks 0 :command])))
+                 (get-in result [:config-fragment :hooks "demo::PostToolUse" 0 :hooks 0 :command])))
+          (is (not-any? #(string/includes? (str %) ":::")
+                        (keys (get-in result [:config-fragment :hooks]))))
           (let [loaded-commands (vec (#'commands/custom-commands
                                       {:pureConfig true
                                        :commands (:commands result)}

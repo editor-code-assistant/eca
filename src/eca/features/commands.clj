@@ -1,12 +1,14 @@
 (ns eca.features.commands
   (:require
    [babashka.fs :as fs]
+   [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.debug :as f.chat.debug]
+   [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
@@ -211,7 +213,11 @@
                       {:name "plugin-uninstall"
                        :type :native
                        :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin)"
-                       :arguments [{:name "plugin" :description "Plugin name" :required true}]}]
+                       :arguments [{:name "plugin" :description "Plugin name" :required true}]}
+                      {:name "hooks"
+                       :type :native
+                       :description "List active hooks grouped by type."
+                       :arguments []}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -286,6 +292,46 @@
                 "\n")))
        "Subagents available:\n\n"
        subagents))))
+
+(def ^:private hook-type-order
+  "Display order for hook types in /hooks output."
+  ["sessionStart" "sessionEnd" "chatStart" "chatEnd" "subagentStart" "preRequest"
+   "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
+   "preCompact" "postCompact"])
+
+(defn ^:private hooks-msg [config]
+  (let [hooks-map (:hooks config)
+        hooks-by-type (->> hooks-map
+                           (keep (fn [[hook-name hook]]
+                                   (when (seq (:actions hook))
+                                     {:name (name hook-name)
+                                      :type (:type hook)
+                                      :description (:description hook)
+                                      :visible (:visible hook true)
+                                      :matcher (:matcher hook)})))
+                           (group-by :type))
+        known (set hook-type-order)
+        display-order (concat hook-type-order (sort (remove known (keys hooks-by-type))))]
+    (if (empty? hooks-by-type)
+      "No hooks configured. Add hooks to your config under the `hooks` key."
+      (reduce
+       (fn [s hook-type]
+         (if-let [hooks (seq (get hooks-by-type hook-type))]
+           (str s "**" hook-type "**\n"
+                (reduce
+                 (fn [s2 {:keys [name description visible matcher]}]
+                   (str s2 "- `" name "`"
+                        (when description (str " — " description))
+                        (when-not visible " *(hidden)*")
+                        (when (some? matcher)
+                          (str " matcher: `" (if (string? matcher) matcher (json/generate-string matcher)) "`"))
+                        "\n"))
+                 ""
+                 (sort-by :name hooks))
+                "\n")
+           s))
+       "Hooks active:\n\n"
+       display-order))))
 
 (defn ^:private format-expires-at [^long expires-at]
   (let [instant (Instant/ofEpochSecond expires-at)
@@ -399,12 +445,24 @@
               :on-finished-side-effect (fn []
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
-      "compact" (do
-                  (swap! db* assoc-in [:chats chat-id :compacting?] true)
-                  {:type :send-prompt
-                   :on-finished-side-effect (fn []
-                                              (shared/compact-side-effect! chat-ctx false))
-                   :prompt (f.prompt/compact-prompt (string/join " " args) all-tools agent config db)})
+      "compact" (let [custom-instructions (string/join " " args)
+                      {:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions)]
+                  (if blocked?
+                    (do
+                      ;; continue:false stops the turn; exit 2 blocks compaction only.
+                      (if stop-turn?
+                        (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
+                        (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)}))
+                      {:type :new-chat-status :status :idle})
+                    (do
+                      (swap! db* assoc-in [:chats chat-id :compacting?] true)
+                      {:type :send-prompt
+                       :on-finished-side-effect #(let [{:keys [stop-turn? stop-reason stop-hook-name]}
+                                                       (lifecycle/complete-compact! chat-ctx "manual")]
+                                                   (when stop-turn?
+                                                     (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+                                                   {:stop-after-finish? stop-turn?})
+                       :prompt (f.prompt/compact-prompt custom-instructions all-tools agent config db)})))
       "login" (do
                 (messenger/chat-content-received
                  messenger
@@ -424,9 +482,6 @@
                 {:type :new-chat-status
                  :status :login})
       "model" (let [selected-model (first args)
-                    current-model (or (get-in db [:chats chat-id :model])
-                                      full-model
-                                      (llm-api/default-model db config))
                     available-models (sort (keys (:models db)))
                     chat-message (fn [text]
                                    {:type :chat-messages
@@ -437,7 +492,7 @@
                   (string/blank? selected-model)
                   (if (seq available-models)
                     (chat-message
-                     (multi-str (str "Current model: `" current-model "`")
+                     (multi-str (str "Current model: `" full-model "`")
                                 ""
                                 "Available models:"
                                 (string/join "\n" (map #(str "- `" % "`") available-models))
@@ -689,6 +744,9 @@
                                         (f.plugins/uninstall-plugin! (:plugins config) plugin-input))]
                            {:type :chat-messages
                             :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
+      "hooks" (let [msg (hooks-msg config)]
+                {:type :chat-messages
+                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
 
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]

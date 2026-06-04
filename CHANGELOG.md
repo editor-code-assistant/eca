@@ -3,8 +3,12 @@
 ## Unreleased
 
 - Add OpenAI Responses API for GitHub Copilot models that require it (gpt-5.5, gpt-5.4-mini).
-
 - MCP OAuth: persist and reuse the dynamically-registered client on token refresh, so servers with non-idempotent DCR (e.g. RunLayer) refresh instead of forcing a browser re-login, and recover from expired-token tool errors automatically.
+- Add `preCompact`, `postCompact` and `subagentStart` hooks; subagents no longer trigger `chatStart`.
+- Add `/hooks` command with optional `description` field in hook config.
+- Tool hooks (`preToolCall`/`postToolCall`) now include `tool_call_id` in input data.
+- Expand hook contracts: `response` not `prompt`, plain-text `tool_response`, `continue:false` everywhere, `followUp`, `replacedOutput`, standalone `systemMessage`, exact-string matchers.
+- Fix `postToolCall continue:false` leaking across turns, `chatStart` `additionalContext` dropped, and `preRequest` exit-2 naming the blocking hook.
 
 ## 0.138.1
 

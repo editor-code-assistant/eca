@@ -8,28 +8,40 @@
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
+(set! *warn-on-reflection* true)
+
 (def ^:private logger-tag "[HOOK]")
 
 (def ^:const hook-rejection-exit-code 2)
 
 (def ^:const default-hook-timeout-ms 30000)
 
+(defn ^:private session-id-from-db-cache-path
+  [db-cache-path]
+  (some-> db-cache-path fs/file fs/parent fs/file-name str not-empty))
+
 (defn base-hook-data
-  "Returns common fields for ALL hooks (session and chat hooks).
-   These fields are present in every hook type."
+  "Returns common fields for ALL hooks: :workspaces, :cwd, :db-cache-path,
+   :session-id, and :eca-executable."
   [db]
-  {:workspaces (shared/get-workspaces db)
-   :db-cache-path (shared/db-cache-path db)})
+  (let [workspaces (shared/get-workspaces db)
+        db-cache-path (shared/db-cache-path db)]
+    {:workspaces workspaces
+     :cwd (first workspaces)
+     :db-cache-path db-cache-path
+     :session-id (session-id-from-db-cache-path db-cache-path)
+     :eca-executable @shared/eca-executable*}))
 
 (defn chat-hook-data
   "Returns common fields for CHAT-RELATED hooks.
-   Includes base fields plus chat-specific fields (chat-id, agent).
-   Use this for: preRequest, postRequest, subagentPostRequest, preToolCall, postToolCall, chatStart, chatEnd."
-  [db chat-id agent-name]
+   Merges base-hook-data, optional model fields (:full-model, :variant),
+   and chat-specific fields (:chat-id, :agent, :behavior)."
+  [db {:keys [chat-id agent full-model variant]}]
   (merge (base-hook-data db)
-         {:chat-id chat-id
-          :agent agent-name
-          :behavior agent-name}))
+         (shared/assoc-some {} :full-model full-model :variant variant)
+         {:chat-id  chat-id
+          :agent    agent
+          :behavior agent}))
 
 (defn ^:private parse-hook-json
   "Attempts to parse hook output as JSON. Returns parsed map if successful, nil otherwise."
@@ -86,14 +98,21 @@
     (->> matcher
          (keep (fn [[tool-selector config]]
                  (if (map? config)
-                   {:kind :selector
-                    :selector (tools.util/selector->string tool-selector)
-                    :args-matchers (:argsMatchers config)}
+                   (let [has-args-matchers? (contains? config :argsMatchers)
+                         am (:argsMatchers config)]
+                     (if (and has-args-matchers? (not (map? am)))
+                       (do
+                         (logger/warn logger-tag "argsMatchers must be a map, ignoring matcher entry" {:selector tool-selector})
+                         nil)
+                       {:kind :selector
+                        :selector (tools.util/selector->string tool-selector)
+                        :args-matchers am}))
                    (logger/warn logger-tag "Ignoring non-map matcher entry for selector" {:selector tool-selector}))))
          vec)
 
     :else
-    []))
+    (do (logger/warn logger-tag "Unsupported matcher type, ignoring" {:matcher matcher})
+        [])))
 
 (defn ^:private arg-value [tool-input arg-name]
   (when (map? tool-input)
@@ -122,10 +141,15 @@
 
     :else
     (every? (fn [[arg-name matchers]]
-              (let [value (arg-value tool-input arg-name)]
-                (and (some? value)
-                     (sequential? matchers)
-                     (some #(regex-matches? % value) matchers))))
+              (cond
+                (not (sequential? matchers))
+                (do (logger/warn logger-tag "Arg matcher values must be sequential (list of regex alternatives), skipping"
+                                 {:arg-name arg-name :value matchers})
+                    false)
+                :else
+                (let [value (arg-value tool-input arg-name)]
+                  (and (some? value)
+                       (some #(regex-matches? % value) matchers)))))
             args-matchers)))
 
 (defn ^:private hook-matches? [hook-type data hook native-tools]
@@ -150,6 +174,17 @@
                   false))
               rules))
 
+      (contains? #{:preCompact :postCompact} hook-type)
+      (let [matcher (:matcher hook)]
+        (cond
+          (nil? matcher) true
+          (string? matcher) (= matcher (:triggered data))
+          :else (do
+                  (logger/warn logger-tag "Ignoring unsupported compact hook matcher"
+                               {:hook-type hook-type
+                                :matcher matcher})
+                  false)))
+
       :else
       true)))
 
@@ -168,8 +203,10 @@
   "Execute a single hook action. Supported hook types:
    - :sessionStart, :sessionEnd (session lifecycle)
    - :chatStart, :chatEnd (chat lifecycle)
-   - :preRequest, :postRequest, :subagentPostRequest (prompt lifecycle)
+   - :subagentStart, :subagentPostRequest (subagent lifecycle)
+   - :preRequest, :postRequest (prompt lifecycle)
    - :preToolCall, :postToolCall (tool lifecycle)
+   - :preCompact, :postCompact (compact lifecycle)
 
    Returns map with :exit, :raw-output, :raw-error, :parsed"
   [action name hook-type data db]
@@ -204,8 +241,53 @@
 
     (logger/warn logger-tag (format "Unknown hook action type '%s' for %s" (:type action) name))))
 
+(defn successful-continue-false?
+  "True when a hook action result is a successful (exit 0) continue:false.
+   This is the canonical 'turn stop' signal: JSON effects (including
+   continue:false) are only honored on exit 0, so a non-zero exit never counts
+   here even if its stdout contained continue:false."
+  [{:keys [exit parsed]}]
+  (and (zero? exit)
+       (false? (get parsed "continue" true))))
+
+(defn ^:private stop-processing?
+  "Predicate over an action result: should iteration of remaining
+   actions/hooks halt? True when a successful action (exit 0) returns
+   continue:false."
+  [result]
+  (successful-continue-false? result))
+
+(defn ^:private run-matched-action!
+  "Execute a single matched action: notify before, run, notify after.
+   Returns the merged action result so the caller can inspect it without
+   conflating 'what happened' with 'what to do next'."
+  [hook-type data {:keys [on-before-action on-after-action]} db hook-name hook i action]
+  (let [id (str (random-uuid))
+        action-type (:type action)
+        action-name (if (> (count (:actions hook)) 1)
+                      (str hook-name "-" (inc i))
+                      hook-name)
+        visible? (get hook :visible true)
+        base {:id id
+              :name action-name
+              :type action-type
+              :hook-type hook-type
+              :visible? visible?}]
+    (on-before-action (select-keys base [:id :visible? :name :type]))
+    (let [result (merge (or (run-hook-action! action action-name hook-type data db)
+                            {:exit 1})
+                        base)]
+      (on-after-action result)
+      result)))
+
 (defn trigger-if-matches!
-  "Run hook of specified type if matches any config for that type"
+  "Run matching hooks of `hook-type` against `data` for side effects.
+   Execution order is deterministic: hooks sorted by name, then actions
+   in declaration order. A successful action that returns continue:false
+   halts iteration over BOTH the remaining actions of the current hook
+   AND any subsequent matching hooks. Exit code 2
+   carries hook-specific semantics via the per-action callbacks but does
+   NOT short-circuit iteration."
   [hook-type
    data
    {:keys [on-before-action on-after-action native-tools]
@@ -213,29 +295,15 @@
          on-after-action identity}}
    db
    config]
-  ;; Sort hooks by name to ensure deterministic execution order.
-  (doseq [[name hook] (sort-by key (:hooks config))]
-    (when (hook-matches? hook-type data hook native-tools)
-      (vec
-       (map-indexed (fn [i action]
-                      (let [id (str (random-uuid))
-                            action-type (:type action)
-                            name (if (> (count (:actions hook)) 1)
-                                   (str name "-" (inc i))
-                                   name)
-                            visible? (get hook :visible true)]
-                        (on-before-action {:id id
-                                           :visible? visible?
-                                           :name name})
-                        (if-let [result (run-hook-action! action name hook-type data db)]
-                          (on-after-action (merge result
-                                                  {:id id
-                                                   :name name
-                                                   :type action-type
-                                                   :visible? visible?}))
-                          (on-after-action {:id id
-                                            :name name
-                                            :visible? visible?
-                                            :type action-type
-                                            :exit 1}))))
-                    (:actions hook))))))
+  (let [opts {:on-before-action on-before-action
+              :on-after-action on-after-action}
+        matched-actions (for [[hook-key hook] (sort-by key (:hooks config))
+                              :when (hook-matches? hook-type data hook native-tools)
+                              [i action] (map-indexed vector (:actions hook))]
+                          [(name hook-key) hook i action])]
+    (reduce (fn [_ [name hook i action]]
+              (let [result (run-matched-action! hook-type data opts db name hook i action)]
+                (when (stop-processing? result)
+                  (reduced nil))))
+            nil
+            matched-actions)))

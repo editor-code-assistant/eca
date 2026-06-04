@@ -595,6 +595,68 @@
            (h/messages))
           "Should still surface the API limit reached system message"))))
 
+(deftest auto-compact-hook-block-test
+  (testing "preCompact continue:false stops the turn with the prefixed reason and does not resume"
+    (h/reset-components!)
+    (let [prompted* (atom nil)]
+      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? true
+                                                                  :reason "auto blocked"
+                                                                  :hook-name "blocker"
+                                                                  :stop-turn? true})
+                    f.chat/prompt-messages! (fn [user-messages prompt-type chat-ctx]
+                                              (reset! prompted* {:user-messages user-messages
+                                                                 :prompt-type prompt-type
+                                                                 :chat-ctx chat-ctx}))]
+        (#'f.chat/trigger-auto-compact!
+         {:db* (h/db*)
+          :config (h/config)
+          :chat-id "chat-1"
+          :agent "code"
+          :messenger (h/messenger)
+          :metrics (h/metrics)
+          :parent-chat-id "parent-1"}
+         []
+         [{:role "user" :content [{:type :text :text "keep going"}]}]))
+      (is (some #(= {:chat-id "chat-1"
+                     :parent-chat-id "parent-1"
+                     :role :system
+                     :content {:type :text :text "Turn stopped by hook 'blocker': auto blocked"}}
+                    %)
+                (:chat-content-received (h/messages))))
+      (is (nil? @prompted*)
+          "stop-turn prevents resuming the original task")))
+
+  (testing "preCompact exit 2 blocks compaction without stop-turn and resumes the original task"
+    (h/reset-components!)
+    (let [prompted* (atom nil)]
+      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? true
+                                                                  :reason nil
+                                                                  :hook-name "guard"
+                                                                  :stop-turn? false})
+                    f.chat/prompt-messages! (fn [user-messages prompt-type chat-ctx]
+                                              (reset! prompted* {:user-messages user-messages
+                                                                 :prompt-type prompt-type
+                                                                 :chat-ctx chat-ctx}))]
+        (#'f.chat/trigger-auto-compact!
+         {:db* (h/db*)
+          :config (h/config)
+          :chat-id "chat-1"
+          :agent "code"
+          :messenger (h/messenger)
+          :parent-chat-id "parent-1"}
+         []
+         [{:role "user" :content [{:type :text :text "keep going"}]}]))
+      (is (match? {:chat-content-received
+                   [{:chat-id "chat-1"
+                     :parent-chat-id "parent-1"
+                     :role :system
+                     :content {:type :text :text "Compaction blocked by hook 'guard'."}}]}
+                  (h/messages)))
+      (is (match? {:prompt-type :auto-compact-blocked
+                   :chat-ctx {:auto-compacted? true}}
+                  @prompted*)))))
+
+
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
    :content {:id id

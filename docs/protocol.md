@@ -788,6 +788,12 @@ interface ChatHookActionFinishedContent {
      * The error of this hook if any
      */
     error?: string;
+    
+    /**
+     * For tool hooks (preToolCall/postToolCall), the id of the tool call this
+     * hook acted on, so clients can correlate the hook block with its tool call.
+     */
+    toolCallId?: string;
 }
 
 /**

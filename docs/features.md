@@ -128,6 +128,7 @@ The built-in commands are:
 - `/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
 - `/model`: Select model for current chat directly from chat. Ex: `anthropic/claude-sonnet-4-6`.
 - `/skills`: List known skills that ECA can load.
+- `/hooks`: List active hooks grouped by type, showing name, description, and matcher.
 - `/compact`: Compact/summarize conversation helping reduce context window.
 - `/resume`: Resume a chat from previous session of this workspace folder.
 - `/costs`: Show costs about current session.

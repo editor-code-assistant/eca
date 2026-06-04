@@ -201,15 +201,23 @@
 
 ;; -- Component readers --
 
+(defn ^:private plugin-hook-key
+  [plugin-name hook-key]
+  (str plugin-name "::" (name hook-key)))
+
 (defn ^:private read-hooks
   "Reads hooks/hooks.json from a plugin directory. Expects ECA native hook format.
-   Applies dynamic string interpolation after JSON parsing."
-  [^java.io.File plugin-dir]
+   Applies dynamic string interpolation after JSON parsing.
+   Prefixes hook map keys with 'plugin-name::' so plugin hooks are identifiable."
+  [^java.io.File plugin-dir plugin-name]
   (let [hooks-file (io/file plugin-dir "hooks" "hooks.json")]
     (when (fs/exists? hooks-file)
       (try
-        (-> (json/parse-string (slurp hooks-file) true)
-            (interpolation/replace-dynamic-strings-in-data (str (fs/parent hooks-file)) nil))
+        (let [parsed (-> (json/parse-string (slurp hooks-file) true)
+                         (interpolation/replace-dynamic-strings-in-data (str (fs/parent hooks-file)) nil))]
+          (if plugin-name
+            (update-keys parsed #(plugin-hook-key plugin-name %))
+            parsed))
         (catch Exception e
           (logger/warn logger-tag "Failed to parse hooks.json:" (str hooks-file)
                        (.getMessage e))
@@ -307,7 +315,7 @@
    (discover-components plugin-dir nil))
   ([^java.io.File plugin-dir plugin-name]
    (let [mcp-servers (read-mcp-servers plugin-dir)
-         hooks (read-hooks plugin-dir)
+         hooks (read-hooks plugin-dir plugin-name)
          eca-config (read-eca-config plugin-dir)
          skill-dirs (read-skill-dirs plugin-dir plugin-name)
          config-fragment (cond-> (or eca-config {})
