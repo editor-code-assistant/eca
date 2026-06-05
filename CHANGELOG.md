@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add OpenAI Responses API for GitHub Copilot models that require it (gpt-5.5, gpt-5.4-mini).
+
 - MCP OAuth: persist and reuse the dynamically-registered client on token refresh, so servers with non-idempotent DCR (e.g. RunLayer) refresh instead of forcing a browser re-login, and recover from expired-token tool errors automatically.
 
 ## 0.138.1
