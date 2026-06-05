@@ -32,7 +32,7 @@
 (def no-available-model-error-msg "No available model found. Configure at least one provider model.")
 
 (def ^:private copilot-responses-api-models
-  #{"gpt-5.3-codex" "gpt-5.4"})
+  #{"gpt-5.3-codex" "gpt-5.4" "gpt-5.4-mini" "gpt-5.5"})
 
 (def ^:private default-max-retries 10)
 (def ^:private premature-stop-max-retries 3)
