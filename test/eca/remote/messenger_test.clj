@@ -64,6 +64,8 @@
 (deftest ask-question-broadcasts-and-resolves-via-answer-test
   (testing "ask-question registers a promise, broadcasts SSE, and answer-question! resolves it"
     (let [inner (h/messenger)
+          ;; Editor doesn't answer; isolates the SSE path (inner is also asked).
+          _ (reset! (:ask-question-response* inner) :block)
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -89,6 +91,7 @@
 (deftest ask-question-uses-caller-supplied-request-id-test
   (testing "caller-supplied :request-id is used as the SSE requestId and pending-questions* key"
     (let [inner (h/messenger)
+          _ (reset! (:ask-question-response* inner) :block)
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -123,3 +126,84 @@
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)]
       (is (nil? (remote.messenger/answer-question! broadcast-messenger "nonexistent" "x" false))))))
+
+;;; ask-question dual-dispatch: with both an SSE client and the editor (inner)
+;;; connected, the question reaches both and the first answer wins.
+
+(deftest ask-question-reaches-editor-and-sse-when-both-connected-test
+  (testing "with an SSE client connected, inner (editor) still receives chat/askQuestion"
+    (let [inner-params* (atom nil)
+          inner (reify messenger/IMessenger
+                  (ask-question [_ params]
+                    (reset! inner-params* params)
+                    (promise)))
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+          os (java.io.ByteArrayOutputStream.)
+          _client (sse/add-client! sse-connections* os)]
+      (messenger/ask-question broadcast-messenger
+                              {:chat-id "c1" :question "Why?" :request-id "req-1"})
+      (Thread/sleep 100)
+      (is (some? @inner-params*)
+          "editor must receive the question even when an SSE client is connected")
+      (is (.contains (.toString os "UTF-8") "chat:ask-question")
+          "SSE clients must also receive the question"))))
+
+(deftest ask-question-sse-answer-wins-test
+  (testing "an SSE answer resolves the call when both transports are connected"
+    (let [inner (reify messenger/IMessenger
+                  ;; editor never answers
+                  (ask-question [_ _params] (promise)))
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+          os (java.io.ByteArrayOutputStream.)
+          _client (sse/add-client! sse-connections* os)
+          result (messenger/ask-question broadcast-messenger
+                                         {:chat-id "c1" :question "Q?" :request-id "req-1"})
+          watcher (:watcher (get @(:pending-questions* broadcast-messenger) "req-1"))]
+      (Thread/sleep 50)
+      (is (= :pending (deref result 1 :pending))
+          "result should block until someone answers")
+      (remote.messenger/answer-question! broadcast-messenger "req-1" "via-sse" false)
+      (is (= {:answer "via-sse" :cancelled false} (deref result 1000 :timeout)))
+      ;; The editor watcher must be cancelled so it doesn't park forever on an
+      ;; editor that may never answer.
+      (is (future-cancelled? watcher)))))
+
+(deftest ask-question-sse-answer-retracts-editor-request-test
+  (testing "an SSE answer cancels the editor's outstanding request (→ $/cancelRequest)"
+    ;; A CompletableFuture models the jsonrpc PendingRequest: future-cancellable,
+    ;; and cancelling it is what fires $/cancelRequest in the real ServerMessenger.
+    (let [inner-result (java.util.concurrent.CompletableFuture.)
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _params] inner-result))
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+          os (java.io.ByteArrayOutputStream.)
+          _client (sse/add-client! sse-connections* os)
+          result (messenger/ask-question broadcast-messenger
+                                         {:chat-id "c1" :question "Q?" :request-id "req-1"})]
+      (Thread/sleep 50)
+      (remote.messenger/answer-question! broadcast-messenger "req-1" "via-sse" false)
+      (is (= {:answer "via-sse" :cancelled false} (deref result 1000 :timeout)))
+      (is (future-cancelled? inner-result)
+          "the editor's pending request must be cancelled so the server retracts it"))))
+
+(deftest ask-question-editor-answer-wins-test
+  (testing "an editor answer resolves the call and cleans up the SSE pending entry"
+    (let [inner-promise (promise)
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _params] inner-promise))
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+          os (java.io.ByteArrayOutputStream.)
+          _client (sse/add-client! sse-connections* os)
+          result (messenger/ask-question broadcast-messenger
+                                         {:chat-id "c1" :question "Q?" :request-id "req-1"})]
+      (Thread/sleep 50)
+      (deliver inner-promise {:answer "via-editor" :cancelled false})
+      (is (= {:answer "via-editor" :cancelled false} (deref result 1000 :timeout))
+          "editor's answer must resolve the call")
+      (Thread/sleep 50)
+      (is (empty? @(:pending-questions* broadcast-messenger))
+          "answering via the editor must clear the SSE pending entry so a late /answer is a no-op"))))
