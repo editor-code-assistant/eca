@@ -1359,6 +1359,17 @@
       (is (match? {:config-updated [{:chat {:select-trust false}}]}
                   (h/messages))))))
 
+(deftest open-chat-marks-editor-open-test
+  (testing "Resuming a chat lists it on the remote endpoint without a prompt"
+    (h/reset-components!)
+    (let [chat-id "resumed"]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (is (not (contains? (:editor-open-chats @(h/db*)) chat-id)))
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (contains? (:editor-open-chats @(h/db*)) chat-id)))))
+
 (deftest open-chat-restores-selected-trust-test
   (testing "Opening a trusted chat emits config/updated select-trust true (#426)"
     (h/reset-components!)

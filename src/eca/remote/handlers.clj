@@ -119,10 +119,10 @@
      :mcpServers (mapv (fn [[name client-info]]
                          {:name name :status (or (:status client-info) "unknown")})
                        (:mcp-clients db))
-     :chats (let [editor-open (:chat-start-fired db)]
+     :chats (let [editor-open (:editor-open-chats db)]
               (->> (vals (:chats db))
                    (remove :subagent)
-                   (filter #(get editor-open (:id %)))
+                   (filter #(contains? editor-open (:id %)))
                    (mapv chat-summary)))
      :startedAt (when-let [ms (:started-at db)]
                   (.toString (Instant/ofEpochMilli ^long ms)))
@@ -151,10 +151,10 @@
 
 (defn handle-list-chats [{:keys [db*]} _request]
   (let [db @db*
-        editor-open (:chat-start-fired db)
+        editor-open (:editor-open-chats db)
         chats (->> (vals (:chats db))
                    (remove :subagent)
-                   (filter #(get editor-open (:id %)))
+                   (filter #(contains? editor-open (:id %)))
                    (mapv chat-summary))]
     (json-response chats)))
 

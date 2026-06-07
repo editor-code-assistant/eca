@@ -1178,12 +1178,19 @@
                                                  :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
       (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))))
 
+(defn ^:private mark-editor-open!
+  "Records that the editor has this chat open this run, so the remote endpoint
+   lists it. Separate from :chat-start-fired, which only gates the chatStart hook."
+  [db* chat-id]
+  (swap! db* update :editor-open-chats (fnil conj #{}) chat-id))
+
 (defn ^:private prompt*
   [{:keys [model]}
    {:keys [chat-id contexts message agent agent-config db* messenger config metrics] :as base-chat-ctx}]
   (let [provided-chat-id chat-id
         ;; Snapshot DB to detect new/resumed chat BEFORE hooks mutate it
         [db0 _] (swap-vals! db* assoc-in [:chat-start-fired chat-id] true)
+        _ (mark-editor-open! db* chat-id)
         existing-chat-before-prompt (get-in db0 [:chats chat-id])
         chat-start-fired? (get-in db0 [:chat-start-fired chat-id])
         has-messages? (seq (:messages existing-chat-before-prompt))
@@ -1690,6 +1697,7 @@
                       :messages kept-messages
                       :prompt-finished? true}]
         (swap! db* assoc-in [:chats new-id] new-chat)
+        (mark-editor-open! db* new-id)
         (db/update-workspaces-cache! @db* metrics)
         (messenger/chat-opened messenger {:chat-id new-id :title new-title})
         (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
@@ -1745,6 +1753,7 @@
       (let [title (:title chat)
             messages (:messages chat)
             chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
+        (mark-editor-open! db* chat-id)
         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
         (send-chat-contents! messages chat-ctx)

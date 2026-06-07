@@ -233,6 +233,24 @@
     (testing ":tool-calls runtime state is stripped before persisting"
       (is (not (contains? (get-in result [:chats "with-msg"]) :tool-calls))))))
 
+(deftest stamp-chat-ids-test
+  (testing "every chat value gets its map key as :id"
+    (is (= {"a" {:id "a" :title "A"}
+            "b" {:id "b"}}
+           (db/stamp-chat-ids {"a" {:title "A"}
+                               "b" {}}))))
+  (testing "a stale/mismatched :id is corrected to the map key"
+    (is (= {"a" {:id "a"}}
+           (db/stamp-chat-ids {"a" {:id "wrong"}}))))
+  (testing "nil chats normalize to an empty map"
+    (is (= {} (db/stamp-chat-ids nil)))))
+
+(deftest normalize-stamps-chat-id-test
+  (let [normalize @#'db/normalize-db-for-workspace-write
+        result (normalize {:chats {"legacy" {:title "no id in value"}}})]
+    (testing "persisted chats always carry their :id"
+      (is (= "legacy" (get-in result [:chats "legacy" :id]))))))
+
 (deftest consolidate-workspace-cache!-merges-and-removes-redundant-dirs-test
   (testing "merges chats from a hash-only dir into the canonical dir (newest wins) and removes the redundant dir"
     (let [tmpdir (str (fs/create-temp-dir))]
