@@ -306,6 +306,12 @@
     (catch Throwable e
       (logger/warn logger-tag "Could not consolidate workspace cache" e))))
 
+(defn stamp-chat-ids
+  "Ensures every chat value carries its map key as :id, so readers can rely on
+   it. Heals legacy rows persisted before chats were seeded with an :id."
+  [chats]
+  (reduce-kv (fn [m k v] (assoc m k (assoc v :id k))) {} chats))
+
 (defn load-db-from-cache! [db* config metrics]
   (when-not (:pureConfig config)
     (when-let [global-cache (read-global-cache metrics)]
@@ -315,24 +321,23 @@
       (consolidate-workspace-cache! workspaces metrics)
       (when-let [global-by-workspace-cache (read-global-by-workspaces-cache workspaces metrics)]
         (logger/info logger-tag "Loading from workspace-cache caches...")
-        (swap! db* shared/deep-merge global-by-workspace-cache)))))
+        (swap! db* shared/deep-merge global-by-workspace-cache)))
+    (swap! db* update :chats stamp-chat-ids)))
 
 (defn ^:private normalize-db-for-workspace-write [db]
   (-> (select-keys db [:chats])
       (update :chats (fn [chats]
-                       (into {}
-                             ;; Persist every chat that lives in memory.
-                             ;; We used to drop chats with empty :messages
-                             ;; here, but that erased chats that were
-                             ;; intentionally rolled back to empty and also
-                             ;; (combined with the late add-to-history!
-                             ;; behaviour) erased chats that hit a provider
-                             ;; error before any token arrived. Cleanup of
-                             ;; stale chats is handled by
-                             ;; cleanup-old-chats! instead.
-                             (map (fn [[k v]]
-                                    [k (dissoc v :tool-calls)]))
-                             chats)))))
+                       ;; Persist every chat that lives in memory.
+                       ;; We used to drop chats with empty :messages
+                       ;; here, but that erased chats that were
+                       ;; intentionally rolled back to empty and also
+                       ;; (combined with the late add-to-history!
+                       ;; behaviour) erased chats that hit a provider
+                       ;; error before any token arrived. Cleanup of
+                       ;; stale chats is handled by
+                       ;; cleanup-old-chats! instead.
+                       (-> (update-vals chats #(dissoc % :tool-calls))
+                           stamp-chat-ids)))))
 
 (defn ^:private normalize-db-for-global-write [db]
   (select-keys db [:auth :mcp-auth]))
