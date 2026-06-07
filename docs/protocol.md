@@ -2900,6 +2900,14 @@ interface MCPAddServerParams {
     oauthPort?: number;
 
     /**
+     * Controls how the OAuth token is shared across projects (Streamable HTTP
+     * transport). "global" (default) shares one token everywhere; "workspace"
+     * keeps a separate token per workspace folder set; any other value defines
+     * a named bucket shared by every project using the same value.
+     */
+    authScope?: string;
+
+    /**
      * Whether the new server should be created in a disabled state.
      */
     disabled?: boolean;

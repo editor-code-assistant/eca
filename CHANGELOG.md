@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP OAuth: add `authScope` (`global` default / `workspace` / custom bucket) to namespace stored tokens, so signing into different accounts per project no longer clobbers a shared server's token.
+
 ## 0.139.0
 
 - Remote mode: `ask_user` now reaches both the editor and connected SSE/web clients simultaneously, with the first answer from either winning, instead of only the web client when one is connected.

@@ -131,6 +131,32 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     The DCR attempt, its result and the chosen `client_name` are logged at
     `info`/`warn` level so you can verify behavior in the ECA log.
 
+=== "Per-project auth — authScope"
+
+    By default a server's OAuth token is shared across every project, which is
+    convenient when the same account is used everywhere. If you sign in to a
+    *different* account (e.g. a different Linear workspace) per project, the
+    shared token would otherwise be clobbered. Set `authScope` to control this:
+
+    - `global` (default): one token shared across all projects.
+    - `workspace`: a separate token per workspace folder set.
+    - any other value: a named bucket shared by every project using that value.
+
+    ```javascript title="myproject/.eca/config.json"
+    {
+      "mcpServers": {
+        "linear": {
+          "url": "https://mcp.linear.app/mcp",
+          "authScope": "workspace"
+        }
+      }
+    }
+    ```
+
+    Like other config values, `authScope` supports the full dynamic-string
+    interpolation (`${env:...}`, `${file:...}`, `${cmd:...}`, `${netrc:...}`,
+    `${classpath:...}`), e.g. `"authScope": "${env:LINEAR_ORG}"`.
+
 === "Disabling a MCP"
 
     Set `"disabled": true` to keep the configuration but prevent ECA from starting the server.
