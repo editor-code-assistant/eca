@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add OpenAI Responses API for GitHub Copilot models that require it (gpt-5.5, gpt-5.4-mini).
+- MCP OAuth: persist and reuse the dynamically-registered client on token refresh, so servers with non-idempotent DCR (e.g. RunLayer) refresh instead of forcing a browser re-login, and recover from expired-token tool errors automatically.
+- Deliver cursor context per-turn in the user message instead of the system prompt, and only re-send it when the position changes, so a moving cursor no longer invalidates the cached system prefix (avoiding llama.cpp full prompt re-processing). (#464)
 - Remote endpoint now lists resumed and forked chats immediately, without waiting for the first prompt.
 - Fix resumed chats being permanently missing from the remote `GET /session` and `GET /chats` endpoints.
 

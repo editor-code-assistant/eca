@@ -1281,8 +1281,19 @@
                                                                  seq
                                                                  (f.prompt/contexts-str repo-map* nil))]
                                    [{:type :text :text contexts-str}])
+        ;; Cursor (and other volatile editor-state) is delivered per-turn in the
+        ;; user message - never the system prompt - and only re-sent when it
+        ;; changed. This keeps the cached system/prefix stable across turns,
+        ;; avoiding llama.cpp full prompt re-processing on every cursor move. #464
+        editor-state-context (f.prompt/build-editor-state-context refined-contexts)
+        editor-state-contents (when (and editor-state-context
+                                         (not= editor-state-context
+                                               (get-in db [:chats chat-id :last-editor-state])))
+                                (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context)
+                                [{:type :text :text editor-state-context}])
         user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                            expanded-prompt-contexts
+                                                           editor-state-contents
                                                            image-contents))}]
         [provider model] (when full-model (shared/full-model->provider+model full-model))
         chat-ctx (merge base-chat-ctx

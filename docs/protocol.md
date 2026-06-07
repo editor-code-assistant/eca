@@ -509,6 +509,9 @@ interface RepoMapContext {
 /**
  * Context about the cursor position in editor, sent by client.
  * Clients should track path and cursor position.
+ * The server delivers this per-turn in the user message (not the system prompt)
+ * and only re-sends it when the position changes, keeping the cached prompt
+ * prefix stable. Clients may send it on every prompt.
  */
 interface CursorContext {
     type: 'cursor'; 
