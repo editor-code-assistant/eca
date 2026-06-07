@@ -68,18 +68,26 @@
   (editor-diagnostics [_this uri]
     (messenger/editor-diagnostics inner uri))
   (ask-question [_this params]
-    ;; No SSE clients: fall back to inner so JSON-RPC editor sessions work
-    ;; unchanged. Otherwise reuse the caller-supplied :request-id (set by
-    ;; ask_user to match the id in tool-call state) and route the answer via
-    ;; SSE + /api/v1/answer.
+    ;; No SSE clients: delegate to inner. Otherwise ask both the editor (inner)
+    ;; and SSE clients; the first answer wins.
     (if (empty? @sse-connections*)
       (messenger/ask-question inner params)
       (let [request-id (or (:request-id params) (str (random-uuid)))
-            p (promise)
-            wire-params (-> params (dissoc :request-id) (assoc :requestId request-id))]
-        (swap! pending-questions* assoc request-id p)
+            result (promise)
+            inner-result (messenger/ask-question inner params)
+            wire-params (-> params (dissoc :request-id) (assoc :requestId request-id))
+            ;; Watch the editor's answer and forward it; deliver is idempotent
+            ;; so the first answer (editor or SSE) wins.
+            watcher (future
+                      (try
+                        (deliver result (deref inner-result))
+                        (catch Throwable _ nil)
+                        (finally
+                          (swap! pending-questions* dissoc request-id))))]
+        (swap! pending-questions* assoc request-id
+               {:promise result :inner-result inner-result :watcher watcher})
         (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params))
-        p))))
+        result))))
 
 (defn make-broadcast-messenger
   "Creates a BroadcastMessenger with a fresh pending-questions registry.
@@ -89,17 +97,18 @@
   (->BroadcastMessenger inner sse-connections* (atom {})))
 
 (defn answer-question!
-  "Resolves a pending question (previously registered by `ask-question`) by
-   request-id. Delivers `{:answer answer :cancelled (boolean cancelled)}` to
-   the registered promise and removes the entry from the registry.
-   Returns true if a pending question was found and delivered, nil otherwise
-   (e.g. unknown or already-answered request-id).
+  "Resolves a pending question by request-id: delivers
+   `{:answer answer :cancelled (boolean cancelled)}` to the registered promise,
+   cancels the editor's pending request (sending `$/cancelRequest`) and its
+   watcher, and removes the entry. Returns true when a pending question was
+   found and delivered, nil otherwise.
 
-   Uses `swap-vals!` so that claiming the entry is a single atomic op:
-   under concurrent answer-question! calls for the same request-id only the
-   caller that wins the swap observes the entry in `old` and delivers."
+   Uses `swap-vals!` so claiming the entry is a single atomic op: under
+   concurrent calls for the same request-id only the swap winner delivers."
   [{:keys [pending-questions*]} request-id answer cancelled]
   (let [[old _new] (swap-vals! pending-questions* dissoc request-id)]
-    (when-let [p (get old request-id)]
-      (deliver p {:answer answer :cancelled (boolean cancelled)})
+    (when-let [{:keys [promise inner-result watcher]} (get old request-id)]
+      (deliver promise {:answer answer :cancelled (boolean cancelled)})
+      (when (future? inner-result) (future-cancel inner-result))
+      (when watcher (future-cancel watcher))
       true)))

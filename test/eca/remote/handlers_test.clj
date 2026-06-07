@@ -259,6 +259,8 @@
 
 (deftest handle-answer-question-test
   (let [inner (h/messenger)
+        ;; Editor doesn't answer; isolates the SSE path (inner is also asked).
+        _ (reset! (:ask-question-response* inner) :block)
         sse-connections* (sse/create-connections)
         broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
         os (java.io.ByteArrayOutputStream.)
