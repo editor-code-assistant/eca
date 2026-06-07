@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.139.0
+
 - Remote mode: `ask_user` now reaches both the editor and connected SSE/web clients simultaneously, with the first answer from either winning, instead of only the web client when one is connected.
 - Remote REST API: `GET /api/v1/chats/:id` `pendingToolCalls` now includes `ask_user` tool calls while waiting for an answer, with a `requestId` field for `POST /api/v1/answer`.
 - Add OpenAI Responses API for GitHub Copilot models that require it (gpt-5.5, gpt-5.4-mini).
