@@ -138,6 +138,54 @@
           body (json/parse-string (:body response) true)]
       (is (= [] (:pendingToolCalls body)))))
 
+  (testing "executing ask_user tool call appears in pendingToolCalls with requestId"
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1"
+            :title "T"
+            :status :running
+            :tool-calls {"tc-ask" {:status :executing
+                                   :name "ask_user"
+                                   :server "eca"
+                                   :origin :native
+                                   :arguments {"question" "Proceed?" "allowFreeform" true}
+                                   :manual-approval false
+                                   :ask-question-request-id "req-123"
+                                   :summary "Q: Proceed?"}
+                         "tc-run" {:status :executing
+                                   :name "shell_command"
+                                   :server "eca"
+                                   :origin :native
+                                   :arguments {:command "ls"}}}})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)
+          pending (:pendingToolCalls body)]
+      (is (= 1 (count pending)) "only ask_user :executing should appear, not other :executing tool calls")
+      (is (= "tc-ask" (:id (first pending)))
+          "ask_user tool call should appear")
+      (is (= "ask_user" (:name (first pending))))
+      (is (= false (:manualApproval (first pending))))
+      (is (= "req-123" (:requestId (first pending))))
+      (is (= "Q: Proceed?" (:summary (first pending))))
+      (is (= "Proceed?" (get-in (first pending) [:arguments :question]))
+          "arguments are keywordized after JSON round-trip")))
+
+  (testing "executing ask_user without requestId yet omits requestId from pendingToolCalls"
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1"
+            :title "T"
+            :status :running
+            :tool-calls {"tc-ask" {:status :executing
+                                   :name "ask_user"
+                                   :server "eca"
+                                   :origin :native
+                                   :arguments {"question" "Ready?"}
+                                   :manual-approval false}}})
+    (let [response (handlers/handle-get-chat (components) nil "c1")
+          body (json/parse-string (:body response) true)
+          pending (:pendingToolCalls body)]
+      (is (= 1 (count pending)))
+      (is (nil? (:requestId (first pending))))))
+
   (testing "returns per-chat model/variant/agent overrides when set"
     (swap! (h/db*) assoc-in [:chats "c1"]
            {:id "c1" :title "T" :status :idle

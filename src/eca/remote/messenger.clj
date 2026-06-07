@@ -68,18 +68,17 @@
   (editor-diagnostics [_this uri]
     (messenger/editor-diagnostics inner uri))
   (ask-question [_this params]
-    ;; If there are no SSE clients, fall back to the inner messenger so
-    ;; JSON-RPC editor sessions keep working unchanged. Otherwise mint a
-    ;; requestId, register a promise, and broadcast the question to all
-    ;; connected SSE clients. The promise is resolved by `answer-question!`
-    ;; when a client posts to /api/v1/answer.
+    ;; No SSE clients: fall back to inner so JSON-RPC editor sessions work
+    ;; unchanged. Otherwise reuse the caller-supplied :request-id (set by
+    ;; ask_user to match the id in tool-call state) and route the answer via
+    ;; SSE + /api/v1/answer.
     (if (empty? @sse-connections*)
       (messenger/ask-question inner params)
-      (let [request-id (str (random-uuid))
-            p (promise)]
+      (let [request-id (or (:request-id params) (str (random-uuid)))
+            p (promise)
+            wire-params (-> params (dissoc :request-id) (assoc :requestId request-id))]
         (swap! pending-questions* assoc request-id p)
-        (sse/broadcast! sse-connections* "chat:ask-question"
-                        (->camel (assoc params :requestId request-id)))
+        (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params))
         p))))
 
 (defn make-broadcast-messenger

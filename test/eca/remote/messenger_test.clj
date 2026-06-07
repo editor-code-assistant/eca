@@ -86,6 +86,26 @@
             "registry should be cleared after delivery"))
       (sse/close-all! sse-connections*))))
 
+(deftest ask-question-uses-caller-supplied-request-id-test
+  (testing "caller-supplied :request-id is used as the SSE requestId and pending-questions* key"
+    (let [inner (h/messenger)
+          sse-connections* (sse/create-connections)
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
+          os (java.io.ByteArrayOutputStream.)
+          _client (sse/add-client! sse-connections* os)
+          supplied-id "fixed-id-for-test"
+          p (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Q?" :request-id supplied-id})]
+      (Thread/sleep 100)
+      (let [output (.toString os "UTF-8")
+            pending @(:pending-questions* broadcast-messenger)]
+        (is (contains? pending supplied-id) "pending-questions* should be keyed by the supplied id")
+        (is (.contains output (str "\"requestId\":\"" supplied-id "\""))
+            "SSE payload should carry the supplied requestId")
+        (is (not (.contains output "\"request-id\"")) ":request-id should not appear in the SSE wire payload"))
+      (is (true? (remote.messenger/answer-question! broadcast-messenger supplied-id "ok" false)))
+      (is (= {:answer "ok" :cancelled false} @p))
+      (sse/close-all! sse-connections*))))
+
 (deftest ask-question-falls-back-to-inner-when-no-sse-clients-test
   (testing "ask-question delegates to inner messenger when no SSE clients are connected"
     (let [inner (h/messenger)

@@ -47,15 +47,19 @@
 (defn ^:private camel-keys [m]
   (shared/map->camel-cased-map m))
 
-(defn ^:private waiting-approval? [[_ tc]]
-  (= :waiting-approval (:status tc)))
+(defn ^:private pending-tool-call? [[_ tc]]
+  (or (= :waiting-approval (:status tc))
+      ;; ask_user blocks inside its handler while :executing; surface it so
+      ;; reconnecting clients can render the question input.
+      (and (= :executing (:status tc))
+           (= "ask_user" (:name tc)))))
 
 (defn ^:private pending-tool-calls
-  "Tool calls in :waiting-approval, shaped for the REST API so clients that
-   missed the toolCallRun SSE event can still render the approval card."
+  "Tool calls awaiting user interaction, shaped for the REST API so clients
+   that missed the SSE events can still render the approval card or question."
   [chat]
   (->> (:tool-calls chat)
-       (filter waiting-approval?)
+       (filter pending-tool-call?)
        (mapv (fn [[id tc]]
                (shared/assoc-some
                 {:id id
@@ -65,10 +69,11 @@
                  :arguments (:arguments tc)
                  :manual-approval (boolean (:manual-approval tc))}
                 :summary (:summary tc)
-                :details (:details tc))))))
+                :details (:details tc)
+                :request-id (:ask-question-request-id tc))))))
 
 (defn ^:private pending-approval-count [chat]
-  (->> (:tool-calls chat) (filter waiting-approval?) count))
+  (->> (:tool-calls chat) (filter (fn [[_ tc]] (= :waiting-approval (:status tc)))) count))
 
 (defn ^:private chat-summary [chat]
   (camel-keys
