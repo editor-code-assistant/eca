@@ -131,9 +131,16 @@
        "</mcp-server-instructions>"
        ""))))
 
+(def ^:private editor-state-context-types
+  "Volatile editor-state contexts (e.g. cursor) delivered per-turn in the user
+   message instead of the system prompt, so a moving cursor doesn't invalidate
+   the cached system prefix."
+  #{:cursor})
+
 (def ^:private volatile-context-types
-  "Context types that change between turns and belong in the dynamic prompt block."
-  #{:cursor :mcpResource})
+  "Context types that change between turns and must be kept out of the cached
+   static prompt."
+  (into #{:mcpResource} editor-state-context-types))
 
 (defn ^:private rule-section
   [tag description rendered-rules]
@@ -189,7 +196,8 @@
 (defn build-static-instructions
   "Builds the stable portion of the system prompt: agent prompt, rules, skills,
    stable contexts, and additional system info. Volatile contexts and MCP server
-   instructions are handled by build-dynamic-instructions."
+   instructions are handled by build-dynamic-instructions; editor-state contexts
+   (cursor) by build-editor-state-context."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
   (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)
         stable-contexts (remove #(volatile-context-types (:type %)) refined-contexts)
@@ -247,10 +255,14 @@
         (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))]))))
 
 (defn build-dynamic-instructions
-  "Builds the volatile portion of the system prompt: cursor/MCP resource contexts
-   and MCP server instructions. Recomputed every turn. Returns nil when empty."
+  "Builds the volatile portion of the system prompt: MCP resource contexts and
+   MCP server instructions. Editor-state contexts (cursor) are excluded here -
+   they are delivered per-turn in the user message via build-editor-state-context.
+   Recomputed every turn. Returns nil when empty."
   [refined-contexts db]
-  (let [volatile-contexts (filter #(volatile-context-types (:type %)) refined-contexts)
+  (let [volatile-contexts (filter #(and (volatile-context-types (:type %))
+                                        (not (editor-state-context-types (:type %))))
+                                  refined-contexts)
         result (multi-str
                 (when (seq volatile-contexts)
                   ["## Dynamic Contexts"
@@ -259,11 +271,21 @@
                 (mcp-instructions-section db))]
     (when-not (string/blank? result) result)))
 
+(defn build-editor-state-context
+  "Renders the volatile editor-state contexts (e.g. cursor) that are delivered
+   per-turn in the user message instead of the system prompt. Returns nil when
+   there are none."
+  [refined-contexts]
+  (let [editor-state-contexts (filter #(editor-state-context-types (:type %)) refined-contexts)]
+    (when (seq editor-state-contexts)
+      (contexts-str editor-state-contexts nil nil))))
+
 (defn build-chat-instructions
   "Returns {:static \"...\" :dynamic \"...\"}.
    Static content (agent prompt, rules, skills, stable contexts) can be cached
    when unchanged across turns.
-   Dynamic content (cursor, MCP resources, MCP instructions) is recomputed every turn."
+   Dynamic content (MCP resources, MCP instructions) is recomputed every turn.
+   Editor-state (cursor) is delivered separately in the user message."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
   {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills repo-map*
                                       agent-name config chat-id all-tools db)

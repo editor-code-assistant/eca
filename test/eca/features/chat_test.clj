@@ -737,6 +737,35 @@
               :role :system}]}
            (h/messages))))))
 
+(deftest cursor-delivered-in-user-message-test
+  (testing "cursor is appended to the user message and only re-sent when it changes (#464)"
+    (h/reset-components!)
+    (let [user-msgs* (atom [])
+          api-mock (fn [{:keys [user-messages on-first-response-received on-message-received]}]
+                     (swap! user-msgs* conj user-messages)
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          mocks {:all-tools-mock (constantly []) :api-mock api-mock}
+          cursor-at (fn [line] {:type "cursor" :path "foo.clj"
+                                :position {:start {:line line :character 0}
+                                           :end {:line line :character 3}}})
+          turn-text (fn [call-idx]
+                      (->> (get @user-msgs* call-idx) first :content (keep :text) (string/join "\n")))
+          {:keys [chat-id]} (prompt! {:message "one" :contexts [(cursor-at 10)]} mocks)]
+      (testing "first turn includes the cursor block"
+        (is (string/includes? (turn-text 0) "<cursor"))
+        (is (string/includes? (turn-text 0) "10:0")))
+      (h/reset-messenger!)
+      (prompt! {:message "two" :chat-id chat-id :contexts [(cursor-at 10)]} mocks)
+      (testing "unchanged cursor is not re-sent"
+        (is (not (string/includes? (turn-text 1) "<cursor"))))
+      (h/reset-messenger!)
+      (prompt! {:message "three" :chat-id chat-id :contexts [(cursor-at 25)]} mocks)
+      (testing "changed cursor is re-sent"
+        (is (string/includes? (turn-text 2) "<cursor"))
+        (is (string/includes? (turn-text 2) "25:0"))))))
+
 (deftest basic-tool-calling-prompt-test
   (testing "Asking to list directories, LLM will check for allowed directories and then list files"
     (h/reset-components!)
@@ -1329,6 +1358,17 @@
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (match? {:config-updated [{:chat {:select-trust false}}]}
                   (h/messages))))))
+
+(deftest open-chat-marks-editor-open-test
+  (testing "Resuming a chat lists it on the remote endpoint without a prompt"
+    (h/reset-components!)
+    (let [chat-id "resumed"]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (is (not (contains? (:editor-open-chats @(h/db*)) chat-id)))
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (contains? (:editor-open-chats @(h/db*)) chat-id)))))
 
 (deftest open-chat-restores-selected-trust-test
   (testing "Opening a trusted chat emits config/updated select-trust true (#426)"

@@ -47,7 +47,7 @@
   (testing "returns chats excluding subagents"
     (swap! (h/db*) assoc :chats {"c1" {:id "c1" :title "Test" :status :idle :created-at 123}
                                    "c2" {:id "c2" :title "Sub" :status :running :subagent true}}
-                                 :chat-start-fired #{"c1" "c2"})
+                                 :editor-open-chats #{"c1" "c2"})
     (let [response (handlers/handle-list-chats (components) nil)
           body (json/parse-string (:body response) true)]
       (is (= 1 (count body)))
@@ -64,7 +64,7 @@
                                       "tc-3" {:status :executing}
                                       "tc-4" {:status :completed}}}
                    "c2" {:id "c2" :title "No pending" :status :idle}}
-           :chat-start-fired #{"c1" "c2"})
+           :editor-open-chats #{"c1" "c2"})
     (let [response (handlers/handle-list-chats (components) nil)
           body (json/parse-string (:body response) true)
           by-id (into {} (map (juxt :id identity) body))]
@@ -250,7 +250,7 @@
            :chats {"c1" {:id "c1" :title "Has pending" :status :running
                          :tool-calls {"tc-1" {:status :waiting-approval}
                                       "tc-2" {:status :executing}}}}
-           :chat-start-fired #{"c1"})
+           :editor-open-chats #{"c1"})
     (let [response (handlers/handle-session (components) nil)
           body (json/parse-string (:body response) true)
           chat (first (:chats body))]

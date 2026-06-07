@@ -1178,12 +1178,19 @@
                                                  :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
       (lifecycle/finish-chat-prompt! :idle (dissoc chat-ctx :on-finished-side-effect)))))
 
+(defn ^:private mark-editor-open!
+  "Records that the editor has this chat open this run, so the remote endpoint
+   lists it. Separate from :chat-start-fired, which only gates the chatStart hook."
+  [db* chat-id]
+  (swap! db* update :editor-open-chats (fnil conj #{}) chat-id))
+
 (defn ^:private prompt*
   [{:keys [model]}
    {:keys [chat-id contexts message agent agent-config db* messenger config metrics] :as base-chat-ctx}]
   (let [provided-chat-id chat-id
         ;; Snapshot DB to detect new/resumed chat BEFORE hooks mutate it
         [db0 _] (swap-vals! db* assoc-in [:chat-start-fired chat-id] true)
+        _ (mark-editor-open! db* chat-id)
         existing-chat-before-prompt (get-in db0 [:chats chat-id])
         chat-start-fired? (get-in db0 [:chat-start-fired chat-id])
         has-messages? (seq (:messages existing-chat-before-prompt))
@@ -1274,8 +1281,19 @@
                                                                  seq
                                                                  (f.prompt/contexts-str repo-map* nil))]
                                    [{:type :text :text contexts-str}])
+        ;; Cursor (and other volatile editor-state) is delivered per-turn in the
+        ;; user message - never the system prompt - and only re-sent when it
+        ;; changed. This keeps the cached system/prefix stable across turns,
+        ;; avoiding llama.cpp full prompt re-processing on every cursor move. #464
+        editor-state-context (f.prompt/build-editor-state-context refined-contexts)
+        editor-state-contents (when (and editor-state-context
+                                         (not= editor-state-context
+                                               (get-in db [:chats chat-id :last-editor-state])))
+                                (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context)
+                                [{:type :text :text editor-state-context}])
         user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                            expanded-prompt-contexts
+                                                           editor-state-contents
                                                            image-contents))}]
         [provider model] (when full-model (shared/full-model->provider+model full-model))
         chat-ctx (merge base-chat-ctx
@@ -1679,6 +1697,7 @@
                       :messages kept-messages
                       :prompt-finished? true}]
         (swap! db* assoc-in [:chats new-id] new-chat)
+        (mark-editor-open! db* new-id)
         (db/update-workspaces-cache! @db* metrics)
         (messenger/chat-opened messenger {:chat-id new-id :title new-title})
         (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
@@ -1734,6 +1753,7 @@
       (let [title (:title chat)
             messages (:messages chat)
             chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
+        (mark-editor-open! db* chat-id)
         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
         (send-chat-contents! messages chat-ctx)
