@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP OAuth: add `authScope` (`global` default / `workspace` / custom bucket) to namespace stored tokens, so signing into different accounts per project no longer clobbers a shared server's token.
+ 
 ## 0.139.1
 
 - Model fetch: skip providers without configured credentials, include the response body in 4xx/5xx logs, and quiet down per-provider logging.

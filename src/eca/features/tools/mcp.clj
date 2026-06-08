@@ -6,6 +6,7 @@
    [clojure.java.browse :as browse]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
    [eca.logger :as logger]
@@ -110,6 +111,36 @@
                           (str "$" var1)
                           (str "${" var2 "}"))))))
 
+(defn ^:private mcp-auth-key
+  "Derive the `:mcp-auth` storage key for a server.
+
+  Tokens are namespaced so distinct projects don't clobber each other while
+  still sharing by default. Controlled by the server's `:authScope`:
+  - nil / \"global\" (default): bare server name, so a single token is shared
+    across every project (and back-compat with previously stored tokens).
+  - \"workspace\": scoped to the current workspace folder set.
+  - any other value: a named bucket shared across every project that uses it.
+
+  The value is resolved like any other config string, so the full
+  dynamic-string interpolation (`${env:...}`, `${file:...}`, `${cmd:...}`, ...)
+  already ran at config-load time; `replace-env-vars` here additionally expands
+  bare `$VAR` forms, matching how `url`/`headers` are treated.
+
+  The server name always prefixes the composite key so two different servers
+  never share a token even under the same scope label."
+  [server-name server-config db]
+  (let [scope (some-> (:authScope server-config) replace-env-vars string/trim not-empty)]
+    (cond
+      (or (nil? scope) (= "global" scope))
+      server-name
+
+      (= "workspace" scope)
+      (str (name server-name) "#ws:"
+           (cache/workspaces-hash (:workspace-folders db) shared/uri->filename))
+
+      :else
+      (str (name server-name) "#scope:" scope))))
+
 (defn ^:private ->transport [server-name server-config workspaces db*]
   (if (:url server-config)
     ;; HTTP Streamable transport
@@ -125,7 +156,7 @@
                                            [(name k) (replace-env-vars (str v))]))
                                  config-headers))
                    (update :headers merge
-                           (when-let [access-token (get-in @db* [:mcp-auth server-name :access-token])]
+                           (when-let [access-token (get-in @db* [:mcp-auth (mcp-auth-key server-name server-config @db*) :access-token])]
                              {"Authorization" (str "Bearer " access-token)}))))
           hc (phc/make-http-client url (cond-> {:request-middleware rm
                                                 :timeout-millis 10000}
@@ -228,7 +259,7 @@
    :prompts (get-in db [:mcp-clients mcp-name :prompts])
    :resources (get-in db [:mcp-clients mcp-name :resources])
    :instructions (get-in db [:mcp-clients mcp-name :instructions])
-   :has-auth (boolean (get-in db [:mcp-auth mcp-name :access-token]))
+   :has-auth (boolean (get-in db [:mcp-auth (mcp-auth-key mcp-name server-config db) :access-token]))
    :disabled (boolean (:disabled server-config))
    :status status})
 
@@ -333,8 +364,9 @@
 (defn ^:private try-refresh-token!
   "Attempt to refresh an MCP server's OAuth token.
    Returns true if refresh succeeded, false otherwise."
-  [name db* url metrics {:keys [clientId clientSecret oauthPort clientName]}]
-  (let [mcp-auth (get-in @db* [:mcp-auth name])
+  [name db* url metrics {:keys [clientId clientSecret oauthPort clientName] :as server-config}]
+  (let [auth-key (mcp-auth-key name server-config @db*)
+        mcp-auth (get-in @db* [:mcp-auth auth-key])
         {:keys [refresh-token]} mcp-auth
         ;; Reuse the client the refresh token was minted under instead of running
         ;; Dynamic Client Registration again. Servers with non-idempotent DCR (e.g.
@@ -356,7 +388,7 @@
                                :client-secret (:client-secret oauth-info)
                                :resource (:resource oauth-info))]
           (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
-          (swap! db* assoc-in [:mcp-auth name]
+          (swap! db* assoc-in [:mcp-auth auth-key]
                  (merge mcp-auth new-tokens))
           (db/update-global-cache! @db* metrics)
           true)))))
@@ -394,7 +426,7 @@
             url (:url server-config)
             ;; Skip OAuth entirely if Authorization header is configured
             has-static-auth? (some-> server-config :headers :Authorization some?)
-            mcp-auth (get-in @db* [:mcp-auth name])
+            mcp-auth (get-in @db* [:mcp-auth (mcp-auth-key name server-config @db*)])
             ;; Invalidate cached credentials when base URL changed (ignore query params)
             mcp-auth (when (= (oauth/url-without-query url)
                               (oauth/url-without-query (:url mcp-auth))) mcp-auth)
@@ -576,19 +608,20 @@
           ;; Callbacks run on a background thread after the OAuth HTML page has been
           ;; flushed to the browser, so synchronous stop-oauth-server! is safe here.
           :on-success (fn [{:keys [code]}]
-                        (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)]
+                        (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)
+                              auth-key (mcp-auth-key name server-config @db*)]
                           ;; Persist the client identity the tokens were minted under so refreshes
                           ;; reuse it. Servers with non-idempotent Dynamic Client Registration (e.g.
                           ;; RunLayer) issue a new client_id per registration; without this, a later
                           ;; refresh would re-register and orphan the refresh token.
-                          (swap! db* assoc-in [:mcp-auth name] (cond-> {:type :auth/oauth
-                                                                        :url (:url server-config)
-                                                                        :refresh-token refresh-token
-                                                                        :access-token access-token
-                                                                        :expires-at expires-at
-                                                                        :client-id (:client-id oauth-info)}
-                                                                 (:client-secret oauth-info)
-                                                                 (assoc :client-secret (:client-secret oauth-info)))))
+                          (swap! db* assoc-in [:mcp-auth auth-key] (cond-> {:type :auth/oauth
+                                                                            :url (:url server-config)
+                                                                            :refresh-token refresh-token
+                                                                            :access-token access-token
+                                                                            :expires-at expires-at
+                                                                            :client-id (:client-id oauth-info)}
+                                                                     (:client-secret oauth-info)
+                                                                     (assoc :client-secret (:client-secret oauth-info)))))
                         (oauth/stop-oauth-server! callback-port)
                         (db/update-global-cache! @db* metrics)
                         (initialize-server! name db* config metrics on-server-updated))
@@ -648,7 +681,7 @@
             (try
               (when (get-in @db* [:mcp-clients server-name :client])
                 (stop-server! server-name db* prev-config {:on-server-updated on-server-updated}))
-              (swap! db* update :mcp-auth dissoc server-name)
+              (swap! db* update :mcp-auth dissoc (mcp-auth-key server-name (get old k) @db*))
               (when on-server-removed
                 (on-server-removed {:name server-name}))
               (catch Exception e
@@ -669,8 +702,8 @@
 (defn logout-server!
   "Logout from an MCP server by clearing stored OAuth credentials and restarting it."
   [name db* config metrics {:keys [on-server-updated]}]
-  (when (get-in config [:mcpServers name])
-    (swap! db* update :mcp-auth dissoc name)
+  (when-let [server-config (get-in config [:mcpServers name])]
+    (swap! db* update :mcp-auth dissoc (mcp-auth-key name server-config @db*))
     (db/update-global-cache! @db* metrics)
     (restart-server! name db* config metrics on-server-updated)))
 
@@ -868,10 +901,11 @@
     (throw (ex-info (format "MCP server '%s' does not exist" server-name)
                     {:server-name server-name})))
   (let [db @db*
+        server-config (get-in config [:mcpServers server-name])
         config-file (resolve-config-file server-name db)]
     (when (get-in db [:mcp-clients server-name :client])
       (stop-server! server-name db* config {:on-server-updated on-server-updated}))
-    (swap! db* update :mcp-auth dissoc server-name)
+    (swap! db* update :mcp-auth dissoc (mcp-auth-key server-name server-config db))
     (update-config-file! config-file
                          #(rj/dissoc-in % ["mcpServers" server-name]))
     (memoize/memo-clear! config/all)

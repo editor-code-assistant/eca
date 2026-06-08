@@ -1217,6 +1217,11 @@
           "type": "string",
           "description": "Override the client_name sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to 'ECA (Editor Code Assistant)' when not set.",
           "markdownDescription": "Override the `client_name` sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to `ECA (Editor Code Assistant)` when not set."
+        },
+        "authScope": {
+          "type": "string",
+          "description": "Controls how the OAuth token for this server is shared across projects. 'global' (default): one token shared everywhere. 'workspace': a separate token per workspace folder set, so authenticating different accounts in different projects does not clobber each other. Any other value defines a named bucket shared by every project that uses the same value. Like other config values, supports dynamic-string interpolation (${env:...}, ${file:...}, ${cmd:...}, etc.).",
+          "markdownDescription": "Controls how the OAuth token for this server is shared across projects. `global` (default): one token shared everywhere. `workspace`: a separate token per workspace folder set, so authenticating different accounts in different projects does not clobber each other. Any other value defines a named bucket shared by every project that uses the same value. Like other config values, supports dynamic-string interpolation (`${env:...}`, `${file:...}`, `${cmd:...}`, etc.)."
         }
       },
       "additionalProperties": false
