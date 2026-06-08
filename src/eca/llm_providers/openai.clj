@@ -68,11 +68,10 @@
                    "Originator" (when oauth? "codex_cli_rs")
                    "Session-ID" (when oauth? (str (random-uuid))))
                   extra-headers))
-        on-error (if on-stream
-                   on-error
-                   (fn [error-data]
-                     (llm-util/log-response logger-tag rid "response-error" body)
-                     {:error error-data}))]
+        on-error (or on-error
+                     (fn [error-data]
+                       (llm-util/log-response logger-tag rid "response-error" body)
+                       {:error error-data}))]
     (llm-util/log-request logger-tag rid url body headers)
     (try
       (let [{:keys [status body]} (http/post
