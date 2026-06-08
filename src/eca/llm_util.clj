@@ -160,6 +160,16 @@
           shared/normalize-api-url
           not-empty))
 
+(defn copilot-ide-headers
+  "GitHub Copilot's API authenticates IDE requests by a recognized editor
+   identity. A non-editor value (e.g. `eca/...`) is rejected with
+   `400 missing/unknown Editor-Version header for IDE auth`, so we present the
+   VS Code Copilot client identity its `/models` and chat endpoints expect."
+  []
+  {"editor-version" "vscode/1.107.0"
+   "editor-plugin-version" "copilot-chat/0.35.0"
+   "copilot-integration-id" "vscode-chat"})
+
 (defn ^:private cause-chain
   "Returns a seq of `e` followed by every nested cause."
   [^Throwable e]

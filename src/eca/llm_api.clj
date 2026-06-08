@@ -308,6 +308,7 @@
                                         "vscode-machineid" ""
                                         "Copilot-Vision-Request" "true"
                                         "copilot-integration-id" "vscode-chat"}
+                                       (llm-util/copilot-ide-headers)
                                        extra-headers))
               base-opts {:model real-model
                          :instructions flat-instructions

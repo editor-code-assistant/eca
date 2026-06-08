@@ -17,6 +17,20 @@
 (def ^:private models-dev-timeout-ms 5000)
 (def ^:private provider-models-timeout-ms 10000)
 
+(def ^:private max-error-body-log-length 500)
+
+(defn ^:private truncate-for-log
+  "Coerce `v` to a string and truncate it so error logs stay readable. Hato with
+   `:coerce :unexceptional` returns the raw body string on non-2xx responses."
+  [v]
+  (let [s (cond
+            (nil? v) ""
+            (string? v) v
+            :else (pr-str v))]
+    (if (> (count s) max-error-body-log-length)
+      (str (subs s 0 max-error-body-log-length) "...(truncated)")
+      s)))
+
 ;; Provider API types that support native /models endpoint fetching
 (def ^:private native-models-endpoint-providers
   #{"anthropic" "openai" "openai-chat" "openai-responses"})
@@ -31,12 +45,13 @@
     nil))
 
 (defn ^:private models-endpoint-headers
-  [auth-type api-type api-key]
+  [provider auth-type api-type api-key]
   (let [oauth? (= :auth/oauth auth-type)
         anthropic? (= "anthropic" api-type)]
     (client/merge-llm-headers
      (assoc-some
-      {"Content-Type" "application/json"}
+      (cond-> {"Content-Type" "application/json"}
+        (= "github-copilot" provider) (merge (llm-util/copilot-ide-headers)))
       "anthropic-version" (when anthropic? "2023-06-01")
       "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
       "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
@@ -47,10 +62,12 @@
                                         {:throw-exceptions? false
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout models-dev-timeout-ms
+                                         :coerce :unexceptional
                                          :as :json-string-keys})]
     (if (= 200 status)
       body
-      (throw (ex-info (format "models.dev request failed with status %s" status)
+      (throw (ex-info (format "models.dev request failed with status %s: %s"
+                              status (truncate-for-log body))
                       {:status status})))))
 
 (defn ^:private models-dev []
@@ -172,11 +189,20 @@
    {}
    models-dev-data))
 
+(defn ^:private provider-configured?
+  "True when the user has enough configuration to reach `provider`: either it
+   doesn't require auth (e.g. local providers) or both an API URL and API key
+   resolve (from config, login auth, or env vars). Used to avoid firing
+   model-fetch requests for providers the user never set up."
+  [provider provider-config db config]
+  (or (not (get provider-config :requiresAuth? false))
+      (boolean
+       (and (llm-util/provider-api-url provider config)
+            (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))
+
 (defn ^:private auth-valid? [full-model db config]
   (let [[provider _model] (shared/full-model->provider+model full-model)]
-    (or (not (get-in config [:providers provider :requiresAuth?] false))
-        (and (llm-util/provider-api-url provider config)
-             (llm-util/provider-api-key provider (get-in db [:auth provider]) config)))))
+    (provider-configured? provider (get-in config [:providers provider]) db config)))
 
 (defn ^:private models-dev-providers-by-url
   "Returns a map of models.dev API base URL -> models.dev provider config."
@@ -255,19 +281,20 @@
   (when-let [models-path (provider-models-endpoint-path api-type)]
     (let [url (shared/join-api-url api-url models-path)
           rid (llm-util/gen-rid)
-          headers (models-endpoint-headers auth-type api-type api-key)]
+          headers (models-endpoint-headers provider auth-type api-type api-key)]
       (try
         (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
         (let [{:keys [status body]} (http/get url
                                               {:headers headers
                                                :throw-exceptions? false
                                                :as :json
+                                               :coerce :unexceptional
                                                :http-client (client/merge-with-global-http-client {})
                                                :timeout provider-models-timeout-ms})]
           (if (not= 200 status)
             (logger/warn logger-tag
-                         (format "Provider '%s': /models endpoint returned status %s"
-                                 provider status))
+                         (format "Provider '%s': /models endpoint returned status %s: %s"
+                                 provider status (truncate-for-log body)))
 
             (let [models-data (:data body)]
               (if (not (sequential? models-data))
@@ -302,9 +329,9 @@
                             :auth-type auth-type
                             :api-key api-key
                             :api-type api-type})]
-          (logger/info logger-tag
-                       (format "Provider '%s': Discovered %d models from native /models endpoint"
-                               provider (count models)))
+          (logger/debug logger-tag
+                        (format "Provider '%s': Discovered %d models from native /models endpoint"
+                                provider (count models)))
           models)))))
 
 (defn ^:private parse-models-dev-provider-models
@@ -345,13 +372,13 @@
           provider-models (some->> (get models-dev-provider "models")
                                    (parse-models-dev-provider-models provider))]
       (when (using-models-dev-provider-id-fallback? provider provider-api-url models-dev-index)
-        (logger/info logger-tag
-                     (format "Provider '%s': Using models.dev provider-id fallback (url '%s' not matched)"
-                             provider provider-api-url)))
+        (logger/debug logger-tag
+                      (format "Provider '%s': Using models.dev provider-id fallback (url '%s' not matched)"
+                              provider provider-api-url)))
       (when provider-models
-        (logger/info logger-tag
-                     (format "Provider '%s': Loaded %d models from models.dev"
-                             provider (count provider-models))))
+        (logger/debug logger-tag
+                      (format "Provider '%s': Loaded %d models from models.dev"
+                              provider (count provider-models))))
       provider-models)))
 
 (defn ^:private cost-per-1m->per-token
@@ -440,12 +467,18 @@
          futures (into []
                        (keep (fn [[provider provider-config]]
                                (when (fetch-model-catalog-enabled? provider-config)
-                                 [provider
-                                  (future
-                                    (or (fetch-provider-native-models-with-fallback
-                                         provider provider-config config db)
-                                        (fetch-single-provider-models-dev
-                                         provider provider-config config models-dev-index)))])))
+                                 (if (provider-configured? provider provider-config db config)
+                                   [provider
+                                    (future
+                                      (or (fetch-provider-native-models-with-fallback
+                                           provider provider-config config db)
+                                          (fetch-single-provider-models-dev
+                                           provider provider-config config models-dev-index)))]
+                                   (do
+                                     (logger/debug logger-tag
+                                                   (format "Provider '%s': Skipping model fetch (not configured)"
+                                                           provider))
+                                     nil)))))
                        (:providers config))
          result (reduce
                  (fn [acc [provider f]]

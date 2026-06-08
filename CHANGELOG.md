@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Model fetch: skip providers without configured credentials, include the response body in 4xx/5xx logs, and quiet down per-provider logging.
+- Model fetch: renew near-expiry OAuth tokens before syncing catalogs, fixing spurious `token expired` 401s (e.g. GitHub Copilot) on startup and config reloads.
+- GitHub Copilot: present the expected VS Code editor identity (`Editor-Version`/`Editor-Plugin-Version`/`Copilot-Integration-Id`) on model-catalog and chat requests, fixing `400 ... Editor-Version header for IDE auth`.
+
 ## 0.139.0
 
 - Remote mode: `ask_user` now reaches both the editor and connected SSE/web clients simultaneously, with the first answer from either winning, instead of only the web client when one is connected.
