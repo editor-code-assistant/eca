@@ -1052,10 +1052,17 @@
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   compacting? (or (get-in db [:chats chat-id :compacting?])
-                                                  (get-in db [:chats chat-id :auto-compacting?]))]
+                                                  (get-in db [:chats chat-id :auto-compacting?]))
+                                  ;; Only auto-compact when there's conversation to compact. Compaction
+                                  ;; can't shrink the static system prompt (incl. MCP server instructions);
+                                  ;; with empty history it would just re-issue the same oversized request
+                                  ;; under a new prompt-id and the error would never surface to the user. (#491)
+                                  compactable? (boolean (seq (shared/messages-after-last-compact-marker
+                                                              (get-in db [:chats chat-id :messages] []))))]
                               (if (and (= :context-overflow error-type)
                                        (not compacting?)
-                                       (not (:auto-compacted? chat-ctx)))
+                                       (not (:auto-compacted? chat-ctx))
+                                       compactable?)
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
                                                {:chat-id chat-id})
@@ -1097,7 +1104,13 @@
                                                                                (assoc chat-ctx :auto-continued? true))))))
                                     (do
                                       (when-not stopping?
-                                        (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))}))
+                                        (lifecycle/send-content! chat-ctx :system
+                                                                 {:type :text
+                                                                  :text (if (= :context-overflow error-type)
+                                                                          (str "\n\nContext window exceeded: this request is larger than the model's context window"
+                                                                               " (system prompt, MCP server instructions and messages combined)."
+                                                                               " Try a model with a larger context window, or reduce enabled MCP servers/context.")
+                                                                          (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))))}))
                                       ;; Defensive save: finish-chat-prompt! can short-circuit when
                                       ;; :prompt-finished? was already set or the prompt-id rotated,
                                       ;; which would leave a chat that hit an error without a save.

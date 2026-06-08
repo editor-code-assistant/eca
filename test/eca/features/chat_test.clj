@@ -529,8 +529,16 @@
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)
-    (let [api-call-count* (atom 0)
+    (let [chat-id "overflow-compact-chat"
+          api-call-count* (atom 0)
           auto-compact-count* (atom 0)]
+      ;; Seed prior conversation so there is something to compact; with empty
+      ;; history the overflow is surfaced immediately, see
+      ;; context-overflow-first-turn-surfaces-error-test.
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "earlier question"}]}
+                         {:role "assistant" :content [{:type :text :text "earlier answer"}]}]})
       (with-redefs-fn
         {#'f.chat/trigger-auto-compact!
          (fn [chat-ctx _all-tools user-messages]
@@ -542,7 +550,7 @@
         (fn []
           (let [{:keys [_chat-id]}
                 (prompt!
-                 {:message "Do something"}
+                 {:message "Do something" :chat-id chat-id}
                  {:all-tools-mock (constantly [])
                   :api-mock
                   (fn [{:keys [on-error]}]
@@ -560,9 +568,40 @@
                                         :text "Context window exceeded. Auto-compacting conversation..."}}
                              {:role :system
                               :content {:type :text
-                                        :text "\n\ntoken limit exceeded"}}])}
+                                        :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
                  (h/messages))
-                "Should show auto-compact attempt and then the final error")))))))
+                "Should show auto-compact attempt and then the final clear error")))))))
+
+(deftest context-overflow-first-turn-surfaces-error-test
+  (testing "context overflow with no history to compact surfaces a clear error without auto-compacting (#491)"
+    (h/reset-components!)
+    (let [api-call-count* (atom 0)
+          auto-compact-count* (atom 0)]
+      (with-redefs-fn
+        {#'f.chat/trigger-auto-compact! (fn [& _] (swap! auto-compact-count* inc))}
+        (fn []
+          (let [{:keys [chat-id]}
+                (prompt!
+                 {:message "Do something"}
+                 {:all-tools-mock (constantly [])
+                  :api-mock
+                  (fn [{:keys [on-error]}]
+                    (swap! api-call-count* inc)
+                    (on-error {:error/type :context-overflow
+                               :message "prompt is too long"}))})]
+            (is (zero? @auto-compact-count*)
+                "auto-compact must NOT trigger when there is no conversation to compact")
+            (is (= 1 @api-call-count*)
+                "LLM should be called exactly once; no futile compact retry")
+            (is (match?
+                 {:chat-content-received
+                  (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
+                 (h/messages))
+                "Should surface a clear context-overflow error to the user")
+            (is (= :idle (get-in (h/db) [:chats chat-id :status]))
+                "Chat should finish in idle state")))))))
 
 (deftest limit-reached-clears-compact-flags-test
   (testing ":limit-reached handler clears stale compacting?/auto-compacting? flags so /compact can be retried"
