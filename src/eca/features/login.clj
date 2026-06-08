@@ -117,6 +117,21 @@
       (renew-auth! provider ctx
                    {:on-error on-error}))))
 
+(defn renew-expiring-auth-tokens!
+  "Best-effort proactive renewal of any provider auth tokens that are at/near
+   expiry. Used by non-interactive paths like model-catalog sync, which would
+   otherwise call provider endpoints with a stale short-lived token (e.g.
+   Copilot's session token) and get a 401. `ctx` needs {:db* :messenger :config
+   :metrics}."
+  [{:keys [db*] :as ctx}]
+  (doseq [provider (keys (:auth @db*))]
+    (maybe-renew-auth-token!
+     {:provider provider
+      :on-error (fn [msg]
+                  (logger/warn logger-tag
+                               (format "Could not renew '%s' auth token before sync: %s" provider msg)))}
+     ctx)))
+
 (defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}
                    & {:keys [silent? skip-models-sync?]
                       :or {silent? false
