@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.139.1
+
 - Model fetch: skip providers without configured credentials, include the response body in 4xx/5xx logs, and quiet down per-provider logging.
 - Model fetch: renew near-expiry OAuth tokens before syncing catalogs, fixing spurious `token expired` 401s (e.g. GitHub Copilot) on startup and config reloads.
 - GitHub Copilot: present the expected VS Code editor identity (`Editor-Version`/`Editor-Plugin-Version`/`Copilot-Integration-Id`) on model-catalog and chat requests, fixing `400 ... Editor-Version header for IDE auth`.
