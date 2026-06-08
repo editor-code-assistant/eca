@@ -46,7 +46,7 @@
 
   (testing "global skills with XDG_CONFIG_HOME fallback"
     (with-redefs [config/get-env (constantly nil)
-                  config/get-property (constantly (h/file-path "/home/someuser"))
+                  config/user-home (constantly (h/file-path "/home/someuser"))
                   fs/exists? #(= (h/file-path "/home/someuser/.config/eca/skills") (str %))
                   fs/directory? #(= (h/file-path "/home/someuser/.config/eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/home/someuser/.config/eca/skills/fallback-skill/SKILL.md"))])
