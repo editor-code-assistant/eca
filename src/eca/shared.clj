@@ -144,7 +144,7 @@
    Respects XDG_CONFIG_HOME, defaults to ~/.config/eca."
   ^java.io.File []
   (let [xdg-config-home (or (System/getenv "XDG_CONFIG_HOME")
-                            (io/file (System/getProperty "user.home") ".config"))]
+                            (io/file (cache/user-home) ".config"))]
     (io/file xdg-config-home "eca")))
 
 (def windows-os?

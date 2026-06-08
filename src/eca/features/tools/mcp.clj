@@ -174,7 +174,7 @@
                                first
                                :uri
                                shared/uri->filename)
-                       (config/get-property "user.home"))]
+                       (config/user-home))]
       {:transport (psct/run-command
                    {:command-tokens (into [(replace-env-vars command)]
                                           (map replace-env-vars)

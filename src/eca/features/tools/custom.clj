@@ -1,6 +1,7 @@
 (ns eca.features.tools.custom
   (:require
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -23,7 +24,7 @@
                                first
                                :uri
                                shared/uri->filename)
-                       (System/getProperty "user.home"))
+                       (cache/user-home))
           shell-config (get-in config [:toolCall :shellCommand])
           shell-path (get shell-config :path)
           shell-args (get shell-config :args)

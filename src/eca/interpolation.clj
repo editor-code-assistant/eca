@@ -19,6 +19,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.cache :as cache]
    [eca.logger :as logger]
    [eca.shared :as shared]
    [eca.secrets :as secrets]))
@@ -206,7 +207,7 @@
   (try
     (let [os-name (System/getProperty "os.name")
           existing-path (System/getenv "PATH")
-          home (System/getProperty "user.home")
+          home (cache/user-home)
           sep (System/getProperty "path.separator")
           new-path (effective-path os-name existing-path home sep)
           extra-env (cond-> {}

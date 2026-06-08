@@ -2,6 +2,7 @@
   (:require
    [babashka.process :as p]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.features.tools.shell :as shell]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -33,7 +34,7 @@
                                    first
                                    :uri
                                    shared/uri->filename)
-                           (System/getProperty "user.home"))
+                           (cache/user-home))
               _ (logger/debug logger-tag "Running command:" command)
               result (try
                        (if-let [proc (when-not (= :stopping (:status (call-state-fn)))

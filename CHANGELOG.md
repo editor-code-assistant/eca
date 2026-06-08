@@ -5,6 +5,7 @@
 - MCP OAuth: add `authScope` (`global` default / `workspace` / custom bucket) to namespace stored tokens, so signing into different accounts per project no longer clobbers a shared server's token.
 - OpenAI: inline completion no longer fails with a `NullPointerException` on provider/auth errors (e.g. OAuth login); the underlying error is surfaced instead. (#495)
 - Surface a clear error when a prompt exceeds the model's context window instead of silently finishing; skip auto-compaction when there's no conversation to compact. (#491)
+- Resolve home via `$HOME`/`$USERPROFILE` when `user.home` is invalid (e.g. native image, email-style username), fixing broken cache paths and login persistence. (#490)
 
 ## 0.139.1
 

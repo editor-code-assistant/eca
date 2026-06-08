@@ -10,11 +10,33 @@
 
 (set! *warn-on-reflection* true)
 
+(defn ^:private first-valid-home
+  "First candidate that is a non-blank, non-\"?\" absolute path, or nil."
+  [candidates]
+  (some (fn [^String p]
+          (when (and (not (string/blank? p))
+                     (not= "?" p)
+                     (.isAbsolute (io/file p)))
+            p))
+        candidates))
+
+(defn user-home
+  "Resolves the user's home directory defensively.
+   In some environments (e.g. a GraalVM native image with an email-style
+   username) `user.home` can be blank or the literal \"?\", which would make
+   relative paths resolve against the process CWD. Falls back to the HOME /
+   USERPROFILE env vars, returning the first candidate that is an absolute path."
+  ^String []
+  (or (first-valid-home [(System/getProperty "user.home")
+                         (System/getenv "HOME")
+                         (System/getenv "USERPROFILE")])
+      (System/getProperty "user.home")))
+
 (defn global-dir
   "Returns the File object for ECA's global cache directory."
   []
   (let [cache-home (or (System/getenv "XDG_CACHE_HOME")
-                       (io/file (System/getProperty "user.home") ".cache"))]
+                       (io/file (user-home) ".cache"))]
     (io/file cache-home "eca")))
 
 (defn ^:private sorted-workspace-paths

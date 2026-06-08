@@ -123,3 +123,54 @@
           (is (contains? redundant (str hash-only-file)))
           (is (contains? redundant (str other-prefixed-file)))
           (is (not (contains? redundant (str canonical)))))))))
+
+(deftest first-valid-home-test
+  (let [first-valid-home #'cache/first-valid-home]
+    (testing "skips the \"?\" placeholder and uses the next absolute path"
+      (is (= "/home/user" (first-valid-home ["?" "/home/user" nil]))))
+    (testing "skips nil and blank candidates"
+      (is (= "/home/user" (first-valid-home [nil "" "   " "/home/user"]))))
+    (testing "skips relative paths"
+      (is (= "/abs" (first-valid-home ["relative/path" "/abs"]))))
+    (testing "returns nil when no candidate is a valid absolute path"
+      (is (nil? (first-valid-home ["?" "" "relative"]))))
+    (testing "returns the first valid absolute path"
+      (is (= "/first" (first-valid-home ["/first" "/second"]))))))
+
+(deftest user-home-test
+  (testing "uses user.home when it is a valid absolute path"
+    (let [tmp (str (fs/create-temp-dir {:prefix "eca-home-test"}))
+          prev (System/getProperty "user.home")]
+      (try
+        (System/setProperty "user.home" tmp)
+        (is (= tmp (cache/user-home)))
+        (finally
+          (System/setProperty "user.home" prev)
+          (fs/delete-tree tmp)))))
+  (testing "falls back to an absolute env path when user.home is the \"?\" placeholder"
+    (let [prev (System/getProperty "user.home")]
+      (try
+        (System/setProperty "user.home" "?")
+        ;; In normal environments HOME/USERPROFILE is set and absolute; assert the
+        ;; placeholder is never returned. Guarded so exotic CI envs don't flake.
+        (when-let [env-home (or (System/getenv "HOME") (System/getenv "USERPROFILE"))]
+          (when (.isAbsolute (io/file env-home))
+            (let [resolved (cache/user-home)]
+              (is (not= "?" resolved))
+              (is (.isAbsolute (io/file resolved)))
+              (is (= env-home resolved)))))
+        (finally
+          (System/setProperty "user.home" prev))))))
+
+(deftest global-dir-not-relative-test
+  (testing "global-dir is absolute (no literal \"?\" segment) when user.home is the placeholder"
+    (let [prev (System/getProperty "user.home")]
+      (try
+        (System/setProperty "user.home" "?")
+        (when (and (not (System/getenv "XDG_CACHE_HOME"))
+                   (or (System/getenv "HOME") (System/getenv "USERPROFILE")))
+          (let [dir (cache/global-dir)]
+            (is (.isAbsolute dir))
+            (is (nil? (re-find #"/\?/" (str dir))))))
+        (finally
+          (System/setProperty "user.home" prev))))))

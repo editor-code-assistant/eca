@@ -71,7 +71,7 @@
               first
               :uri
               shared/uri->filename)
-      (config/get-property "user.home")))
+      (config/user-home)))
 
 (defn ^:private wait-for-initial-output
   "Poll for initial output, exiting early if the process exits or the tool call
