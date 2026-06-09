@@ -99,7 +99,9 @@
                             :models {"claude-sonnet-4-6" {}
                                      "claude-opus-4-6" {}
                                      "claude-opus-4-7" {}
-                                     "claude-opus-4-8" {}}}
+                                     "claude-opus-4-8" {}
+                                     "claude-fable-5" {}
+                                     "claude-mythos-5" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
@@ -199,7 +201,7 @@
               :shellCommand {:summaryMaxLength 35}
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
-                     ".*opus[-._]4[-._][78]" {:variants anthropic-v2-variants}
+                     ".*opus[-._]4[-._][78]|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*deepseek[-._]v4[-._]pro" {:variants deepseek-variants

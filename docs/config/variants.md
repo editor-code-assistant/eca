@@ -23,9 +23,9 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `high`     | `{"output_config": {"effort": "high"}, "thinking": {"type": "adaptive"}}` |
     | `max`      | `{"output_config": {"effort": "max"}, "thinking": {"type": "adaptive"}}` |
 
-=== "Anthropic (opus 4.7+)"
+=== "Anthropic (opus 4.7+, fable/mythos 5)"
 
-    Applies to models matching `opus-4-7`, `opus-4-8` (any separator: `-`, `.`, `_`).
+    Applies to models matching `opus-4-7`, `opus-4-8`, `fable-5`, `mythos-5` (any separator: `-`, `.`, `_`).
 
     | Variant    | Payload |
     | ---------- | ------- |

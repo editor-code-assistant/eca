@@ -7,6 +7,7 @@
 - Tool hooks (`preToolCall`/`postToolCall`) now include `tool_call_id` in input data.
 - Expand hook contracts: `response` not `prompt`, plain-text `tool_response`, `continue:false` everywhere, `followUp`, `replacedOutput`, standalone `systemMessage`, exact-string matchers.
 - Fix `postToolCall continue:false` leaking across turns, `chatStart` `additionalContext` dropped, and `preRequest` exit-2 naming the blocking hook.
+- Add Claude Fable 5 and Mythos 5 support.
 
 ## 0.139.2
 
