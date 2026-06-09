@@ -186,3 +186,33 @@ By default ECA consider the following as the base configuration:
 !!! info "Network / Enterprise"
 
     For more details about configuring eca with mTLS or custom CA certificates, check [network page](./network.md)
+
+## Templates
+
+ECA supports templating in configurable prompts and rules, so instructions can adapt to the current chat context.
+
+Custom agent prompts and [rules](rules.md) are rendered with [Selmer](https://github.com/yogthos/Selmer). Use condition variables when one prompt or rule should behave differently depending on the current chat.
+
+Available variables:
+
+| Variable                  | Type    | Description                                                                                     |
+|---------------------------|---------|-------------------------------------------------------------------------------------------------|
+| `isSubagent`              | boolean | `true` when the chat is running as a subagent                                                   |
+| `workspaceRoots`          | string  | The current workspace root paths                                                                |
+| `toolEnabled_<tool-name>` | boolean | `true` when a tool is enabled, using its exact full name, e.g. `toolEnabled_eca__shell_command` |
+
+```markdown title="Prompt or rule"
+{% if isSubagent %}
+Be concise and return only the final result.
+{% else %}
+Explain important trade-offs and assumptions.
+{% endif %}
+
+{% if toolEnabled_eca__shell_command %}
+You can run shell commands to verify your work.
+{% endif %}
+
+Current workspace roots: {{ workspaceRoots }}
+```
+
+If a rule renders to an empty string, ECA skips it and does not add an empty rule block to the system prompt.
