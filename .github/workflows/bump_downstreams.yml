@@ -34,10 +34,10 @@ jobs:
           mac_arm_sha256=$(shasum -a 256 eca-native-macos-aarch64.zip/eca-native-macos-aarch64.zip | awk '{print $1}')
           linuxsha256=$(shasum -a 256 eca-native-linux-amd64.zip/eca-native-linux-amd64.zip | awk '{print $1}')
           static_linuxsha256=$(shasum -a 256 eca-native-static-linux-amd64.zip/eca-native-static-linux-amd64.zip | awk '{print $1}')
-          echo "::set-output name=linuxsha256::$linuxsha256"
-          echo "::set-output name=static_linuxsha256::$static_linuxsha256"
-          echo "::set-output name=mac_amd_sha256::$mac_amd_sha256"
-          echo "::set-output name=mac_arm_sha256::$mac_arm_sha256"
+          echo "linuxsha256=$linuxsha256" >> "$GITHUB_OUTPUT"
+          echo "static_linuxsha256=$static_linuxsha256" >> "$GITHUB_OUTPUT"
+          echo "mac_amd_sha256=$mac_amd_sha256" >> "$GITHUB_OUTPUT"
+          echo "mac_arm_sha256=$mac_arm_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Install Babashka
         run: curl -s https://raw.githubusercontent.com/borkdude/babashka/master/install | sudo bash

@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: cachix/install-nix-action@v17
+      - uses: cachix/install-nix-action@v31
 
       - name: Update deps-lock
         run: "nix develop --command deps-lock-update"
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v4.0.3
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: Update nix deps-lock.json
           title: Update nix deps-lock.json

@@ -12,7 +12,7 @@ on:
       - 'images/**'
       - 'mkdocs.yml'
       - 'deps-lock.json'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/test.yml'
       - '.github/workflows/release.yml'
       - 'test/**'
 
@@ -33,14 +33,14 @@ jobs:
         run: |
           RELEASE_VERSION=$(cat resources/ECA_VERSION)
           VERSION=$RELEASE_VERSION-$(date -u +"%Y.%m.%d-%H.%M.%S")
-          echo "::set-output name=tag::$VERSION-nightly"
+          echo "tag=$VERSION-nightly" >> "$GITHUB_OUTPUT"
 
       - id: commit-hash
-        uses: pr-mpt/actions-commit-hash@v1
+        uses: pr-mpt/actions-commit-hash@v4
 
       - name: Create dev release
         id: create_dev_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.ECA_TOKEN }}
           tag_name: ${{ steps.dev-tag.outputs.tag}}
@@ -56,14 +56,15 @@ jobs:
         with:
           fetch-depth: 0
       - name: Prepare java
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v4
         with:
+          distribution: 'temurin'
           java-version: 24
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@master
+        uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1495'
+          cli: '1.12.0.1530'
           bb: '1.12.200'
 
       - name: Update nightly version
@@ -115,9 +116,9 @@ jobs:
           name: eca.jar
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@master
+        uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1495'
+          cli: '1.12.0.1530'
           bb: '1.12.200'
 
       - uses: graalvm/setup-graalvm@v1
@@ -172,9 +173,9 @@ jobs:
           name: eca.jar
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@master
+        uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1495'
+          cli: '1.12.0.1530'
           bb: '1.12.200'
 
       - uses: graalvm/setup-graalvm@v1
@@ -232,9 +233,9 @@ jobs:
           name: eca.jar
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@master
+        uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1495'
+          cli: '1.12.0.1530'
           bb: '1.12.200'
 
       - uses: graalvm/setup-graalvm@v1
@@ -289,9 +290,9 @@ jobs:
           name: eca.jar
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@master
+        uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1495'
+          cli: '1.12.0.1530'
           bb: '1.12.200'
 
       - uses: graalvm/setup-graalvm@v1
@@ -352,14 +353,15 @@ jobs:
           maximum-size: 16GB
 
       - name: Prepare java
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v4
         with:
+          distribution: 'temurin'
           java-version: 24
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@master
+        uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1495'
+          cli: '1.12.0.1530'
           bb: '1.12.200'
 
       - name: Install MSVC
