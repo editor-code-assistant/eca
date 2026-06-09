@@ -147,7 +147,7 @@
       (is (string/includes? dynamic "test-server"))
       (is (string/includes? dynamic "Use test-server for testing"))))
 
-  (testing "cursor context goes into :dynamic, not :static"
+  (testing "cursor context is excluded from both :static and :dynamic (delivered in the user message)"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
                             {:type :cursor :path "bar.clj"
                              :position {:start {:line 10 :character 0}
@@ -155,9 +155,7 @@
           {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
       (is (string/includes? static "<file path=\"foo.clj\">(ns foo)</file>"))
       (is (not (string/includes? static "cursor")))
-      (is (string? dynamic))
-      (is (string/includes? dynamic "cursor"))
-      (is (string/includes? dynamic "## Dynamic Contexts"))))
+      (is (nil? dynamic))))
 
   (testing "mcpResource context goes into :dynamic, not :static"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
@@ -167,6 +165,22 @@
       (is (not (string/includes? static "volatile-content")))
       (is (string? dynamic))
       (is (string/includes? dynamic "volatile-content")))))
+
+(deftest build-editor-state-context-test
+  (testing "renders the cursor context block"
+    (let [result (prompt/build-editor-state-context
+                  [{:type :cursor :path "bar.clj"
+                    :position {:start {:line 10 :character 0}
+                               :end {:line 10 :character 5}}}])]
+      (is (string? result))
+      (is (string/includes? result "<cursor"))
+      (is (string/includes? result "bar.clj"))
+      (is (string/includes? result "10:0"))
+      (is (string/includes? result "10:5"))))
+  (testing "ignores non-editor-state contexts and returns nil when none"
+    (is (nil? (prompt/build-editor-state-context [])))
+    (is (nil? (prompt/build-editor-state-context [{:type :file :path "foo.clj" :content "(ns foo)"}])))
+    (is (nil? (prompt/build-editor-state-context [{:type :mcpResource :uri "custom://x" :content "c"}])))))
 
 (deftest instructions->str-test
   (testing "flattens map with both parts to joined string"
@@ -184,9 +198,7 @@
              (string/index-of static "## Static Contexts")))))
   (testing "Static contexts come before Dynamic contexts in the flattened prompt"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
-                            {:type :cursor :path "bar.clj"
-                             :position {:start {:line 1 :character 0}
-                                        :end {:line 1 :character 2}}}]
+                            {:type :mcpResource :uri "custom://my-resource" :content "volatile-content"}]
           flat (prompt/instructions->str
                 (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db)))]
       (is (< (string/index-of flat "## Static Contexts")

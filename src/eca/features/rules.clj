@@ -145,7 +145,7 @@
 
 (defn ^:private global-file-rules []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
-                            (io/file (config/get-property "user.home") ".config"))
+                            (io/file (config/user-home) ".config"))
         rules-dir (io/file xdg-config-home "eca" "rules")]
     (keep #(rule-file :user-global-file % {})
           (rule-files rules-dir))))

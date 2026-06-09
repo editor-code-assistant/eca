@@ -31,7 +31,112 @@
         (#'models/fetch-models-dev-data)
         (is false "Expected ExceptionInfo on non-200 status")
         (catch clojure.lang.ExceptionInfo e
-          (is (re-find #"status 503" (ex-message e))))))))
+          (is (re-find #"status 503" (ex-message e)))))))
+
+  (testing "Includes the response body in the error message"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 500
+                              :body "upstream exploded"})]
+      (try
+        (#'models/fetch-models-dev-data)
+        (is false "Expected ExceptionInfo on non-200 status")
+        (catch clojure.lang.ExceptionInfo e
+          (is (re-find #"upstream exploded" (ex-message e))))))))
+
+(deftest truncate-for-log-test
+  (testing "Returns short strings unchanged"
+    (is (= "hello" (#'models/truncate-for-log "hello"))))
+
+  (testing "Stringifies non-strings"
+    (is (= "{:a 1}" (#'models/truncate-for-log {:a 1}))))
+
+  (testing "Returns empty string for nil"
+    (is (= "" (#'models/truncate-for-log nil))))
+
+  (testing "Truncates long strings"
+    (let [out (#'models/truncate-for-log (apply str (repeat 1000 "x")))]
+      (is (< (count out) 1000))
+      (is (re-find #"truncated" out)))))
+
+(deftest provider-configured?-test
+  (testing "Provider requiring auth without resolvable credentials is not configured"
+    (is (false? (#'models/provider-configured?
+                 "synthetic"
+                 {:api "openai-chat" :requiresAuth? true}
+                 {}
+                 {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Provider requiring auth with a config key is configured"
+    (is (true? (#'models/provider-configured?
+                "synthetic"
+                {:api "openai-chat" :requiresAuth? true}
+                {}
+                {:providers {"synthetic" {:url "https://api.synthetic.new/v1"
+                                          :key "sk-test"}}}))))
+
+  (testing "Provider requiring auth with login auth is configured"
+    (is (true? (#'models/provider-configured?
+                "synthetic"
+                {:api "openai-chat" :requiresAuth? true}
+                {:auth {"synthetic" {:api-key "tok" :type :auth/oauth}}}
+                {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}}))))
+
+  (testing "Provider that does not require auth is always configured"
+    (is (true? (#'models/provider-configured?
+                "synthetic"
+                {:api "openai-chat"}
+                {}
+                {:providers {"synthetic" {:url "https://api.synthetic.new/v1"}}})))))
+
+(deftest fetch-provider-models-with-priority-skips-unconfigured-test
+  (let [models-dev-data {"synthetic" {"api" "https://api.synthetic.new/v1"
+                                      "models" {"qwen" {"id" "qwen"}}}}]
+    (testing "Does not hit the network for a provider that requires auth but has no credentials"
+      (let [native-calls* (atom 0)]
+        (with-redefs [http/get (fn [_url _opts]
+                                 (swap! native-calls* inc)
+                                 {:status 200 :body {:data [{:id "native-1"}]}})]
+          (is (match?
+               {}
+               (#'models/fetch-provider-models-with-priority
+                {:providers {"synthetic" {:api "openai-chat"
+                                          :url "https://api.synthetic.new/v1"
+                                          :requiresAuth? true}}}
+                {}
+                models-dev-data)))
+          (is (= 0 @native-calls*)))))
+
+    (testing "Still fetches a provider that has credentials"
+      (let [native-calls* (atom 0)]
+        (with-redefs [http/get (fn [_url _opts]
+                                 (swap! native-calls* inc)
+                                 {:status 200 :body {:data [{:id "native-1"}]}})]
+          (is (match?
+               {"synthetic" {"native-1" {}}}
+               (#'models/fetch-provider-models-with-priority
+                {:providers {"synthetic" {:api "openai-chat"
+                                          :url "https://api.synthetic.new/v1"
+                                          :key "sk-test"
+                                          :requiresAuth? true}}}
+                {}
+                models-dev-data)))
+          (is (= 1 @native-calls*)))))))
+
+(deftest fetch-provider-native-models-logs-body-on-error-test
+  (testing "Logs the response body when the /models endpoint returns a non-200"
+    (let [warnings* (atom [])]
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 400
+                                :body "{\"error\":\"model_not_supported\"}"})
+                    logger/warn (fn [& args] (swap! warnings* conj (apply str args)) nil)]
+        (is (nil? (#'models/fetch-provider-native-models
+                   {:provider "github-copilot"
+                    :api-url "https://api.githubcopilot.com"
+                    :auth-type :auth/oauth
+                    :api-key "tok"
+                    :api-type "openai-chat"})))
+        (is (some #(re-find #"status 400" %) @warnings*))
+        (is (some #(re-find #"model_not_supported" %) @warnings*))))))
 
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
@@ -303,6 +408,26 @@
       (is (= "2023-06-01" (get-in @request* [1 :headers "anthropic-version"])))
       (is (= "oauth-2025-04-20" (get-in @request* [1 :headers "anthropic-beta"])))
       (is (nil? (get-in @request* [1 :headers "x-api-key"]))))))
+
+(deftest fetch-provider-models-github-copilot-sends-editor-headers-test
+  (testing "Copilot /models request carries the Editor-Version headers required for IDE auth"
+    (let [request* (atom nil)
+          models-dev-data {"github-copilot" {"api" "https://api.githubcopilot.com"
+                                             "models" {"from-models-dev" {"id" "from-models-dev"}}}}]
+      (with-redefs [http/get (fn [url opts]
+                               (reset! request* [url opts])
+                               {:status 200
+                                :body {:data [{:id "gpt-5.2"}]}})]
+        (#'models/fetch-provider-models-with-priority
+         {:providers {"github-copilot" {:api "openai-chat"
+                                        :url "https://api.githubcopilot.com"
+                                        :requiresAuth? true}}}
+         {:auth {"github-copilot" {:api-key "copilot-token" :type :auth/oauth}}}
+         models-dev-data)
+        (is (= "Bearer copilot-token" (get-in @request* [1 :headers "Authorization"])))
+        (is (re-find #"^vscode/" (get-in @request* [1 :headers "editor-version"])))
+        (is (re-find #"^copilot-chat/" (get-in @request* [1 :headers "editor-plugin-version"])))
+        (is (= "vscode-chat" (get-in @request* [1 :headers "copilot-integration-id"])))))))
 
 (deftest fetch-provider-models-with-priority-fallback-test
   (let [models-dev-data {"native-provider" {"api" "https://api.openai.com"

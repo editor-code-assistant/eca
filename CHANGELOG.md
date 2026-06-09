@@ -2,13 +2,34 @@
 
 ## Unreleased
 
-- Add OpenAI Responses API for GitHub Copilot models that require it (gpt-5.5, gpt-5.4-mini).
-- MCP OAuth: persist and reuse the dynamically-registered client on token refresh, so servers with non-idempotent DCR (e.g. RunLayer) refresh instead of forcing a browser re-login, and recover from expired-token tool errors automatically.
 - Add `preCompact`, `postCompact` and `subagentStart` hooks; subagents no longer trigger `chatStart`.
 - Add `/hooks` command with optional `description` field in hook config.
 - Tool hooks (`preToolCall`/`postToolCall`) now include `tool_call_id` in input data.
 - Expand hook contracts: `response` not `prompt`, plain-text `tool_response`, `continue:false` everywhere, `followUp`, `replacedOutput`, standalone `systemMessage`, exact-string matchers.
 - Fix `postToolCall continue:false` leaking across turns, `chatStart` `additionalContext` dropped, and `preRequest` exit-2 naming the blocking hook.
+
+## 0.139.2
+
+- MCP OAuth: add `authScope` (`global` default / `workspace` / custom bucket) to namespace stored tokens, so signing into different accounts per project no longer clobbers a shared server's token.
+- OpenAI: inline completion no longer fails with a `NullPointerException` on provider/auth errors (e.g. OAuth login); the underlying error is surfaced instead. (#495)
+- Surface a clear error when a prompt exceeds the model's context window instead of silently finishing; skip auto-compaction when there's no conversation to compact. (#491)
+- Resolve home via `$HOME`/`$USERPROFILE` when `user.home` is invalid (e.g. native image, email-style username), fixing broken cache paths and login persistence. (#490)
+
+## 0.139.1
+
+- Model fetch: skip providers without configured credentials, include the response body in 4xx/5xx logs, and quiet down per-provider logging.
+- Model fetch: renew near-expiry OAuth tokens before syncing catalogs, fixing spurious `token expired` 401s (e.g. GitHub Copilot) on startup and config reloads.
+- GitHub Copilot: present the expected VS Code editor identity (`Editor-Version`/`Editor-Plugin-Version`/`Copilot-Integration-Id`) on model-catalog and chat requests, fixing `400 ... Editor-Version header for IDE auth`.
+
+## 0.139.0
+
+- Remote mode: `ask_user` now reaches both the editor and connected SSE/web clients simultaneously, with the first answer from either winning, instead of only the web client when one is connected.
+- Remote REST API: `GET /api/v1/chats/:id` `pendingToolCalls` now includes `ask_user` tool calls while waiting for an answer, with a `requestId` field for `POST /api/v1/answer`.
+- Add OpenAI Responses API for GitHub Copilot models that require it (gpt-5.5, gpt-5.4-mini).
+- MCP OAuth: persist and reuse the dynamically-registered client on token refresh, so servers with non-idempotent DCR (e.g. RunLayer) refresh instead of forcing a browser re-login, and recover from expired-token tool errors automatically.
+- Deliver cursor context per-turn in the user message instead of the system prompt, and only re-send it when the position changes, so a moving cursor no longer invalidates the cached system prefix (avoiding llama.cpp full prompt re-processing). (#464)
+- Remote endpoint now lists resumed and forked chats immediately, without waiting for the first prompt.
+- Fix resumed chats being permanently missing from the remote `GET /session` and `GET /chats` endpoints.
 
 ## 0.138.1
 

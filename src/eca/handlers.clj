@@ -77,6 +77,11 @@
             (let [new-providers-hash (hash (:providers config))]
               (when (not= (:providers-config-hash @db*) new-providers-hash)
                 (swap! db* assoc :providers-config-hash new-providers-hash)
+                ;; Refresh near-expiry OAuth tokens before fetching catalogs, so
+                ;; this non-interactive path doesn't hit /models with a stale
+                ;; short-lived token (e.g. Copilot) and 401.
+                (f.login/renew-expiring-auth-tokens!
+                 {:db* db* :messenger messenger :config config :metrics metrics})
                 (models/sync-models! db* config (fn [models]
                                                   (let [db @db*
                                                         ;; Plugin resolution can finish while model sync is running;

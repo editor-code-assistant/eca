@@ -8,14 +8,15 @@
 
 (h/reset-components-before-test)
 
-(defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id]
+(defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id db*]
                                      :or {tool-call-id "test-tool-call-id"}}]]
   ((get-in f.tools.ask-user/definitions ["ask_user" :handler])
    arguments
    {:messenger (or messenger (h/messenger))
     :config (or config (h/config))
     :chat-id (or chat-id "test-chat-id")
-    :tool-call-id tool-call-id}))
+    :tool-call-id tool-call-id
+    :db* db*}))
 
 (deftest ask-user-option-selected-test
   (testing "User selects a predefined option"
@@ -132,6 +133,25 @@
                                      (reset! captured-params params)
                                      (future {:answer "A" :cancelled false})))})
       (is (false? (:allowFreeform @captured-params))))))
+
+(deftest ask-user-stores-request-id-in-db-test
+  (testing "ask-question-request-id is written to tool-call state in db*"
+    (let [db* (atom {:chats {"c1" {:tool-calls {"tc-1" {:status :executing}}}}})
+          captured-params (atom nil)
+          fake-messenger (reify messenger/IMessenger
+                           (chat-content-received [_ _data])
+                           (ask-question [_ params]
+                             (reset! captured-params params)
+                             (future {:answer "yes" :cancelled false})))]
+      (call-ask-user {"question" "Ready?"}
+                     {:messenger fake-messenger
+                      :db* db*
+                      :chat-id "c1"
+                      :tool-call-id "tc-1"})
+      (let [stored-id (get-in @db* [:chats "c1" :tool-calls "tc-1" :ask-question-request-id])]
+        (is (string? stored-id) "ask-question-request-id should be stored in db*")
+        (is (= stored-id (:request-id @captured-params))
+            ":request-id in messenger params should match db* stored id")))))
 
 (deftest ask-user-summary-fn-test
   (testing "Summary shows Q: prefix with question"

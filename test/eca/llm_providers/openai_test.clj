@@ -352,6 +352,19 @@
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
 
+(deftest create-response-sync-error-test
+  (testing "sync completion path returns a structured error instead of throwing on non-200 (#495)"
+    (with-client-proxied {:version :http-2}
+      (fn [_req]
+        {:status 401 :body "unauthorized"})
+      ;; callbacks=nil -> sync mode: on-stream is set but on-error is nil,
+      ;; which previously caused an NPE when the request returned non-200.
+      (let [result (llm-providers.openai/create-response! (base-provider-params) nil)]
+        (is (match? {:error {:status 401
+                             :body "unauthorized"
+                             :message "OpenAI response status: 401 body: unauthorized"}}
+                    result))))))
+
 (deftest normalize-messages-tool-call-output-image-test
   (let [tool-output-with-image
         {:role "tool_call_output"

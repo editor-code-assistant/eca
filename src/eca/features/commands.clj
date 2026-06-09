@@ -96,7 +96,7 @@
 
 (defn ^:private global-file-commands []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
-                            (io/file (config/get-property "user.home") ".config"))
+                            (io/file (config/user-home) ".config"))
         commands-dir (io/file xdg-config-home "eca" "commands")]
     (keep #(command-file->command :user-global-file % {})
           (configured-command-files commands-dir))))

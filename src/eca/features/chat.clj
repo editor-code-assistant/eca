@@ -1157,10 +1157,17 @@
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   compacting? (or (get-in db [:chats chat-id :compacting?])
-                                                  (get-in db [:chats chat-id :auto-compacting?]))]
+                                                  (get-in db [:chats chat-id :auto-compacting?]))
+                                  ;; Only auto-compact when there's conversation to compact. Compaction
+                                  ;; can't shrink the static system prompt (incl. MCP server instructions);
+                                  ;; with empty history it would just re-issue the same oversized request
+                                  ;; under a new prompt-id and the error would never surface to the user. (#491)
+                                  compactable? (boolean (seq (shared/messages-after-last-compact-marker
+                                                              (get-in db [:chats chat-id :messages] []))))]
                               (if (and (= :context-overflow error-type)
                                        (not compacting?)
-                                       (not (:auto-compacted? chat-ctx)))
+                                       (not (:auto-compacted? chat-ctx))
+                                       compactable?)
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
                                                {:chat-id chat-id})
@@ -1206,7 +1213,13 @@
                                                                                (assoc chat-ctx :auto-continued? true))))))
                                     (do
                                       (when-not stopping?
-                                        (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception))))))}))
+                                        (lifecycle/send-content! chat-ctx :system
+                                                                 {:type :text
+                                                                  :text (if (= :context-overflow error-type)
+                                                                          (str "\n\nContext window exceeded: this request is larger than the model's context window"
+                                                                               " (system prompt, MCP server instructions and messages combined)."
+                                                                               " Try a model with a larger context window, or reduce enabled MCP servers/context.")
+                                                                          (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))))}))
                                       ;; Defensive save: finish-chat-prompt! can short-circuit when
                                       ;; :prompt-finished? was already set or the prompt-id rotated,
                                       ;; which would leave a chat that hit an error without a save.
@@ -1335,12 +1348,19 @@
                             @hook-results*)]
       (or stop-result {:stop-turn? false}))))
 
+(defn ^:private mark-editor-open!
+  "Records that the editor has this chat open this run, so the remote endpoint
+   lists it. Separate from :chat-start-fired, which only gates the chatStart hook."
+  [db* chat-id]
+  (swap! db* update :editor-open-chats (fnil conj #{}) chat-id))
+
 (defn ^:private prompt*
   [{:keys [model]}
    {:keys [chat-id contexts message agent agent-config db* messenger config metrics] :as base-chat-ctx}]
   (let [provided-chat-id chat-id
         ;; Snapshot DB to detect new/resumed chat BEFORE hooks mutate it
         [db-before-hooks _] (swap-vals! db* assoc-in [:chat-start-fired chat-id] true)
+        _ (mark-editor-open! db* chat-id)
         existing-chat-before-prompt (get-in db-before-hooks [:chats chat-id])
         chat-start-fired? (get-in db-before-hooks [:chat-start-fired chat-id])
         has-messages? (seq (:messages existing-chat-before-prompt))
@@ -1407,8 +1427,19 @@
                                                                      seq
                                                                      (f.prompt/contexts-str repo-map* nil))]
                                        [{:type :text :text contexts-str}])
+            ;; Cursor (and other volatile editor-state) is delivered per-turn in the
+            ;; user message - never the system prompt - and only re-sent when it
+            ;; changed. This keeps the cached system/prefix stable across turns,
+            ;; avoiding llama.cpp full prompt re-processing on every cursor move. #464
+            editor-state-context (f.prompt/build-editor-state-context refined-contexts)
+            editor-state-contents (when (and editor-state-context
+                                             (not= editor-state-context
+                                                   (get-in db [:chats chat-id :last-editor-state])))
+                                    (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context)
+                                    [{:type :text :text editor-state-context}])
             user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                                expanded-prompt-contexts
+                                                               editor-state-contents
                                                                image-contents))}]
             [provider model] (when full-model (shared/full-model->provider+model full-model))
             chat-ctx (merge base-chat-ctx
@@ -1823,6 +1854,7 @@
                       :messages kept-messages
                       :prompt-finished? true}]
         (swap! db* assoc-in [:chats new-id] new-chat)
+        (mark-editor-open! db* new-id)
         (db/update-workspaces-cache! @db* metrics)
         (messenger/chat-opened messenger {:chat-id new-id :title new-title})
         (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
@@ -1878,6 +1910,7 @@
       (let [title (:title chat)
             messages (:messages chat)
             chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
+        (mark-editor-open! db* chat-id)
         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
         (send-chat-contents! messages chat-ctx)

@@ -509,6 +509,9 @@ interface RepoMapContext {
 /**
  * Context about the cursor position in editor, sent by client.
  * Clients should track path and cursor position.
+ * The server delivers this per-turn in the user message (not the system prompt)
+ * and only re-sends it when the position changes, keeping the cached prompt
+ * prefix stable. Clients may send it on every prompt.
  */
 interface CursorContext {
     type: 'cursor'; 
@@ -2901,6 +2904,14 @@ interface MCPAddServerParams {
      * Local OAuth callback port (Streamable HTTP transport).
      */
     oauthPort?: number;
+
+    /**
+     * Controls how the OAuth token is shared across projects (Streamable HTTP
+     * transport). "global" (default) shares one token everywhere; "workspace"
+     * keeps a separate token per workspace folder set; any other value defines
+     * a named bucket shared by every project using the same value.
+     */
+    authScope?: string;
 
     /**
      * Whether the new server should be created in a disabled state.

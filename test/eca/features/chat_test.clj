@@ -529,8 +529,16 @@
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)
-    (let [api-call-count* (atom 0)
+    (let [chat-id "overflow-compact-chat"
+          api-call-count* (atom 0)
           auto-compact-count* (atom 0)]
+      ;; Seed prior conversation so there is something to compact; with empty
+      ;; history the overflow is surfaced immediately, see
+      ;; context-overflow-first-turn-surfaces-error-test.
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "earlier question"}]}
+                         {:role "assistant" :content [{:type :text :text "earlier answer"}]}]})
       (with-redefs-fn
         {#'f.chat/trigger-auto-compact!
          (fn [chat-ctx _all-tools user-messages]
@@ -542,7 +550,7 @@
         (fn []
           (let [{:keys [_chat-id]}
                 (prompt!
-                 {:message "Do something"}
+                 {:message "Do something" :chat-id chat-id}
                  {:all-tools-mock (constantly [])
                   :api-mock
                   (fn [{:keys [on-error]}]
@@ -560,9 +568,40 @@
                                         :text "Context window exceeded. Auto-compacting conversation..."}}
                              {:role :system
                               :content {:type :text
-                                        :text "\n\ntoken limit exceeded"}}])}
+                                        :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
                  (h/messages))
-                "Should show auto-compact attempt and then the final error")))))))
+                "Should show auto-compact attempt and then the final clear error")))))))
+
+(deftest context-overflow-first-turn-surfaces-error-test
+  (testing "context overflow with no history to compact surfaces a clear error without auto-compacting (#491)"
+    (h/reset-components!)
+    (let [api-call-count* (atom 0)
+          auto-compact-count* (atom 0)]
+      (with-redefs-fn
+        {#'f.chat/trigger-auto-compact! (fn [& _] (swap! auto-compact-count* inc))}
+        (fn []
+          (let [{:keys [chat-id]}
+                (prompt!
+                 {:message "Do something"}
+                 {:all-tools-mock (constantly [])
+                  :api-mock
+                  (fn [{:keys [on-error]}]
+                    (swap! api-call-count* inc)
+                    (on-error {:error/type :context-overflow
+                               :message "prompt is too long"}))})]
+            (is (zero? @auto-compact-count*)
+                "auto-compact must NOT trigger when there is no conversation to compact")
+            (is (= 1 @api-call-count*)
+                "LLM should be called exactly once; no futile compact retry")
+            (is (match?
+                 {:chat-content-received
+                  (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
+                 (h/messages))
+                "Should surface a clear context-overflow error to the user")
+            (is (= :idle (get-in (h/db) [:chats chat-id :status]))
+                "Chat should finish in idle state")))))))
 
 (deftest limit-reached-clears-compact-flags-test
   (testing ":limit-reached handler clears stale compacting?/auto-compacting? flags so /compact can be retried"
@@ -798,6 +837,35 @@
               :content {:state :finished :type :progress}
               :role :system}]}
            (h/messages))))))
+
+(deftest cursor-delivered-in-user-message-test
+  (testing "cursor is appended to the user message and only re-sent when it changes (#464)"
+    (h/reset-components!)
+    (let [user-msgs* (atom [])
+          api-mock (fn [{:keys [user-messages on-first-response-received on-message-received]}]
+                     (swap! user-msgs* conj user-messages)
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          mocks {:all-tools-mock (constantly []) :api-mock api-mock}
+          cursor-at (fn [line] {:type "cursor" :path "foo.clj"
+                                :position {:start {:line line :character 0}
+                                           :end {:line line :character 3}}})
+          turn-text (fn [call-idx]
+                      (->> (get @user-msgs* call-idx) first :content (keep :text) (string/join "\n")))
+          {:keys [chat-id]} (prompt! {:message "one" :contexts [(cursor-at 10)]} mocks)]
+      (testing "first turn includes the cursor block"
+        (is (string/includes? (turn-text 0) "<cursor"))
+        (is (string/includes? (turn-text 0) "10:0")))
+      (h/reset-messenger!)
+      (prompt! {:message "two" :chat-id chat-id :contexts [(cursor-at 10)]} mocks)
+      (testing "unchanged cursor is not re-sent"
+        (is (not (string/includes? (turn-text 1) "<cursor"))))
+      (h/reset-messenger!)
+      (prompt! {:message "three" :chat-id chat-id :contexts [(cursor-at 25)]} mocks)
+      (testing "changed cursor is re-sent"
+        (is (string/includes? (turn-text 2) "<cursor"))
+        (is (string/includes? (turn-text 2) "25:0"))))))
 
 (deftest basic-tool-calling-prompt-test
   (testing "Asking to list directories, LLM will check for allowed directories and then list files"
@@ -1391,6 +1459,17 @@
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (match? {:config-updated [{:chat {:select-trust false}}]}
                   (h/messages))))))
+
+(deftest open-chat-marks-editor-open-test
+  (testing "Resuming a chat lists it on the remote endpoint without a prompt"
+    (h/reset-components!)
+    (let [chat-id "resumed"]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
+      (is (not (contains? (:editor-open-chats @(h/db*)) chat-id)))
+      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (is (contains? (:editor-open-chats @(h/db*)) chat-id)))))
 
 (deftest open-chat-restores-selected-trust-test
   (testing "Opening a trusted chat emits config/updated select-trust true (#426)"

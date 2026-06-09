@@ -18,6 +18,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.cache :as cache]
    [eca.features.agents :as agents]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
@@ -43,6 +44,7 @@
 
 (defn get-env [env] (System/getenv env))
 (defn get-property [property] (System/getProperty property))
+(defn user-home [] (cache/user-home))
 
 (def ^:private dangerous-commands-regexes
   [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)

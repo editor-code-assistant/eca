@@ -192,7 +192,7 @@ Strongly prefer using the `eca__ask_user` tool over ending your turn or asking q
 
 ## Condition variables
 
-Rules support [template variables](template.md#condition-variables) using [Selmer](https://github.com/yogthos/Selmer). If a rule renders to an empty string, ECA skips it.
+Rules support [template variables](introduction.md#templates) using [Selmer](https://github.com/yogthos/Selmer). If a rule renders to an empty string, ECA skips it.
 
 ```markdown title=".eca/rules/context-aware.md"
 {% if isSubagent %}

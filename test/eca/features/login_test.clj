@@ -169,3 +169,31 @@
             (is (= 1 (count @on-error-msgs)))
             (is (= "Anthropic refresh token failed" (first @on-error-msgs))))
           (finally (fs/delete-tree tmpdir)))))))
+
+(deftest renew-expiring-auth-tokens!-only-renews-expiring-providers-test
+  (testing "renews only providers whose token is at/near expiry, skipping fresh and keyless ones"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [stale {:type :auth/oauth :step :login/done
+                       :access-token "gh-oauth" :api-key "stale-session"
+                       :expires-at 1000}
+                fresh {:type :auth/oauth :step :login/done
+                       :api-key "fresh-session" :expires-at 9999999999}
+                _ (db/update-global-cache! {:auth {"github-copilot" stale}} nil)
+                db* (atom {:auth {"github-copilot" stale
+                                  "anthropic" fresh
+                                  "openai" {}}})
+                renewed* (atom [])]
+            (with-redefs [login/login-step
+                          (fn [{:keys [db* provider]}]
+                            (swap! renewed* conj provider)
+                            (swap! db* update-in [:auth provider] merge
+                                   {:api-key "rotated-session" :expires-at 9999999999}))]
+              (login/renew-expiring-auth-tokens!
+               {:db* db* :messenger nil :config nil :metrics nil}))
+            (is (= ["github-copilot"] @renewed*)
+                "only the expired provider should be renewed")
+            (is (= "rotated-session" (get-in @db* [:auth "github-copilot" :api-key])))
+            (is (= "fresh-session" (get-in @db* [:auth "anthropic" :api-key]))))
+          (finally (fs/delete-tree tmpdir)))))))

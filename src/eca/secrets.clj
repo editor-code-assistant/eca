@@ -3,6 +3,7 @@
    [br.dev.zz.parc :as parc]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.logger :as logger]
    [eca.shared :as shared])
   (:import
@@ -27,7 +28,7 @@
   [netrc-file]
   (if (some? netrc-file)
     [netrc-file]
-    (let [home (System/getProperty "user.home")
+    (let [home (cache/user-home)
           files [".netrc" "_netrc"]]
       (->> files
            (mapv #(str (io/file home %)))))))

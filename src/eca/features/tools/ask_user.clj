@@ -10,17 +10,21 @@
 (def ^:private logger-tag "[TOOLS-USER]")
 
 (defn ^:private ask-user
-  [arguments {:keys [messenger chat-id tool-call-id]}]
+  [arguments {:keys [messenger db* chat-id tool-call-id]}]
   (let [question (get arguments "question")
         options (get arguments "options")
         allow-freeform (get arguments "allowFreeform" true)]
     (if (or (nil? question) (string/blank? question))
       (tools.util/single-text-content "INVALID_ARGS: `question` is required and must not be blank." :error)
-      (let [params (cond-> {:chatId chat-id
+      (let [request-id (str (random-uuid))
+            params (cond-> {:chatId chat-id
                             :question question
-                            :allowFreeform allow-freeform}
+                            :allowFreeform allow-freeform
+                            :request-id request-id}
                      (seq options) (assoc :options options)
                      tool-call-id (assoc :toolCallId tool-call-id))]
+        (when (and db* tool-call-id)
+          (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :ask-question-request-id] request-id))
         (try
           (messenger/chat-content-received messenger
                                            {:chat-id chat-id
