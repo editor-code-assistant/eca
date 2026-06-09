@@ -3,7 +3,8 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
-   [eca.cache :as cache]))
+   [eca.cache :as cache]
+   [eca.test-helper :as h]))
 
 (defmacro ^:private with-temp-cache-dir
   "Runs body with cache/global-dir redirected to a temporary directory."
@@ -127,15 +128,15 @@
 (deftest first-valid-home-test
   (let [first-valid-home #'cache/first-valid-home]
     (testing "skips the \"?\" placeholder and uses the next absolute path"
-      (is (= "/home/user" (first-valid-home ["?" "/home/user" nil]))))
+      (is (= (h/file-path "/home/user") (first-valid-home ["?" (h/file-path "/home/user") nil]))))
     (testing "skips nil and blank candidates"
-      (is (= "/home/user" (first-valid-home [nil "" "   " "/home/user"]))))
+      (is (= (h/file-path "/home/user") (first-valid-home [nil "" "   " (h/file-path "/home/user")]))))
     (testing "skips relative paths"
-      (is (= "/abs" (first-valid-home ["relative/path" "/abs"]))))
+      (is (= (h/file-path "/abs") (first-valid-home ["relative/path" (h/file-path "/abs")]))))
     (testing "returns nil when no candidate is a valid absolute path"
       (is (nil? (first-valid-home ["?" "" "relative"]))))
     (testing "returns the first valid absolute path"
-      (is (= "/first" (first-valid-home ["/first" "/second"]))))))
+      (is (= (h/file-path "/first") (first-valid-home [(h/file-path "/first") (h/file-path "/second")]))))))
 
 (deftest user-home-test
   (testing "uses user.home when it is a valid absolute path"
