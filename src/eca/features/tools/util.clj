@@ -8,6 +8,8 @@
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
+(set! *warn-on-reflection* true)
+
 (def ^:private logger-tag "[TOOLS-UTIL]")
 
 (defmulti tool-call-details-before-invocation

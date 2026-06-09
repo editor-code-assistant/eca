@@ -7,6 +7,8 @@
    [eca.messenger :as messenger]
    [eca.shared :as shared]))
 
+(set! *warn-on-reflection* true)
+
 (defn ^:private diagnostics
   "Return editor diagnostics (e.g., LSP findings)."
   [arguments {:keys [messenger config]}]

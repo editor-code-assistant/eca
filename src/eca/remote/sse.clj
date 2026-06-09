@@ -21,15 +21,15 @@
   []
   (atom #{}))
 
-(defn- write-sse! [^OutputStream os ^String data]
+(defn ^:private write-sse! [^OutputStream os ^String data]
   (.write os (.getBytes data "UTF-8"))
   (.flush os))
 
-(defn- format-sse-event [{:keys [event data]}]
+(defn ^:private format-sse-event [{:keys [event data]}]
   (str "event: " event "\n"
        "data: " (json/generate-string data) "\n\n"))
 
-(defn- start-writer-loop!
+(defn ^:private start-writer-loop!
   "Starts a thread that reads events from the client channel and writes
    SSE-formatted text to the output stream. Removes the client on error.
    Closes done-ch when the loop terminates (so callers can block on it).

@@ -8,7 +8,7 @@
 
 (set! *warn-on-reflection* true)
 
-(defn- ->camel [data]
+(defn ^:private ->camel [data]
   (shared/map->camel-cased-map data))
 
 (defrecord BroadcastMessenger [inner sse-connections* pending-questions*]

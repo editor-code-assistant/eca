@@ -3,7 +3,7 @@
 
 (set! *warn-on-reflection* true)
 
-(defn- cors-headers-for
+(defn ^:private cors-headers-for
   [request]
   (let [origin (get-in request [:headers "origin"])
         pna-request? (= "true" (get-in request [:headers "access-control-request-private-network"]))]

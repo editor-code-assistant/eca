@@ -23,12 +23,12 @@
           {:error {:code "unauthorized"
                    :message "Missing or invalid Authorization Bearer token"}})})
 
-(defn- extract-bearer-token [request]
+(defn ^:private extract-bearer-token [request]
   (when-let [auth-header (get-in request [:headers "authorization"])]
     (when (.startsWith ^String auth-header "Bearer ")
       (subs auth-header 7))))
 
-(defn- constant-time-equals?
+(defn ^:private constant-time-equals?
   "Constant-time comparison to prevent timing side-channel attacks."
   [^String a ^String b]
   (and a b

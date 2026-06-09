@@ -5,6 +5,8 @@
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.util :as tools.util]))
 
+(set! *warn-on-reflection* true)
+
 (defn ^:private clojure-edit-details-before-invocation [name args server {:keys [db ask-approval?]} new-file?]
   (when (not= "0.1.0" (:version server))
     (when ask-approval?

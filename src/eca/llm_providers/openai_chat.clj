@@ -280,7 +280,7 @@
            (not (string/blank? content)))
       (sequential? content)))
 
-(defn- reorder-tool-turn
+(defn ^:private reorder-tool-turn
   "Reorder messages: all tool_calls first (by index), then outputs (matching call order)."
   [turn]
   (let [{calls "tool_call" outputs "tool_call_output"} (group-by :role turn)
@@ -288,7 +288,7 @@
         call-id->pos (into {} (map-indexed (fn [i m] [(get-in m [:content :id]) i]) sorted-calls))]
     (concat sorted-calls (sort-by #(call-id->pos (get-in % [:content :id])) outputs))))
 
-(defn- group-parallel-tool-calls
+(defn ^:private group-parallel-tool-calls
   "Groups tool_calls before their outputs, respecting tool-turn boundaries."
   [messages]
   (let [tool-msg? #(contains? #{"tool_call" "tool_call_output"} (:role %))]

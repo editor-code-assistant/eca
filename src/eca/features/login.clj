@@ -9,6 +9,8 @@
    [eca.models :as models]
    [eca.shared :refer [multi-str]]))
 
+(set! *warn-on-reflection* true)
+
 (def ^:private logger-tag "[LOGIN]")
 
 (defmulti login-step (fn [ctx] [(:provider ctx) (:step ctx)]))

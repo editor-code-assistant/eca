@@ -4,6 +4,8 @@
    [eca.config :as config]
    [eca.features.login :as f.login]))
 
+(set! *warn-on-reflection* true)
+
 (defmethod f.login/login-step ["google" :login/start] [{:keys [db* chat-id provider send-msg!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-api-key})

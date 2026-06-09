@@ -72,14 +72,14 @@
       (string/replace #"\r\n|\r" "\n")       ; CRLF/CR -> LF
       (string/replace #"(?m)[ \t]+$" "")))
 
-(defn- apply-replacement
+(defn ^:private apply-replacement
   "Apply string replacement, handling all? flag for replacing all occurrences vs first only."
   [content search replacement all?]
   (if all?
     (string/replace content search replacement)
     (string/replace-first content search replacement)))
 
-(defn- try-exact-match
+(defn ^:private try-exact-match
   "Attempt exact string matching without normalization.
    Returns result map if successful, nil if no match found."
   [file-content original-content new-content all?]
@@ -88,12 +88,12 @@
      :new-full-content (apply-replacement file-content original-content new-content all?)
      :strategy :exact}))
 
-(defn- count-normalized-matches
+(defn ^:private count-normalized-matches
   "Count how many times the normalized search content appears in normalized file content."
   [normalized-file-content normalized-search-content]
   (count (re-seq (re-pattern (Pattern/quote normalized-search-content)) normalized-file-content)))
 
-(defn- try-normalized-match
+(defn ^:private try-normalized-match
   "Attempt normalized matching when exact matching fails.
    Returns result map with success/error status."
   [file-content original-content new-content all? path]

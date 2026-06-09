@@ -4,6 +4,8 @@
    [eca.features.tools.util :as tools.util]
    [eca.shared :refer [multi-str]]))
 
+(set! *warn-on-reflection* true)
+
 (defn ^:private skill
   [arguments {:keys [db config]}]
   (let [skill-name (get arguments "name")

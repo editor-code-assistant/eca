@@ -7,6 +7,8 @@
    [io.opentelemetry.sdk.autoconfigure AutoConfiguredOpenTelemetrySdk]
    [java.util.function Function]))
 
+(set! *warn-on-reflection* true)
+
 (defrecord OtelMetrics [otlp-config]
   metrics/IMetrics
 

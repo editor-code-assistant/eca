@@ -17,7 +17,7 @@
 
 ;;; Flexible Matching (Whitespace-Agnostic)
 
-(defn- try-flexible-match
+(defn ^:private try-flexible-match
   "Match content ignoring whitespace differences, preserving original indentation.
    Ambiguity prevention: if more than one region matches, return {:error :ambiguous}.
    Returns:
@@ -67,7 +67,7 @@
 
 ;;; Regex Matching (Tokenized)
 
-(defn- tokenize-by-delimiters
+(defn ^:private tokenize-by-delimiters
   "Tokenize a search string for flexible regex matching.
    Strategy (similar to Gemini CLI):
    - Insert spaces around common code delimiters so they become separate tokens
@@ -83,7 +83,7 @@
          (remove string/blank?)
          vec)))
 
-(defn- try-regex-match
+(defn ^:private try-regex-match
   "Tokenized regex matching with ambiguity prevention.
    - Build a multiline pattern anchored at start-of-line with flexible \\s* between tokens
    - Count all matches across the file

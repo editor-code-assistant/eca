@@ -75,7 +75,7 @@
     (str "Compaction blocked by hook '" hook-name "'.")
     "Compaction blocked by hook."))
 
-(defn- format-hook-output
+(defn ^:private format-hook-output
   "Format the hook execution block's text: 'Hook executed' (or raw plain-text
    stdout when the hook emitted no JSON) plus structural effect lines.
    systemMessage is intentionally NOT included here - it is surfaced as a

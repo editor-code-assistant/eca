@@ -70,7 +70,7 @@
    "h" 3600000
    "d" 86400000})
 
-(defn- try-parse [f]
+(defn ^:private try-parse [f]
   (try
     (f)
     (catch Exception _ nil)))
@@ -85,7 +85,7 @@
       (let [workspace-uris (mapv (fn [wpath] {:uri (shared/filename->uri wpath)}) workspaces)]
         (str (cache/workspace-cache-file workspace-uris "db.transit.json" shared/uri->filename))))))
 
-(defn- parse-date-ms [^String s]
+(defn ^:private parse-date-ms [^String s]
   (or (when-let [[_ amount-str unit] (re-matches #"^(\d+)([mhd])$" s)]
         (try-parse #(- (System/currentTimeMillis)
                        (* (Long/parseLong amount-str) (get relative-unit->ms unit)))))
@@ -95,13 +95,13 @@
                            ". Use relative (e.g. 2h, 30m, 1d) or ISO-8601 (e.g. 2025-01-01 or 2025-01-01T00:00:00Z).")
                       {:value s :type ::invalid-date}))))
 
-(defn- parse-time-bounds
+(defn ^:private parse-time-bounds
   "Parse :since/:until from opts into epoch-millis. Returns {:since-ms ... :until-ms ...}."
   [opts]
   {:since-ms (when-let [value (:since opts)] (parse-date-ms value))
    :until-ms (when-let [value (:until opts)] (parse-date-ms value))})
 
-(defn- within-time-bounds?
+(defn ^:private within-time-bounds?
   [timestamp {:keys [since-ms until-ms]}]
   (and (or (nil? since-ms) (>= timestamp since-ms))
        (or (nil? until-ms) (< timestamp until-ms))))
@@ -118,7 +118,7 @@
                 (assoc (select-keys chat [:title :status :model :created-at :updated-at :user-prompt-count])
                        :id chat-id))))))
 
-(defn- message-matches?
+(defn ^:private message-matches?
   [bounds role message]
   (and (or (nil? role) (= role (:role message)))
        (if (or (:since-ms bounds) (:until-ms bounds))
@@ -154,7 +154,7 @@
   (doseq [r records]
     (println (cheshire/generate-string r))))
 
-(defn- warn! [msg]
+(defn ^:private warn! [msg]
   (binding [*out* *err*]
     (println (str "Warning: " msg))))
 
