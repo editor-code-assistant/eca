@@ -129,6 +129,8 @@
    short-circuit to the cached version after the first successful pull."
   [^String source-url]
   (let [cache-dir (source-cache-path source-url)]
+    ;; source-lock returns a stable per-URL monitor, safe to lock on.
+    #_{:clj-kondo/ignore [:locking-suspicious-lock]}
     (locking (source-lock source-url)
       (if (fs/exists? (io/file cache-dir ".git"))
         (if (pull-needed? source-url)

@@ -569,7 +569,8 @@
           (future
             (if http-client
               (try (pp/stop! http-client) (catch Exception _))
-              (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _))))))
+              ;; ?transport is macro-generated in plumcp, invisible to clj-kondo.
+              (try (pp/stop-client-transport! #_{:clj-kondo/ignore [:unresolved-var]} (pcs/?transport client) false) (catch Exception _))))))
       (swap! db* assoc-in [:mcp-clients name :status] :stopped)
       (on-server-updated (->server name server-config :stopped @db*))
       (swap! db* update :mcp-clients dissoc name)
