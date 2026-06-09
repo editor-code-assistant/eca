@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.140.0
+
 - Add `preCompact`, `postCompact` and `subagentStart` hooks; subagents no longer trigger `chatStart`.
 - Add `/hooks` command with optional `description` field in hook config.
 - Tool hooks (`preToolCall`/`postToolCall`) now include `tool_call_id` in input data.
