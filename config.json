@@ -855,20 +855,29 @@
             "sessionEnd",
             "chatStart",
             "chatEnd",
+            "subagentStart",
+            "subagentPostRequest",
             "preRequest",
             "postRequest",
+            "preCompact",
+            "postCompact",
             "preToolCall",
             "postToolCall"
           ]
         },
+        "description": {
+          "type": "string",
+          "description": "Brief explanation of the hook's purpose, shown by /hooks.",
+          "markdownDescription": "Brief explanation of the hook's purpose, shown by `/hooks`."
+        },
         "matcher": {
-          "description": "Matches *ToolCall hooks; unmatched hooks are skipped. String: legacy regex against server__tool-name. Object: tool selector map with optional argsMatchers.",
-          "markdownDescription": "Matches `*ToolCall` hooks; unmatched hooks are skipped. **String**: legacy regex against `server__tool-name`. **Object**: tool selector map with optional `argsMatchers`.",
+          "description": "Matches *ToolCall hooks or compact hooks; unmatched hooks are skipped. For tool hooks, strings are legacy regex against server__tool-name and objects are tool selector maps with optional argsMatchers. For compact hooks, strings are exact matches against the triggered value (manual or auto); omitted matcher runs for both.",
+          "markdownDescription": "Matches `*ToolCall` hooks or compact hooks; unmatched hooks are skipped. For tool hooks, **String** is a legacy regex against `server__tool-name` and **Object** is a tool selector map with optional `argsMatchers`. For compact hooks, strings are matched as exact strings against the `triggered` value (`manual` or `auto`); omitted matcher runs for both.",
           "oneOf": [
             {
               "type": "string",
-              "description": "Regex pattern for matching server__tool-name.",
-              "markdownDescription": "Regex pattern for matching `server__tool-name`."
+              "description": "Tool hooks: regex pattern for matching server__tool-name. Compact hooks: exact triggered value (manual or auto).",
+              "markdownDescription": "Tool hooks: regex pattern for matching `server__tool-name`. Compact hooks: exact `triggered` value (`manual` or `auto`)."
             },
             {
               "type": "object",

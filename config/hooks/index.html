@@ -978,36 +978,351 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#hook-types" class="md-nav__link">
+  <a href="#hook-index" class="md-nav__link">
     <span class="md-ellipsis">
-      Hook Types
+      Hook index
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#hook-options" class="md-nav__link">
+  <a href="#global-mechanics" class="md-nav__link">
     <span class="md-ellipsis">
-      Hook Options
+      Global mechanics
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global mechanics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#communication" class="md-nav__link">
+    <span class="md-ellipsis">
+      Communication
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exit codes
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      matcher
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execution order
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common rules
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-output-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common output fields
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stopping-continue-false-vs-exit-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stopping: continue: false vs exit 2
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-a-hook-appears-in-the-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      How a hook appears in the chat
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base input
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Session hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sessionstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      sessionStart
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sessionend" class="md-nav__link">
+    <span class="md-ellipsis">
+      sessionEnd
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chat-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chat hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#chatstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      chatStart
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chatend" class="md-nav__link">
+    <span class="md-ellipsis">
+      chatEnd
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subagentstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      subagentStart
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#request-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Request hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Request hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      preRequest
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postrequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      postRequest
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subagentpostrequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      subagentPostRequest
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="subagentPostRequest">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#follow-up-turns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Follow-up turns
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pretoolcall" class="md-nav__link">
+    <span class="md-ellipsis">
+      preToolCall
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#posttoolcall" class="md-nav__link">
+    <span class="md-ellipsis">
+      postToolCall
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compaction-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compaction hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compaction hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#precompact" class="md-nav__link">
+    <span class="md-ellipsis">
+      preCompact
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postcompact" class="md-nav__link">
+    <span class="md-ellipsis">
+      postCompact
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accessing-chat-history-from-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessing chat history from hooks
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#execution-details" class="md-nav__link">
+  <a href="#hooks-command" class="md-nav__link">
     <span class="md-ellipsis">
-      Execution Details
+      /hooks command
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#input-output" class="md-nav__link">
+  <a href="#plugin-hooks" class="md-nav__link">
     <span class="md-ellipsis">
-      Input / Output
+      Plugin hooks
     </span>
   </a>
   
@@ -1337,36 +1652,351 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#hook-types" class="md-nav__link">
+  <a href="#hook-index" class="md-nav__link">
     <span class="md-ellipsis">
-      Hook Types
+      Hook index
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#hook-options" class="md-nav__link">
+  <a href="#global-mechanics" class="md-nav__link">
     <span class="md-ellipsis">
-      Hook Options
+      Global mechanics
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global mechanics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#communication" class="md-nav__link">
+    <span class="md-ellipsis">
+      Communication
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      Exit codes
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      matcher
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execution order
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common rules
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-output-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common output fields
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stopping-continue-false-vs-exit-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      Stopping: continue: false vs exit 2
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-a-hook-appears-in-the-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      How a hook appears in the chat
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      Base input
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Session hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sessionstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      sessionStart
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sessionend" class="md-nav__link">
+    <span class="md-ellipsis">
+      sessionEnd
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chat-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chat hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chat hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#chatstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      chatStart
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chatend" class="md-nav__link">
+    <span class="md-ellipsis">
+      chatEnd
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subagentstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      subagentStart
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#request-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Request hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Request hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      preRequest
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postrequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      postRequest
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subagentpostrequest" class="md-nav__link">
+    <span class="md-ellipsis">
+      subagentPostRequest
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="subagentPostRequest">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#follow-up-turns" class="md-nav__link">
+    <span class="md-ellipsis">
+      Follow-up turns
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pretoolcall" class="md-nav__link">
+    <span class="md-ellipsis">
+      preToolCall
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#posttoolcall" class="md-nav__link">
+    <span class="md-ellipsis">
+      postToolCall
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compaction-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Compaction hooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compaction hooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#precompact" class="md-nav__link">
+    <span class="md-ellipsis">
+      preCompact
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#postcompact" class="md-nav__link">
+    <span class="md-ellipsis">
+      postCompact
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accessing-chat-history-from-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessing chat history from hooks
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#execution-details" class="md-nav__link">
+  <a href="#hooks-command" class="md-nav__link">
     <span class="md-ellipsis">
-      Execution Details
+      /hooks command
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#input-output" class="md-nav__link">
+  <a href="#plugin-hooks" class="md-nav__link">
     <span class="md-ellipsis">
-      Input / Output
+      Plugin hooks
     </span>
   </a>
   
@@ -1402,101 +2032,464 @@
 
 <h1 id="hooks">Hooks<a class="headerlink" href="#hooks" title="Permanent link">#</a></h1>
 <p><img alt="" src="../../images/features/hooks.png" /></p>
-<p>Hooks are shell actions that run before or after specific events, useful for notifications, injecting context, modifying inputs, or blocking tool calls.</p>
-<h2 id="hook-types">Hook Types<a class="headerlink" href="#hook-types" title="Permanent link">#</a></h2>
+<p>Hooks are shell actions that run before or after specific events. Use them to send notifications, inject context, modify inputs, or block tool calls.</p>
+<p>This page first explains the mechanics shared by <strong>all</strong> hooks, then provides a per-hook reference so you can quickly find which hook to use and what it can do.</p>
+<h2 id="hook-index">Hook index<a class="headerlink" href="#hook-index" title="Permanent link">#</a></h2>
 <table>
 <thead>
 <tr>
-<th>Type</th>
-<th>When</th>
-<th>Can Modify</th>
+<th>Hook</th>
+<th>Fires when</th>
+<th>Main capability</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>sessionStart</code></td>
+<td><a href="#sessionstart"><code>sessionStart</code></a></td>
 <td>Server initialized</td>
-<td>-</td>
+<td>Side effects</td>
 </tr>
 <tr>
-<td><code>sessionEnd</code></td>
+<td><a href="#sessionend"><code>sessionEnd</code></a></td>
 <td>Server shutting down</td>
-<td>-</td>
+<td>Side effects</td>
 </tr>
 <tr>
-<td><code>chatStart</code></td>
-<td>New chat or resumed chat</td>
-<td>Can inject <code>additionalContext</code></td>
+<td><a href="#chatstart"><code>chatStart</code></a></td>
+<td>New or resumed chat</td>
+<td>Inject context, stop the turn</td>
 </tr>
 <tr>
-<td><code>chatEnd</code></td>
+<td><a href="#chatend"><code>chatEnd</code></a></td>
 <td>Chat deleted</td>
-<td>-</td>
+<td>Side effects (advisory)</td>
 </tr>
 <tr>
-<td><code>preRequest</code></td>
+<td><a href="#subagentstart"><code>subagentStart</code></a></td>
+<td>Before a subagent's first prompt</td>
+<td>Inject context, stop the turn</td>
+</tr>
+<tr>
+<td><a href="#prerequest"><code>preRequest</code></a></td>
 <td>Before prompt sent to LLM</td>
-<td>Can rewrite prompt, inject context, stop request</td>
+<td>Rewrite prompt, inject context, block</td>
 </tr>
 <tr>
-<td><code>postRequest</code></td>
-<td>After primary agent prompt finished</td>
-<td>-</td>
+<td><a href="#postrequest"><code>postRequest</code></a></td>
+<td>After a primary-agent prompt finished</td>
+<td>Trigger a follow-up turn</td>
 </tr>
 <tr>
-<td><code>subagentPostRequest</code></td>
+<td><a href="#subagentpostrequest"><code>subagentPostRequest</code></a></td>
 <td>After a subagent prompt finished</td>
-<td>-</td>
+<td>Trigger a follow-up turn</td>
 </tr>
 <tr>
-<td><code>preToolCall</code></td>
+<td><a href="#pretoolcall"><code>preToolCall</code></a></td>
 <td>Before tool execution</td>
-<td>Can modify args, override approval, reject</td>
+<td>Modify args, override approval, reject</td>
 </tr>
 <tr>
-<td><code>postToolCall</code></td>
+<td><a href="#posttoolcall"><code>postToolCall</code></a></td>
 <td>After tool execution</td>
-<td>Can inject context for next LLM turn</td>
+<td>Inject context, replace output</td>
+</tr>
+<tr>
+<td><a href="#precompact"><code>preCompact</code></a></td>
+<td>Before compaction</td>
+<td>Block compaction</td>
+</tr>
+<tr>
+<td><a href="#postcompact"><code>postCompact</code></a></td>
+<td>After compaction</td>
+<td>Inject context after the compact marker</td>
 </tr>
 </tbody>
 </table>
-<h2 id="hook-options">Hook Options<a class="headerlink" href="#hook-options" title="Permanent link">#</a></h2>
+<h2 id="global-mechanics">Global mechanics<a class="headerlink" href="#global-mechanics" title="Permanent link">#</a></h2>
+<h3 id="communication">Communication<a class="headerlink" href="#communication" title="Permanent link">#</a></h3>
+<p>A hook is a shell command. ECA talks to it over standard streams:</p>
 <ul>
-<li><strong><code>matcher</code></strong>: For <code>*ToolCall</code> hooks. String = legacy regex for <code>server__tool-name</code>. Object = tool selector map with optional <code>argsMatchers</code>. Selectors follow tool approval: full tool name (<code>eca__write_file</code>), native ECA tool name (<code>write_file</code>), or server name. In <code>argsMatchers</code>, keys are tool argument names and values are arrays of regex alternatives for that argument. All listed arguments must match; multiple regexes for one argument are alternatives.</li>
-<li><strong><code>visible</code></strong>: Show hook execution in chat (default: <code>true</code>).</li>
-<li><strong><code>runOnError</code></strong>: For <code>postToolCall</code>, run even if tool errored (default: <code>false</code>).</li>
+<li><strong>stdin</strong> — event data as JSON (top-level keys are <code>snake_case</code>; nested data preserves case).</li>
+<li><strong>stdout</strong> — on exit <code>0</code>, parsed as JSON; output fields are applied.</li>
+<li><strong>stderr</strong> — logs and, on exit <code>2</code>, the intervention payload.</li>
 </ul>
-<h2 id="execution-details">Execution Details<a class="headerlink" href="#execution-details" title="Permanent link">#</a></h2>
-<ul>
-<li><strong>Order</strong>: Alphabetical by key. Prompt rewrites chain; argument updates merge (last wins).</li>
-<li><strong>Conflict</strong>: Any rejection (<code>deny</code> or exit <code>2</code>) blocks the call immediately.</li>
-<li><strong>Timeout</strong>: Actions time out after 30s unless <code>"timeout": ms</code> is set.</li>
-</ul>
-<h2 id="input-output">Input / Output<a class="headerlink" href="#input-output" title="Permanent link">#</a></h2>
-<p>Hooks receive JSON via stdin with event data (top-level keys <code>snake_case</code>, nested data preserves case). Common fields:</p>
-<ul>
-<li>All hooks: <code>hook_name</code>, <code>hook_type</code>, <code>workspaces</code>, <code>db_cache_path</code></li>
-<li>Chat hooks add: <code>chat_id</code>, <code>agent</code>, <code>behavior</code> (deprecated alias)</li>
-<li><code>preRequest</code> adds: <code>prompt</code> (current user text), <code>all_messages</code> (full conversation history including the current turn)</li>
-<li>Tool hooks add: <code>tool_name</code>, <code>server</code>, <code>tool_input</code>, <code>approval</code> (pre) or <code>tool_response</code>, <code>error</code> (post)</li>
-<li><code>chatStart</code> adds: <code>resumed</code> (boolean)</li>
-<li><code>subagentPostRequest</code> adds: <code>parent_chat_id</code></li>
-</ul>
-<p>Hooks can output JSON to control execution:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;additionalContext&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Extra context for LLM&quot;</span><span class="p">,</span><span class="w">  </span><span class="c1">// injected as XML block</span>
-<span class="w">  </span><span class="s2">&quot;replacedPrompt&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;New prompt text&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// preRequest only</span>
-<span class="w">  </span><span class="s2">&quot;updatedInput&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;value&quot;</span><span class="p">},</span><span class="w">              </span><span class="c1">// preToolCall: merge into tool args</span>
-<span class="w">  </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;ask&quot;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">&quot;deny&quot;</span><span class="p">,</span><span class="w">          </span><span class="c1">// preToolCall: override approval</span>
-<span class="w">  </span><span class="s2">&quot;continue&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">                             </span><span class="c1">// stop processing (with optional stopReason)</span>
-<span class="w">  </span><span class="s2">&quot;stopReason&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Why stopped&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="s2">&quot;suppressOutput&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span><span class="w">                         </span><span class="c1">// hide hook output from chat</span>
+<h3 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">#</a></h3>
+<p>The exit code selects which protocol ECA applies:</p>
+<table>
+<thead>
+<tr>
+<th>Exit</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><strong>Success.</strong> stdout is parsed as JSON and output fields are applied. Preferred for all logic.</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><strong>Block / intervene.</strong> A hard, hook-specific intervention. stdout JSON is ignored; <strong>stderr</strong> is the payload (meaning depends on the hook).</td>
+</tr>
+<tr>
+<td>other</td>
+<td><strong>Non-blocking error.</strong> JSON is ignored, stderr is logged, and execution continues.</td>
+</tr>
+</tbody>
+</table>
+<p>JSON output fields are processed <strong>only</strong> on exit <code>0</code>; on any non-zero exit they are ignored.</p>
+<p><strong>Plain-text stdout</strong> (non-JSON) on exit <code>0</code> is display/debug output only. It is shown in the chat when the hook is visible but is <strong>never</strong> sent to the LLM. (This differs from Claude Code, which treats plain stdout as <code>additionalContext</code>.) To pass context to the model, emit JSON:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;additionalContext&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;context for the model&quot;</span><span class="p">}</span>
+</code></pre></div>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">#</a></h2>
+<p>Hooks are defined under the <code>hooks</code> key. Each hook has a <code>type</code> (the event), one or more <code>actions</code>, and optional fields:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;my-hook&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;preToolCall&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca__shell_command&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;visible&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;description&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Block dangerous shell commands&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;file&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;hooks/check.sh&quot;</span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>Plain text output (non-JSON) is treated as <code>additionalContext</code>.</p>
-<p>To reject a tool call, either output <code>{"approval": "deny"}</code> or exit with code <code>2</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>type</code></td>
+<td>string</td>
+<td>yes</td>
+<td>The event that triggers the hook (see <a href="#hook-index">Hook index</a>).</td>
+</tr>
+<tr>
+<td><code>actions</code></td>
+<td>array</td>
+<td>yes</td>
+<td>Actions to run. Each is <code>{"type": "shell", "shell": "&lt;inline&gt;"}</code> <strong>or</strong> <code>{"type": "shell", "file": "&lt;path&gt;"}</code> (exactly one of <code>shell</code>/<code>file</code>), plus optional <code>timeout</code>.</td>
+</tr>
+<tr>
+<td><code>matcher</code></td>
+<td>string | object</td>
+<td>no</td>
+<td>Filters when <code>*ToolCall</code>/<code>*Compact</code> hooks run (see below).</td>
+</tr>
+<tr>
+<td><code>visible</code></td>
+<td>boolean</td>
+<td>no (default <code>true</code>)</td>
+<td>Show the hook execution block in chat.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>string</td>
+<td>no</td>
+<td>Shown by <code>/hooks</code>.</td>
+</tr>
+<tr>
+<td><code>runOnError</code></td>
+<td>boolean</td>
+<td>no (default <code>false</code>)</td>
+<td><code>postToolCall</code> only — run even if the tool errored.</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>number</td>
+<td>no (default <code>30000</code>)</td>
+<td>Per-action timeout in milliseconds.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matcher"><code>matcher</code><a class="headerlink" href="#matcher" title="Permanent link">#</a></h3>
+<p><code>matcher</code> filters when a hook runs. Hooks other than <code>*ToolCall</code>/<code>*Compact</code> ignore it.</p>
+<p><strong>Tool hooks (<code>preToolCall</code> / <code>postToolCall</code>)</strong> — a string or an object:</p>
+<ul>
+<li><strong>String</strong> — legacy regex matched against <code>server__tool-name</code>.</li>
+<li><strong>Object</strong> — a tool selector map, optionally with <code>argsMatchers</code>.</li>
+</ul>
+<p>Selector keys follow tool-approval naming: full tool name (<code>eca__write_file</code>), native ECA tool name (<code>write_file</code>), or a server name (matches every tool from that server).</p>
+<p><code>argsMatchers</code> narrows by argument value: keys are argument names, values are arrays of regex alternatives (any one may match), and <strong>all</strong> listed arguments must match.</p>
+<div class="highlight"><pre><span></span><code><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;eca__write_file&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;argsMatchers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;.*\\.allium$&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;.*\\.clj$&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><strong>Compact hooks (<code>preCompact</code> / <code>postCompact</code>)</strong>:</p>
+<ul>
+<li><strong>String</strong> — exact match against <code>triggered</code> (<code>manual</code> or <code>auto</code>).</li>
+<li><strong>Omitted</strong> — runs for both triggers.</li>
+</ul>
+<h3 id="execution-order">Execution order<a class="headerlink" href="#execution-order" title="Permanent link">#</a></h3>
+<p>Hooks for an event run <strong>alphabetically by key</strong>, and actions within a hook run in declaration order. <code>preRequest</code> prompt rewrites chain; <code>preToolCall</code> argument updates merge (later values for the same key win). A successful <code>continue: false</code> halts the rest of the chain (see <a href="#stopping-continue-false-vs-exit-2">below</a>); exit <code>2</code> does not.</p>
+<h2 id="common-rules">Common rules<a class="headerlink" href="#common-rules" title="Permanent link">#</a></h2>
+<p>The following apply to many hooks. Each hook's reference entry lists exactly which it honors.</p>
+<h3 id="common-output-fields">Common output fields<a class="headerlink" href="#common-output-fields" title="Permanent link">#</a></h3>
+<p>These behave the same wherever they are supported:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>systemMessage</code></td>
+<td>string</td>
+<td>A standalone user-facing message, shown as <code>Hook '&lt;name&gt;': &lt;text&gt;</code> on exit <code>0</code>, independent of <code>visible</code>/<code>suppressOutput</code>. No effect on <code>sessionStart</code>/<code>sessionEnd</code>/<code>chatEnd</code> (no chat UI).</td>
+</tr>
+<tr>
+<td><code>suppressOutput</code></td>
+<td>boolean</td>
+<td>Hide only the execution block's body (stdout/stderr and effect lines). No effect on <code>sessionStart</code>/<code>sessionEnd</code>/<code>chatEnd</code> (no chat UI).</td>
+</tr>
+<tr>
+<td><code>continue</code></td>
+<td>boolean</td>
+<td><code>false</code> stops the remaining hooks for the event; for turn-scoped hooks it also stops the turn.</td>
+</tr>
+<tr>
+<td><code>stopReason</code></td>
+<td>string</td>
+<td>User-only explanation shown when <code>continue: false</code> stops a turn. <strong>Never sent to the LLM.</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Hook-specific fields (<code>additionalContext</code>, <code>replacedPrompt</code>, <code>followUp</code>, <code>updatedInput</code>, <code>approval</code>, <code>replacedOutput</code>) are documented per hook.</p>
+<h3 id="stopping-continue-false-vs-exit-2">Stopping: <code>continue: false</code> vs <code>exit 2</code><a class="headerlink" href="#stopping-continue-false-vs-exit-2" title="Permanent link">#</a></h3>
+<p>The two ways a hook intervenes are <strong>not</strong> interchangeable:</p>
+<ul>
+<li><strong><code>continue: false</code></strong> (exit <code>0</code>) always stops ECA from running the <strong>remaining hooks</strong> of the same event. For <strong>turn-scoped</strong> hooks it <em>additionally</em> stops the current turn and surfaces <code>Turn stopped by hook '&lt;name&gt;': &lt;stopReason&gt;</code> (or <code>Turn stopped by hook '&lt;name&gt;'.</code> with no reason).</li>
+<li><strong><code>exit 2</code></strong> is a surgical, hook-specific intervention (see each hook). It <strong>never</strong> stops the hook chain.</li>
+</ul>
+<p><strong>Turn-scoped hooks</strong> are <code>chatStart</code>, <code>subagentStart</code>, <code>preRequest</code>, <code>postRequest</code>, <code>subagentPostRequest</code>, <code>preCompact</code>, <code>postCompact</code>, <code>preToolCall</code>, and <code>postToolCall</code>. The rest — <code>sessionStart</code>, <code>sessionEnd</code>, <code>chatEnd</code> — only skip their remaining peers.</p>
+<p>When a hook stops the turn it ends immediately: remaining <code>postRequest</code>/<code>subagentPostRequest</code> hooks do not run and no <code>followUp</code>/continuation fires.</p>
+<h3 id="how-a-hook-appears-in-the-chat">How a hook appears in the chat<a class="headerlink" href="#how-a-hook-appears-in-the-chat" title="Permanent link">#</a></h3>
+<p>A hook reaches the user through two <strong>independent</strong> channels:</p>
+<ul>
+<li><strong>The execution block</strong> — the panel shown in the chat for the hook run. It carries the run's mechanics: status, stdout/stderr, and structural effect lines (<code>UpdatedInput</code>, <code>FollowUp</code>, <code>ReplacedOutput</code>, <code>AdditionalContext</code>, <code>ReplacedPrompt</code>).</li>
+<li><strong><code>systemMessage</code></strong> — a standalone message, never part of the block.</li>
+</ul>
+<p>Two controls gate the block (<code>systemMessage</code> is unaffected by both):</p>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>visible: false</code></td>
+<td>Hides the <strong>whole</strong> block — the hook run is fully silent.</td>
+</tr>
+<tr>
+<td><code>suppressOutput: true</code></td>
+<td>Hides only the block <strong>body</strong>; the block header still appears so you can see the hook ran.</td>
+</tr>
+</tbody>
+</table>
+<p>Effect-only fields (<code>updatedInput</code>, <code>approval</code>, <code>replacedOutput</code>) change behavior without creating standalone messages, but a visible block still surfaces them as effect lines so you can see what changed. Hooks without a UI (<code>sessionStart</code>, <code>sessionEnd</code>, <code>chatEnd</code>) ignore <code>systemMessage</code>/<code>suppressOutput</code>.</p>
+<h3 id="base-input">Base input<a class="headerlink" href="#base-input" title="Permanent link">#</a></h3>
+<p>Every hook receives these fields on stdin:</p>
+<ul>
+<li><code>hook_name</code>, <code>hook_type</code>, <code>workspaces</code>, <code>cwd</code>, <code>db_cache_path</code>, <code>session_id</code>, <code>eca_executable</code></li>
+<li><code>cwd</code> — the first workspace folder, matching the working directory ECA uses for hook commands.</li>
+<li><code>session_id</code> — the cache session key derived from the <code>db_cache_path</code> parent directory.</li>
+<li><code>eca_executable</code> — the launch command of the running ECA process (executable path for native binaries; the full <code>java ... -jar</code> invocation for JVM launches).</li>
+</ul>
+<p><strong>Chat-scoped hooks</strong> (everything except <code>sessionStart</code>/<code>sessionEnd</code>) additionally receive <code>chat_id</code>, <code>agent</code>, <code>behavior</code> (deprecated alias of <code>agent</code>), <code>full_model</code>, and <code>variant</code>.</p>
+<p>Each hook below lists any further fields it adds.</p>
+<h2 id="session-hooks">Session hooks<a class="headerlink" href="#session-hooks" title="Permanent link">#</a></h2>
+<h3 id="sessionstart"><code>sessionStart</code><a class="headerlink" href="#sessionstart" title="Permanent link">#</a></h3>
+<p>Fires when the server is initialized. Use for global setup or telemetry.</p>
+<ul>
+<li><strong>Input</strong> — base fields only (no chat fields, no UI).</li>
+<li><strong>Honored output</strong> — none. <code>continue: false</code> only stops remaining <code>sessionStart</code> hooks.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<h3 id="sessionend"><code>sessionEnd</code><a class="headerlink" href="#sessionend" title="Permanent link">#</a></h3>
+<p>Fires when the server is shutting down. Use for cleanup or final telemetry.</p>
+<ul>
+<li><strong>Input</strong> — base fields only (no chat fields, no UI).</li>
+<li><strong>Honored output</strong> — none. <code>continue: false</code> only stops remaining <code>sessionEnd</code> hooks.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<h2 id="chat-hooks">Chat hooks<a class="headerlink" href="#chat-hooks" title="Permanent link">#</a></h2>
+<h3 id="chatstart"><code>chatStart</code><a class="headerlink" href="#chatstart" title="Permanent link">#</a></h3>
+<p>Fires when a chat is created or resumed. Use to inject session context (date, branch, conventions).</p>
+<ul>
+<li><strong>Input adds</strong> — <code>resumed</code> (boolean).</li>
+<li><strong>Honored output</strong> — <code>additionalContext</code> (injected into the system prompt); <code>systemMessage</code>; <code>suppressOutput</code>; <code>continue: false</code> + <code>stopReason</code> stops the turn.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<h3 id="chatend"><code>chatEnd</code><a class="headerlink" href="#chatend" title="Permanent link">#</a></h3>
+<p>Fires when a chat is deleted. <strong>Advisory and best-effort</strong> — side effects only (cleanup, logging, external notifications).</p>
+<ul>
+<li><strong>Input adds</strong> — chat fields only.</li>
+<li><strong>Honored output</strong> — none. No <code>additionalContext</code>/<code>stopReason</code>/<code>suppressOutput</code> (no UI). <code>continue: false</code> only stops later <code>chatEnd</code> hooks; it does not affect deletion.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<h3 id="subagentstart"><code>subagentStart</code><a class="headerlink" href="#subagentstart" title="Permanent link">#</a></h3>
+<p>Fires before a subagent's first prompt. Use to inject context scoped to the subagent.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>parent_chat_id</code>.</li>
+<li><strong>Honored output</strong> — <code>additionalContext</code>; <code>systemMessage</code>; <code>suppressOutput</code>; <code>continue: false</code> + <code>stopReason</code> stops the turn.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<h2 id="request-hooks">Request hooks<a class="headerlink" href="#request-hooks" title="Permanent link">#</a></h2>
+<h3 id="prerequest"><code>preRequest</code><a class="headerlink" href="#prerequest" title="Permanent link">#</a></h3>
+<p>Fires before a prompt is sent to the LLM. Use for prompt validation, rewriting, or injecting dynamic context.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>prompt</code> (the current chainable prompt; earlier hooks may have rewritten it).</li>
+<li><strong>Honored output</strong>:</li>
+<li><code>replacedPrompt</code> — replace the prompt text (cannot modify commands or MCP prompts).</li>
+<li><code>additionalContext</code> — appended to the prompt for this turn.</li>
+<li><code>systemMessage</code>, <code>suppressOutput</code>.</li>
+<li><code>continue: false</code> + <code>stopReason</code> stops the turn.</li>
+<li><strong>Exit 2</strong> — blocks the prompt (not added to history) and stops the LLM. stderr is <strong>not</strong> sent to the LLM nor shown as a normal chat message; it appears only as the hook's error output when the hook is visible. An invisible hook instead surfaces <code>Request blocked by hook '&lt;name&gt;': &lt;stderr&gt;</code>.</li>
+</ul>
+<h3 id="postrequest"><code>postRequest</code><a class="headerlink" href="#postrequest" title="Permanent link">#</a></h3>
+<p>Fires after a primary-agent prompt finishes. Also runs for subagents. Primary use: validate the response or trigger a follow-up turn.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>postRequest</code> fires only after LLM responses. Display-only commands (<code>/hooks</code>, <code>/model</code>, <code>/costs</code>) and compaction prompts (<code>/compact</code> and auto-compact) do <strong>not</strong> trigger it — use <a href="#postcompact"><code>postCompact</code></a> for compaction.</p>
+</div>
+<ul>
+<li><strong>Input adds</strong> — <code>response</code> (last assistant text) and <code>follow_up_active</code> (<code>true</code> when this turn was triggered by a previous <code>followUp</code>).</li>
+<li><strong>Honored output</strong>:</li>
+<li><code>followUp</code> — start a new LLM turn after this one (see <a href="#follow-up-turns">follow-up turns</a>).</li>
+<li><code>systemMessage</code>, <code>suppressOutput</code>.</li>
+<li><code>continue: false</code> + <code>stopReason</code> cancels all <code>followUp</code>, skips auto-continuation, and stops the turn.</li>
+<li>
+<p><strong>Exit 2</strong> — stderr becomes the <code>followUp</code> text (the request already completed, so it cannot be blocked):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Equivalent to: echo &#39;{&quot;followUp&quot;: &quot;Run the tests&quot;}&#39;</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Run the tests&quot;</span><span class="w"> </span>&gt;<span class="p">&amp;</span><span class="m">2</span><span class="p">;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">2</span>
+</code></pre></div>
+</li>
+</ul>
+<h3 id="subagentpostrequest"><code>subagentPostRequest</code><a class="headerlink" href="#subagentpostrequest" title="Permanent link">#</a></h3>
+<p>Fires after a subagent prompt finishes, <strong>in addition</strong> to <code>postRequest</code> (which also runs for subagents). Use for subagent-specific follow-ups or notifications.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>response</code>, <code>follow_up_active</code>, and <code>parent_chat_id</code>.</li>
+<li><strong>Honored output</strong> — same as <a href="#postrequest"><code>postRequest</code></a>: <code>followUp</code>, <code>systemMessage</code>, <code>suppressOutput</code>, <code>continue: false</code> + <code>stopReason</code>.</li>
+<li><strong>Exit 2</strong> — stderr becomes the <code>followUp</code> text.</li>
+</ul>
+<h4 id="follow-up-turns">Follow-up turns<a class="headerlink" href="#follow-up-turns" title="Permanent link">#</a></h4>
+<p><code>followUp</code> becomes a plain user message in the continuation turn (no XML wrapping); multiple hooks' values are joined with double newlines.</p>
+<ul>
+<li><code>continue: false</code> takes priority: if any post-request hook returns it, all <code>followUp</code> values are ignored and the turn stops.</li>
+<li><code>followUp</code> also takes priority over automatic continuations (truncated-response auto-continue, post-compact auto-resume).</li>
+<li>To prevent loops, a turn triggered by <code>followUp</code> sets <code>follow_up_active: true</code> in the input. Hooks should check it and skip returning <code>followUp</code> when it is already active.</li>
+</ul>
+<h2 id="tool-hooks">Tool hooks<a class="headerlink" href="#tool-hooks" title="Permanent link">#</a></h2>
+<p>Tool hooks honor <a href="#matcher"><code>matcher</code></a> to target specific tools.</p>
+<h3 id="pretoolcall"><code>preToolCall</code><a class="headerlink" href="#pretoolcall" title="Permanent link">#</a></h3>
+<p>Fires before a tool is invoked. Use for argument validation, security checks, or parameter rewriting.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>tool_name</code>, <code>server</code>, <code>tool_input</code>, <code>tool_call_id</code>, <code>approval</code>.</li>
+<li><strong>Honored output</strong>:</li>
+<li><code>updatedInput</code> — merged into the tool arguments (across hooks, later keys win).</li>
+<li><code>approval</code> — <code>"allow"</code> / <code>"ask"</code> / <code>"deny"</code> override. Approvals merge by precedence <code>deny &gt; ask &gt; allow</code>; a hook <code>allow</code> never overrides a config <code>deny</code>/<code>ask</code>.</li>
+<li><code>additionalContext</code> — with <code>approval: "deny"</code>, gives the LLM the rejection context so it can adapt.</li>
+<li><code>systemMessage</code>, <code>suppressOutput</code>.</li>
+<li><code>continue: false</code> + <code>stopReason</code> stops the turn (the LLM sees a neutral placeholder in the tool result; <code>stopReason</code> reaches only the user).</li>
+<li><strong>Exit 2</strong> — rejects the tool call; the turn continues. stderr becomes the rejection reason sent to the LLM and shown in the hook's output.</li>
+</ul>
+<p><strong>Choosing a denial method:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Effect</th>
+<th>LLM gets info?</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>exit 0 + <code>approval: "deny"</code> + <code>additionalContext</code></td>
+<td>Structured denial; turn continues so the LLM can adapt</td>
+<td>Yes — from <code>additionalContext</code></td>
+<td>Policy, validation</td>
+</tr>
+<tr>
+<td>exit 2 + stderr</td>
+<td>Hard rejection; turn continues</td>
+<td>Yes — from stderr</td>
+<td>Simple shell policy blocks</td>
+</tr>
+<tr>
+<td>exit 0 + <code>continue: false</code> + <code>stopReason</code></td>
+<td>Stop everything; the user is told why</td>
+<td>No — <code>stopReason</code> is user-only</td>
+<td>Halt the whole turn, not just one tool</td>
+</tr>
+</tbody>
+</table>
+<p><code>preToolCall</code> also fires for the native <code>ask_user</code> tool, which always blocks waiting for a user answer (regardless of trust mode), so it receives <code>approval: "ask"</code>.</p>
+<h3 id="posttoolcall"><code>postToolCall</code><a class="headerlink" href="#posttoolcall" title="Permanent link">#</a></h3>
+<p>Fires after a tool executes. Use for result auditing, context injection, or hiding sensitive output. By default it runs only on success; set <code>runOnError: true</code> to also run when the tool errored.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>tool_name</code>, <code>server</code>, <code>tool_input</code>, <code>tool_call_id</code>, <code>tool_response</code>, <code>error</code>.</li>
+<li><strong>Honored output</strong>:</li>
+<li><code>replacedOutput</code> — replace the tool result (<code>""</code> replaces it with empty content).</li>
+<li><code>additionalContext</code> — appended (wrapped as XML) to the tool result for the LLM.</li>
+<li><code>systemMessage</code>, <code>suppressOutput</code>.</li>
+<li><code>continue: false</code> + <code>stopReason</code> stops the turn before the LLM continues.</li>
+<li><strong>Exit 2</strong> — replaces the result with stderr (empty stderr falls back to <code>[Tool output hidden by hook]</code>); the turn continues.</li>
+</ul>
+<h2 id="compaction-hooks">Compaction hooks<a class="headerlink" href="#compaction-hooks" title="Permanent link">#</a></h2>
+<p>Compaction hooks honor <a href="#matcher"><code>matcher</code></a> to target <code>manual</code> or <code>auto</code> triggers.</p>
+<h3 id="precompact"><code>preCompact</code><a class="headerlink" href="#precompact" title="Permanent link">#</a></h3>
+<p>Fires before manual or automatic compaction. Use for logging or to veto compaction.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>triggered</code> (<code>manual</code>/<code>auto</code>) and <code>custom_instructions</code> (manual <code>/compact</code> arguments, empty for auto).</li>
+<li><strong>Honored output</strong> — <code>systemMessage</code>, <code>suppressOutput</code>; <code>continue: false</code> + <code>stopReason</code> blocks compaction <strong>and</strong> stops the turn.</li>
+<li><strong>Exit 2</strong> — blocks compaction only; the LLM continues with full context. stderr appears only as the hook's error output — not the LLM, not a normal chat message; the user sees <code>Compaction blocked by hook '&lt;name&gt;'.</code></li>
+</ul>
+<h3 id="postcompact"><code>postCompact</code><a class="headerlink" href="#postcompact" title="Permanent link">#</a></h3>
+<p>Fires after manual or automatic compaction. It cannot roll back or change the compaction result.</p>
+<ul>
+<li><strong>Input adds</strong> — <code>triggered</code> (<code>manual</code>/<code>auto</code>) and <code>compact_summary</code> (the LLM-produced summary).</li>
+<li><strong>Honored output</strong>:</li>
+<li><code>additionalContext</code> — appended to the post-compact summary so it stays visible after the compact marker.</li>
+<li><code>systemMessage</code>, <code>suppressOutput</code>.</li>
+<li><code>continue: false</code> + <code>stopReason</code> leaves the marker and summary in history, prevents the automatic resume after compaction, and stops the turn.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<h2 id="accessing-chat-history-from-hooks">Accessing chat history from hooks<a class="headerlink" href="#accessing-chat-history-from-hooks" title="Permanent link">#</a></h2>
+<p>Chat-scoped hooks receive <code>db_cache_path</code>, <code>chat_id</code>, and <code>eca_executable</code>, so a shell hook can call the ECA CLI's <code>read-chat</code> command to inspect the current chat's history while the session is running:</p>
+<div class="highlight"><span class="filename">~/.config/eca/hooks/inspect-history.sh</span><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="nv">input</span><span class="o">=</span><span class="k">$(</span>cat<span class="k">)</span>
+<span class="nv">chat_id</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$input</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.chat_id&#39;</span><span class="k">)</span>
+<span class="nv">db_cache_path</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$input</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.db_cache_path&#39;</span><span class="k">)</span>
+<span class="nv">eca_executable</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$input</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.eca_executable&#39;</span><span class="k">)</span>
+
+<span class="c1"># Stream the chat&#39;s messages as JSONL</span>
+<span class="nv">$eca_executable</span><span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$db_cache_path</span><span class="s2">&quot;</span><span class="w"> </span>--chat-id<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$chat_id</span><span class="s2">&quot;</span>
+</code></pre></div>
+<p>Keep the query focused and fast — the hook runs synchronously with a 30s timeout. <code>read-chat</code> needs no running server and reads directly from <code>db.transit.json</code>. See <a href="../../read-chat/"><code>read-chat</code></a> for full options and scripting examples.</p>
+<h2 id="hooks-command"><code>/hooks</code> command<a class="headerlink" href="#hooks-command" title="Permanent link">#</a></h2>
+<p>Lists all active hooks grouped by type, showing name, description, and matcher. Plugin hooks are prefixed with the plugin name (e.g. <code>my-plugin::hook-name</code>).</p>
+<h2 id="plugin-hooks">Plugin hooks<a class="headerlink" href="#plugin-hooks" title="Permanent link">#</a></h2>
+<p>Hooks defined in a plugin's <code>hooks/hooks.json</code> are automatically prefixed with the plugin name using <code>::</code> (e.g. a hook <code>check-commands</code> in plugin <code>security</code> becomes <code>security::check-commands</code>). This avoids collisions with user-defined hooks and makes the source identifiable in <code>/hooks</code> output.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:9"><input checked="checked" id="notify-after-prompt" name="__tabbed_1" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_1" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_1" type="radio" /><input id="rewrite-prompt" name="__tabbed_1" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_1" type="radio" /><input id="modify-tool-arguments" name="__tabbed_1" type="radio" /><input id="match-tool-arguments" name="__tabbed_1" type="radio" /><input id="notify-when-subagent-finishes" name="__tabbed_1" type="radio" /><input id="use-external-script-file" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="match-tool-arguments">Match tool arguments</label><label for="notify-when-subagent-finishes">Notify when subagent finishes</label><label for="use-external-script-file">Use external script file</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:11"><input checked="checked" id="notify-after-prompt" name="__tabbed_1" type="radio" /><input id="ring-bell-sound-when-pending-tool-call-approval" name="__tabbed_1" type="radio" /><input id="inject-context-on-chat-start" name="__tabbed_1" type="radio" /><input id="rewrite-prompt" name="__tabbed_1" type="radio" /><input id="block-tool-with-json-response" name="__tabbed_1" type="radio" /><input id="modify-tool-arguments" name="__tabbed_1" type="radio" /><input id="sanitize-tool-output" name="__tabbed_1" type="radio" /><input id="match-tool-arguments" name="__tabbed_1" type="radio" /><input id="notify-when-subagent-finishes" name="__tabbed_1" type="radio" /><input id="trigger-follow-up-after-prompt" name="__tabbed_1" type="radio" /><input id="use-external-script-file" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="notify-after-prompt">Notify after prompt</label><label for="ring-bell-sound-when-pending-tool-call-approval">Ring bell sound when pending tool call approval</label><label for="inject-context-on-chat-start">Inject context on chat start</label><label for="rewrite-prompt">Rewrite prompt</label><label for="block-tool-with-json-response">Block tool with JSON response</label><label for="modify-tool-arguments">Modify tool arguments</label><label for="sanitize-tool-output">Sanitize tool output</label><label for="match-tool-arguments">Match tool arguments</label><label for="notify-when-subagent-finishes">Notify when subagent finishes</label><label for="trigger-follow-up-after-prompt">Trigger follow-up after prompt</label><label for="use-external-script-file">Use external script file</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1595,6 +2588,21 @@ user question".</p>
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;sanitize-output&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;postToolCall&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca__shell_command&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;jq -c &#39;{replacedOutput: .tool_response | gsub(\&quot;secret\\\\d+\&quot;; \&quot;[REDACTED]\&quot;)}&#39;&quot;</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;check-allium&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;postToolCall&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;matcher&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1623,6 +2631,29 @@ user question".</p>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;hooks&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;run-tests&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;postRequest&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;actions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">        </span><span class="s2">&quot;type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;shell&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;echo &#39;{\&quot;followUp\&quot;: \&quot;Run the test suite and report any failures\&quot;}&#39;&quot;</span>
+<span class="w">      </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The hook runs after each prompt finishes. If <code>follow_up_active</code> is <code>true</code>, the hook should skip to avoid infinite loops:</p>
+<div class="highlight"><span class="filename">~/.config/eca/hooks/run-tests.sh</span><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="nv">input</span><span class="o">=</span><span class="k">$(</span>cat<span class="k">)</span>
+<span class="nv">follow_up_active</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$input</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.follow_up_active // false&#39;</span><span class="k">)</span>
+<span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$follow_up_active</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;true&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">  </span><span class="nb">exit</span><span class="w"> </span><span class="m">0</span><span class="w">  </span><span class="c1"># Skip to avoid infinite loop</span>
+<span class="k">fi</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;{&quot;followUp&quot;: &quot;Run the test suite and report any failures&quot;}&#39;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -1658,7 +2689,7 @@ user question".</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 9, 2026 12:39:55 UTC">June 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 9, 2026 15:25:48 UTC">June 9, 2026</span>
   </span>
 
     
