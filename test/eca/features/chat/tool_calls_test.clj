@@ -1,6 +1,7 @@
 (ns eca.features.chat.tool-calls-test
   (:require
-   [clojure.test :refer [deftest is testing]]
+   [clojure.string :as string]
+   [clojure.test :refer [are deftest is testing]]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.hooks :as f.hooks]
@@ -30,7 +31,7 @@
           (is (match? {:decision :allow
                        :arguments {:foo "bar"}
                        :approval-override nil
-                       :hook-rejected? false
+                       :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :user-config-allow
                                 :text string?}}
@@ -55,7 +56,7 @@
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
                        :approval-override nil
-                       :hook-rejected? false
+                       :tool-call-rejected-by-hook? false
                        :arguments-modified? false}
                       plan))))))
 
@@ -78,7 +79,7 @@
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
                        :approval-override nil
-                       :hook-rejected? false
+                       :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :user-config-deny
                                 :text string?}}
@@ -94,7 +95,7 @@
                       :origin :native
                       :server {:name "eca"}}]
           db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
                                               :actions [{:type "shell" :command "echo 'approval override'"}]}}})
           agent-name :default
           chat-id "test-chat"
@@ -111,9 +112,52 @@
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
                        :approval-override "ask"
-                       :hook-rejected? false
+                       :tool-call-rejected-by-hook? false
                        :arguments-modified? false}
                       plan))))))
+
+  (testing "hook approval precedence (deny > ask > allow; hook-allow never overrides config ask/deny)"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :native
+                      :server {:name "eca"}}]
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
+                                              :actions [{:type "shell" :command "echo"}]}}})
+          run-plan (fn [config-approval hook-approvals]
+                     (with-redefs [f.tools/approval (constantly config-approval)
+                                   f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
+                                                                 (when (= event :preToolCall)
+                                                                   (when-let [on-after (:on-after-action callbacks)]
+                                                                     (doseq [approval hook-approvals]
+                                                                       (on-after {:parsed {"approval" approval}
+                                                                                  :exit 0
+                                                                                  :raw-error nil})))))]
+                       (#'tc/decide-tool-call-action tool-call all-tools (h/db) config :default "test-chat")))]
+      ;; deny wins over ask and allow
+      (is (match? {:decision :deny
+                   :approval-override "deny"
+                   :tool-call-rejected-by-hook? true
+                   :reason {:code :hook-rejected :text "Tool call rejected by hook"}}
+                  (run-plan :allow ["allow" "deny" "ask"])))
+      ;; ask wins over allow
+      (is (match? {:decision :ask
+                   :approval-override "ask"
+                   :tool-call-rejected-by-hook? false}
+                  (run-plan :allow ["allow" "ask"])))
+      ;; a hook "allow" never loosens a stricter config decision (ask/deny)
+      (is (match? {:decision :ask
+                   :approval-override "allow"
+                   :tool-call-rejected-by-hook? false}
+                  (run-plan :ask ["allow"])))
+      (is (match? {:decision :deny
+                   :approval-override "allow"
+                   :tool-call-rejected-by-hook? false
+                   :reason {:code :user-config-deny}}
+                  (run-plan :deny ["allow"])))))
 
   (testing "hook rejection via exit code 2"
     (h/reset-components!)
@@ -125,7 +169,7 @@
                       :origin :native
                       :server {:name "eca"}}]
           db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
                                               :actions [{:type "shell" :command "exit 2"}]}}})
           agent-name :default
           chat-id "test-chat"]
@@ -140,13 +184,44 @@
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
                        :approval-override nil
-                       :hook-rejected? true
+                       :tool-call-rejected-by-hook? true
                        :arguments-modified? false
                        :reason {:code :hook-rejected
-                                :text "Hook rejected"}
-                       :hook-continue true
-                       :hook-stop-reason nil}
-                      plan))))))
+                                :text "Command failed"}
+                       :stop-turn? false}
+                      plan))
+          (is (not (contains? plan :stop-reason)))))))
+
+  (testing "hook approval deny does not include stop-reason"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {:foo "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :native
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
+                                              :actions [{:type "shell" :command "echo"}]}}})
+          agent-name :default
+          chat-id "test-chat"]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
+                                                  (when (= event :preToolCall)
+                                                    (when-let [on-after (:on-after-action callbacks)]
+                                                      (on-after {:parsed {"approval" "deny"
+                                                                          "stopReason" "user-only"}
+                                                                 :exit 0
+                                                                 :raw-error nil}))))]
+        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+          (is (match? {:decision :deny
+                       :tool-call-rejected-by-hook? true
+                       :stop-turn? false
+                       :reason {:code :hook-rejected
+                                :text "Tool call rejected by hook"}}
+                      plan))
+          (is (not (contains? plan :stop-reason)))))))
 
   (testing "trust mode converts ask to allow"
     (h/reset-components!)
@@ -169,7 +244,7 @@
                                                  {:trust true})]
           (is (match? {:decision :allow
                        :arguments {:foo "bar"}
-                       :hook-rejected? false
+                       :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :trust-allow
                                 :text string?}}
@@ -207,7 +282,7 @@
                       :origin :native
                       :server {:name "eca"}}]
           db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
                                               :actions [{:type "shell" :command "echo ok"}]}}})
           agent-name :default
           chat-id "test-chat"
@@ -232,7 +307,7 @@
                       :origin :native
                       :server {:name "eca"}}]
           db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
                                               :actions [{:type "shell" :command "exit 2"}]}}})
           agent-name :default
           chat-id "test-chat"]
@@ -246,9 +321,11 @@
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                                  {:trust true})]
           (is (match? {:decision :deny
-                       :hook-rejected? true
-                       :reason {:code :hook-rejected}}
-                      plan))))))
+                       :tool-call-rejected-by-hook? true
+                       :reason {:code :hook-rejected
+                                :text "Command failed"}}
+                      plan))
+          (is (not (contains? plan :stop-reason)))))))
 
   (testing "hook modifies arguments"
     (h/reset-components!)
@@ -260,7 +337,7 @@
                       :origin :native
                       :server {:name "eca"}}]
           db (h/db)
-          config (h/config! {:hooks {"hook1" {:event   "preToolCall"
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
                                               :actions [{:type "shell" :command "echo 'modify args'"}]}}})
           agent-name :default
           chat-id "test-chat"]
@@ -274,9 +351,36 @@
           (is (match? {:decision :allow
                        :arguments {"foo" "bar" "baz" "qux"}
                        :approval-override nil
-                       :hook-rejected? false
+                       :tool-call-rejected-by-hook? false
                        :arguments-modified? true}
                       plan))))))
+
+  (testing "preToolCall notifies UI with tool-call-id for correlation"
+    (h/reset-components!)
+    (let [tool-call {:id "call-1"
+                     :full-name "eca__test_tool"
+                     :arguments {"foo" "bar"}}
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :native
+                      :server {:name "eca"}}]
+          db (h/db)
+          config (h/config! {:hooks {"hook1" {:type    "preToolCall"
+                                              :actions [{:type "shell" :command "echo ok"}]}}})
+          agent-name :default
+          chat-id "test-chat"
+          notified* (atom nil)]
+      (with-redefs [f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
+                                                  (when (= event :preToolCall)
+                                                    (when-let [on-after (:on-after-action callbacks)]
+                                                      (on-after {:parsed {} :exit 0}))))]
+        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
+                                      {:on-after-hook-action (fn [result] (reset! notified* result))})
+        ;; tool-call-id correlates the hook with its tool widget; clients can
+        ;; use it to associate the hook block with the tool call.
+        (is (match? {:tool-call-id "call-1"}
+                    @notified*)))))
 
   (testing "ask_user with allowed config sends :ask to preToolCall hook"
     (h/reset-components!)
@@ -300,7 +404,7 @@
           (is (= :ask (:approval @hook-data*))
               "preToolCall hook receives :ask so notification hooks fire while waiting on user")
           (is (match? {:decision :allow
-                       :hook-rejected? false}
+                       :tool-call-rejected-by-hook? false}
                       plan)
               "tool actually executes (:allow) so the question still reaches the user")))))
 
@@ -456,6 +560,70 @@
           (is (= (:api-key renewed-provider-auth) (:api-key (:provider-auth result)))
               "rejection path must also return refreshed provider-auth"))))))
 
+(deftest on-tools-called!-pretoolcall-continue-false-halts-batch-test
+  (testing "a preToolCall continue:false on the first tool stops the batch: the second tool is never processed"
+    (h/reset-components!)
+    (let [chat-id   "test-chat"
+          db*       (h/db*)
+          _         (swap! db* #(-> %
+                                    (assoc-in [:chats chat-id :status] :running)
+                                    (assoc-in [:chats chat-id :messages] [])
+                                    (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)
+                                    (assoc-in [:chats chat-id :tool-calls "call-2" :status] :preparing)))
+          chat-ctx  {:db*       db*
+                     :config    (h/config)
+                     :chat-id   chat-id
+                     :provider  "openai"
+                     :agent     :default
+                     :messenger (h/messenger)
+                     :metrics   (h/metrics)}
+          received-msgs* (atom "")
+          add-to-history! (fn [msg]
+                            (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id "call-1" :full-name "eca__tool_a" :arguments {} :arguments-text "{}"}
+                      {:id "call-2" :full-name "eca__tool_b" :arguments {} :arguments-text "{}"}]
+          all-tools  [{:name "tool_a" :full-name "eca__tool_a" :origin :eca :server {:name "eca"}}
+                      {:name "tool_b" :full-name "eca__tool_b" :origin :eca :server {:name "eca"}}]
+          ;; tool names that reached the preToolCall hook (i.e. were processed)
+          hooked-tools* (atom [])
+          ;; tools that were actually executed
+          called-tools* (atom [])
+          ;; system messages surfaced to the user
+          sent* (atom [])]
+      (with-redefs [f.tools/all-tools                           (constantly all-tools)
+                    f.tools/approval                            (constantly :allow)
+                    f.hooks/trigger-if-matches!
+                    (fn [hook-type data {:keys [on-after-action]} _ _]
+                      (when (= :preToolCall hook-type)
+                        (swap! hooked-tools* conj (:tool-name data))
+                        ;; The first tool's hook returns a successful continue:false.
+                        (when (= "tool_a" (:tool-name data))
+                          (on-after-action {:exit 0
+                                            :name "stopper"
+                                            :parsed {"continue" false "stopReason" "halt"}}))))
+                    f.tools/call-tool!                          (fn [full-name & _]
+                                                                  (swap! called-tools* conj full-name)
+                                                                  {:contents [{:text "ok" :type :text}]})
+                    f.tools/tool-call-details-before-invocation (constantly nil)
+                    f.tools/tool-call-details-after-invocation  (constantly nil)
+                    f.tools/tool-call-summary                   (constantly "Tool")
+                    lifecycle/maybe-renew-auth-token            (fn [_] nil)
+                    lifecycle/send-content!                     (fn [_ role content]
+                                                                  (swap! sent* conj {:role role :content content}))]
+        (let [result ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
+          ;; continue:false stops the turn — the loop returns nil (no continuation).
+          (is (nil? result))
+          ;; Only the first tool was ever processed by preToolCall hooks.
+          (is (= ["tool_a"] @hooked-tools*)
+              "the second tool must not be processed after a current-turn stop")
+          ;; The second tool was never executed.
+          (is (not-any? #{"eca__tool_b"} @called-tools*)
+              "the second tool must not run after a current-turn stop")
+          ;; A turn-stop message carrying the hook's reason is surfaced to the user.
+          ;; The exact wording is covered by lifecycle/turn-stopped-by-hook-message-test.
+          (is (some #(some-> (get-in % [:content :text]) (string/includes? "halt")) @sent*)
+              "a turn-stopped message must be shown"))))))
+
 (deftest send-toolCalled-image-content-emission-test
   (testing "image outputs are split into separate ChatImageContent events"
     (h/reset-components!)
@@ -497,3 +665,68 @@
         (is (match? {:type :toolCalled
                      :outputs [{:type :text :text "done"}]}
                     (first events)))))))
+
+(deftest post-tool-call-stop-info-test
+  (let [prompt-id "prompt-2"]
+    ;; [tool-calls => expected stop info]
+    (are [tool-calls expected] (= expected (#'tc/post-tool-call-stop-info tool-calls prompt-id))
+      ;; empty tool-calls map reports no stop
+      {} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      ;; no hook requested a stop
+      {"t1" {:status :completed}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      ;; stale stop from an older prompt is ignored
+      {"t1" {:post-tool-call-stop? true
+             :post-tool-call-stop-prompt-id "prompt-1"
+             :post-tool-call-stop-reason "old halt"
+             :post-tool-call-stop-hook-name "old-redact"}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      ;; stop without prompt id is ignored; postToolCall stops are current-turn only
+      {"t1" {:post-tool-call-stop? true}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      ;; current prompt stop requested without a reason
+      {"t1" {:post-tool-call-stop? true
+             :post-tool-call-stop-prompt-id prompt-id}} {:stop-turn? true :stop-reason nil :stop-hook-name nil}
+      ;; current prompt stop requested with a reason
+      {"t1" {:post-tool-call-stop? true
+             :post-tool-call-stop-prompt-id prompt-id
+             :post-tool-call-stop-reason "halt"
+             :post-tool-call-stop-hook-name "redact"}} {:stop-turn? true :stop-reason "halt" :stop-hook-name "redact"})
+
+    (testing "reason is found even when it lives on a different current-prompt tool-call than the first stop flag"
+      (is (match? {:stop-turn? true :stop-reason "halt"}
+                  (#'tc/post-tool-call-stop-info
+                   (array-map "t1" {:post-tool-call-stop? true
+                                    :post-tool-call-stop-prompt-id prompt-id}
+                              "t2" {:post-tool-call-stop? true
+                                    :post-tool-call-stop-prompt-id prompt-id
+                                    :post-tool-call-stop-reason "halt"})
+                   prompt-id))))
+
+    (testing "old prompt stop does not leak when a later tool call has no stop"
+      (is (= {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+             (#'tc/post-tool-call-stop-info
+              (array-map "old" {:post-tool-call-stop? true
+                                :post-tool-call-stop-prompt-id "prompt-1"
+                                :post-tool-call-stop-reason "old halt"}
+                         "current" {:status :completed})
+              prompt-id))))))
+
+(deftest trigger-post-tool-call-hook-tags-stop-with-prompt-id-test
+  (testing "postToolCall continue:false stop state is scoped to the current prompt"
+    (h/reset-components!)
+    (let [db* (h/db*)]
+      (swap! db* assoc-in [:chats "chat-1" :tool-calls "tool-1"] {:status :completed})
+      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (constantly {:stop-turn? true
+                                                                   :stop-reason "halt"
+                                                                   :stop-hook-name "guard"})}
+        (fn []
+          (#'tc/execute-action! :trigger-post-tool-call-hook
+                                db*
+                                {:chat-id "chat-1"
+                                 :prompt-id "prompt-2"
+                                 :messenger (h/messenger)}
+                                "tool-1"
+                                {:outputs [{:type :text :text "ok"}]})))
+      (is (match? {:post-tool-call-stop? true
+                   :post-tool-call-stop-prompt-id "prompt-2"
+                   :post-tool-call-stop-reason "halt"
+                   :post-tool-call-stop-hook-name "guard"}
+                  (get-in @db* [:chats "chat-1" :tool-calls "tool-1"]))))))

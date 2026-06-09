@@ -78,6 +78,17 @@
       (is (string/includes? static "</contexts>"))
       (is (nil? dynamic) "dynamic should be nil when no volatile contexts or MCP servers"))))
 
+(deftest build-instructions-startup-context-test
+  (testing "chatStart startup-context renders even without any stable contexts"
+    (let [db (assoc-in (h/db) [:chats "chat-1" :startup-context] "injected by chatStart")
+          {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" [] db)]
+      (is (string/includes? static "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"))
+      (is (string/includes? static "<additionalContext>\ninjected by chatStart\n</additionalContext>"))))
+
+  (testing "no Contexts section when there are neither stable contexts nor startup-context"
+    (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
+      (is (not (string/includes? static "<contexts description"))))))
+
 (deftest build-instructions-skip-empty-rule-group-test
   (testing "omits empty global rules section when only project-scoped rules render"
     (let [static-rules [{:name "rule1" :content "Only project rule" :scope :project}]

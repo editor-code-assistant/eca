@@ -58,7 +58,7 @@
            (m/embeds
             [{:chatId chat-id
               :role "system"
-              :content {:type "text" :text "STOPPED BY HOOK"}}
+              :content {:type "text" :text "Turn stopped by hook 'stop': STOPPED BY HOOK"}}
              {:chatId chat-id
               :role "system"
               :content {:type "progress" :state "finished"}}])
@@ -223,9 +223,8 @@
         (let [hook-data (json/parse-string (slurp log-path) true)]
           (is (match?
                {:tool_input    {:path (m/pred string?)}
-                :tool_response [{:type "text"
-                                 :text (m/pred #(and (string? %)
-                                                     (not (string/blank? %))))}]
+                :tool_response (m/pred #(and (string? %)
+                                             (string/includes? % "file1.md")))
                 :chat_id       (m/pred string?)
                 :server        (m/equals "eca")
                 :db_cache_path (m/pred string?)
@@ -236,9 +235,7 @@
                 :error         (m/equals false)
                 :workspaces    (m/seq-of (m/pred string?))
                 :tool_name     (m/equals "directory_tree")}
-               hook-data))
-          ;; Explicitly check that we got some file listing content
-          (is (string/includes? (get-in hook-data [:tool_response 0 :text]) "file1.md")))))))
+               hook-data)))))))
 
 (deftest pretoolcall-approval-deny-test
   (testing "preToolCall hook can reject tool calls via approval:deny"
@@ -292,7 +289,7 @@
           "Tool call should have been rejected"))))
 
 (deftest pretoolcall-exit-code-rejection-with-stop-test
-  (testing "preToolCall hook exit code 2 rejects tool and continue:false stops chat"
+  (testing "preToolCall hook exit 0 with approval:deny + continue:false rejects tool and stops chat"
     (let [win? (string/starts-with? (System/getProperty "os.name") "Windows")]
       (eca/start-process!)
 
@@ -304,10 +301,13 @@
          (hooks-init-options
           {"reject-and-stop" {:type    "preToolCall"
                               :actions [{:type  "shell"
-                                            ;; Exit code 2 means rejection, with continue:false and stopReason
+                                            ;; Exit 0: JSON effects apply. approval:deny rejects the
+                                            ;; tool, additionalContext is the LLM-visible reason,
+                                            ;; continue:false stops the turn and stopReason is shown
+                                            ;; to the user.
                                          :shell (if win?
-                                                  "Write-Output '{\"continue\":false,\"stopReason\":\"Security policy violation\"}'; exit 2"
-                                                  "echo '{\"continue\":false,\"stopReason\":\"Security policy violation\"}' && exit 2")}]}})})))
+                                                  "Write-Output '{\"approval\":\"deny\",\"additionalContext\":\"Tool blocked by policy\",\"continue\":false,\"stopReason\":\"Security policy violation\"}'"
+                                                  "echo '{\"approval\":\"deny\",\"additionalContext\":\"Tool blocked by policy\",\"continue\":false,\"stopReason\":\"Security policy violation\"}'")}]}})})))
 
     (eca/notify! (fixture/initialized-notification))
 
@@ -338,10 +338,10 @@
                 notifications)
           "Tool call should have been rejected")
 
-      ;; Verify stopReason was displayed
+      ;; Verify stopReason was displayed (may be prefixed with the hook name)
       (is (some #(and (= "system" (:role %))
                       (= "text" (get-in % [:content :type]))
-                      (= "Security policy violation" (get-in % [:content :text])))
+                      (string/includes? (str (get-in % [:content :text])) "Security policy violation"))
                 notifications)
           "Stop reason should have been displayed"))))
 

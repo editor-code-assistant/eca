@@ -298,12 +298,8 @@ If you think your config is relevant to be shared for other people, [open a pull
     data = json.loads(sys.argv[1])
     
     hook_type = data.get('hook_type', '')
-    workspaces = data.get('workspaces', [])
-    cwd = workspaces[0] if workspaces else ''
-    # ECA does not provide a session_id; derive one from db_cache_path to get a
-    # stable per-session identifier, falling back to a constant.
-    db_path = data.get('db_cache_path', '')
-    session_id = db_path.split('/')[-2] if db_path else 'eca-default'
+    cwd = data.get('cwd', '')
+    session_id = data.get('session_id', 'eca-default')
     
     type_map = {
         'sessionStart':        'SessionStart',

@@ -91,7 +91,7 @@
     ""
     refined-contexts)
    (when startup-ctx
-     (str "\n<additionalContext from=\"chatStart\">\n" startup-ctx "\n</additionalContext>\n\n"))
+     (str "\n<additionalContext>\n" startup-ctx "\n</additionalContext>\n\n"))
    "</contexts>"))
 
 (defn ->base-selmer-ctx
@@ -250,10 +250,11 @@
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
                                 selmer-ctx "additional-system-info")
      ""
-     (when (seq stable-contexts)
-       ["## Static Contexts"
-        ""
-        (contexts-str stable-contexts repo-map* (get-in db [:chats chat-id :startup-context]))]))))
+     (let [startup-ctx (get-in db [:chats chat-id :startup-context])]
+       (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
+         ["## Static Contexts"
+          ""
+          (contexts-str stable-contexts repo-map* startup-ctx)])))))
 
 (defn build-dynamic-instructions
   "Builds the volatile portion of the system prompt: MCP resource contexts and

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `preCompact`, `postCompact` and `subagentStart` hooks; subagents no longer trigger `chatStart`.
+- Add `/hooks` command with optional `description` field in hook config.
+- Tool hooks (`preToolCall`/`postToolCall`) now include `tool_call_id` in input data.
+- Expand hook contracts: `response` not `prompt`, plain-text `tool_response`, `continue:false` everywhere, `followUp`, `replacedOutput`, standalone `systemMessage`, exact-string matchers.
+- Fix `postToolCall continue:false` leaking across turns, `chatStart` `additionalContext` dropped, and `preRequest` exit-2 naming the blocking hook.
+
 ## 0.139.2
 
 - MCP OAuth: add `authScope` (`global` default / `workspace` / custom bucket) to namespace stored tokens, so signing into different accounts per project no longer clobbers a shared server's token.

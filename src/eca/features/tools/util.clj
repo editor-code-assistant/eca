@@ -172,21 +172,22 @@
                          (not (contains? required (name k))))))
           args)))
 
-(defn ^:private contents->text
+(defn contents->text
   "Concatenates all text contents from a tool result's :contents into a single string."
   [contents]
-  (reduce
-   (fn [^StringBuilder sb content]
-     (case (:type content)
-       :text (doto sb
-               (.append ^String (:text content))
-               (.append "\n"))
-       :image (doto sb
-                (.append (format "[Image: %s]" (:media-type content)))
-                (.append "\n"))
-       sb))
-   (StringBuilder.)
-   contents))
+  (->> contents
+       (reduce
+        (fn [^StringBuilder sb content]
+          (case (:type content)
+            :text  (doto sb
+                     (.append ^String (:text content))
+                     (.append "\n"))
+            :image (doto sb
+                     (.append (format "[Image: %s]" (:media-type content)))
+                     (.append "\n"))
+            sb))
+        (StringBuilder.))
+       str))
 
 (defn ^:private exceeds-truncation-limits?
   "Returns true if the text exceeds either the line limit or size limit."
@@ -241,7 +242,7 @@
         max-size-kb (get-in config [:toolCall :outputTruncation :sizeKb])]
     (if (or (nil? max-lines) (nil? max-size-kb) (:error result))
       result
-      (let [full-text (str (contents->text (:contents result)))]
+      (let [full-text (contents->text (:contents result))]
         (if (exceeds-truncation-limits? full-text max-lines max-size-kb)
           (let [saved-path (cache/save-tool-call-output! tool-call-id full-text)
                 truncated (truncate-text full-text max-lines max-size-kb)

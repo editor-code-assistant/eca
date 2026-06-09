@@ -1,7 +1,7 @@
 (ns eca.shared-test
   (:require
    [babashka.fs :as fs]
-   [clojure.test :refer [deftest is testing]]
+   [clojure.test :refer [are deftest is testing]]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -293,8 +293,8 @@
 
 (deftest compact-side-effect-clears-validated-path-rules-test
   (let [db* (atom {:chats {"chat-1" {:last-summary "Short summary"
-                                      :messages []
-                                      :validated-path-rules #{"/workspace/a/.eca/rules/format.md"}}}})]
+                                     :messages []
+                                     :validated-path-rules #{"/workspace/a/.eca/rules/format.md"}}}})]
     (shared/compact-side-effect! {:chat-id "chat-1"
                                   :full-model "openai/gpt-5.2"
                                   :db* db*
@@ -335,3 +335,12 @@
 
   (testing "handles empty messages"
     (is (= [] (shared/messages-after-last-compact-marker [])))))
+
+(deftest not-blank-test
+  ;; blank/non-string values are absent; real strings pass through
+  (are [in expected] (= expected (shared/not-blank in))
+    "" nil
+    "   " nil
+    nil nil
+    42 nil
+    "hello" "hello"))

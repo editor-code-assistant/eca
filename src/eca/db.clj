@@ -119,6 +119,9 @@
                                    :refresh-token :string
                                    :expires-at :long}}})
 
+(defn parent-chat-id [db chat-id]
+  (get-in db [:chats chat-id :parent-chat-id]))
+
 (defonce initial-db
   {:client-info {}
    :workspace-folders []

@@ -466,3 +466,53 @@
       (is (= 10 (count result)))
       (is (= {:name "arg1" :required true} (first result)))
       (is (= {:name "arg10" :required true} (last result))))))
+
+(deftest hooks-msg-test
+  (testing "no hooks configured shows the empty message"
+    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
+           (#'f.commands/hooks-msg {:hooks {}}))))
+
+  (testing "a hook with no actions is treated as no hooks"
+    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
+           (#'f.commands/hooks-msg {:hooks {"empty" {:type "preToolCall" :actions []}}}))))
+
+  (testing "description is rendered after the hook name"
+    (let [out (#'f.commands/hooks-msg
+               {:hooks {"guard" {:type "preToolCall"
+                                 :description "blocks dangerous tools"
+                                 :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "`guard`"))
+      (is (string/includes? out "— blocks dangerous tools"))))
+
+  (testing "invisible hooks render the hidden marker"
+    (let [out (#'f.commands/hooks-msg
+               {:hooks {"silent" {:type "preToolCall"
+                                  :visible false
+                                  :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "*(hidden)*"))))
+
+  (testing "visible hooks (default) do not render the hidden marker"
+    (let [out (#'f.commands/hooks-msg
+               {:hooks {"loud" {:type "preToolCall"
+                                :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (not (string/includes? out "*(hidden)*")))))
+
+  (testing "a string matcher is rendered verbatim"
+    (let [out (#'f.commands/hooks-msg
+               {:hooks {"m" {:type "preToolCall"
+                             :matcher "read_file"
+                             :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "matcher: `read_file`"))))
+
+  (testing "a map matcher is rendered as JSON"
+    (let [out (#'f.commands/hooks-msg
+               {:hooks {"m" {:type "preToolCall"
+                             :matcher {:tool_name "read_file"}
+                             :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "matcher: `{\"tool_name\":\"read_file\"}`"))))
+
+  (testing "plugin-prefixed hook names are rendered"
+    (let [out (#'f.commands/hooks-msg
+               {:hooks {"my-plugin::guard" {:type "preToolCall"
+                                            :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "`my-plugin::guard`")))))

@@ -205,11 +205,11 @@
     (is (match?
          [{:role "user"
            :content [{:type :text :text "compact the chat"}
-                     {:type :text :text "<additionalContext from=\"test\">\ntoday is monday\n</additionalContext>"}]}]
+                     {:type :text :text "<additionalContext>\ntoday is monday\n</additionalContext>"}]}]
          (#'llm-providers.anthropic/normalize-messages
           [{:role "user"
             :content [{:type :text :text "compact the chat"}
-                      {:type :text :text "<additionalContext from=\"test\">\ntoday is monday\n</additionalContext>"}]}]
+                      {:type :text :text "<additionalContext>\ntoday is monday\n</additionalContext>"}]}]
           true)))))
 
 (deftest server-web-search-full-pipeline-test
