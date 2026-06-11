@@ -106,7 +106,7 @@
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
                                  :requiresAuth? true
-                                 :models {"gpt-5.2" {}}}
+                                 :models {"gpt-5.5" {}}}
                "google" {:api "openai-chat"
                          :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
                          :key "${env:GOOGLE_API_KEY}"

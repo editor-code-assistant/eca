@@ -27,7 +27,7 @@
         (is (match?
              {:providers {"github-copilot" {:key "123"
                                             :models {"gpt-5" {:a 1}
-                                                     "gpt-5.2" {}}
+                                                     "gpt-5.5" {}}
                                             :url string?}}}
              (#'config/all* @db*))))))
 
