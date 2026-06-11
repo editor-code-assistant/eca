@@ -295,8 +295,8 @@
 
 (def ^:private hook-type-order
   "Display order for hook types in /hooks output."
-  ["sessionStart" "sessionEnd" "chatStart" "chatEnd" "subagentStart" "preRequest"
-   "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
+  ["sessionStart" "sessionEnd" "chatStart" "chatEnd" "chatStatusChanged" "subagentStart"
+   "preRequest" "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
    "preCompact" "postCompact"])
 
 (defn ^:private hooks-msg [config]

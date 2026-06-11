@@ -339,7 +339,7 @@
                        ;; error before any token arrived. Cleanup of
                        ;; stale chats is handled by
                        ;; cleanup-old-chats! instead.
-                       (-> (update-vals chats #(dissoc % :tool-calls))
+                       (-> (update-vals chats #(dissoc % :tool-calls :last-status-payload))
                            stamp-chat-ids)))))
 
 (defn ^:private normalize-db-for-global-write [db]

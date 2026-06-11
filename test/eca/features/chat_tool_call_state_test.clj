@@ -1,10 +1,12 @@
 (ns eca.features.chat-tool-call-state-test
   "A namespace for testing the tool call state transitions."
   (:require
+   [cheshire.core :as json]
    [clojure.string :as s]
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
    [eca.features.chat.tool-calls :as tc]
+   [eca.features.hooks :as f.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -641,6 +643,121 @@
             (is (= :cleanup (:status (#'tc/get-tool-call-state @db* chat-id "tool-3")))
                 "Expected tool call state to be in :cleanup status")))))))
 
+(deftest transition-tool-call-triggers-chat-status-hook-test
+  (testing "tool call transitions trigger the chatStatusChanged hook with aggregate snapshots at the choke point"
+    (h/reset-components!)
+    (h/config! {:hooks {"status" {:type "chatStatusChanged"
+                                  :actions [{:type "shell" :shell "status"}]}}})
+    (let [db* (h/db*)
+          chat-id "status-chat"
+          hook-inputs* (atom [])
+          chat-ctx {:chat-id chat-id
+                    :request-id "req-status"
+                    :messenger (h/messenger)
+                    :config (h/config)}
+          last-hook #(last @hook-inputs*)
+          prepare! (fn [tool-call-id name server]
+                     (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+                                                 {:name name
+                                                  :server server
+                                                  :origin :native
+                                                  :arguments-text "{}"}))
+          run! (fn [tool-call-id name server]
+                 (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+                                             {:approved?* (promise)
+                                              :future-cleanup-complete?* (promise)
+                                              :name name
+                                              :server server
+                                              :origin :native
+                                              :arguments {}
+                                              :manual-approval true}))]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running})
+      (with-redefs [f.hooks/run-shell-cmd
+                    (fn [{:keys [input]}]
+                      (swap! hook-inputs* conj (json/parse-string input true))
+                      {:exit 0 :out nil :err nil})]
+        ;; Hook stdin keys are snake_case and :status is serialized as a string.
+        (prepare! "tool-1" "shell" "eca")
+        (run! "tool-1" "shell" "eca")
+        (#'tc/transition-tool-call! db* chat-ctx "tool-1" :approval-ask
+                                    {:progress-text "Waiting for tool call approval"})
+        (is (match? {:status "running"
+                     :awaiting_user_input true
+                     :waiting_reason "toolApproval"
+                     :pending_approval_tool_call_ids ["tool-1"]
+                     :pending_question_tool_call_ids []
+                     :running_tool_call_ids []}
+                    (last-hook)))
+
+        (prepare! "tool-2" "shell" "eca")
+        (run! "tool-2" "shell" "eca")
+        (#'tc/transition-tool-call! db* chat-ctx "tool-2" :approval-ask
+                                    {:progress-text "Waiting for tool call approval"})
+        (is (match? {:pending_approval_tool_call_ids ["tool-1" "tool-2"]
+                     :awaiting_user_input true}
+                    (last-hook)))
+
+        (#'tc/transition-tool-call! db* chat-ctx "tool-1" :user-approve
+                                    {:reason {:code :user-choice-allow
+                                              :text "Tool call allowed by user choice"}})
+        (is (match? {:pending_approval_tool_call_ids ["tool-2"]
+                     :awaiting_user_input true}
+                    (last-hook)))
+
+        (#'tc/transition-tool-call! db* chat-ctx "tool-2" :user-approve
+                                    {:reason {:code :user-choice-allow
+                                              :text "Tool call allowed by user choice"}})
+        (is (match? {:awaiting_user_input false
+                     :pending_approval_tool_call_ids []}
+                    (last-hook)))
+
+        (prepare! "question" "ask_user" "eca")
+        (run! "question" "ask_user" "eca")
+        (#'tc/transition-tool-call! db* chat-ctx "question" :approval-allow
+                                    {:reason {:code :user-config-allow
+                                              :text "allowed"}})
+        (#'tc/transition-tool-call! db* chat-ctx "question" :execution-start
+                                    {:delayed-future (delay nil)
+                                     :origin :native
+                                     :name "ask_user"
+                                     :server "eca"
+                                     :arguments {}
+                                     :start-time (System/currentTimeMillis)
+                                     :progress-text "Waiting for user"})
+        (is (match? {:awaiting_user_input true
+                     :waiting_reason "userQuestion"
+                     :pending_question_tool_call_ids ["question"]
+                     :running_tool_call_ids []}
+                    (last-hook)))
+
+        (#'tc/transition-tool-call! db* chat-ctx "question" :execution-end
+                                    {:origin :native
+                                     :name "ask_user"
+                                     :server "eca"
+                                     :arguments {}
+                                     :error false
+                                     :outputs []
+                                     :total-time-ms 1
+                                     :progress-text "Generating"})
+        (is (match? {:awaiting_user_input false
+                     :pending_question_tool_call_ids []
+                     :running_tool_call_ids []}
+                    (last-hook)))
+
+        (is (nil? (:chat-status-changed (h/messages)))
+            "tool-call transitions do not emit the protocol notification")))))
+
+(deftest prompt-stop-emits-stopping-status-test
+  (testing "prompt-stop transitions to :stopping and emits the protocol status via finish"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "stopping-chat"]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running})
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {})
+      ;; The protocol notification carries only the final stopping status.
+      (is (match? [{:chat-id chat-id :status :stopping}]
+                  (:chat-status-changed (h/messages)))))))
+
 (deftest test-stop-prompt-messages
   ;; Test what messages are sent when stop-prompt is called
   (testing "should send toolCallRejected for active tool calls"
@@ -658,7 +775,7 @@
       (#'tc/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                       {:name "read_file" :origin "filesystem" :arguments-text "{}"})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {})
 
       (let [messages (h/messages)
             chat-messages (:chat-content-received messages)
@@ -694,7 +811,7 @@
       (#'tc/transition-tool-call! db* chat-ctx "tool-1" :tool-prepare
                                       {:name "list_files" :origin "filesystem" :arguments-text "{}"})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {})
 
       (let [message-count (count (:chat-content-received (h/messages)))]
         (is (< 1 message-count)
@@ -721,7 +838,7 @@
                                        :name "list_files"
                                        :origin "filesystem"
                                        :arguments {"id" 123 "value" 42}})
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {})
       (when-not @approved?*
         (#'tc/transition-tool-call! db* chat-ctx tool-call-id :send-reject
                                         {:approved?* approved?*
@@ -748,7 +865,7 @@
 
       (swap! db* assoc-in [:chats chat-id] {:status :idle}) ; Not running
 
-      (is (nil? (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics)))
+      (is (nil? (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {}))
           "Expected nil return value for non-running chat")
 
       (is (= 0 (count (:chat-content-received (h/messages))))
@@ -773,7 +890,7 @@
       (#'tc/transition-tool-call! db* chat-ctx "tool-2" :tool-prepare
                                       {:name "read_file" :origin "filesystem" :arguments-text "{}"})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {})
 
       (let [chat-messages (:chat-content-received (h/messages))]
 
@@ -796,7 +913,7 @@
 
       (swap! db* assoc-in [:chats chat-id] {:status :running})
 
-      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/metrics))
+      (f.chat/prompt-stop {:chat-id chat-id} db* (h/messenger) (h/config) (h/metrics) {})
 
       (let [final-status (get-in @db* [:chats chat-id :status])]
         (is (= :stopping final-status) "Expected status to change to :stopping after stop processing")))))

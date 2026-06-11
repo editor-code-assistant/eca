@@ -586,6 +586,8 @@
     (doseq [action actions]
       (execute-action! action db* chat-ctx tool-call-id event-data))
 
+    (lifecycle/trigger-chat-status-hook! (assoc chat-ctx :db* db*))
+
     {:status status :actions actions}))
 
 (def ^:private hook-approval-rank

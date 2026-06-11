@@ -92,10 +92,10 @@
 
 (defn ^:private stop-subagent-chat!
   "Stop a running subagent chat silently (parent already shows 'Prompt stopped')."
-  [db* messenger metrics subagent-chat-id agent-name]
+  [db* messenger config metrics subagent-chat-id agent-name]
   (let [prompt-stop (requiring-resolve 'eca.features.chat/prompt-stop)]
     (try
-      (prompt-stop {:chat-id subagent-chat-id} db* messenger metrics {:silent? true})
+      (prompt-stop {:chat-id subagent-chat-id} db* messenger config metrics {:silent? true})
       (catch Exception e
         (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e)))))))
 
@@ -211,7 +211,7 @@
         ;; Wait for subagent to complete by polling status
         (let [stopped-result (fn []
                                (logger/info logger-tag (format "Agent '%s' stopped by parent chat" agent-name))
-                               (stop-subagent-chat! db* messenger metrics subagent-chat-id agent-name)
+                               (stop-subagent-chat! db* messenger config metrics subagent-chat-id agent-name)
                                {:error true
                                 :contents [{:type :text
                                             :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]

@@ -202,7 +202,7 @@
 (defn run-hook-action!
   "Execute a single hook action. Supported hook types:
    - :sessionStart, :sessionEnd (session lifecycle)
-   - :chatStart, :chatEnd (chat lifecycle)
+   - :chatStart, :chatEnd, :chatStatusChanged (chat lifecycle)
    - :subagentStart, :subagentPostRequest (subagent lifecycle)
    - :preRequest, :postRequest (prompt lifecycle)
    - :preToolCall, :postToolCall (tool lifecycle)
