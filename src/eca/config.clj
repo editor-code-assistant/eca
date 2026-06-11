@@ -207,6 +207,7 @@
                      ".*deepseek[-._]v4[-._]pro" {:variants deepseek-variants
                                                   :api "openai-chat"}}
    :mcpTimeoutSeconds 60
+   :mcpKeepAliveSeconds 30
    :lspTimeoutSeconds 30
    :streamIdleTimeoutSeconds 120
    :mcpServers {}

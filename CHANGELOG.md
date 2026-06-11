@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP: recover remote servers with stale connections (e.g. after suspend): tool-call timeouts now probe and re-initialize; add `mcpKeepAliveSeconds` pings; 404 triggers re-init.
+
 ## 0.140.0
 
 - Add `preCompact`, `postCompact` and `subagentStart` hooks; subagents no longer trigger `chatStart`.

@@ -602,6 +602,58 @@
         (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
       (is (true? @needs-reinit?*)))))
 
+(def ^:private reinit-worthy-http-status? #'mcp/reinit-worthy-http-status?)
+
+(deftest reinit-worthy-http-status?-test
+  (testing "statuses signaling broken session/auth (404 = expired session per Streamable HTTP spec)"
+    (doseq [s [401 403 404 500 502 503]]
+      (is (true? (reinit-worthy-http-status? s)) (str "should flag: " s))))
+  (testing "ordinary statuses are not reinit-worthy"
+    (doseq [s [200 202 400 408 429]]
+      (is (false? (reinit-worthy-http-status? s)) (str "should not flag: " s)))))
+
+(deftest do-call-tool-timeout-test
+  (testing "timeout + silent ping probe (dead connection) flags reinit"
+    (let [needs-reinit?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    (:timeout-value call-opts))
+                    pmc/ping (fn [_client opts]
+                               (:timeout-value opts))]
+        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*)]
+          (is (true? (:error result)))
+          (is (string/includes? (-> result :contents first :text) "re-initializing"))))
+      (is (true? @needs-reinit?*))))
+
+  (testing "timeout + ping transport exception flags reinit"
+    (let [needs-reinit?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    (:timeout-value call-opts))
+                    pmc/ping (fn [_client _opts]
+                               (throw (java.io.IOException. "Connection reset")))]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (is (true? @needs-reinit?*))))
+
+  (testing "timeout but server answers ping (slow tool): plain timeout error, no reinit"
+    (let [needs-reinit?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    (:timeout-value call-opts))
+                    pmc/ping (fn [_client _opts] {})]
+        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*)]
+          (is (true? (:error result)))
+          (is (string/includes? (-> result :contents first :text) "timed out after"))
+          (is (not (string/includes? (-> result :contents first :text) "re-initializing")))))
+      (is (false? @needs-reinit?*))))
+
+  (testing "timeout on stdio server (no needs-reinit atom): plain timeout error, no probe"
+    (let [pinged?* (atom false)]
+      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
+                                    (:timeout-value call-opts))
+                    pmc/ping (fn [_client _opts] (reset! pinged?* true) {})]
+        (let [result (#'mcp/do-call-tool (Object.) "tool" {} nil)]
+          (is (true? (:error result)))
+          (is (string/includes? (-> result :contents first :text) "timed out after"))))
+      (is (false? @pinged?*)))))
+
 (deftest reinitialize-server!-refreshes-before-init-test
   (testing "forces a token refresh before re-initializing (heals server-side expiry)"
     (let [calls* (atom [])]

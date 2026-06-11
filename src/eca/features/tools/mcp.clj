@@ -196,7 +196,7 @@
      (future (f jsonrpc-notification)))))
 
 (defn ^:private ->client [name transport init-timeout workspaces
-                          {:keys [on-tools-change pending-tools-refresh*]}]
+                          {:keys [on-tools-change pending-tools-refresh* heartbeat-seconds]}]
   (let [tools-consumer (fn [tools]
                          (logger/info logger-tag
                                       (format "[%s] Tools list changed, received %d tools"
@@ -205,6 +205,7 @@
         client (pmc/make-mcp-client
                 {:info (pes/make-info "ECA" (config/eca-version) "Editor Code Assistant")
                  :client-transport transport
+                 :heartbeat-seconds (or heartbeat-seconds 0)
                  :primitives {:roots (mapv #(pcap/make-root-item (:uri %)
                                                                  {:name (:name %)})
                                            workspaces)}
@@ -462,7 +463,10 @@
                     result (try
                              (let [client (->client name transport init-timeout workspaces
                                                     {:on-tools-change on-tools-change
-                                                     :pending-tools-refresh* pending-tools-refresh*})
+                                                     :pending-tools-refresh* pending-tools-refresh*
+                                                     ;; keep-alive pings only for remote servers, where idle
+                                                     ;; connections can be dropped by proxies/load balancers
+                                                     :heartbeat-seconds (when url (:mcpKeepAliveSeconds config))})
                                    init-result (pmc/get-initialize-result client)
                                    _ (when-not init-result
                                        (throw (ex-info "MCP initialize returned no result"
@@ -953,17 +957,36 @@
   (initialize-server! server-name db* config metrics (constantly nil)))
 
 (def ^:private tool-call-timeout-ms 120000)
+(def ^:private liveness-ping-timeout-ms 5000)
 
 (defn ^:private tool-call-error [msg]
   {:error true
    :contents [{:type :text :text msg}]})
 
+(defn ^:private connection-dead?
+  "Probes the server with a short JSON-RPC ping to distinguish a dead
+   connection (e.g. pooled HTTP connections silently dropped after machine
+   suspend or long idle) from a genuinely slow tool call. Any response,
+   even an error one, means the connection is alive; only silence or a
+   transport exception means it is dead."
+  [mcp-client]
+  (let [result (try
+                 (pmc/ping mcp-client {:timeout-millis liveness-ping-timeout-ms
+                                       :timeout-value ::ping-timeout
+                                       :on-timeout (fn [_id timeout-value] timeout-value)
+                                       :on-error (fn [_id _jsonrpc-error] ::ping-error-response)})
+                 (catch Exception _ ::ping-failed))]
+    (contains? #{::ping-timeout ::ping-failed} result)))
+
 (defn ^:private reinit-worthy-http-status?
   "HTTP status codes that indicate the session/auth is broken and the server
-   connection should be re-initialized (e.g. expired token, server error)."
+   connection should be re-initialized (e.g. expired token, expired session,
+   server error). 404 is the Streamable HTTP spec signal for an expired
+   session id."
   [status]
   (or (= 401 (long status))
       (= 403 (long status))
+      (= 404 (long status))
       (<= 500 (long status))))
 
 (defn ^:private auth-error-message?
@@ -988,11 +1011,16 @@
 (defn ^:private do-call-tool
   "Execute a tool call. Delegates timeout handling to plumcp via :timeout-millis.
    All non-200 HTTP errors are returned as JSON-RPC errors by plumcp with
-   :plumcp.core/http-status on the error map."
+   :plumcp.core/http-status on the error map.
+   A timeout is followed by a short liveness ping: a silent server means the
+   connection is stale (e.g. after machine suspend) and gets flagged for
+   re-initialization."
   [mcp-client name arguments needs-reinit?*]
   (locking mcp-client
     (let [error-msg* (atom nil)
           call-opts {:timeout-millis tool-call-timeout-ms
+                     :timeout-value ::call-timeout
+                     :on-timeout (fn [_id timeout-value] timeout-value)
                      :on-error (fn [_id jsonrpc-error]
                                  (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")
                                        http-status (:plumcp.core/http-status jsonrpc-error)]
@@ -1019,6 +1047,15 @@
       (cond
         (= ::retry result)
         nil
+
+        (= ::call-timeout result)
+        (let [timeout-s (quot tool-call-timeout-ms 1000)]
+          (if (and needs-reinit?* (connection-dead? mcp-client))
+            (do (logger/warn logger-tag
+                             (format "Tool call '%s' timed out after %ss and server does not answer pings, flagging for re-initialization" name timeout-s))
+                (reset! needs-reinit?* true)
+                (tool-call-error (format "MCP tool call timed out after %ss: connection looks stale, re-initializing server" timeout-s)))
+            (tool-call-error (format "MCP tool call timed out after %ss" timeout-s))))
 
         (::error-msg result)
         (tool-call-error (format "MCP server error: %s" (::error-msg result)))

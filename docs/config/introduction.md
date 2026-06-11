@@ -140,6 +140,7 @@ By default ECA consider the following as the base configuration:
         }
       },
       "mcpTimeoutSeconds" : 60,
+      "mcpKeepAliveSeconds" : 30,
       "lspTimeoutSeconds" : 30,
       "mcpServers" : {},
       "agent": {

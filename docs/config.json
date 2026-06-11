@@ -174,6 +174,12 @@
       "markdownDescription": "Timeout in seconds for MCP server operations.",
       "default": 60
     },
+    "mcpKeepAliveSeconds": {
+      "type": "integer",
+      "description": "Interval in seconds between keep-alive pings to remote MCP servers, preventing idle connections from being dropped by proxies. Set 0 to disable.",
+      "markdownDescription": "Interval in seconds between keep-alive pings to remote MCP servers, preventing idle connections from being dropped by proxies. Set 0 to disable.",
+      "default": 30
+    },
     "lspTimeoutSeconds": {
       "type": "integer",
       "description": "Timeout in seconds for LSP operations.",
