@@ -5,7 +5,9 @@
    [clojure.string :as string]
    [eca.remote.auth :as auth]
    [eca.remote.handlers :as handlers]
-   [eca.remote.middleware :as middleware]))
+   [eca.remote.middleware :as middleware]
+   [ring.middleware.keyword-params :refer [wrap-keyword-params]]
+   [ring.middleware.params :refer [wrap-params]]))
 
 (set! *warn-on-reflection* true)
 
@@ -130,5 +132,7 @@
                           {:error {:code "internal_error"
                                    :message (or (.getMessage e) "Unknown error")}})})))
             (not-found-response)))
+        (wrap-keyword-params)
+        (wrap-params)
         (auth/wrap-bearer-auth token ["/" "/api/v1/health"])
         (middleware/wrap-cors))))

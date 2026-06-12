@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remote HTTP `GET /api/v1/chats/:id`: opt-in message pagination via `limit`/`before`/`after` query params (opaque cursors, `after=lastCompaction` sentinel) returning `messagesMeta` with before/after/compaction cursors.
+
 ## 0.140.1
 
 - MCP: recover remote servers with stale connections (e.g. after suspend): tool-call timeouts now probe and re-initialize; add `mcpKeepAliveSeconds` pings; 404 triggers re-init.
