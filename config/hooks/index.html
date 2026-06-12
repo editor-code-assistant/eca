@@ -1165,6 +1165,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chatstatuschanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      chatStatusChanged
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#subagentstart" class="md-nav__link">
     <span class="md-ellipsis">
       subagentStart
@@ -1839,6 +1848,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#chatstatuschanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      chatStatusChanged
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#subagentstart" class="md-nav__link">
     <span class="md-ellipsis">
       subagentStart
@@ -2065,6 +2083,11 @@
 <td>Side effects (advisory)</td>
 </tr>
 <tr>
+<td><a href="#chatstatuschanged"><code>chatStatusChanged</code></a></td>
+<td>Chat aggregate status changed</td>
+<td>Side effects (advisory)</td>
+</tr>
+<tr>
 <td><a href="#subagentstart"><code>subagentStart</code></a></td>
 <td>Before a subagent's first prompt</td>
 <td>Inject context, stop the turn</td>
@@ -2250,12 +2273,12 @@
 <tr>
 <td><code>systemMessage</code></td>
 <td>string</td>
-<td>A standalone user-facing message, shown as <code>Hook '&lt;name&gt;': &lt;text&gt;</code> on exit <code>0</code>, independent of <code>visible</code>/<code>suppressOutput</code>. No effect on <code>sessionStart</code>/<code>sessionEnd</code>/<code>chatEnd</code> (no chat UI).</td>
+<td>A standalone user-facing message, shown as <code>Hook '&lt;name&gt;': &lt;text&gt;</code> on exit <code>0</code>, independent of <code>visible</code>/<code>suppressOutput</code>. No effect on <code>sessionStart</code>/<code>sessionEnd</code>/<code>chatEnd</code>/<code>chatStatusChanged</code> (no chat UI).</td>
 </tr>
 <tr>
 <td><code>suppressOutput</code></td>
 <td>boolean</td>
-<td>Hide only the execution block's body (stdout/stderr and effect lines). No effect on <code>sessionStart</code>/<code>sessionEnd</code>/<code>chatEnd</code> (no chat UI).</td>
+<td>Hide only the execution block's body (stdout/stderr and effect lines). No effect on <code>sessionStart</code>/<code>sessionEnd</code>/<code>chatEnd</code>/<code>chatStatusChanged</code> (no chat UI).</td>
 </tr>
 <tr>
 <td><code>continue</code></td>
@@ -2276,7 +2299,7 @@
 <li><strong><code>continue: false</code></strong> (exit <code>0</code>) always stops ECA from running the <strong>remaining hooks</strong> of the same event. For <strong>turn-scoped</strong> hooks it <em>additionally</em> stops the current turn and surfaces <code>Turn stopped by hook '&lt;name&gt;': &lt;stopReason&gt;</code> (or <code>Turn stopped by hook '&lt;name&gt;'.</code> with no reason).</li>
 <li><strong><code>exit 2</code></strong> is a surgical, hook-specific intervention (see each hook). It <strong>never</strong> stops the hook chain.</li>
 </ul>
-<p><strong>Turn-scoped hooks</strong> are <code>chatStart</code>, <code>subagentStart</code>, <code>preRequest</code>, <code>postRequest</code>, <code>subagentPostRequest</code>, <code>preCompact</code>, <code>postCompact</code>, <code>preToolCall</code>, and <code>postToolCall</code>. The rest — <code>sessionStart</code>, <code>sessionEnd</code>, <code>chatEnd</code> — only skip their remaining peers.</p>
+<p><strong>Turn-scoped hooks</strong> are <code>chatStart</code>, <code>subagentStart</code>, <code>preRequest</code>, <code>postRequest</code>, <code>subagentPostRequest</code>, <code>preCompact</code>, <code>postCompact</code>, <code>preToolCall</code>, and <code>postToolCall</code>. The rest — <code>sessionStart</code>, <code>sessionEnd</code>, <code>chatEnd</code>, <code>chatStatusChanged</code> — only skip their remaining peers.</p>
 <p>When a hook stops the turn it ends immediately: remaining <code>postRequest</code>/<code>subagentPostRequest</code> hooks do not run and no <code>followUp</code>/continuation fires.</p>
 <h3 id="how-a-hook-appears-in-the-chat">How a hook appears in the chat<a class="headerlink" href="#how-a-hook-appears-in-the-chat" title="Permanent link">#</a></h3>
 <p>A hook reaches the user through two <strong>independent</strong> channels:</p>
@@ -2303,7 +2326,7 @@
 </tr>
 </tbody>
 </table>
-<p>Effect-only fields (<code>updatedInput</code>, <code>approval</code>, <code>replacedOutput</code>) change behavior without creating standalone messages, but a visible block still surfaces them as effect lines so you can see what changed. Hooks without a UI (<code>sessionStart</code>, <code>sessionEnd</code>, <code>chatEnd</code>) ignore <code>systemMessage</code>/<code>suppressOutput</code>.</p>
+<p>Effect-only fields (<code>updatedInput</code>, <code>approval</code>, <code>replacedOutput</code>) change behavior without creating standalone messages, but a visible block still surfaces them as effect lines so you can see what changed. Hooks without a UI (<code>sessionStart</code>, <code>sessionEnd</code>, <code>chatEnd</code>, <code>chatStatusChanged</code>) ignore <code>systemMessage</code>/<code>suppressOutput</code>.</p>
 <h3 id="base-input">Base input<a class="headerlink" href="#base-input" title="Permanent link">#</a></h3>
 <p>Every hook receives these fields on stdin:</p>
 <ul>
@@ -2344,6 +2367,32 @@
 <li><strong>Honored output</strong> — none. No <code>additionalContext</code>/<code>stopReason</code>/<code>suppressOutput</code> (no UI). <code>continue: false</code> only stops later <code>chatEnd</code> hooks; it does not affect deletion.</li>
 <li><strong>Exit 2</strong> — non-blocking error.</li>
 </ul>
+<h3 id="chatstatuschanged"><code>chatStatusChanged</code><a class="headerlink" href="#chatstatuschanged" title="Permanent link">#</a></h3>
+<p>Fires whenever the aggregate chat status snapshot changes. <strong>Advisory and best-effort</strong> — side effects only (notifications, dashboards, telemetry).</p>
+<ul>
+<li><strong>Input adds</strong> — <code>status</code>, <code>awaiting_user_input</code>, <code>pending_approval_tool_call_ids</code>, <code>pending_question_tool_call_ids</code>, <code>running_tool_call_ids</code>, and, only while blocked on the user, <code>waiting_reason</code> (<code>toolApproval</code> or <code>userQuestion</code>). Subagent chats also include <code>parent_chat_id</code>.</li>
+<li><strong>Honored output</strong> — none. No <code>additionalContext</code>/<code>updatedInput</code>/<code>approval</code>/<code>replacedOutput</code>/<code>stopReason</code>/<code>systemMessage</code>/<code>suppressOutput</code> (no UI). <code>continue: false</code> only stops later <code>chatStatusChanged</code> hooks for the same event; it does not affect the chat lifecycle and cannot suppress later status emissions.</li>
+<li><strong>Exit 2</strong> — non-blocking error.</li>
+</ul>
+<p>Each payload is a full snapshot, never a delta, and the hook fires only when the snapshot actually changed — it never receives a duplicate of the previous snapshot. A consumer that attaches mid-turn may see nothing until the next transition.</p>
+<p>This hook can fire many times per turn (every tool start/end changes the aggregate). Keep the script fast:</p>
+<div class="highlight"><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="nv">payload</span><span class="o">=</span><span class="k">$(</span>cat<span class="k">)</span>
+<span class="o">(</span><span class="w"> </span>slow-notify<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$payload</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">&amp;</span><span class="w"> </span><span class="o">)</span><span class="w"> </span><span class="c1"># detach; exit immediately</span>
+<span class="nb">exit</span><span class="w"> </span><span class="m">0</span>
+</code></pre></div>
+<p>Example configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;notify-status&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;chatStatusChanged&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;actions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;file&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;~/.config/eca/hooks/chat-status.sh&quot;</span><span class="p">}</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="subagentstart"><code>subagentStart</code><a class="headerlink" href="#subagentstart" title="Permanent link">#</a></h3>
 <p>Fires before a subagent's first prompt. Use to inject context scoped to the subagent.</p>
 <ul>
@@ -2689,7 +2738,7 @@ user question".</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 12, 2026 11:58:08 UTC">June 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 12, 2026 17:53:58 UTC">June 12, 2026</span>
   </span>
 
     
