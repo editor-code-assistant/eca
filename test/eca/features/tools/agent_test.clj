@@ -264,7 +264,7 @@
                           ;; Signal parent stop so the poll loop picks it up
                           (reset! call-state* {:status :stopping}))
                         eca.features.chat/prompt-stop
-                        (fn [_params _db* _messenger _metrics]
+                        (fn [_params _db* _messenger _config _metrics _opts]
                           (swap! db* assoc-in [:chats subagent-chat-id :status] :idle))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
         (let [result ((spawn-handler)

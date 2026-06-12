@@ -104,9 +104,9 @@
                     :id id})))
 
 (defn notify-after-hook-action! [chat-ctx {:keys [id name parsed raw-output raw-error exit type hook-type visible? tool-call-id]}]
-  (let [advisory-chat-end? (= :chatEnd hook-type)
-        ;; JSON output fields are only honored on exit 0 (and never for chatEnd).
-        parsed-effects (when (and (not advisory-chat-end?) (zero? exit)) parsed)
+  (let [advisory-chat-hook? (contains? #{:chatEnd :chatStatusChanged} hook-type)
+        ;; JSON output fields are only honored on exit 0 (and never for advisory chat hooks).
+        parsed-effects (when (and (not advisory-chat-hook?) (zero? exit)) parsed)
         suppress? (boolean (get parsed-effects "suppressOutput"))]
     ;; Two independent channels:
     ;; 1. Execution block, gated by `visible?`. If a started event was sent we must
@@ -362,11 +362,72 @@
      :stop-reason (:stop-reason stop-result)
      :stop-hook-name (:stop-hook-name stop-result)}))
 
+(defn ^:private chat-status-payload
+  "Build the aggregate chatStatusChanged hook payload from a db snapshot."
+  [db chat-id]
+  (let [chat (get-in db [:chats chat-id])
+        tool-calls (:tool-calls chat)
+        ask-user? (fn [tc]
+                    (and (= "ask_user" (:name tc))
+                         (= "eca" (:server tc))))
+        ids-by (fn [pred]
+                 (->> tool-calls
+                      (filter (fn [[_ tc]] (pred tc)))
+                      (map key)
+                      sort
+                      vec))
+        pending-approval (ids-by #(= :waiting-approval (:status %)))
+        pending-question (ids-by #(and (= :executing (:status %)) (ask-user? %)))
+        running (ids-by #(and (= :executing (:status %)) (not (ask-user? %))))
+        awaiting? (boolean (or (seq pending-approval) (seq pending-question)))]
+    (cond-> {:chat-id chat-id
+             :status (or (:status chat) :idle)
+             :awaiting-user-input awaiting?
+             :pending-approval-tool-call-ids pending-approval
+             :pending-question-tool-call-ids pending-question
+             :running-tool-call-ids running}
+      awaiting? (assoc :waiting-reason (if (seq pending-approval)
+                                         "toolApproval"
+                                         "userQuestion")))))
+
+(defn trigger-chat-status-hook!
+  "Trigger the advisory chatStatusChanged hook when the aggregate chat status
+   payload changed since the last trigger.
+
+   The protocol `chat/statusChanged` notification is emitted separately and
+   carries only the chat id and status. This hook receives the aggregate status,
+   including awaiting-user-input and tool-call ids.
+
+   Dedup state is stored at [:chats chat-id :last-status-payload]. Missing chats
+   are ignored."
+  [{:keys [db* chat-id config] :as chat-ctx}]
+  (when (some #(= :chatStatusChanged (keyword (:type %))) (vals (:hooks config)))
+    (let [path [:chats chat-id :last-status-payload]
+          ;; Compute inside the swap so the stored payload matches the db snapshot.
+          [old-db new-db] (swap-vals! db* (fn [db]
+                                            (if (get-in db [:chats chat-id])
+                                              (assoc-in db path (chat-status-payload db chat-id))
+                                              db)))
+          payload (get-in new-db path)]
+      (when (and (get-in new-db [:chats chat-id])
+                 (not= (get-in old-db path) payload))
+        (f.hooks/trigger-if-matches!
+         :chatStatusChanged
+         (merge (f.hooks/chat-hook-data new-db chat-ctx)
+                (when (get-in new-db [:chats chat-id :subagent])
+                  {:parent-chat-id (db/parent-chat-id new-db chat-id)})
+                (dissoc payload :chat-id))
+         ;; No action callbacks: advisory hooks do not render in the chat UI.
+         {}
+         new-db
+         config)))))
+
 (defn ^:private apply-status-transition!
   "Update chat status, send status/progress events, set created-at if needed."
   [{:keys [chat-id db* messenger] :as chat-ctx} status]
   (swap! db* assoc-in [:chats chat-id :status] status)
   (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
+  (trigger-chat-status-hook! chat-ctx)
   (send-content! chat-ctx :system
                  {:type :progress
                   :state :finished})

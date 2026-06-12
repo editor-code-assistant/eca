@@ -223,17 +223,17 @@
   (metrics/task metrics :eca/chat-query-commands
     (f.chat/query-commands params db* config)))
 
-(defn chat-tool-call-approve [{:keys [messenger db* metrics]} params]
+(defn chat-tool-call-approve [{:keys [messenger db* config metrics]} params]
   (metrics/task metrics :eca/chat-tool-call-approve
-    (f.chat/tool-call-approve params db* messenger metrics)))
+    (f.chat/tool-call-approve params db* messenger config metrics)))
 
-(defn chat-tool-call-reject [{:keys [messenger db* metrics]} params]
+(defn chat-tool-call-reject [{:keys [messenger db* config metrics]} params]
   (metrics/task metrics :eca/chat-tool-call-reject
-    (f.chat/tool-call-reject params db* messenger metrics)))
+    (f.chat/tool-call-reject params db* messenger config metrics)))
 
-(defn chat-prompt-stop [{:keys [db* messenger metrics]} params]
+(defn chat-prompt-stop [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-prompt-stop
-    (f.chat/prompt-stop params db* messenger metrics)))
+    (f.chat/prompt-stop params db* messenger config metrics {})))
 
 (defn chat-prompt-steer [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-prompt-steer

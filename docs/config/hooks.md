@@ -18,6 +18,7 @@ This page first explains the mechanics shared by **all** hooks, then provides a 
 | [`sessionEnd`](#sessionend) | Server shutting down | Side effects |
 | [`chatStart`](#chatstart) | New or resumed chat | Inject context, stop the turn |
 | [`chatEnd`](#chatend) | Chat deleted | Side effects (advisory) |
+| [`chatStatusChanged`](#chatstatuschanged) | Chat aggregate status changed | Side effects (advisory) |
 | [`subagentStart`](#subagentstart) | Before a subagent's first prompt | Inject context, stop the turn |
 | [`preRequest`](#prerequest) | Before prompt sent to LLM | Rewrite prompt, inject context, block |
 | [`postRequest`](#postrequest) | After a primary-agent prompt finished | Trigger a follow-up turn |
@@ -125,8 +126,8 @@ These behave the same wherever they are supported:
 
 | Field | Type | Effect |
 |-------|------|--------|
-| `systemMessage` | string | A standalone user-facing message, shown as `Hook '<name>': <text>` on exit `0`, independent of `visible`/`suppressOutput`. No effect on `sessionStart`/`sessionEnd`/`chatEnd` (no chat UI). |
-| `suppressOutput` | boolean | Hide only the execution block's body (stdout/stderr and effect lines). No effect on `sessionStart`/`sessionEnd`/`chatEnd` (no chat UI). |
+| `systemMessage` | string | A standalone user-facing message, shown as `Hook '<name>': <text>` on exit `0`, independent of `visible`/`suppressOutput`. No effect on `sessionStart`/`sessionEnd`/`chatEnd`/`chatStatusChanged` (no chat UI). |
+| `suppressOutput` | boolean | Hide only the execution block's body (stdout/stderr and effect lines). No effect on `sessionStart`/`sessionEnd`/`chatEnd`/`chatStatusChanged` (no chat UI). |
 | `continue` | boolean | `false` stops the remaining hooks for the event; for turn-scoped hooks it also stops the turn. |
 | `stopReason` | string | User-only explanation shown when `continue: false` stops a turn. **Never sent to the LLM.** |
 
@@ -139,7 +140,7 @@ The two ways a hook intervenes are **not** interchangeable:
 - **`continue: false`** (exit `0`) always stops ECA from running the **remaining hooks** of the same event. For **turn-scoped** hooks it *additionally* stops the current turn and surfaces `Turn stopped by hook '<name>': <stopReason>` (or `Turn stopped by hook '<name>'.` with no reason).
 - **`exit 2`** is a surgical, hook-specific intervention (see each hook). It **never** stops the hook chain.
 
-**Turn-scoped hooks** are `chatStart`, `subagentStart`, `preRequest`, `postRequest`, `subagentPostRequest`, `preCompact`, `postCompact`, `preToolCall`, and `postToolCall`. The rest — `sessionStart`, `sessionEnd`, `chatEnd` — only skip their remaining peers.
+**Turn-scoped hooks** are `chatStart`, `subagentStart`, `preRequest`, `postRequest`, `subagentPostRequest`, `preCompact`, `postCompact`, `preToolCall`, and `postToolCall`. The rest — `sessionStart`, `sessionEnd`, `chatEnd`, `chatStatusChanged` — only skip their remaining peers.
 
 When a hook stops the turn it ends immediately: remaining `postRequest`/`subagentPostRequest` hooks do not run and no `followUp`/continuation fires.
 
@@ -157,7 +158,7 @@ Two controls gate the block (`systemMessage` is unaffected by both):
 | `visible: false` | Hides the **whole** block — the hook run is fully silent. |
 | `suppressOutput: true` | Hides only the block **body**; the block header still appears so you can see the hook ran. |
 
-Effect-only fields (`updatedInput`, `approval`, `replacedOutput`) change behavior without creating standalone messages, but a visible block still surfaces them as effect lines so you can see what changed. Hooks without a UI (`sessionStart`, `sessionEnd`, `chatEnd`) ignore `systemMessage`/`suppressOutput`.
+Effect-only fields (`updatedInput`, `approval`, `replacedOutput`) change behavior without creating standalone messages, but a visible block still surfaces them as effect lines so you can see what changed. Hooks without a UI (`sessionStart`, `sessionEnd`, `chatEnd`, `chatStatusChanged`) ignore `systemMessage`/`suppressOutput`.
 
 ### Base input
 
@@ -207,6 +208,40 @@ Fires when a chat is deleted. **Advisory and best-effort** — side effects only
 - **Input adds** — chat fields only.
 - **Honored output** — none. No `additionalContext`/`stopReason`/`suppressOutput` (no UI). `continue: false` only stops later `chatEnd` hooks; it does not affect deletion.
 - **Exit 2** — non-blocking error.
+
+### `chatStatusChanged`
+
+Fires whenever the aggregate chat status snapshot changes. **Advisory and best-effort** — side effects only (notifications, dashboards, telemetry).
+
+- **Input adds** — `status`, `awaiting_user_input`, `pending_approval_tool_call_ids`, `pending_question_tool_call_ids`, `running_tool_call_ids`, and, only while blocked on the user, `waiting_reason` (`toolApproval` or `userQuestion`). Subagent chats also include `parent_chat_id`.
+- **Honored output** — none. No `additionalContext`/`updatedInput`/`approval`/`replacedOutput`/`stopReason`/`systemMessage`/`suppressOutput` (no UI). `continue: false` only stops later `chatStatusChanged` hooks for the same event; it does not affect the chat lifecycle and cannot suppress later status emissions.
+- **Exit 2** — non-blocking error.
+
+Each payload is a full snapshot, never a delta, and the hook fires only when the snapshot actually changed — it never receives a duplicate of the previous snapshot. A consumer that attaches mid-turn may see nothing until the next transition.
+
+This hook can fire many times per turn (every tool start/end changes the aggregate). Keep the script fast:
+
+```bash
+#!/usr/bin/env bash
+payload=$(cat)
+( slow-notify "$payload" & ) # detach; exit immediately
+exit 0
+```
+
+Example configuration:
+
+```json
+{
+  "hooks": {
+    "notify-status": {
+      "type": "chatStatusChanged",
+      "actions": [
+        {"type": "shell", "file": "~/.config/eca/hooks/chat-status.sh"}
+      ]
+    }
+  }
+}
+```
 
 ### `subagentStart`
 

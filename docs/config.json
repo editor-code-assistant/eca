@@ -861,6 +861,7 @@
             "sessionEnd",
             "chatStart",
             "chatEnd",
+            "chatStatusChanged",
             "subagentStart",
             "subagentPostRequest",
             "preRequest",

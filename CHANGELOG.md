@@ -6,6 +6,7 @@
 
 - MCP: recover remote servers with stale connections (e.g. after suspend): tool-call timeouts now probe and re-initialize; add `mcpKeepAliveSeconds` pings; 404 triggers re-init.
 - Update `github-copilot` default model to `gpt-5.5`.
+- Add advisory `chatStatusChanged` hook reporting aggregate chat status (running/idle/stopping, awaiting-user-input, pending/running tool calls).
 
 ## 0.140.0
 
