@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.features.chat.history :as f.chat.history]
    [eca.messenger :as messenger]
    [eca.remote.handlers :as handlers]
    [eca.remote.messenger :as remote.messenger]
@@ -266,7 +267,7 @@
       
           (testing "opaque after cursor forward-pages the messages right after it"
             (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
-            (let [after-cursor (#'handlers/encode-cursor 0 (nth messages 0))
+            (let [after-cursor (#'f.chat.history/encode-cursor 0 (nth messages 0))
                   {:keys [parsed]} (get-chat {:limit "2" :after after-cursor})]
               (is (= ["m1" "m2"] (texts parsed)))))
       
@@ -279,7 +280,7 @@
       
           (testing "expired cursor returns 409"
             (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
-            (let [bogus (#'handlers/encode-cursor 99 {:role "x" :content "gone" :created-at 999999})
+            (let [bogus (#'f.chat.history/encode-cursor 99 {:role "x" :content "gone" :created-at 999999})
                   response (handlers/handle-get-chat (components) {:params {:before bogus}} "c1")
                   body (json/parse-string (:body response) true)]
               (is (= 409 (:status response)))

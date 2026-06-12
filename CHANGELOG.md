@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Remote HTTP `GET /api/v1/chats/:id`: opt-in message pagination via `limit`/`before`/`after` query params (opaque cursors, `after=lastCompaction` sentinel) returning `messagesMeta` with before/after/compaction cursors.
+- Add message pagination over a shared cursor core: new JSON-RPC `chat/history` method and optional `limit`/`before`/`after` window params on `chat/open`, plus opt-in pagination on remote HTTP `GET /api/v1/chats/:id`. Opaque cursors with a `lastCompaction` sentinel; meta exposes before/after/compaction cursors.
 
 ## 0.140.1
 

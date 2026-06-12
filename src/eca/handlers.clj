@@ -289,6 +289,15 @@
   (metrics/task metrics :eca/chat-open
     (f.chat/open-chat! params db* messenger config)))
 
+(defn chat-history
+  "Fetch a window of a chat's history (request/response, no streaming).
+   Supports optional :limit/:before/:after for pagination (see
+   `f.chat/fetch-history`). Returns `{:contents [...] :meta {...}}` or
+   `{:error {:code :message}}`."
+  [{:keys [db* metrics]} params]
+  (metrics/task metrics :eca/chat-history
+    (f.chat/fetch-history params db*)))
+
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server
     (f.tools/stop-server! (:name params) db* messenger config metrics)))

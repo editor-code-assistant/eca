@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.background-tasks :as bg]
+   [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.commands :as f.commands]
@@ -255,26 +256,43 @@
                        :text (:text message-content)
                        :contentId content-id}}]))
 
+(defn messages->contents
+  "Pure transform of persisted `messages` into the flat sequence of chat-content
+   notification payloads ({:chat-id :role :content :parent-chat-id?}) that the
+   streaming replay sends, including nested subagent expansion. `db` is a plain
+   db snapshot used only to resolve subagent message histories.
+
+   Shared by the streaming replay (`send-chat-contents!`) and the request/response
+   `chat/history` method so both render identical content."
+  [messages {:keys [chat-id parent-chat-id db]}]
+  (let [->payload (fn [{:keys [role content]}]
+                    (assoc-some {:chat-id chat-id :role role :content content}
+                                :parent-chat-id parent-chat-id))]
+    (into []
+          (mapcat
+           (fn [message]
+             (let [chat-contents (message-content->chat-content (:role message) (:content message) (:content-id message))
+                   subagent-chat-id (when (= "tool_call_output" (:role message))
+                                      (get-in message [:content :details :subagent-chat-id]))
+                   subagent-messages (when subagent-chat-id
+                                       (get-in db [:chats subagent-chat-id :messages]))]
+               (if (some? subagent-messages)
+                 ;; For subagent tool calls: toolCallRun + toolCallRunning, then
+                 ;; subagent messages, then toolCalled — matching live execution order.
+                 (concat (map ->payload (butlast chat-contents))
+                         (messages->contents subagent-messages
+                                             {:chat-id subagent-chat-id
+                                              :parent-chat-id chat-id
+                                              :db db})
+                         [(->payload (last chat-contents))])
+                 (map ->payload chat-contents))))
+           messages))))
+
 (defn ^:private send-chat-contents! [messages chat-ctx]
-  (doseq [message messages]
-    (let [chat-contents (message-content->chat-content (:role message) (:content message) (:content-id message))
-          subagent-chat-id (when (= "tool_call_output" (:role message))
-                             (get-in message [:content :details :subagent-chat-id]))]
-      (if-let [subagent-messages (when subagent-chat-id
-                                   (get-in @(:db* chat-ctx) [:chats subagent-chat-id :messages]))]
-        ;; For subagent tool calls: send toolCallRun + toolCallRunning, then
-        ;; subagent messages, then toolCalled — matching live execution order.
-        (let [before-called (butlast chat-contents)
-              called (last chat-contents)]
-          (doseq [{:keys [role content]} before-called]
-            (lifecycle/send-content! chat-ctx role content))
-          (send-chat-contents! subagent-messages
-                               (assoc chat-ctx
-                                      :chat-id subagent-chat-id
-                                      :parent-chat-id (:chat-id chat-ctx)))
-          (lifecycle/send-content! chat-ctx (:role called) (:content called)))
-        (doseq [{:keys [role content]} chat-contents]
-          (lifecycle/send-content! chat-ctx role content))))))
+  (doseq [payload (messages->contents messages {:chat-id (:chat-id chat-ctx)
+                                                :parent-chat-id (:parent-chat-id chat-ctx)
+                                                :db @(:db* chat-ctx)})]
+    (messenger/chat-content-received (:messenger chat-ctx) payload)))
 
 (defn default-model [db config]
   (llm-api/default-model db config))
@@ -1901,14 +1919,30 @@
    selected model to the resumed chat's stored `:model` via a `config/updated`
    notification, so an Opus-started chat keeps using Opus on the next prompt
    (#417). Performs no DB mutation otherwise.
+
+   Optional `:limit`/`:before`/`:after` window the replay (same cursors as
+   `chat/history`); when provided, the response includes `:meta` so the client
+   can page older via `chat/history`. Without them the full history is replayed.
    Returns `{:found? false}` when the chat does not exist or is a subagent,
-   otherwise `{:found? true :chat-id ... :title ...}`."
-  [{:keys [chat-id]} db* messenger config]
-  (let [chat (get-in @db* [:chats chat-id])]
-    (if (or (nil? chat) (:subagent chat))
+   otherwise `{:found? true :chat-id ... :title ... :meta? ...}`."
+  [{:keys [chat-id limit before after] :as params} db* messenger config]
+  (let [chat (get-in @db* [:chats chat-id])
+        windowed? (some #(contains? params %) [:limit :before :after])
+        page (when windowed?
+               (history/window-messages (vec (:messages chat))
+                                        {:limit limit :before before :after after}))]
+    (cond
+      (or (nil? chat) (:subagent chat))
       {:found? false}
+
+      (= :cursor-expired (:error page))
+      {:found? true :chat-id chat-id
+       :error {:code "cursor_expired"
+               :message "Cursor no longer points to an existing message; refetch the latest page"}}
+
+      :else
       (let [title (:title chat)
-            messages (:messages chat)
+            messages (if windowed? (:messages page) (:messages chat))
             chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
         (mark-editor-open! db* chat-id)
         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
@@ -1917,4 +1951,35 @@
         (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
         (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat))
         (config/notify-selected-trust-changed! (:trust chat) db* messenger)
-        {:found? true :chat-id chat-id :title title}))))
+        (assoc-some {:found? true :chat-id chat-id :title title}
+                    :meta (when windowed?
+                            {:total (:total page)
+                             :returned (:returned page)
+                             :before-cursor (:before-cursor page)
+                             :after-cursor (:after-cursor page)
+                             :compaction-cursor (history/compaction-cursor (:messages chat))}))))))
+
+(defn fetch-history
+  "Window a chat's persisted messages and return the transformed content items
+   plus pagination meta, for the request/response `chat/history` method.
+
+   `before`/`after` are opaque cursors (or the `lastCompaction` sentinel) and
+   `limit` bounds the page. Returns {:contents [...] :meta {...}}, or
+   {:error {:code :message}} when the chat is unknown or a cursor is stale."
+  [{:keys [chat-id limit before after]} db*]
+  (let [db @db*
+        chat (get-in db [:chats chat-id])]
+    (if (or (nil? chat) (:subagent chat))
+      {:error {:code "chat_not_found" :message (str "Chat " chat-id " not found")}}
+      (let [messages (vec (:messages chat))
+            result (history/window-messages messages {:limit limit :before before :after after})]
+        (if (= :cursor-expired (:error result))
+          {:error {:code "cursor_expired"
+                   :message "Cursor no longer points to an existing message; refetch the latest page"}}
+          {:contents (messages->contents (:messages result)
+                                         {:chat-id chat-id :parent-chat-id nil :db db})
+           :meta {:total (:total result)
+                  :returned (:returned result)
+                  :before-cursor (:before-cursor result)
+                  :after-cursor (:after-cursor result)
+                  :compaction-cursor (history/compaction-cursor messages)}})))))

@@ -5,9 +5,9 @@
   (:require
    [cheshire.core :as json]
    [clojure.core.async :as async]
-   [clojure.string :as string]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.history :as f.chat.history]
    [eca.handlers :as handlers]
    [eca.remote.messenger :as remote.messenger]
    [eca.remote.sse :as sse]
@@ -15,9 +15,7 @@
    [ring.core.protocols :as ring.protocols])
   (:import
    [java.io InputStream]
-   [java.nio.charset StandardCharsets]
-   [java.time Instant]
-   [java.util Base64]))
+   [java.time Instant]))
 
 (set! *warn-on-reflection* true)
 
@@ -166,114 +164,6 @@
                    (mapv chat-summary))]
     (json-response chats)))
 
-;; --- Message pagination (opt-in via `limit`/`before`/`after` query params) -----
-;;
-;; Cursors are opaque tokens: base64url of "<index>.<checksum>" where checksum
-;; fingerprints the message. Resolving trusts the index when its checksum still
-;; matches, else rescans by checksum (tolerating shifts like flag insert/remove);
-;; a cursor whose message is gone resolves to :expired (-> 409).
-
-(def ^:private last-compaction-sentinel
-  "Literal cursor value resolving to the position of the last compaction marker."
-  "lastCompaction")
-
-(defn ^:private message-checksum
-  "Stable-enough fingerprint of a message to validate/resolve a cursor."
-  [message]
-  (Integer/toHexString (hash [(:role message) (:created-at message) (:content message)])))
-
-(defn ^:private encode-cursor [idx message]
-  (let [raw (.getBytes (str idx "." (message-checksum message)) StandardCharsets/UTF_8)]
-    (.encodeToString (.withoutPadding (Base64/getUrlEncoder)) raw)))
-
-(defn ^:private decode-cursor [^String cursor]
-  (try
-    (let [decoded (String. (.decode (Base64/getUrlDecoder) cursor) StandardCharsets/UTF_8)
-          [idx-s checksum] (string/split decoded #"\." 2)]
-      {:idx (Integer/parseInt idx-s) :checksum checksum})
-    (catch Exception _ nil)))
-
-(defn ^:private last-compaction-idx
-  "Index of the last compact_marker message, or nil when never compacted."
-  [messages]
-  (loop [i (dec (count messages))]
-    (cond
-      (neg? i) nil
-      (= "compact_marker" (:role (nth messages i))) i
-      :else (recur (dec i)))))
-
-(defn ^:private resolve-cursor
-  "Resolves an opaque cursor to an index, or :expired if its message is gone."
-  [messages ^String cursor]
-  (if-let [{:keys [idx checksum]} (decode-cursor cursor)]
-    (if (and (<= 0 idx) (< idx (count messages))
-             (= checksum (message-checksum (nth messages idx))))
-      idx
-      (or (first (keep-indexed (fn [i m] (when (= checksum (message-checksum m)) i)) messages))
-          :expired))
-    :expired))
-
-(defn ^:private resolve-bound
-  "Resolves a `before`/`after` query value to an index, :expired, or nil (absent).
-   The `lastCompaction` sentinel resolves to the last compaction marker, or
-   :no-compaction when the chat was never compacted."
-  [messages value]
-  (when value
-    (if (= value last-compaction-sentinel)
-      (or (last-compaction-idx messages) :no-compaction)
-      (resolve-cursor messages value))))
-
-(defn ^:private parse-limit [value]
-  (when value
-    (try
-      (let [n (Integer/parseInt (str value))]
-        (when (pos? n) n))
-      (catch Exception _ nil))))
-
-(defn ^:private paginate-messages
-  "Windows `messages` by the (after, before) cursors and `limit`.
-
-   `after` is an exclusive lower bound, `before` an exclusive upper bound. The
-   page is the newest `limit` messages in the window; an opaque `after` cursor as
-   the only bound pages forward (oldest `limit`). `before-cursor`/`after-cursor`
-   are computed against full history so paging crosses the compaction boundary,
-   and are nil at the ends.
-
-   Returns {:messages :before-cursor :after-cursor :total :returned} or
-   {:error :cursor-expired}."
-  [messages {:keys [limit before after]}]
-  (let [messages (vec messages)
-        n (count messages)
-        after-res (resolve-bound messages after)
-        before-res (resolve-bound messages before)]
-    (if (or (= :expired after-res) (= :expired before-res))
-      {:error :cursor-expired}
-      (let [lo (if (integer? after-res) after-res -1)        ;; exclusive lower
-            hi (if (integer? before-res) before-res n)       ;; exclusive upper
-            win-start (max 0 (min (inc lo) n))
-            win-end (max win-start (min hi n))
-            ;; Opaque `after` cursor pages forward; the sentinel stays newest-anchored.
-            forward? (and (integer? after-res)
-                          (not= after last-compaction-sentinel)
-                          (nil? before-res))
-            [slice-start slice-end]
-            (cond
-              (nil? limit) [win-start win-end]
-              forward? [win-start (min win-end (+ win-start limit))]
-              :else [(max win-start (- win-end limit)) win-end])
-            slice (subvec messages slice-start slice-end)]
-        {:messages slice
-         :total n
-         :returned (count slice)
-         :before-cursor (when (pos? slice-start)
-                          (encode-cursor slice-start (nth messages slice-start)))
-         :after-cursor (when (< slice-end n)
-                         (encode-cursor (dec slice-end) (nth messages (dec slice-end))))}))))
-
-(defn ^:private compaction-cursor [messages]
-  (when-let [idx (last-compaction-idx messages)]
-    (encode-cursor idx (nth messages idx))))
-
 (defn handle-get-chat [{:keys [db*]} request chat-id]
   (if-let [chat (chat-or-404 db* chat-id)]
     (let [db @db*
@@ -282,10 +172,10 @@
           paginate? (some #(contains? params %) [:limit :before :after])
           all-messages (vec (or (:messages chat) []))
           page (when paginate?
-                 (paginate-messages all-messages
-                                    {:limit (parse-limit (:limit params))
-                                     :before (:before params)
-                                     :after (:after params)}))
+                 (f.chat.history/window-messages all-messages
+                                                 {:limit (:limit params)
+                                                  :before (:before params)
+                                                  :after (:after params)}))
           base {:id (:id chat)
                 :title (:title chat)
                 :status (or (:status chat) :idle)
@@ -311,7 +201,7 @@
                                       :returned (:returned page)
                                       :before-cursor (:before-cursor page)
                                       :after-cursor (:after-cursor page)
-                                      :compaction-cursor (compaction-cursor all-messages)})))
+                                      :compaction-cursor (f.chat.history/compaction-cursor all-messages)})))
 
         :else
         (json-response (camel-keys base))))
