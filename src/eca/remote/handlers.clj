@@ -7,6 +7,7 @@
    [clojure.core.async :as async]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.history :as f.chat.history]
    [eca.handlers :as handlers]
    [eca.remote.messenger :as remote.messenger]
    [eca.remote.sse :as sse]
@@ -163,25 +164,47 @@
                    (mapv chat-summary))]
     (json-response chats)))
 
-(defn handle-get-chat [{:keys [db*]} _request chat-id]
+(defn handle-get-chat [{:keys [db*]} request chat-id]
   (if-let [chat (chat-or-404 db* chat-id)]
     (let [db @db*
-          config (config/all db)]
-      (json-response
-       (camel-keys
-        {:id (:id chat)
-         :title (:title chat)
-         :status (or (:status chat) :idle)
-         :created-at (:created-at chat)
-         :updated-at (:updated-at chat)
-         :messages (or (:messages chat) [])
-         :task (:task chat)
-         :pending-tool-calls (pending-tool-calls chat)
-         ;; Effective selection: per-chat override if set, otherwise the
-         ;; resolved session-level default. :variant may legitimately be nil.
-         :model (or (:model chat) (resolve-default-model db config))
-         :variant (or (:variant chat) (resolve-default-variant db))
-         :agent (or (:agent chat) (resolve-default-agent db config))})))
+          config (config/all db)
+          params (:params request)
+          paginate? (some #(contains? params %) [:limit :before :after])
+          all-messages (vec (or (:messages chat) []))
+          page (when paginate?
+                 (f.chat.history/window-messages all-messages
+                                                 {:limit (:limit params)
+                                                  :before (:before params)
+                                                  :after (:after params)}))
+          base {:id (:id chat)
+                :title (:title chat)
+                :status (or (:status chat) :idle)
+                :created-at (:created-at chat)
+                :updated-at (:updated-at chat)
+                :messages (if paginate? (:messages page) all-messages)
+                :task (:task chat)
+                :pending-tool-calls (pending-tool-calls chat)
+                ;; Effective selection: per-chat override if set, otherwise the
+                ;; resolved session-level default. :variant may legitimately be nil.
+                :model (or (:model chat) (resolve-default-model db config))
+                :variant (or (:variant chat) (resolve-default-variant db))
+                :agent (or (:agent chat) (resolve-default-agent db config))}]
+      (cond
+        (= :cursor-expired (:error page))
+        (error-response 409 "cursor_expired"
+                        "Cursor no longer points to an existing message; refetch the latest page")
+
+        paginate?
+        (json-response
+         (camel-keys
+          (assoc base :messages-meta {:total (:total page)
+                                      :returned (:returned page)
+                                      :before-cursor (:before-cursor page)
+                                      :after-cursor (:after-cursor page)
+                                      :compaction-cursor (f.chat.history/compaction-cursor all-messages)})))
+
+        :else
+        (json-response (camel-keys base))))
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))))
 
 (defn handle-prompt [{:keys [db*] :as components} request chat-id]

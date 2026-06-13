@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.features.chat.history :as f.chat.history]
    [eca.messenger :as messenger]
    [eca.remote.handlers :as handlers]
    [eca.remote.messenger :as remote.messenger]
@@ -218,10 +219,112 @@
           body (json/parse-string (:body response) true)]
       (is (= "chat-model" (:model body)))
       (is (= "chat-agent" (:agent body)))
-      ;; variant has no per-chat override, so it falls back to the session value
-      (is (= "session-variant" (:variant body))))))
-
-(deftest handle-stop-test
+            ;; variant has no per-chat override, so it falls back to the session value
+            (is (= "session-variant" (:variant body))))))
+      
+      (defn- msg [role text created-at]
+        {:role role :content [{:type :text :text text}] :created-at created-at})
+      
+      (defn- texts [body]
+        (mapv #(get-in % [:content 0 :text]) (:messages body)))
+      
+      (defn- get-chat [params]
+        (let [response (handlers/handle-get-chat (components) {:params params} "c1")]
+          (assoc response :parsed (json/parse-string (:body response) true))))
+      
+      (deftest handle-get-chat-pagination-test
+        (let [messages [(msg "user" "m0" 1)
+                        (msg "assistant" "m1" 2)
+                        (msg "user" "m2" 3)
+                        (msg "assistant" "m3" 4)
+                        (msg "user" "m4" 5)]]
+      
+          (testing "no query params returns the legacy shape: full messages, no messagesMeta"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {})]
+              (is (= ["m0" "m1" "m2" "m3" "m4"] (texts parsed)))
+              (is (not (contains? parsed :messagesMeta)))))
+      
+          (testing "limit returns the newest N messages with meta and cursors"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {:limit "2"})
+                  meta (:messagesMeta parsed)]
+              (is (= ["m3" "m4"] (texts parsed)))
+              (is (= 5 (:total meta)))
+              (is (= 2 (:returned meta)))
+              (is (some? (:beforeCursor meta)) "older messages exist -> beforeCursor present")
+              (is (nil? (:afterCursor meta)) "at the tail -> afterCursor nil")
+              (is (nil? (:compactionCursor meta)) "never compacted -> compactionCursor nil")))
+      
+          (testing "before cursor loads the previous (older) page"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [before-cursor (get-in (get-chat {:limit "2"}) [:parsed :messagesMeta :beforeCursor])
+                  {:keys [parsed]} (get-chat {:limit "2" :before before-cursor})
+                  meta (:messagesMeta parsed)]
+              (is (= ["m1" "m2"] (texts parsed)))
+              (is (some? (:beforeCursor meta)) "more older messages still exist")
+              (is (some? (:afterCursor meta)) "newer messages exist -> afterCursor present")))
+      
+          (testing "opaque after cursor forward-pages the messages right after it"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [after-cursor (#'f.chat.history/encode-cursor 0 (nth messages 0))
+                  {:keys [parsed]} (get-chat {:limit "2" :after after-cursor})]
+              (is (= ["m1" "m2"] (texts parsed)))))
+      
+          (testing "nil-punning: beforeCursor nil at the start of history"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [meta (get-in (get-chat {:limit "10"}) [:parsed :messagesMeta])]
+              (is (= ["m0" "m1" "m2" "m3" "m4"] (texts (:parsed (get-chat {:limit "10"})))))
+              (is (nil? (:beforeCursor meta)))
+              (is (nil? (:afterCursor meta)))))
+      
+          (testing "expired cursor returns 409"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [bogus (#'f.chat.history/encode-cursor 99 {:role "x" :content "gone" :created-at 999999})
+                  response (handlers/handle-get-chat (components) {:params {:before bogus}} "c1")
+                  body (json/parse-string (:body response) true)]
+              (is (= 409 (:status response)))
+              (is (= "cursor_expired" (get-in body [:error :code])))))))
+      
+      (deftest handle-get-chat-compaction-window-test
+        ;; indices: 0 user, 1 assistant, 2 compact_marker, 3 user(summary), 4 assistant
+        (let [messages [(msg "user" "m0" 1)
+                        (msg "assistant" "m1" 2)
+                        {:role "compact_marker" :content {:auto? false} :created-at 3}
+                        (msg "user" "summary" 4)
+                        (msg "assistant" "m4" 5)]]
+      
+          (testing "after=lastCompaction returns only post-compaction messages, newest-anchored"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {:after "lastCompaction"})
+                  meta (:messagesMeta parsed)]
+              (is (= ["summary" "m4"] (texts parsed)) "pre-compaction messages excluded")
+              (is (nil? (:afterCursor meta)) "at the tail")
+              (is (some? (:beforeCursor meta)) "can still page across the compaction boundary")
+              (is (some? (:compactionCursor meta)))))
+      
+          (testing "after=lastCompaction honors limit"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {:after "lastCompaction" :limit "1"})]
+              (is (= ["m4"] (texts parsed)))))
+      
+          (testing "before=lastCompaction returns the summarized-away history"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {:before "lastCompaction"})
+                  meta (:messagesMeta parsed)]
+              (is (= ["m0" "m1"] (texts parsed)))
+              (is (nil? (:beforeCursor meta)))
+              (is (some? (:afterCursor meta)))))
+      
+          (testing "after=lastCompaction with no compaction marker falls back to full window"
+            (swap! (h/db*) assoc-in [:chats "c1"]
+                   {:id "c1" :title "T" :status :idle
+                    :messages [(msg "user" "a" 1) (msg "assistant" "b" 2)]})
+            (let [{:keys [parsed]} (get-chat {:after "lastCompaction"})]
+              (is (= ["a" "b"] (texts parsed)))
+              (is (nil? (get-in parsed [:messagesMeta :compactionCursor])))))))
+      
+      (deftest handle-stop-test
   (testing "returns 404 for missing chat"
     (let [response (handlers/handle-stop (components) nil "nonexistent")]
       (is (= 404 (:status response)))))

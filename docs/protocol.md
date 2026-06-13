@@ -1986,6 +1986,11 @@ client indicator stays in sync with the auto-approval behavior the server will
 apply. Typically used after `chat/list` when the user selects a chat that has
 not been opened in the current client session.
 
+By default the full history is replayed. A client may instead pass the optional
+`limit`/`before`/`after` window parameters (same cursors as `chat/history`) to
+replay only the newest page and avoid streaming a large history; in that case
+the response carries `meta` so the client can page older via `chat/history`.
+
 _Request:_
 
 * method: `chat/open`
@@ -1997,6 +2002,18 @@ interface ChatOpenParams {
      * The chat session identifier to open.
      */
     chatId: string;
+
+    /**
+     * Optional. Max messages to replay. When any of limit/before/after is
+     * present, only that window is replayed and `meta` is returned.
+     */
+    limit?: number;
+
+    /** Optional opaque cursor — replay the page older than the cursor. */
+    before?: string;
+
+    /** Optional opaque cursor — replay the page newer than the cursor. */
+    after?: string;
 }
 ```
 
@@ -2016,6 +2033,84 @@ interface ChatOpenResponse {
 
     /** The chat title at the time of replay, when available. */
     title?: string;
+
+    /** Pagination metadata, present only when window params were supplied. */
+    meta?: ChatHistoryMeta;
+
+    /** Present instead of replaying when a supplied cursor is stale. */
+    error?: { code: 'cursor_expired'; message: string };
+}
+```
+
+### Chat history (↩️)
+
+A client request to fetch a window of a persisted chat's history as a single
+response (no streaming), so an editor can hydrate a bounded view and page older
+on demand instead of receiving the full replay. The returned `contents` are the
+same `ChatContent` items delivered by `chat/contentReceived`, so the client
+reuses its existing renderer; live updates keep arriving over `chat/contentReceived`.
+
+Pagination uses opaque cursors. The page is anchored to the newest messages in
+the selected window; an opaque `after` cursor pages forward instead. The literal
+sentinel `"lastCompaction"` may be passed as `before`/`after`: `after: "lastCompaction"`
+returns the messages since the last compaction (the active context),
+`before: "lastCompaction"` the summarized-away history. Cursors are ephemeral —
+a cursor whose message no longer exists (e.g. after a rollback or clear) returns
+a `cursor_expired` error, prompting the client to refetch the latest page.
+
+_Request:_
+
+* method: `chat/history`
+* params: `ChatHistoryParams` defined as follows:
+
+```typescript
+interface ChatHistoryParams {
+    /** The chat session identifier to fetch. */
+    chatId: string;
+
+    /** Optional. Max messages to return in the page. */
+    limit?: number;
+
+    /** Optional opaque cursor (or "lastCompaction") — page older. */
+    before?: string;
+
+    /** Optional opaque cursor (or "lastCompaction") — page newer. */
+    after?: string;
+}
+```
+
+_Response:_
+
+```typescript
+interface ChatHistoryResponse {
+    /**
+     * The page of history, as the same content items streamed by
+     * chat/contentReceived. Absent when `error` is present.
+     */
+    contents?: ChatContentReceived[];
+
+    /** Pagination metadata. Absent when `error` is present. */
+    meta?: ChatHistoryMeta;
+
+    /** Present when the chat is unknown or a supplied cursor is stale. */
+    error?: { code: 'chat_not_found' | 'cursor_expired'; message: string };
+}
+
+interface ChatHistoryMeta {
+    /** Total messages in the full history. */
+    total: number;
+
+    /** Number of messages in this page. */
+    returned: number;
+
+    /** Cursor to pass as `before` to load older; null at the start. */
+    beforeCursor: string | null;
+
+    /** Cursor to pass as `after` to load newer; null at the tail. */
+    afterCursor: string | null;
+
+    /** Cursor at the last compaction boundary; null when never compacted. */
+    compactionCursor: string | null;
 }
 ```
 

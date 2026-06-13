@@ -1508,6 +1508,87 @@
       (is (match? {:config-updated [{:chat {:select-trust false}}]}
                   (h/messages))))))
 
+(deftest fetch-history-test
+  (let [text-msg (fn [text n] {:role "user" :content [{:type :text :text text}] :created-at n})
+        seed! (fn [chat-id msgs]
+                (h/reset-components!)
+                (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :messages msgs})
+                chat-id)
+        content-texts (fn [{:keys [contents]}]
+                        (keep #(some-> (get-in % [:content :text]) string/trim) contents))]
+    (testing "unknown chat returns an error"
+      (h/reset-components!)
+      (is (= "chat_not_found" (get-in (f.chat/fetch-history {:chat-id "nope"} (h/db*)) [:error :code]))))
+
+    (testing "subagent chat is not fetchable"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "sub"] {:id "sub" :subagent true :messages []})
+      (is (= "chat_not_found" (get-in (f.chat/fetch-history {:chat-id "sub"} (h/db*)) [:error :code]))))
+
+    (testing "returns transformed content items plus meta"
+      (let [chat-id (seed! "c1" [(text-msg "m0" 1) (text-msg "m1" 2) (text-msg "m2" 3)])
+            result (f.chat/fetch-history {:chat-id chat-id :limit 2} (h/db*))]
+        (is (= ["m1" "m2"] (content-texts result)))
+        (is (every? #(= chat-id (:chat-id %)) (:contents result)))
+        (is (= 3 (get-in result [:meta :total])))
+        (is (= 2 (get-in result [:meta :returned])))
+        (is (some? (get-in result [:meta :before-cursor])))
+        (is (nil? (get-in result [:meta :after-cursor])))))
+
+    (testing "before cursor pages older"
+      (let [chat-id (seed! "c1" [(text-msg "m0" 1) (text-msg "m1" 2) (text-msg "m2" 3)])
+            before (get-in (f.chat/fetch-history {:chat-id chat-id :limit 2} (h/db*)) [:meta :before-cursor])
+            result (f.chat/fetch-history {:chat-id chat-id :limit 2 :before before} (h/db*))]
+        ;; first page was [m1 m2]; older-than-m1 is just [m0]
+        (is (= ["m0"] (content-texts result)))))
+
+    (testing "after=lastCompaction returns the active context with a compaction cursor"
+      (let [chat-id (seed! "c1" [(text-msg "m0" 1)
+                                 {:role "compact_marker" :content {:auto? false} :created-at 2}
+                                 (text-msg "summary" 3)
+                                 (text-msg "m3" 4)])
+            result (f.chat/fetch-history {:chat-id chat-id :after "lastCompaction"} (h/db*))]
+        (is (= ["summary" "m3"] (content-texts result)))
+        (is (some? (get-in result [:meta :compaction-cursor])))))
+
+    (testing "stale cursor returns cursor_expired"
+      (let [chat-id (seed! "c1" [(text-msg "m0" 1)])]
+        (is (= "cursor_expired"
+               (get-in (f.chat/fetch-history {:chat-id chat-id :before "bogus"} (h/db*)) [:error :code])))))))
+
+(deftest open-chat-windowed-test
+  (let [msg (fn [t n] {:role "user" :content [{:type :text :text t}] :created-at n})
+        replayed-texts (fn []
+                         (->> (h/messages) :chat-content-received
+                              (keep #(some-> (get-in % [:content :text]) string/trim))
+                              vec))]
+    (testing "no window params replays the full history with no meta"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "full"]
+             {:id "full" :messages [(msg "m0" 1) (msg "m1" 2) (msg "m2" 3)]})
+      (let [result (f.chat/open-chat! {:chat-id "full"} (h/db*) (h/messenger) (h/config))]
+        (is (nil? (:meta result)))
+        (is (= ["m0" "m1" "m2"] (replayed-texts)))))
+
+    (testing "limit replays only the window and returns meta"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "win"]
+             {:id "win" :messages [(msg "m0" 1) (msg "m1" 2) (msg "m2" 3)]})
+      (let [result (f.chat/open-chat! {:chat-id "win" :limit 2} (h/db*) (h/messenger) (h/config))]
+        (is (match? {:found? true :chat-id "win"
+                     :meta {:total 3 :returned 2 :after-cursor nil}}
+                    result))
+        (is (some? (get-in result [:meta :before-cursor])))
+        (is (= ["m1" "m2"] (replayed-texts)))))
+
+    (testing "expired cursor errors before any replay"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "exp"]
+             {:id "exp" :messages [(msg "m0" 1)]})
+      (let [result (f.chat/open-chat! {:chat-id "exp" :before "bogus"} (h/db*) (h/messenger) (h/config))]
+        (is (= "cursor_expired" (get-in result [:error :code])))
+        (is (= {} (h/messages)) "no notifications emitted on expired cursor")))))
+
 (deftest prompt-cache-agent-and-model-switch-test
   (testing "local static prompt cache is reused only when both agent and model match"
     (h/reset-components!)
