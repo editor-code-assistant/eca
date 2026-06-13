@@ -8,6 +8,12 @@
 
 (set! *warn-on-reflection* true)
 
+(defn ^:private build-supported-models
+  [config db models-dev-data]
+  (let [known-models (#'models/all models-dev-data)
+        {:keys [models]} (#'models/fetch-provider-model-catalogs config db models-dev-data)]
+    (#'models/build-all-supported-models known-models config models)))
+
 (deftest fetch-models-dev-data-test
   (testing "Uses hato with json-string-keys and global client options"
     (let [request* (atom nil)]
@@ -372,6 +378,72 @@
             models-dev-data)))
       (is (= "https://api.openai.com/v1/models" (first @request*)))
       (is (= "Bearer sk-test" (get-in @request* [1 :headers "Authorization"]))))))
+
+(deftest openai-oauth-codex-context-window-test
+  (let [request* (atom nil)
+        models-dev-data {"openai" {"api" "https://api.openai.com"
+                                   "models" {"gpt-5.5" {"limit" {"context" 1050000
+                                                                   "output" 128000}}}}}
+        config {:providers {"openai" {:api "openai-responses"
+                                      :url "https://api.openai.com"
+                                      :models {"gpt-5.5" {}}}}}
+        db {:auth {"openai" {:api-key "oauth-token"
+                              :type :auth/oauth}}}]
+    (with-redefs [http/get (fn [url opts]
+                             (reset! request* [url opts])
+                             {:status 200
+                              :body {:models [{:slug "gpt-5.5"
+                                               :context_window 272000}]}})]
+      (let [supported (build-supported-models config db models-dev-data)]
+        (is (= "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0"
+               (first @request*)))
+        (is (= "Bearer oauth-token" (get-in @request* [1 :headers "Authorization"])))
+        (is (= 272000 (get-in supported ["openai/gpt-5.5" :limit :context])))
+        (is (= 128000 (get-in supported ["openai/gpt-5.5" :limit :output])))))))
+
+(deftest openai-oauth-codex-fallback-context-window-test
+  (let [models-dev-data {"openai" {"api" "https://api.openai.com"
+                                   "models" {"gpt-5.5" {"limit" {"context" 1050000}}}}}
+        config {:providers {"openai" {:api "openai-responses"
+                                      :url "https://api.openai.com"
+                                      :models {"gpt-5.5" {}}}}}
+        db {:auth {"openai" {:api-key "expired-token"
+                              :type :auth/oauth}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 401
+                              :body {:error "unauthorized"}})]
+      (let [supported (build-supported-models config db models-dev-data)]
+        (is (= 272000 (get-in supported ["openai/gpt-5.5" :limit :context])))))))
+
+(deftest openai-oauth-codex-live-model-preserves-fallback-limit-test
+  (let [models-dev-data {"openai" {"api" "https://api.openai.com"
+                                   "models" {"gpt-5.5" {"limit" {"context" 1050000}}}}}
+        config {:providers {"openai" {:api "openai-responses"
+                                      :url "https://api.openai.com"
+                                      :models {"gpt-5.5" {}}}}}
+        db {:auth {"openai" {:api-key "oauth-token"
+                              :type :auth/oauth}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:models [{:slug "gpt-5.5"}]}})]
+      (let [supported (build-supported-models config db models-dev-data)]
+        (is (= 272000 (get-in supported ["openai/gpt-5.5" :limit :context])))))))
+
+(deftest openai-token-keeps-direct-api-context-window-test
+  (let [request* (atom nil)
+        models-dev-data {"openai" {"api" "https://api.openai.com"
+                                   "models" {"gpt-5.5" {"limit" {"context" 1050000}}}}}
+        config {:providers {"openai" {:api "openai-responses"
+                                      :url "https://api.openai.com"
+                                      :key "sk-test"
+                                      :models {"gpt-5.5" {}}}}}]
+    (with-redefs [http/get (fn [url opts]
+                             (reset! request* [url opts])
+                             {:status 200
+                              :body {:data [{:id "gpt-5.5"}]}})]
+      (let [supported (build-supported-models config {} models-dev-data)]
+        (is (= "https://api.openai.com/v1/models" (first @request*)))
+        (is (= 1050000 (get-in supported ["openai/gpt-5.5" :limit :context])))))))
 
 (deftest fetch-provider-models-anthropic-token-uses-x-api-key-test
   (let [request* (atom nil)

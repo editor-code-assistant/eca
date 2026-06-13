@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add message pagination over a shared cursor core: new JSON-RPC `chat/history` method and optional `limit`/`before`/`after` window params on `chat/open`, plus opt-in pagination on remote HTTP `GET /api/v1/chats/:id`. Opaque cursors with a `lastCompaction` sentinel; meta exposes before/after/compaction cursors.
+- OpenAI OAuth models now use ChatGPT Codex context windows, fixing inflated GPT-5.5 limits from the direct OpenAI catalog.
 
 ## 0.140.1
 

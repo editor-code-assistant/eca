@@ -16,6 +16,19 @@
 (def ^:private models-dev-api-url "https://models.dev/api.json")
 (def ^:private models-dev-timeout-ms 5000)
 (def ^:private provider-models-timeout-ms 10000)
+(def ^:private codex-oauth-models-url "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0")
+
+(def ^:private codex-oauth-context-fallback
+  {"gpt-5.1-codex-max" 272000
+   "gpt-5.1-codex-mini" 272000
+   "gpt-5.3-codex-spark" 128000
+   "gpt-5.3-codex" 272000
+   "gpt-5.2-codex" 272000
+   "gpt-5.4-mini" 272000
+   "gpt-5.5" 272000
+   "gpt-5.4" 272000
+   "gpt-5.2" 272000
+   "gpt-5" 272000})
 
 (def ^:private max-error-body-log-length 500)
 
@@ -91,6 +104,43 @@
    `openai/chatgpt-image-latest`)."
   [n]
   (when (and (number? n) (pos? n)) n))
+
+(defn ^:private codex-oauth-context-fallback-for
+  [model]
+  (let [model-name (string/lower-case (str model))]
+    (some (fn [[slug context-limit]]
+            (when (string/includes? model-name slug)
+              context-limit))
+          (sort-by (comp - count key) codex-oauth-context-fallback))))
+
+(defn ^:private codex-oauth-model-config
+  [context-limit output-limit]
+  (assoc-some {::codex-oauth? true}
+              ::context-limit context-limit
+              ::output-limit output-limit))
+
+(defn ^:private codex-oauth-model-entry
+  [model]
+  (let [slug (:slug model)
+        context-limit (pos-num (:context_window model))
+        output-limit (pos-num (or (:max_output_tokens model)
+                                  (:max_completion_tokens model)))]
+    (when (and (string? slug) (not (string/blank? slug)))
+      [slug (codex-oauth-model-config context-limit output-limit)])))
+
+(defn ^:private codex-oauth-fallback-models
+  [static-models]
+  (merge
+   (into {}
+         (map (fn [[model context-limit]]
+                [model (codex-oauth-model-config context-limit nil)]))
+         codex-oauth-context-fallback)
+   (into {}
+         (keep (fn [[model model-config]]
+                 (when-let [context-limit (or (codex-oauth-context-fallback-for model)
+                                               (codex-oauth-context-fallback-for (:modelName model-config)))]
+                   [model (codex-oauth-model-config context-limit nil)])))
+         static-models)))
 
 (def ^:private models-with-image-generation-support
   "Mainline OpenAI chat models that support the built-in `image_generation`
@@ -276,6 +326,35 @@
                (format "Provider '%s': Ignoring models.dev model entry '%s' with invalid key/model fields"
                        provider model-key)))
 
+(defn ^:private fetch-codex-oauth-models
+  [api-key static-models]
+  (let [fallback-models (codex-oauth-fallback-models static-models)]
+    (try
+      (if-not api-key
+        fallback-models
+        (let [{:keys [status body]} (http/get codex-oauth-models-url
+                                              {:headers {"Authorization" (str "Bearer " api-key)}
+                                               :throw-exceptions? false
+                                               :as :json
+                                               :http-client (client/merge-with-global-http-client {})
+                                               :timeout provider-models-timeout-ms})]
+          (if (not= 200 status)
+            (do
+              (logger/warn logger-tag
+                           (format "Provider 'openai': Codex /models endpoint returned status %s"
+                                   status))
+              fallback-models)
+            (let [models-data (:models body)
+                  live-models (not-empty (into {}
+                                               (keep codex-oauth-model-entry)
+                                               models-data))]
+              (or (not-empty (merge-with merge fallback-models live-models))
+                  fallback-models)))))
+      (catch Exception e
+        (logger/warn logger-tag
+                     (format "Provider 'openai': Failed to fetch Codex /models endpoint: %s" e))
+        fallback-models))))
+
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> {} on success, nil on failure."
@@ -325,12 +404,15 @@
                                                          config)
           api-type (:api provider-config)]
       (when api-url
-        (when-let [models (fetch-provider-native-models
-                           {:provider provider
-                            :api-url api-url
-                            :auth-type auth-type
-                            :api-key api-key
-                            :api-type api-type})]
+        (when-let [models (if (and (= "openai" provider)
+                                   (= :auth/oauth auth-type))
+                            (fetch-codex-oauth-models api-key (:models provider-config))
+                            (fetch-provider-native-models
+                             {:provider provider
+                              :api-url api-url
+                              :auth-type auth-type
+                              :api-key api-key
+                              :api-type api-type}))]
           (logger/debug logger-tag
                         (format "Provider '%s': Discovered %d models from native /models endpoint"
                                 provider (count models)))
@@ -397,12 +479,15 @@
   [model-config]
   (let [limit (:limit model-config)
         cost (:cost model-config)
+        output-limit (or (pos-num (:output limit))
+                         (pos-num (::output-limit model-config)))
         limit-overrides (assoc-some {}
-                                    :context (pos-num (:context limit))
-                                    :output (pos-num (:output limit)))]
+                                    :context (or (pos-num (:context limit))
+                                                 (pos-num (::context-limit model-config)))
+                                    :output output-limit)]
     (assoc-some {}
                 :limit (not-empty limit-overrides)
-                :max-output-tokens (pos-num (:output limit))
+                :max-output-tokens output-limit
                 :input-token-cost (cost-per-1m->per-token (:input cost))
                 :output-token-cost (cost-per-1m->per-token (:output cost))
                 :input-cache-creation-token-cost (cost-per-1m->per-token (:cacheWrite cost))
