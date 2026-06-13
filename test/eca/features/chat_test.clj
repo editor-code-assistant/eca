@@ -1048,7 +1048,7 @@
                         (when (= :timeout (deref wait-for-tool3 10000 :timeout))
                           (println "tool-calls-with-prompt-stop-test: deref in prompt stop future timed out"))
                         (Thread/sleep 50)
-                        (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/metrics))
+                        (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics) {})
                         (deliver wait-for-stop true))
                 (on-tools-called [{:id "call-1" :full-name "eca__ro_tool_1" :arguments {}}
                                   {:id "call-2" :full-name "eca__ro_tool_2" :arguments {}}
@@ -1799,7 +1799,7 @@
   (testing "Approving a tool-call against an unknown chat does not throw or mutate state"
     (h/reset-components!)
     (f.chat/tool-call-approve {:chat-id "unknown-chat" :tool-call-id "t1"}
-                              (h/db*) (h/messenger) (h/metrics))
+                              (h/db*) (h/messenger) (h/config) (h/metrics))
     (is (= {} (:chats (h/db))))
     (is (= {} (h/messages)))))
 
@@ -1807,7 +1807,7 @@
   (testing "Rejecting a tool-call against an unknown chat does not throw or mutate state"
     (h/reset-components!)
     (f.chat/tool-call-reject {:chat-id "unknown-chat" :tool-call-id "t1"}
-                             (h/db*) (h/messenger) (h/metrics))
+                             (h/db*) (h/messenger) (h/config) (h/metrics))
     (is (= {} (:chats (h/db))))
     (is (= {} (h/messages)))))
 

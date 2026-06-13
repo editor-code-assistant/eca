@@ -764,6 +764,7 @@
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
+      (lifecycle/trigger-chat-status-hook! chat-ctx)
       (swap! db* assoc-in [:chats chat-id :prompt-id] prompt-id)
       (swap! db* assoc-in [:chats chat-id :model] full-model)
       ;; Persist the variant the chat is currently using so subsequent
@@ -1263,7 +1264,8 @@
                   ;; Only notify client if finish-chat-prompt! hasn't already run,
                   ;; otherwise the belated statusChanged causes duplicate finished handling.
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
-                    (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle}))
+                    (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
+                    (lifecycle/trigger-chat-status-hook! chat-ctx))
                   (db/update-workspaces-cache! @db* metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
@@ -1601,13 +1603,15 @@
                :model "error"
                :status :error})))))))
 
-(defn tool-call-approve [{:keys [chat-id tool-call-id save]} db* messenger metrics]
+(defn tool-call-approve
+  [{:keys [chat-id tool-call-id save]} db* messenger config metrics]
   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
     (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
       (logger/warn logger-tag "tool-call-approve ignored: unknown chat or tool-call"
                    {:chat-id chat-id :tool-call-id tool-call-id})
       (let [chat-ctx {:chat-id chat-id
                       :db* db*
+                      :config config
                       :metrics metrics
                       :messenger messenger}]
         (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
@@ -1617,13 +1621,15 @@
           (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
             (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true)))))))
 
-(defn tool-call-reject [{:keys [chat-id tool-call-id]} db* messenger metrics]
+(defn tool-call-reject
+  [{:keys [chat-id tool-call-id]} db* messenger config metrics]
   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
     (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
       (logger/warn logger-tag "tool-call-reject ignored: unknown chat or tool-call"
                    {:chat-id chat-id :tool-call-id tool-call-id})
       (let [chat-ctx {:chat-id chat-id
                       :db* db*
+                      :config config
                       :metrics metrics
                       :messenger messenger}]
         (tc/transition-tool-call! db* chat-ctx tool-call-id :user-reject
@@ -1685,31 +1691,30 @@
         (logger/info logger-tag "Steer message removed" {:chat-id chat-id})))))
 
 (defn prompt-stop
-  ([params db* messenger metrics]
-   (prompt-stop params db* messenger metrics {}))
-  ([{:keys [chat-id]} db* messenger metrics {:keys [silent?]}]
-   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
-     (when (identical? :running (get-in @db* [:chats chat-id :status]))
-       ;; Set :stopping immediately to prevent race with stream callbacks
-       ;; that check status via assert-chat-not-stopped! or cancelled?
-       (swap! db* assoc-in [:chats chat-id :status] :stopping)
-       (let [chat-ctx {:chat-id chat-id
-                       :db* db*
-                       :metrics metrics
-                       :messenger messenger
-                       :parent-chat-id (db/parent-chat-id @db* chat-id)}]
-         (when-not silent?
-           (lifecycle/send-content! chat-ctx :system {:type :text
-                                                      :text "\nPrompt stopped"}))
+  [{:keys [chat-id]} db* messenger config metrics & {:keys [silent?]}]
+  (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+    (when (identical? :running (get-in @db* [:chats chat-id :status]))
+      ;; Set :stopping immediately to prevent race with stream callbacks
+      ;; that check status via assert-chat-not-stopped! or cancelled?
+      (swap! db* assoc-in [:chats chat-id :status] :stopping)
+      (let [chat-ctx {:chat-id chat-id
+                      :db* db*
+                      :config config
+                      :metrics metrics
+                      :messenger messenger
+                      :parent-chat-id (db/parent-chat-id @db* chat-id)}]
+        (when-not silent?
+          (lifecycle/send-content! chat-ctx :system {:type :text
+                                                     :text "\nPrompt stopped"}))
 
-         ;; Handle each active tool call
-         (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-           (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                     {:reason {:code :user-prompt-stop
-                                               :text "Tool call rejected because of user prompt stop"}}))
-         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
-         (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
-         (lifecycle/finish-chat-prompt! :stopping (lifecycle/strip-hook-callbacks chat-ctx)))))))
+        ;; Handle each active tool call
+        (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+          (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
+                                    {:reason {:code :user-prompt-stop
+                                              :text "Tool call rejected because of user prompt stop"}}))
+        ;; Clear compacting flags so finish-chat-prompt! isn't blocked
+        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+        (lifecycle/finish-chat-prompt! :stopping (lifecycle/strip-hook-callbacks chat-ctx))))))
 
 (defn delete-chat
   [{:keys [chat-id]} db* messenger config metrics]

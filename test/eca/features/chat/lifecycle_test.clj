@@ -1,7 +1,10 @@
 (ns eca.features.chat.lifecycle-test
   (:require
+   [cheshire.core :as json]
    [clojure.test :refer [are deftest is testing]]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.hooks :as f.hooks]
+   [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
 (set! *warn-on-reflection* true)
@@ -10,6 +13,111 @@
 (def ^:private agent-name :default)
 (def ^:private full-model "openai/test")
 (def ^:private config {:autoCompactPercentage 75})
+
+(deftest chat-status-payload-test
+  (testing "computes sorted aggregate status fields and classifies ask_user separately"
+    (let [db {:chats {chat-id {:status :running
+                               :tool-calls {"tool-z" {:status :waiting-approval
+                                                       :name "write_file"
+                                                       :server "eca"}
+                                            "tool-a" {:status :waiting-approval
+                                                       :name "shell"
+                                                       :server "eca"}
+                                            "question" {:status :executing
+                                                        :name "ask_user"
+                                                        :server "eca"}
+                                            "other-question" {:status :executing
+                                                              :name "ask_user"
+                                                              :server "other"}
+                                            "running" {:status :executing
+                                                       :name "shell"
+                                                       :server "eca"}
+                                            "done" {:status :completed
+                                                    :name "shell"
+                                                    :server "eca"}}}}}]
+      (is (match? {:chat-id chat-id
+                   :status :running
+                   :awaiting-user-input true
+                   :waiting-reason "toolApproval"
+                   :pending-approval-tool-call-ids ["tool-a" "tool-z"]
+                   :pending-question-tool-call-ids ["question"]
+                   :running-tool-call-ids ["other-question" "running"]}
+                  (#'lifecycle/chat-status-payload db chat-id)))))
+
+  (testing "omits waiting reason when nothing is awaiting user input"
+    (let [payload (#'lifecycle/chat-status-payload
+                   {:chats {chat-id {:status :idle
+                                      :tool-calls {"done" {:status :completed}}}}}
+                   chat-id)]
+      (is (match? {:awaiting-user-input false
+                   :pending-approval-tool-call-ids []
+                   :pending-question-tool-call-ids []
+                   :running-tool-call-ids []}
+                  payload))
+      (is (not (contains? payload :waiting-reason))))))
+
+(deftest trigger-chat-status-hook!-dedups-and-runs-advisory-hook-test
+  (h/reset-components!)
+  (h/config! {:hooks {"a-stop" {:type "chatStatusChanged"
+                                 :actions [{:type "shell" :shell "status"}]}
+                       "b-after" {:type "chatStatusChanged"
+                                  :actions [{:type "shell" :shell "after"}]}}})
+  (let [db* (h/db*)
+        calls* (atom [])
+        hook-inputs* (atom [])
+        ctx {:chat-id chat-id
+             :db* db*
+             :messenger (h/messenger)
+             :config (h/config)
+             :agent "plan"
+             :full-model full-model
+             :variant "fast"}]
+    (swap! db* assoc-in [:chats chat-id]
+           {:id chat-id
+            :status :running
+            :tool-calls {"tool-2" {:status :waiting-approval
+                                    :name "shell"
+                                    :server "eca"}}})
+    (with-redefs [f.hooks/run-shell-cmd
+                  (fn [{:keys [input]}]
+                    (let [payload (json/parse-string input true)
+                          hook-name (:hook_name payload)]
+                      (swap! calls* conj hook-name)
+                      (swap! hook-inputs* conj payload)
+                      (if (= "a-stop" hook-name)
+                        {:exit 0 :out "{\"continue\":false,\"systemMessage\":\"ignored\"}" :err nil}
+                        {:exit 0 :out "after" :err nil})))]
+      (lifecycle/trigger-chat-status-hook! ctx)
+      (lifecycle/trigger-chat-status-hook! ctx)
+      (is (nil? (:chat-status-changed (h/messages)))
+          "hook-only helper does not emit the protocol notification")
+      (is (= ["a-stop"] @calls*)
+          "unchanged aggregate is deduped; continue:false only stops later chatStatusChanged hooks for this event")
+      (is (nil? (:chat-content-received (h/messages)))
+          "advisory status hooks render no chat UI")
+      (is (match? {:hook_name "a-stop"
+                   :hook_type "chatStatusChanged"
+                   :chat_id chat-id
+                   :agent "plan"
+                   :full_model full-model
+                   :variant "fast"
+                   :status "running"
+                   :awaiting_user_input true
+                   :waiting_reason "toolApproval"
+                   :pending_approval_tool_call_ids ["tool-2"]
+                   :pending_question_tool_call_ids []
+                   :running_tool_call_ids []}
+                  (first @hook-inputs*)))
+
+      (swap! db* assoc-in [:chats chat-id]
+             {:id chat-id :status :idle :tool-calls {}})
+      (lifecycle/trigger-chat-status-hook! ctx)
+      (is (= ["a-stop" "a-stop"] @calls*)
+          "an actual aggregate change fires the hooks again")
+      (is (match? {:status "idle"
+                   :awaiting_user_input false
+                   :pending_approval_tool_call_ids []}
+                  (last @hook-inputs*))))))
 
 (defn- db-with [usage model-caps]
   {:chats {chat-id {:usage usage}}
@@ -220,3 +328,53 @@
       (is (not (contains? (:ctx @captured*) :on-after-finish!)))
       ;; on-follow-up is preserved (but skip-post-request-hooks? means it won't fire)
       (is (contains? (:ctx @captured*) :on-follow-up)))))
+
+(deftest trigger-chat-status-hook!-exit-2-is-non-blocking-test
+  (testing "chatStatusChanged hook exit 2 is logged but does not stop later hooks"
+    (h/reset-components!)
+    ;; Names are chosen so aaa-exit2 runs before bbb-after.
+    (h/config! {:hooks {"aaa-exit2" {:type "chatStatusChanged"
+                                     :actions [{:type "shell" :shell "exit2"}]}
+                        "bbb-after" {:type "chatStatusChanged"
+                                     :actions [{:type "shell" :shell "after"}]}}})
+    (let [db* (h/db*)
+          calls* (atom [])
+          ctx {:chat-id chat-id
+               :db* db*
+               :messenger (h/messenger)
+               :config (h/config)
+               :agent "default"
+               :full-model full-model}]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running :tool-calls {}})
+      (with-redefs [f.hooks/run-shell-cmd
+                    (fn [{:keys [input]}]
+                      (let [hook-name (:hook_name (json/parse-string input true))]
+                        (swap! calls* conj hook-name)
+                        (if (= "aaa-exit2" hook-name)
+                          {:exit 2 :out nil :err "something went wrong"}
+                          {:exit 0 :out nil :err nil})))]
+        (lifecycle/trigger-chat-status-hook! ctx)
+        (is (= ["aaa-exit2" "bbb-after"] @calls*)
+            "exit 2 does not stop later hooks in the chain")
+        (is (nil? (:chat-content-received (h/messages)))
+            "exit 2 hook produces no chat content")))))
+
+(deftest finish-chat-prompt!-always-emits-protocol-status-test
+  (testing "every turn finish emits the protocol chat/statusChanged even when the aggregate is unchanged (command-only turns stay idle throughout)"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          ctx {:chat-id chat-id
+               :db* db*
+               :messenger (h/messenger)
+               :config (h/config)
+               :metrics (h/metrics)
+               :agent "default"}]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :idle})
+      ;; First command-style finish: idle -> idle.
+      (lifecycle/finish-chat-prompt! :idle ctx)
+      ;; Simulate the next command turn: prompt entry clears :prompt-finished?.
+      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
+      (lifecycle/finish-chat-prompt! :idle ctx)
+      (is (= 2 (count (:chat-status-changed (h/messages))))
+          "both finishes must notify clients despite the unchanged idle payload")
+      (is (every? #(= :idle (:status %)) (:chat-status-changed (h/messages)))))))
