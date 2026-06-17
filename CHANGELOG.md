@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.141.1
+
 - OpenAI OAuth (ChatGPT/Codex) models now report Codex context windows instead of inflated direct-API limits (e.g. gpt-5.5 272k, not 1.05M).
 - Agent `defaultModel` (and explicit model ids) resolve alias-first: a bare model id is matched against the currently selected provider's models before being treated as a full id, enabling provider-relative subagent models. (#501)
 
