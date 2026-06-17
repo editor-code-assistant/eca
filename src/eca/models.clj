@@ -324,17 +324,25 @@
                                                          (get-in db [:auth provider])
                                                          config)
           api-type (:api provider-config)]
-      (when api-url
-        (when-let [models (fetch-provider-native-models
-                           {:provider provider
-                            :api-url api-url
-                            :auth-type auth-type
-                            :api-key api-key
-                            :api-type api-type})]
-          (logger/debug logger-tag
-                        (format "Provider '%s': Discovered %d models from native /models endpoint"
-                                provider (count models)))
-          models)))))
+      ;; Provider+auth specific source first (e.g. OpenAI OAuth -> ChatGPT Codex
+      ;; /models, registered via `llm-util/provider-models-override`), then the
+      ;; generic native /models endpoint.
+      (when-let [models (or (llm-util/provider-models-override
+                             {:provider provider
+                              :auth-type auth-type
+                              :api-key api-key
+                              :static-models (:models provider-config)})
+                            (when api-url
+                              (fetch-provider-native-models
+                               {:provider provider
+                                :api-url api-url
+                                :auth-type auth-type
+                                :api-key api-key
+                                :api-type api-type})))]
+        (logger/debug logger-tag
+                      (format "Provider '%s': Discovered %d models"
+                              provider (count models)))
+        models))))
 
 (defn ^:private parse-models-dev-provider-models
   "Builds provider model config map from models.dev payload.

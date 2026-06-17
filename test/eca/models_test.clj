@@ -3,10 +3,17 @@
    [clojure.test :refer [deftest is testing]]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.models :as models]))
 
 (set! *warn-on-reflection* true)
+
+(defn ^:private build-supported-models
+  [config db models-dev-data]
+  (let [known-models (#'models/all models-dev-data)
+        {:keys [models]} (#'models/fetch-provider-model-catalogs config db models-dev-data)]
+    (#'models/build-all-supported-models known-models config models)))
 
 (deftest fetch-models-dev-data-test
   (testing "Uses hato with json-string-keys and global client options"
@@ -590,3 +597,39 @@
       (is (= {:context 131072 :output 8192} (:limit caps)))
       (is (= 8192 (:max-output-tokens caps)))
       (is (= "qwen" (:model-name caps))))))
+
+(deftest provider-models-override-wins-over-native-test
+  (testing "A provider-models-override result is used instead of the native /models fetch"
+    (let [native-calls* (atom 0)
+          models-dev-data {"openai" {"api" "https://api.openai.com"
+                                     "models" {"gpt-5.5" {"limit" {"context" 1050000}}}}}
+          config {:providers {"openai" {:api "openai-responses"
+                                        :url "https://api.openai.com"
+                                        :models {"gpt-5.5" {}}}}}
+          db {:auth {"openai" {:api-key "oauth-token" :type :auth/oauth}}}]
+      (with-redefs [http/get (fn [_url _opts]
+                               (swap! native-calls* inc)
+                               {:status 200 :body {:data [{:id "gpt-5.5"}]}})
+                    llm-util/provider-models-override
+                    (fn [{:keys [provider auth-type]}]
+                      (when (= [provider auth-type] ["openai" :auth/oauth])
+                        {"gpt-5.5" {:limit {:context 272000}}}))]
+        (let [supported (build-supported-models config db models-dev-data)]
+          (is (= 272000 (get-in supported ["openai/gpt-5.5" :limit :context])))
+          (is (zero? @native-calls*) "native /models must not be called when an override wins"))))))
+
+(deftest openai-token-keeps-direct-api-context-window-test
+  (testing "API-key (non-OAuth) OpenAI keeps the direct API context window (no override)"
+    (let [request* (atom nil)
+          models-dev-data {"openai" {"api" "https://api.openai.com"
+                                     "models" {"gpt-5.5" {"limit" {"context" 1050000}}}}}
+          config {:providers {"openai" {:api "openai-responses"
+                                        :url "https://api.openai.com"
+                                        :key "sk-test"
+                                        :models {"gpt-5.5" {}}}}}]
+      (with-redefs [http/get (fn [url opts]
+                               (reset! request* [url opts])
+                               {:status 200 :body {:data [{:id "gpt-5.5"}]}})]
+        (let [supported (build-supported-models config {} models-dev-data)]
+          (is (= "https://api.openai.com/v1/models" (first @request*)))
+          (is (= 1050000 (get-in supported ["openai/gpt-5.5" :limit :context]))))))))

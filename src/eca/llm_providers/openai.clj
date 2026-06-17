@@ -21,6 +21,100 @@
 
 (def ^:private responses-path "/v1/responses")
 (def ^:private codex-url "https://chatgpt.com/backend-api/codex/responses")
+(def ^:private codex-models-url "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0")
+(def ^:private codex-models-timeout-ms 10000)
+
+;; OpenAI OAuth requests go through the ChatGPT Codex backend, whose context
+;; windows differ from the direct OpenAI API catalog (models.dev). Used as a
+;; fallback when the Codex /models endpoint is unreachable so e.g. gpt-5.5
+;; reports 272k instead of the direct API's 1.05M window.
+(def ^:private codex-context-fallback
+  {"gpt-5.1-codex-max" 272000
+   "gpt-5.1-codex-mini" 272000
+   "gpt-5.3-codex-spark" 128000
+   "gpt-5.3-codex" 272000
+   "gpt-5.2-codex" 272000
+   "gpt-5.4-mini" 272000
+   "gpt-5.5" 272000
+   "gpt-5.4" 272000
+   "gpt-5.2" 272000
+   "gpt-5" 272000})
+
+(defn ^:private pos-num [n]
+  (when (and (number? n) (pos? n)) n))
+
+(defn ^:private deep-merge-config [a b]
+  (if (and (map? a) (map? b))
+    (merge-with deep-merge-config a b)
+    b))
+
+(defn ^:private codex-context-fallback-for [model]
+  (let [model-name (string/lower-case (str model))]
+    (some (fn [[slug context-limit]]
+            (when (string/includes? model-name slug)
+              context-limit))
+          (sort-by (comp - count key) codex-context-fallback))))
+
+(defn ^:private codex-model-config
+  "Builds a model-config in user-override shape ({:limit {:context ..}}) so the
+   generic catalog code applies these limits through its existing override path."
+  [context-limit output-limit]
+  (let [limit (assoc-some {}
+                          :context (pos-num context-limit)
+                          :output (pos-num output-limit))]
+    (assoc-some {} :limit (not-empty limit))))
+
+(defn ^:private codex-live-model-entry [model]
+  (let [slug (:slug model)
+        context-limit (:context_window model)
+        output-limit (or (:max_output_tokens model) (:max_completion_tokens model))]
+    (when (and (string? slug) (not (string/blank? slug)))
+      [slug (codex-model-config context-limit output-limit)])))
+
+(defn ^:private codex-fallback-models [static-models]
+  (merge
+   (into {}
+         (map (fn [[model context-limit]]
+                [model (codex-model-config context-limit nil)]))
+         codex-context-fallback)
+   (into {}
+         (keep (fn [[model model-config]]
+                 (when-let [context-limit (or (codex-context-fallback-for model)
+                                              (codex-context-fallback-for (:modelName model-config)))]
+                   [model (codex-model-config context-limit nil)])))
+         static-models)))
+
+(defn ^:private fetch-oauth-models
+  "Resolves OpenAI OAuth (ChatGPT/Codex) model limits from the Codex /models
+   endpoint, falling back to known Codex caps on any failure. Returns a map of
+   model-id -> model-config in user-override shape."
+  [api-key static-models]
+  (let [fallback-models (codex-fallback-models static-models)]
+    (try
+      (if-not api-key
+        fallback-models
+        (let [{:keys [status body]} (http/get codex-models-url
+                                              {:headers {"Authorization" (str "Bearer " api-key)}
+                                               :throw-exceptions? false
+                                               :as :json
+                                               :http-client (client/merge-with-global-http-client {})
+                                               :timeout codex-models-timeout-ms})]
+          (if (not= 200 status)
+            (do
+              (logger/warn logger-tag (format "Codex /models endpoint returned status %s" status))
+              fallback-models)
+            (let [live-models (not-empty (into {}
+                                               (keep codex-live-model-entry)
+                                               (:models body)))]
+              (or (not-empty (merge-with deep-merge-config fallback-models live-models))
+                  fallback-models)))))
+      (catch Exception e
+        (logger/warn logger-tag (format "Failed to fetch Codex /models endpoint: %s" e))
+        fallback-models))))
+
+(defmethod llm-util/provider-models-override ["openai" :auth/oauth]
+  [{:keys [api-key static-models]}]
+  (fetch-oauth-models api-key static-models))
 
 (defn ^:private jwt-payload->account-id
   "Extract account ID from JWT payload, checking multiple locations like opencode does."

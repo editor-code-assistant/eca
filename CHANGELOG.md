@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- OpenAI OAuth (ChatGPT/Codex) models now report Codex context windows instead of inflated direct-API limits (e.g. gpt-5.5 272k, not 1.05M).
+
 ## 141.0
 
 - Add message pagination over a shared cursor core: new JSON-RPC `chat/history` method and optional `limit`/`before`/`after` window params on `chat/open`, plus opt-in pagination on remote HTTP `GET /api/v1/chats/:id`. Opaque cursors with a `lastCompaction` sentinel; meta exposes before/after/compaction cursors.

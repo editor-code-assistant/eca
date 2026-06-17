@@ -160,6 +160,19 @@
           shared/normalize-api-url
           not-empty))
 
+(defmulti provider-models-override
+  "Provider+auth specific override for native /models fetching.
+
+   Dispatches on `[provider auth-type]`. Implementations live in the provider
+   namespace (e.g. `eca.llm-providers.openai`) and return a map of
+   model-id -> model-config in the same shape users put under
+   `:providers <p> :models` (e.g. `{\"gpt-5.5\" {:limit {:context 272000}}}`),
+   letting the generic catalog code apply them through the existing override
+   path. Return nil to fall back to the generic native /models fetch."
+  (fn [{:keys [provider auth-type]}] [provider auth-type]))
+
+(defmethod provider-models-override :default [_] nil)
+
 (defn copilot-ide-headers
   "GitHub Copilot's API authenticates IDE requests by a recognized editor
    identity. A non-editor value (e.g. `eca/...`) is rejected with

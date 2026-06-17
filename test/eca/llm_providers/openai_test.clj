@@ -4,6 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-providers.openai :as llm-providers.openai]
+   [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
 (deftest base-responses-req-test
@@ -708,3 +709,39 @@
                       :arguments {"command" "ls"}}]
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
+
+(deftest fetch-oauth-models-live-test
+  (testing "resolves Codex /models limits and authorizes with the OAuth token"
+    (let [request* (atom nil)]
+      (with-redefs [http/get (fn [url opts]
+                               (reset! request* [url opts])
+                               {:status 200
+                                :body {:models [{:slug "gpt-5.5"
+                                                 :context_window 272000
+                                                 :max_output_tokens 128000}]}})]
+        (let [result (#'llm-providers.openai/fetch-oauth-models "oauth-token" {"gpt-5.5" {}})]
+          (is (= "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0"
+                 (first @request*)))
+          (is (= "Bearer oauth-token" (get-in @request* [1 :headers "Authorization"])))
+          (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))
+          (is (= 128000 (get-in result ["gpt-5.5" :limit :output]))))))))
+
+(deftest fetch-oauth-models-fallback-on-error-test
+  (testing "falls back to known Codex caps when /models is unauthorized"
+    (with-redefs [http/get (fn [_url _opts] {:status 401 :body {:error "unauthorized"}})]
+      (let [result (#'llm-providers.openai/fetch-oauth-models "expired-token" {"gpt-5.5" {}})]
+        (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))))))
+
+(deftest fetch-oauth-models-live-preserves-fallback-limit-test
+  (testing "a live model without a context window keeps the fallback cap"
+    (with-redefs [http/get (fn [_url _opts] {:status 200 :body {:models [{:slug "gpt-5.5"}]}})]
+      (let [result (#'llm-providers.openai/fetch-oauth-models "oauth-token" {"gpt-5.5" {}})]
+        (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))))))
+
+(deftest fetch-oauth-models-no-api-key-uses-fallback-test
+  (testing "without an API key, returns fallback caps without hitting the network"
+    (let [calls* (atom 0)]
+      (with-redefs [http/get (fn [_ _] (swap! calls* inc) {:status 200 :body {}})]
+        (let [result (#'llm-providers.openai/fetch-oauth-models nil {})]
+          (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))
+          (is (zero? @calls*)))))))
