@@ -1811,4 +1811,32 @@
     (is (= {} (:chats (h/db))))
     (is (= {} (h/messages)))))
 
+(deftest resolve-full-model-alias-test
+  (let [db {:models {"company-litellm/big" {}
+                     "company-litellm/explorer-small" {}
+                     "github-copilot/explorer-small" {}
+                     "anthropic/claude-sonnet-4-6" {}}
+            :chats {"main" {:id "main" :model "company-litellm/big"}
+                    "sub" {:id "sub" :parent-chat-id "main"}}}
+        resolve-model (fn [requested chat-id agent-config]
+                        (#'f.chat/resolve-full-model requested db chat-id agent-config {}))]
+    (testing "explicit bare alias resolves against the chat's selected provider"
+      (is (= "company-litellm/explorer-small"
+             (resolve-model "explorer-small" "main" {}))))
+    (testing "subagent resolves a bare alias against its parent chat's provider"
+      (is (= "company-litellm/explorer-small"
+             (resolve-model "explorer-small" "sub" {}))))
+    (testing "agent defaultModel bare alias resolves via the selected provider"
+      (is (= "company-litellm/explorer-small"
+             (resolve-model nil "sub" {:defaultModel "explorer-small"}))))
+    (testing "a literal full model id is returned as-is"
+      (is (= "anthropic/claude-sonnet-4-6"
+             (resolve-model "anthropic/claude-sonnet-4-6" "main" {}))))
+    (testing "an unknown explicit model id is kept verbatim (back-compat)"
+      (is (= "totally-unknown"
+             (resolve-model "totally-unknown" "main" {}))))
+    (testing "a stored full model still wins over the agent defaultModel"
+      (is (= "company-litellm/big"
+             (resolve-model nil "main" {:defaultModel "explorer-small"}))))))
+
 

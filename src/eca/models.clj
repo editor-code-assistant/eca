@@ -530,6 +530,20 @@
    {}
    (:providers config)))
 
+(defn full-model-for
+  "Resolve `model-id` to a full \"provider/model\" key present in `db`'s `:models`.
+   Checks a provider-local alias first (\"<provider>/<model-id>\", when `model-id`
+   has no provider prefix), then the literal `model-id`. Returns nil when neither
+   matches a known model."
+  [db provider model-id]
+  (when model-id
+    (let [models (:models db)
+          alias-model (when (and provider (not (string/includes? model-id "/")))
+                        (str provider "/" model-id))]
+      (cond
+        (and alias-model (contains? models alias-model)) alias-model
+        (contains? models model-id) model-id))))
+
 (defn sync-models! [db* config on-models-updated]
   (let [models-dev-data (models-dev)
         known-models (all models-dev-data)

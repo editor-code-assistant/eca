@@ -5,7 +5,9 @@
    [eca.config :as config]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]))
+   [eca.messenger :as messenger]
+   [eca.models :as models]
+   [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -161,7 +163,14 @@
                                  :available (available-model-names db)})))))
 
         parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or user-model (:model subagent) parent-model)
+        parent-provider (some-> parent-model shared/full-model->provider+model first)
+        ;; The agent's :defaultModel may be a bare alias resolved against the
+        ;; currently selected (parent) provider; keep it verbatim if it doesn't resolve.
+        subagent-model (or user-model
+                          (when-let [agent-model (:model subagent)]
+                            (or (models/full-model-for db parent-provider agent-model)
+                                agent-model))
+                          parent-model)
 
         ;; Variant validation: reject only when the resolved model has configured
         ;; variants and the user-specified one isn't among them. Models with no

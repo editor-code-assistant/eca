@@ -424,6 +424,34 @@ Examples:
 
     This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.
 
+=== "Provider-relative model alias"
+
+    Define the same logical model name under multiple providers (using `modelName` to point at each provider's real model), then reference that name from an agent's `defaultModel`. A bare model id is resolved against the currently selected provider before being treated as a full id, so the same agent config follows whichever provider you switch to.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "github-copilot": {
+          "models": {
+            "explorer-small": { "modelName": "raptor-mini" }
+          }
+        },
+        "company-litellm": {
+          "models": {
+            "explorer-small": { "modelName": "hf-qwen3-32b-awq" }
+          }
+        }
+      },
+      "agent": {
+        "explorer": {
+          "defaultModel": "explorer-small"
+        }
+      }
+    }
+    ```
+
+    With `github-copilot` selected, the `explorer` subagent uses `github-copilot/raptor-mini`; switching to `company-litellm` makes it use `company-litellm/hf-qwen3-32b-awq` with no agent config change. Full ids like `"anthropic/claude-sonnet-4-6"` still work and are used as-is.
+
 === "Override limits & pricing (local models)"
 
     Models that models.dev doesn't know about (e.g. a local model served via an OpenAI-compatible endpoint) have no context window or pricing, so the usage display shows no upper limit and auto-compaction never triggers. Set `limit` and/or `cost` to fix this. These values override models.dev, so you can also cap a known model's context window. Costs are per 1M tokens.

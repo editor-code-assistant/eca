@@ -633,3 +633,25 @@
         (let [supported (build-supported-models config {} models-dev-data)]
           (is (= "https://api.openai.com/v1/models" (first @request*)))
           (is (= 1050000 (get-in supported ["openai/gpt-5.5" :limit :context]))))))))
+
+(deftest full-model-for-test
+  (let [db {:models {"github-copilot/explorer-small" {}
+                     "company-litellm/explorer-small" {}
+                     "anthropic/claude-sonnet-4-6" {}}}]
+    (testing "resolves a bare alias against the given provider (provider-relative)"
+      (is (= "github-copilot/explorer-small"
+             (models/full-model-for db "github-copilot" "explorer-small")))
+      (is (= "company-litellm/explorer-small"
+             (models/full-model-for db "company-litellm" "explorer-small"))))
+    (testing "resolves a literal full model id"
+      (is (= "anthropic/claude-sonnet-4-6"
+             (models/full-model-for db "github-copilot" "anthropic/claude-sonnet-4-6"))))
+    (testing "returns nil when neither alias nor literal matches"
+      (is (nil? (models/full-model-for db "github-copilot" "missing")))
+      (is (nil? (models/full-model-for db "github-copilot" "openai/missing"))))
+    (testing "returns nil for a nil model id"
+      (is (nil? (models/full-model-for db "github-copilot" nil))))
+    (testing "without a provider only literal full ids resolve"
+      (is (nil? (models/full-model-for db nil "explorer-small")))
+      (is (= "anthropic/claude-sonnet-4-6"
+             (models/full-model-for db nil "anthropic/claude-sonnet-4-6"))))))

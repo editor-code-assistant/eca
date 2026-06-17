@@ -25,6 +25,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.models :as models]
    [eca.shared :as shared :refer [assoc-some future*]]))
 
 (set! *warn-on-reflection* true)
@@ -297,23 +298,37 @@
 (defn default-model [db config]
   (llm-api/default-model db config))
 
+(defn ^:private selected-provider
+  "Provider currently selected for `chat-id`, derived from the chat's own model
+   or, for subagents, its parent chat's model."
+  [db chat-id]
+  (let [model (or (get-in db [:chats chat-id :model])
+                  (when-let [parent-id (db/parent-chat-id db chat-id)]
+                    (get-in db [:chats parent-id :model])))]
+    (some-> model shared/full-model->provider+model first)))
+
 (defn ^:private resolve-full-model
-  "Resolve the full model id for a prompt response and LLM request."
+  "Resolve the full model id for a prompt response and LLM request.
+   Model ids are resolved alias-first: a bare id is matched against the currently
+   selected provider's models before being treated as a literal full model id."
   [requested-model db chat-id agent-config config]
-  (or requested-model
-      (let [stored-model (get-in db [:chats chat-id :model])
-            agent-default-model (:defaultModel agent-config)]
-        (cond
-          (and stored-model
-               (contains? (:models db) stored-model))
-          stored-model
+  (let [provider (selected-provider db chat-id)]
+    (or (when requested-model
+          (or (models/full-model-for db provider requested-model)
+              requested-model))
+        (let [stored-model (get-in db [:chats chat-id :model])
+              agent-default-model (:defaultModel agent-config)]
+          (cond
+            (and stored-model
+                 (contains? (:models db) stored-model))
+            stored-model
 
-          (and agent-default-model
-               (contains? (:models db) agent-default-model))
-          agent-default-model
+            agent-default-model
+            (or (models/full-model-for db provider agent-default-model)
+                (default-model db config))
 
-          :else
-          (default-model db config)))))
+            :else
+            (default-model db config))))))
 
 (defn ^:private update-pre-request-state
   "Pure function to compute new state from hook result."

@@ -815,9 +815,9 @@
         },
         "defaultModel": {
           "type": "string",
-          "description": "Default model for this agent, overriding the global default.",
-          "markdownDescription": "Default model for this agent, overriding the global default.",
-          "examples": ["anthropic/claude-sonnet-4-6"]
+          "description": "Default model for this agent, overriding the global default. May be a full provider/model id or a bare model name resolved against the currently selected provider's models (provider-relative alias).",
+          "markdownDescription": "Default model for this agent, overriding the global default. May be a full `provider/model` id or a bare model name resolved against the currently selected provider's models (provider-relative alias).",
+          "examples": ["anthropic/claude-sonnet-4-6", "explorer-small"]
         },
         "variant": {
           "type": "string",

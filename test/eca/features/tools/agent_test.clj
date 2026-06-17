@@ -590,6 +590,39 @@
           (is (= "anthropic/claude-sonnet-4-6" (:model @chat-prompt-called*))
               "user-specified model should win over agent defaultModel"))))))
 
+(deftest spawn-agent-defaultmodel-alias-test
+  (testing "agent defaultModel bare alias resolves against the parent chat's provider"
+    (let [config-with-alias (assoc-in test-config [:agent "explorer" :defaultModel] "explorer-small")
+          db* (atom {:chats {"chat-1" {:id "chat-1" :model "company-litellm/big"}}
+                     :models {"company-litellm/big" {}
+                              "company-litellm/explorer-small" {}
+                              "github-copilot/explorer-small" {}}})
+          subagent-chat-id "subagent-tc-1"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Done."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((get-in (f.tools.agent/definitions config-with-alias test-db) ["spawn_agent" :handler])
+                      {"agent" "explorer" "task" "explore" "activity" "exploring"}
+                      {:db* db*
+                       :config config-with-alias
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "company-litellm/explorer-small" (:model @chat-prompt-called*))
+              "bare alias should resolve to the parent provider's model"))))))
+
 (deftest extract-final-summary-test
   (testing "extracts text from last assistant message"
     (is (= "Hello world"
