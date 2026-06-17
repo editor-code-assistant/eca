@@ -151,6 +151,7 @@
 
 (def ^:private reasoning-keys-by-api
   {:anthropic [:thinking]
+   :bedrock [:thinking :output_config]
    :openai-responses [:reasoning]
    :openai-chat [:reasoning]
    :ollama [:think]})

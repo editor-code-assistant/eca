@@ -144,30 +144,52 @@
 (def ^:private allowed-extra-payload-keys
   "Top-level members the Converse / ConverseStream APIs accept (minus
    `:messages` and `:modelId`, which the handler owns). extraPayload is
-   filtered to these so provider/model variant payloads aimed at other APIs
-   (e.g. Anthropic's `:thinking`) don't reach Bedrock and trigger a 400."
+   filtered to these so payloads aimed at other APIs don't reach Bedrock and
+   trigger a 400. Anthropic-shaped variant keys (`:thinking`/`:output_config`)
+   are translated into `:additionalModelRequestFields` by `->reasoning-fields`
+   before this filter drops their top-level originals."
   #{:additionalModelRequestFields :additionalModelResponseFieldPaths
     :guardrailConfig :inferenceConfig :outputConfig :performanceConfig
     :promptVariables :requestMetadata :serviceTier :system :toolConfig})
 
+(defn ^:private ->reasoning-fields
+  "Bedrock Converse reasoning members for `additionalModelRequestFields`.
+   Variants arrive in the Anthropic shape (`:thinking`/`:output_config`) but
+   Bedrock's Claude vendor fields want `:reasoning_config` (+ `:output_config`).
+   `:thinking {:type \"adaptive\"}` maps to `:reasoning_config {:type \"adaptive\"}`
+   without `:budget_tokens` (which Claude 4.7+ rejects) and drops `:display`.
+   An explicit `reasoning_config` in extraPayload wins; a bare one (no `:type`)
+   keeps the legacy enabled+budget default."
+  [extra-payload]
+  (let [explicit (get-in extra-payload [:additionalModelRequestFields :reasoning_config])
+        {thinking-type :type thinking-budget :budget_tokens} (:thinking extra-payload)
+        default {:type "enabled" :budget_tokens default-reasoning-budget-tokens}
+        reasoning-config (cond
+                           explicit (if (:type explicit) explicit (merge default explicit))
+                           thinking-type (cond-> {:type thinking-type}
+                                           (= "enabled" thinking-type)
+                                           (assoc :budget_tokens (or thinking-budget default-reasoning-budget-tokens)))
+                           :else default)]
+    (assoc-some {:reasoning_config reasoning-config}
+                :output_config (:output_config extra-payload))))
+
 (defn ^:private build-body
   [{:keys [messages instructions max-output-tokens tools reason? extra-payload]}]
-  (shared/deep-merge
-   (assoc-some
-    {:messages messages
-     :inferenceConfig {:maxTokens (or max-output-tokens default-max-output-tokens)}}
-    :system (when-not (string/blank? instructions) [{:text instructions}])
-    :toolConfig (->tool-config tools)
-    :additionalModelRequestFields (when reason?
-                                    {:reasoning_config {:type "enabled"
-                                                        :budget_tokens default-reasoning-budget-tokens}}))
-   ;; Drop a reasoning_config smuggled through extraPayload when the caller
-   ;; didn't request reasoning — otherwise it would silently re-enable it,
-   ;; since the generic reasoning-key strip in llm-api doesn't cover Bedrock.
-   (cond-> (select-keys extra-payload allowed-extra-payload-keys)
-     (and (not reason?)
-          (get-in extra-payload [:additionalModelRequestFields :reasoning_config]))
-     (update :additionalModelRequestFields dissoc :reasoning_config))))
+  (let [reasoning-fields (when reason? (->reasoning-fields extra-payload))
+        ;; Drop a reasoning_config smuggled through extraPayload when the caller
+        ;; didn't request reasoning — otherwise it would silently re-enable it,
+        ;; since the generic reasoning-key strip in llm-api doesn't cover Bedrock.
+        smuggled-reasoning? (and (not reason?)
+                                 (get-in extra-payload [:additionalModelRequestFields :reasoning_config]))]
+    (cond-> (shared/deep-merge
+             (assoc-some
+              {:messages messages
+               :inferenceConfig {:maxTokens (or max-output-tokens default-max-output-tokens)}}
+              :system (when-not (string/blank? instructions) [{:text instructions}])
+              :toolConfig (->tool-config tools))
+             (select-keys extra-payload allowed-extra-payload-keys))
+      reasoning-fields (update :additionalModelRequestFields merge reasoning-fields)
+      smuggled-reasoning? (update :additionalModelRequestFields dissoc :reasoning_config))))
 
 ;; --- AWS event-stream (vnd.amazon.eventstream) binary decoder ---
 

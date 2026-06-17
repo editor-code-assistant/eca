@@ -143,7 +143,32 @@
                  {:messages []
                   :reason? true
                   :extra-payload {:additionalModelRequestFields
-                                  {:reasoning_config {:budget_tokens 1024}}}})))))
+                                  {:reasoning_config {:budget_tokens 1024}}}}))))
+
+  (testing "variant thinking 'adaptive' + output_config map to Bedrock reasoning fields (#502)"
+    (let [body (#'llm-providers.bedrock/build-body
+                {:messages []
+                 :reason? true
+                 :extra-payload {:thinking {:type "adaptive" :display "summarized"}
+                                 :output_config {:effort "high"}}})]
+      (is (match? {:additionalModelRequestFields {:reasoning_config {:type "adaptive"}
+                                                  :output_config {:effort "high"}}}
+                  body))
+      (is (nil? (get-in body [:additionalModelRequestFields :reasoning_config :budget_tokens]))
+          "adaptive must not carry budget_tokens (Claude 4.7+ rejects it)")
+      (is (nil? (get-in body [:additionalModelRequestFields :reasoning_config :display]))
+          "thinking :display is dropped")
+      (is (nil? (:thinking body))
+          "anthropic-shaped thinking is not sent as a top-level key")))
+
+  (testing "v2 default variant (thinking only, no output_config) yields adaptive reasoning_config"
+    (let [body (#'llm-providers.bedrock/build-body
+                {:messages []
+                 :reason? true
+                 :extra-payload {:thinking {:type "adaptive" :display "summarized"}}})]
+      (is (= {:type "adaptive"}
+             (get-in body [:additionalModelRequestFields :reasoning_config])))
+      (is (nil? (get-in body [:additionalModelRequestFields :output_config]))))))
 
 ;; --- chat! non-streaming ---
 

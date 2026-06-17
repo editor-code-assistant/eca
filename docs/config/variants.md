@@ -12,6 +12,10 @@ Variants are named payload presets for a model, allowing you to quickly switch b
 
 ECA ships with built-in variants for some known models via the `variantsByModel` config which has a good default.
 
+!!! note
+
+    Built-in variants match on the model id, so the Anthropic variants below also apply to the same Claude models served through **Bedrock** (e.g. `us.anthropic.claude-opus-4-7`). For Bedrock, ECA translates the Anthropic-shaped `thinking`/`output_config` payload into Converse's `reasoning_config`/`output_config`.
+
 === "Anthropic"
 
     Applies to models matching `sonnet-4-6`, `opus-4-5`, `opus-4-6` (any separator: `-`, `.`, `_`).
