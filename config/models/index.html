@@ -1872,7 +1872,7 @@ Copilot Pro and Pro+: <code>api.individual.githubcopilot.com</code></p>
 </table>
 <p><em>* url and key will be searched as envs <code>&lt;provider&gt;_API_URL</code> and <code>&lt;provider&gt;_API_KEY</code>, they require the env to be found or config to work.</em></p>
 <p>Examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:5"><input checked="checked" id="custom-provider" name="__tabbed_2" type="radio" /><input id="custom-model-settings--payload--header" name="__tabbed_2" type="radio" /><input id="override-limits--pricing-local-models" name="__tabbed_2" type="radio" /><input id="reasoning-in-conversation-history" name="__tabbed_2" type="radio" /><input id="dynamic-model-discovery-modelsdev" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="custom-provider">Custom provider</label><label for="custom-model-settings--payload--header">Custom model settings / payload / header</label><label for="override-limits--pricing-local-models">Override limits &amp; pricing (local models)</label><label for="reasoning-in-conversation-history">Reasoning in conversation history</label><label for="dynamic-model-discovery-modelsdev">Dynamic model discovery (models.dev)</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:6"><input checked="checked" id="custom-provider" name="__tabbed_2" type="radio" /><input id="custom-model-settings--payload--header" name="__tabbed_2" type="radio" /><input id="provider-relative-model-alias" name="__tabbed_2" type="radio" /><input id="override-limits--pricing-local-models" name="__tabbed_2" type="radio" /><input id="reasoning-in-conversation-history" name="__tabbed_2" type="radio" /><input id="dynamic-model-discovery-modelsdev" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="custom-provider">Custom provider</label><label for="custom-model-settings--payload--header">Custom model settings / payload / header</label><label for="provider-relative-model-alias">Provider-relative model alias</label><label for="override-limits--pricing-local-models">Override limits &amp; pricing (local models)</label><label for="reasoning-in-conversation-history">Reasoning in conversation history</label><label for="dynamic-model-discovery-modelsdev">Dynamic model discovery (models.dev)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1909,6 +1909,30 @@ Copilot Pro and Pro+: <code>api.individual.githubcopilot.com</code></p>
 <span class="p">}</span>
 </code></pre></div>
 <p>This way both will use gpt-5 model but one will override the reasoning to be high instead of the default.</p>
+</div>
+<div class="tabbed-block">
+<p>Define the same logical model name under multiple providers (using <code>modelName</code> to point at each provider's real model), then reference that name from an agent's <code>defaultModel</code>. A bare model id is resolved against the currently selected provider before being treated as a full id, so the same agent config follows whichever provider you switch to.</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;github-copilot&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;explorer-small&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;modelName&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;raptor-mini&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;company-litellm&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;explorer-small&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;modelName&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;hf-qwen3-32b-awq&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;explorer&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;defaultModel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;explorer-small&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>With <code>github-copilot</code> selected, the <code>explorer</code> subagent uses <code>github-copilot/raptor-mini</code>; switching to <code>company-litellm</code> makes it use <code>company-litellm/hf-qwen3-32b-awq</code> with no agent config change. Full ids like <code>"anthropic/claude-sonnet-4-6"</code> still work and are used as-is.</p>
 </div>
 <div class="tabbed-block">
 <p>Models that models.dev doesn't know about (e.g. a local model served via an OpenAI-compatible endpoint) have no context window or pricing, so the usage display shows no upper limit and auto-compaction never triggers. Set <code>limit</code> and/or <code>cost</code> to fix this. These values override models.dev, so you can also cap a known model's context window. Costs are per 1M tokens.</p>
@@ -2058,7 +2082,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 17, 2026 17:56:25 UTC">June 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 17, 2026 17:59:28 UTC">June 17, 2026</span>
   </span>
 
     
