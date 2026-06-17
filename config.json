@@ -705,6 +705,12 @@
           ],
           "default": "all"
         },
+        "imageInput": {
+          "type": "boolean",
+          "description": "Whether this model accepts image input (vision). Useful for custom/local models models.dev doesn't know about.",
+          "markdownDescription": "Whether this model accepts image input (vision). Useful for custom/local models models.dev doesn't know about.",
+          "default": false
+        },
         "limit": {
           "type": "object",
           "description": "Override the model's token limits (overrides models.dev). Useful for local models or to cap a known model's context window.",
