@@ -555,6 +555,11 @@
   (testing "Drops non-positive limits"
     (is (= {} (#'models/config-overrides->capabilities {:limit {:context 0 :output -1}}))))
 
+  (testing "Declares image input for custom models via :imageInput"
+    (is (true? (:image-input? (#'models/config-overrides->capabilities {:imageInput true}))))
+    (is (false? (:image-input? (#'models/config-overrides->capabilities {:imageInput false}))))
+    (is (nil? (:image-input? (#'models/config-overrides->capabilities {})))))
+
   (testing "Returns empty map for nil/empty config"
     (is (= {} (#'models/config-overrides->capabilities nil)))
     (is (= {} (#'models/config-overrides->capabilities {})))))
@@ -570,6 +575,12 @@
       (is (= {:context 2000 :output 100} (:limit caps)))
       (is (zero? (:input-token-cost caps)))
       (is (true? (:tools caps)))))
+
+  (testing "Custom model declares image input via config; defaults to false"
+    (let [[_ caps] (#'models/build-model-capabilities {} "local" "llava" {:imageInput true})]
+      (is (true? (:image-input? caps))))
+    (let [[_ caps] (#'models/build-model-capabilities {} "local" "plain" {})]
+      (is (false? (:image-input? caps)))))
 
   (testing "Unknown model gains a context limit and max-output from config override"
     (let [[full caps] (#'models/build-model-capabilities

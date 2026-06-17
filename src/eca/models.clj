@@ -390,10 +390,11 @@
   (some-> n float (/ one-million)))
 
 (defn ^:private config-overrides->capabilities
-  "Translate a user's per-model `:limit`/`:cost` config into internal capability
-   keys, letting users override context/output limits and pricing for models
-   models.dev doesn't know (e.g. local models) or cap a known one. Costs are
-   given per 1M tokens, like models.dev."
+  "Translate a user's per-model `:limit`/`:cost`/`:imageInput` config into
+   internal capability keys, letting users override context/output limits and
+   pricing for models models.dev doesn't know (e.g. local models) or cap a known
+   one, and declare image input for custom models. Costs are given per 1M
+   tokens, like models.dev."
   [model-config]
   (let [limit (:limit model-config)
         cost (:cost model-config)
@@ -401,6 +402,7 @@
                                     :context (pos-num (:context limit))
                                     :output (pos-num (:output limit)))]
     (assoc-some {}
+                :image-input? (:imageInput model-config)
                 :limit (not-empty limit-overrides)
                 :max-output-tokens (pos-num (:output limit))
                 :input-token-cost (cost-per-1m->per-token (:input cost))
@@ -445,7 +447,8 @@
                                :reason? true
                                :web-search false
                                :mid-conversation-system? false
-                               :image-generation? false})
+                               :image-generation? false
+                               :image-input? false})
         model-capabilities (-> (merge-capabilities base-capabilities
                                                    (config-overrides->capabilities model-config))
                                (assoc :model-name real-model-name))]

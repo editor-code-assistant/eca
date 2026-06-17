@@ -92,6 +92,46 @@
           thinking-start-tag
           thinking-end-tag)))))
 
+(deftest normalize-messages-tool-result-image-test
+  (testing "Tool result with image emits tool message + synthetic user image message when supported"
+    (is (match?
+         [{:role "user" :content "look"}
+          {:role "assistant" :tool_calls [{:id "call-1"}]}
+          {:role "tool" :tool_call_id "call-1"}
+          {:role "user"
+           :content [{:type "image_url"
+                      :image_url {:url "data:image/png;base64,abc123"}}]}]
+         (#'llm-providers.openai-chat/normalize-messages
+          [{:role "user" :content "look"}
+           {:role "tool_call" :content {:id "call-1" :full-name "foo__shot" :arguments {}}}
+           {:role "tool_call_output"
+            :content {:id "call-1"
+                      :full-name "foo__shot"
+                      :arguments {}
+                      :output {:contents [{:type :text :error false :text "done"}
+                                          {:type :image :media-type "image/png" :base64 "abc123"}]}}}]
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool result image dropped (no user image message) when image input unsupported"
+    (is (match?
+         [{:role "user" :content "look"}
+          {:role "assistant" :tool_calls [{:id "call-1"}]}
+          {:role "tool" :tool_call_id "call-1"}]
+         (#'llm-providers.openai-chat/normalize-messages
+          [{:role "user" :content "look"}
+           {:role "tool_call" :content {:id "call-1" :full-name "foo__shot" :arguments {}}}
+           {:role "tool_call_output"
+            :content {:id "call-1"
+                      :full-name "foo__shot"
+                      :arguments {}
+                      :output {:contents [{:type :text :error false :text "done"}
+                                          {:type :image :media-type "image/png" :base64 "abc123"}]}}}]
+          false
+          thinking-start-tag
+          thinking-end-tag)))))
+
 (deftest extract-content-test
   (testing "String input - returns string for text-only content"
     (is (= "Hello world"

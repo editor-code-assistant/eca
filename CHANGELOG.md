@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add message pagination over a shared cursor core: new JSON-RPC `chat/history` method and optional `limit`/`before`/`after` window params on `chat/open`, plus opt-in pagination on remote HTTP `GET /api/v1/chats/:id`. Opaque cursors with a `lastCompaction` sentinel; meta exposes before/after/compaction cursors.
+- Support declaring image input for custom models via a per-model `imageInput` config flag; openai-chat now round-trips tool-result images. (#503)
 
 ## 0.140.1
 

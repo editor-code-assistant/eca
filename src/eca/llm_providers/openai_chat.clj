@@ -184,19 +184,30 @@
                                       (:external-id content)
                                       (assoc-in [:extra_content :google :thought_signature]
                                                 (:external-id content)))]}))
-      ;; NOTE: Image content from MCP tool results is currently flattened to
-      ;; the placeholder text `[Image: <media-type>]` via `stringfy-tool-result`,
-      ;; so multimodal models on the chat-completions API will not see prior
-      ;; images on follow-up turns. Image round-trip is implemented for
-      ;; `openai-responses` (see eca.llm-providers.openai/normalize-messages
-      ;; `tool_call_output` branch) and `anthropic`; replicating it here would
-      ;; require emitting a `tool` message followed by a synthetic `user`
-      ;; message with `image_url` content blocks, since the chat-completions
-      ;; `tool` role does not accept image content natively.
+      ;; The chat-completions `tool` role can't carry image content, so when a
+      ;; tool result includes images (and the model supports image input) we
+      ;; emit the `tool` text message followed by a synthetic `user` message
+      ;; with `image_url` blocks (tagged `:tool-image?` for reordering). Mirrors
+      ;; the `openai-responses` round-trip (eca.llm-providers.openai/normalize-messages
+      ;; `tool_call_output` branch) and `anthropic`.
       "tool_call_output" (when-not foreign-api?
-                           {:role "tool"
-                            :tool_call_id (or (:llm-tool-call-id content) (:id content))
-                            :content (llm-util/stringfy-tool-result content)})
+                           (let [tool-msg {:role "tool"
+                                           :tool_call_id (or (:llm-tool-call-id content) (:id content))
+                                           :content (llm-util/stringfy-tool-result content)}
+                                 image-contents (when supports-image?
+                                                  (seq (filter #(= :image (:type %))
+                                                               (-> content :output :contents))))]
+                             (if image-contents
+                               [tool-msg
+                                {:role "user"
+                                 :tool-image? true
+                                 :content (mapv (fn [img]
+                                                  {:type "image_url"
+                                                   :image_url {:url (format "data:%s;base64,%s"
+                                                                            (or (:media-type img) "image/png")
+                                                                            (:base64 img))}})
+                                                image-contents)}]
+                               tool-msg)))
       "user" {:role "user"
               :content (extract-content content supports-image?)}
       "reason" (when-not foreign-api?
@@ -305,21 +316,44 @@
                               [group])
                             (mapcat reorder-tool-turn)))))))))
 
+(defn ^:private reorder-tool-result-images
+  "OpenAI chat-completions requires every `tool` message to immediately follow
+   the assistant `tool_calls` message. Synthetic user image messages emitted for
+   tool results (tagged `:tool-image?`) are moved after the contiguous run of
+   tool messages and merged into a single user message, so parallel tool calls
+   returning images stay valid."
+  [messages]
+  (->> messages
+       (partition-by #(or (= "tool" (:role %)) (:tool-image? %)))
+       (mapcat (fn [group]
+                 (if (some #(= "tool" (:role %)) group)
+                   (let [{tools true imgs false} (group-by #(= "tool" (:role %)) group)]
+                     (cond-> (vec tools)
+                       (seq imgs) (conj {:role "user"
+                                         :content (vec (mapcat :content imgs))})))
+                   group)))))
+
 (defn ^:private normalize-messages
   "Converts ECA message format to OpenAI API format (also used by compatible providers).
 
    Key transformations:
    - Groups parallel tool calls (tool_call messages) before their outputs
    - Transforms each ECA message to API format (tool_call -> assistant with tool_calls, etc.)
+   - A single entry may expand into multiple messages (tool_call_output carrying
+     images -> tool message + synthetic user image message); these are flattened
+     and the image messages reordered after the tool run
    - Merges adjacent assistant messages (required by OpenAI/DeepSeek APIs)
    - Filters out invalid/empty messages
 
-   The pipeline: group tool calls -> transform -> merge adjacent assistants -> filter valid"
+   The pipeline: group tool calls -> transform -> flatten -> reorder tool images
+   -> merge adjacent assistants -> filter valid"
   [messages supports-image? think-tag-start think-tag-end]
   (->> messages
        group-parallel-tool-calls
        (map #(transform-message % supports-image? think-tag-start think-tag-end))
        (remove nil?)
+       (mapcat #(if (vector? %) % [%]))
+       reorder-tool-result-images
        merge-adjacent-assistants
        (filter valid-message?)))
 
