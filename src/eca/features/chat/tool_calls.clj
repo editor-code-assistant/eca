@@ -28,6 +28,23 @@
 
 (def ^:private logger-tag "[CHAT]")
 
+(def ^:private rejected-tool-call-message
+  "Leading message for every rejected/blocked tool call result sent back to the
+   LLM. Some models otherwise assume a rejected edit was actually applied (#507),
+   so this states plainly that the call never ran and changed nothing."
+  (str "This tool call did NOT run and made NO changes. Any files, code, or "
+       "system state remain exactly as they were before this call, so do not "
+       "assume the action was applied or succeeded. If it is still needed, ask "
+       "the user how to proceed or try a different approach."))
+
+(defn ^:private rejected-tool-call-output-contents
+  "LLM-facing :contents for a rejected/blocked tool call: the standard
+   `rejected-tool-call-message` plus the specific reason, when present."
+  [reason-text]
+  [{:type :text
+    :text (cond-> rejected-tool-call-message
+            (shared/not-blank reason-text) (str "\nReason: " reason-text))}])
+
 (defn ^:private update-tool-output-contents!
   "Apply `f` to the :contents of the tool_call_output message matching
    `tool-call-id`, a no-op when no such message exists. Scans messages backwards
@@ -933,7 +950,7 @@
                                 {:keys [code text]} (:decision-reason tool-call-state)]
                             (add-to-history! {:role "tool_call" :content tool-call})
                             (add-to-history! {:role    "tool_call_output"
-                                              :content (assoc tool-call :output {:error true :contents [{:text text :type :text}]})})
+                                              :content (assoc tool-call :output {:error true :contents (rejected-tool-call-output-contents text)})})
                             (reset! blocked-tool-call-info* {:code code
                                                              :stop-turn? (when tool-call-blocked-by-hook? stop-turn?)
                                                              :stop-reason (when tool-call-blocked-by-hook? stop-reason)
@@ -1015,7 +1032,7 @@
                       ;; the LLM loop with a rejection message letting the subagent adapt
                       (do (add-to-history! {:role "user"
                                             :content [{:type :text
-                                                       :text "I rejected one or more tool calls. The tool call was not allowed. Try a different approach to complete the task."}]})
+                                                       :text "I rejected one or more tool calls; they did not run and nothing was changed. Try a different approach to complete the task."}]})
                           (with-fresh-auth
                             {:tools all-tools
                              :new-messages (shared/messages-after-last-compact-marker

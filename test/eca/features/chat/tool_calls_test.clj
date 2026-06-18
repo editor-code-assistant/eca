@@ -730,3 +730,16 @@
                    :post-tool-call-stop-reason "halt"
                    :post-tool-call-stop-hook-name "guard"}
                   (get-in @db* [:chats "chat-1" :tool-calls "tool-1"]))))))
+
+(deftest rejected-tool-call-output-contents-test
+  (testing "states the call did not run and made no changes (#507)"
+    (let [text (-> (#'tc/rejected-tool-call-output-contents "Tool call rejected by user choice")
+                   first
+                   :text)]
+      (is (string/includes? text "did NOT run"))
+      (is (string/includes? text "made NO changes"))
+      (is (string/includes? text "Reason: Tool call rejected by user choice"))))
+  (testing "omits the reason line when there is no reason text"
+    (let [text (-> (#'tc/rejected-tool-call-output-contents "  ") first :text)]
+      (is (string/includes? text "did NOT run"))
+      (is (not (string/includes? text "Reason:"))))))

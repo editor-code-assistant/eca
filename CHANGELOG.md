@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Bugfix: clearer rejected tool-call result wording so models no longer assume a rejected edit was applied; it now states the call did not run and changed nothing. (#507)
 - Bugfix: `ask_user` normalizes the `options` argument so a malformed value (e.g. a stringified options an LLM sometimes emits) no longer reaches clients as broken choices. Accepts string/object arrays, recovers a JSON-encoded string, and drops unusable input.
 
 ## 0.142.0
