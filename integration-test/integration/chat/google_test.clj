@@ -254,12 +254,14 @@
                                                                                " file2.md\n\n"
                                                                                "0 directories, 2 files")}]})
         ;; Text chunks get re-split due to 8-char tail buffering for <thought> detection.
-        ;; Note: We use m/in-any-order for the final text/usage/progress events since their
-        ;; relative ordering can vary due to async processing and buffering.
-        (match-content chat-id "assistant" {:type "text" :text "The files"})
-        (match-content chat-id "assistant" {:type "text" :text " I see:\nfile"})
-        (match-content chat-id "assistant" {:type "text" :text "1\nfile2\n"})
-        (match-content chat-id "system" {:type "progress" :state "finished"})
+        ;; The stage-2 usage (now carrying a distinct context breakdown) interleaves with
+        ;; these buffered text chunks, so match the trailing cluster order-independently.
+        (h/match-contents-unordered
+         [chat-id "assistant" {:type "text" :text "The files"}]
+         [chat-id "assistant" {:type "text" :text " I see:\nfile"}]
+         [chat-id "assistant" {:type "text" :text "1\nfile2\n"}]
+         [chat-id "system" {:type "usage"}]
+         [chat-id "system" {:type "progress" :state "finished"}])
 
         ;; Verify thought signature was passed back in the second request
         (let [raw-messages (llm.mocks/get-raw-messages :tool-calling-with-thought-signature-0)

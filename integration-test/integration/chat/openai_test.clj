@@ -265,6 +265,9 @@
                                                                                "0 directories, 2 files")}]})
         (match-content chat-id "assistant" {:type "text" :text "The files I see:\n"})
         (match-content chat-id "assistant" {:type "text" :text "file1\nfile2\n"})
+        ;; Second LLM call (post tool-result) reports its own usage; now carries a
+        ;; distinct context breakdown so it is no longer deduped by the test helper.
+        (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "What files you see?"}]}

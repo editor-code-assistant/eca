@@ -30,6 +30,7 @@
                         :arguments [{:name "name" :description "The skill name" :required true}
                                     {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
+                       {:name "context" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "fork" :arguments []}
                        {:name "resume" :arguments [{:name "chat-id"}]}
@@ -60,6 +61,7 @@
                         :arguments [{:name "name" :description "The skill name" :required true}
                                     {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
+                       {:name "context" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
