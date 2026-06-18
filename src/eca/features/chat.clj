@@ -26,18 +26,11 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
-   [eca.shared :as shared :refer [assoc-some future*]]))
+   [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[CHAT]")
-
-(defn ^:private estimate-tokens
-  "Rough token estimate: ~4 chars per token."
-  ^long [^String s]
-  (if s
-    (quot (count s) 4)
-    0))
 
 (defn ^:private tool-output-text [msg]
   (let [contents (get-in msg [:content :output :contents])]
@@ -827,7 +820,22 @@
                                   (db/update-workspaces-cache! @db* metrics))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
-                                 (lifecycle/send-content! chat-ctx :system (merge {:type :usage} usage))))
+                                 ;; Never let the context-breakdown (a display-only
+                                 ;; aid) throw into the streaming path, or the error
+                                 ;; gets misclassified as a retryable provider error.
+                                 (let [breakdown (try
+                                                   (shared/context-breakdown
+                                                    {:system-prompt (f.prompt/instructions->str instructions)
+                                                     :tools all-tools
+                                                     :messages (get-in @db* [:chats chat-id :messages] [])
+                                                     :context-limit (get-in usage [:limit :context])
+                                                     :session-tokens (:session-tokens usage)})
+                                                   (catch Throwable e
+                                                     (logger/warn logger-tag "Failed to compute context breakdown" e)
+                                                     nil))]
+                                   (lifecycle/send-content! chat-ctx :system
+                                                            (merge {:type :usage} usage
+                                                                   (when breakdown {:context-breakdown breakdown}))))))
             prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
             retitle? (= prompt-count 3)
             generate-title? (and (get-in config [:chat :title])
@@ -1479,6 +1487,7 @@
             [provider model] (when full-model (shared/full-model->provider+model full-model))
             chat-ctx (merge base-chat-ctx
                             {:instructions instructions
+                             :all-tools all-tools
                              :user-messages user-messages
                              :full-model full-model
                              :provider provider

@@ -876,6 +876,55 @@ interface ChatUsageContent {
          */
         output: number;
     }
+
+    /**
+     * Provider-agnostic estimate of how the context window is occupied,
+     * broken down by category. Useful to render a context-usage bar.
+     * Per-category values are estimates (~4 chars/token); when the provider
+     * reports authoritative usage they are scaled to sum to `usedTokens`.
+     */
+    contextBreakdown?: {
+        /**
+         * Occupied categories, in display order (e.g. "System prompt",
+         * "Tool definitions", "Tool use & results", "Conversation").
+         */
+        categories: {
+            name: string;
+            tokens: number;
+            /**
+             * Canonical color (hex, e.g. "#61afef") for this category. The
+             * server is the source of truth so all clients render the same
+             * colors; clients should use it to color their usage bar/legend.
+             */
+            color: string;
+            /**
+             * Canonical emoji swatch (e.g. "🟦") for this category, aligned
+             * with `color`. Used in plain-text legends (e.g. the `/context`
+             * command) where colors cannot be rendered.
+             */
+            emoji: string;
+        }[];
+        /**
+         * Total occupied tokens (sum of categories).
+         */
+        usedTokens: number;
+        /**
+         * Remaining tokens in the context window. Absent when unknown.
+         */
+        freeTokens?: number;
+        /**
+         * The model context window size in tokens. Absent when unknown.
+         */
+        contextLimit?: number;
+        /**
+         * Canonical color (hex) for the free/unused portion of the window.
+         */
+        freeColor?: string;
+        /**
+         * Canonical emoji swatch for the free/unused portion of the window.
+         */
+        freeEmoji?: string;
+    }
 }
 
 /**

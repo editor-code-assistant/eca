@@ -334,6 +334,141 @@
       (swap! db* update-in [:chats chat-id :usage :total-input-cache-read-tokens] (fnil + 0) input-cache-read-tokens))
     (usage-sumary chat-id full-model @db*)))
 
+(defn estimate-tokens
+  "Rough, provider-agnostic token estimate: ~4 chars per token.
+   Used for context-window accounting where the exact, provider-specific
+   tokenizer is unavailable (each provider counts differently)."
+  ^long [^String s]
+  (if s
+    (quot (count s) 4)
+    0))
+
+(def ^:private context-conversation-roles
+  #{"user" "assistant" "system" "reason"})
+
+(def ^:private context-tool-roles
+  #{"tool_call" "server_tool_use" "tool_call_output" "server_tool_result"})
+
+(def ^:private system-prompt-section-headers
+  "ECA-injected level-2 headers used to attribute system-prompt tokens to finer
+   buckets. Other `##` headers (e.g. the base agent prompt's own sections) stay
+   in the current bucket."
+  {"## Rules" "Rules"
+   "## Skills" "Skills"
+   "## Static Contexts" "AGENTS.md"
+   "## Dynamic Contexts" "AGENTS.md"})
+
+(def ^:private system-prompt-category-order
+  ["System prompt" "Rules" "Skills" "AGENTS.md"])
+
+(def context-category-colors
+  "Canonical per-category colors for the context-usage breakdown. The server is
+   the source of truth so all clients render the same colors. Colors are aligned
+   with `context-category-emojis`; every category has a distinct hue."
+  {"System prompt"    "#61afef"
+   "Rules"            "#c678dd"
+   "Skills"           "#e5c07b"
+   "AGENTS.md"        "#d19a66"
+   "Tool definitions" "#e8924a"
+   "Tool calls"       "#e06c75"
+   "Conversation"     "#98c379"})
+
+(def context-category-emojis
+  "Canonical per-category emoji swatches. Used in plain-text legends (e.g. the
+   `/context` command) where colors cannot be rendered. Each category has a
+   distinct emoji so it correlates with the colored UI."
+  {"System prompt"    "🟦"
+   "Rules"            "🟪"
+   "Skills"           "🟨"
+   "AGENTS.md"        "🟫"
+   "Tool definitions" "🟧"
+   "Tool calls"       "🟥"
+   "Conversation"     "🟩"})
+
+(def context-free-color
+  "Canonical color for the free (unused) portion of the context window."
+  "#5c6370")
+
+(def context-free-emoji
+  "Canonical emoji swatch for the free (unused) portion of the window."
+  "⬜")
+
+(defn ^:private split-system-prompt
+  "Attributes the assembled system-prompt string to sub-categories by ECA's
+   injected section headers. Returns an ordered vector of [name tokens] for the
+   non-empty buckets."
+  [system-prompt]
+  (if (string/blank? system-prompt)
+    []
+    (let [char-counts (loop [lines (string/split-lines system-prompt)
+                             current "System prompt"
+                             acc {}]
+                        (if-let [line (first lines)]
+                          (let [cat (get system-prompt-section-headers (string/trim line) current)]
+                            (recur (rest lines) cat (update acc cat (fnil + 0) (inc (count line)))))
+                          acc))]
+      (->> system-prompt-category-order
+           (keep (fn [cat]
+                   (when-let [chars (get char-counts cat)]
+                     [cat (quot chars 4)])))
+           vec))))
+
+(defn context-breakdown
+  "Provider-agnostic context-window usage breakdown for a chat.
+
+   Inputs (all optional):
+     :system-prompt  - assembled system instructions string; split into
+                       System prompt / Rules / Skills / Memory & contexts by
+                       ECA's injected section headers
+     :tools          - tool definitions (vector of tool maps); only the wire
+                       fields (:name :description :parameters) are measured
+     :messages       - chat messages vector (db shape) partitioned into
+                       Conversation / Reasoning / Tool calls / Tool results
+     :context-limit  - model context window in tokens
+     :session-tokens - provider-reported total tokens for the last turn
+                       (authoritative); when present, per-category estimates are
+                       scaled proportionally so the breakdown sums to it
+
+   Returns {:categories [{:name :tokens}...]  ;; only non-empty buckets, in order
+            :used-tokens N
+            :free-tokens N        ;; when :context-limit is known
+            :context-limit N}."
+  [{:keys [system-prompt tools messages context-limit session-tokens]}]
+  (let [tools-str (when (seq tools)
+                    (pr-str (mapv #(select-keys % [:name :description :parameters]) tools)))
+        {:keys [conversation tools]}
+        (reduce (fn [acc msg]
+                  (let [role (:role msg)
+                        tks (estimate-tokens (pr-str (:content msg)))]
+                    (cond
+                      (contains? context-tool-roles role) (update acc :tools + tks)
+                      (contains? context-conversation-roles role) (update acc :conversation + tks)
+                      :else acc)))
+                {:conversation 0 :tools 0}
+                messages)
+        raw (filterv (fn [[_ t]] (pos? (long t)))
+                     (concat (split-system-prompt system-prompt)
+                             [["Tool definitions" (estimate-tokens tools-str)]
+                              ["Tool calls" tools]
+                              ["Conversation" conversation]]))
+        estimated (reduce + 0 (map second raw))
+        reported (when (and session-tokens (pos? (long session-tokens))) (long session-tokens))
+        used (long (or reported estimated))
+        scale (if (and reported (pos? estimated)) (/ (double used) (double estimated)) 1.0)
+        categories (mapv (fn [[nm t]]
+                           (assoc-some {:name nm
+                                        :tokens (long (Math/round (* scale (double t))))}
+                                       :color (get context-category-colors nm)
+                                       :emoji (get context-category-emojis nm)))
+                         raw)
+        limit (when (and context-limit (pos? (long context-limit))) (long context-limit))]
+    (assoc-some {:categories categories
+                 :used-tokens used
+                 :free-color context-free-color
+                 :free-emoji context-free-emoji}
+                :free-tokens (when limit (max 0 (- limit used)))
+                :context-limit limit)))
+
 (defn map->camel-cased-map [m]
   (let [f (fn [[k v]]
             (if (keyword? k)

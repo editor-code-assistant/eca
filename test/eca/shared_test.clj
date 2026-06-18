@@ -344,3 +344,73 @@
     nil nil
     42 nil
     "hello" "hello"))
+
+(deftest estimate-tokens-test
+  (are [in expected] (= expected (shared/estimate-tokens in))
+    nil 0
+    "" 0
+    "abcd" 1
+    "abcdefgh" 2))
+
+(deftest context-breakdown-test
+  (testing "categories present and free = limit - used (estimate-based)"
+    (let [{:keys [categories used-tokens free-tokens context-limit free-color free-emoji]}
+          (shared/context-breakdown
+           {:system-prompt (apply str (repeat 400 "x"))
+            :tools [{:name "do-thing"
+                     :description (apply str (repeat 200 "y"))
+                     :parameters {:type "object"}
+                     :summary-fn (constantly "noop")}]
+            :messages [{:role "user" :content [{:type :text :text "hello"}]}
+                       {:role "tool_call_output" :content {:foo "bar"}}]
+            :context-limit 1000})]
+      (is (= 1000 context-limit))
+      (is (= #{"System prompt" "Tool definitions" "Tool calls" "Conversation"}
+             (set (map :name categories))))
+      (is (= (reduce + 0 (map :tokens categories)) used-tokens))
+      (is (= (- 1000 used-tokens) free-tokens))
+      ;; every category carries a canonical color + emoji, plus free swatches
+      (is (every? (comp string? :color) categories))
+      (is (every? (comp string? :emoji) categories))
+      (is (= "#5c6370" free-color))
+      (is (= "⬜" free-emoji))))
+  (testing "splits system prompt and messages into fine-grained categories"
+    (let [system-prompt (str "base agent prompt line\n"
+                             "## Rules\n<rules>some rule body</rules>\n"
+                             "## Skills\n<skills>some skill</skills>\n"
+                             "## Static Contexts\nAGENTS.md memory content here")
+          {:keys [categories]}
+          (shared/context-breakdown
+           {:system-prompt system-prompt
+            :tools [{:name "t" :description "dddddddddddddddddddd" :parameters {}}]
+            :messages [{:role "user" :content "hello there friend"}
+                       {:role "reason" :content "thinking deeply about the task"}
+                       {:role "tool_call" :content {:name "x" :arguments "yyyy"}}
+                       {:role "tool_call_output" :content {:output "zzzzzzzz"}}]})
+          names (set (map :name categories))]
+      (is (contains? names "System prompt"))
+      (is (contains? names "Rules"))
+      (is (contains? names "Skills"))
+      (is (contains? names "AGENTS.md"))
+      (is (contains? names "Tool definitions"))
+      (is (contains? names "Tool calls"))
+      (is (contains? names "Conversation"))
+      ;; reasoning folds into Conversation; tool results into Tool calls
+      (is (not (contains? names "Reasoning")))
+      (is (not (contains? names "Tool results")))))
+  (testing "provider session-tokens is authoritative and scales the breakdown"
+    (let [{:keys [used-tokens free-tokens]}
+          (shared/context-breakdown
+           {:system-prompt (apply str (repeat 400 "x"))
+            :context-limit 1000
+            :session-tokens 500})]
+      (is (= 500 used-tokens))
+      (is (= 500 free-tokens))))
+  (testing "omits free-tokens and context-limit when window is unknown"
+    (let [{:keys [free-tokens context-limit]}
+          (shared/context-breakdown {:system-prompt "abcd"})]
+      (is (nil? free-tokens))
+      (is (nil? context-limit))))
+  (testing "drops empty categories"
+    (let [{:keys [categories]} (shared/context-breakdown {:system-prompt "abcd"})]
+      (is (= ["System prompt"] (mapv :name categories))))))

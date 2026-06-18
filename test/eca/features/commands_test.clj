@@ -516,3 +516,32 @@
                {:hooks {"my-plugin::guard" {:type "preToolCall"
                                             :actions [{:type "shell" :shell "exit 0"}]}}})]
       (is (string/includes? out "`my-plugin::guard`")))))
+
+(deftest context-usage-text-test
+  (let [text (#'f.commands/context-usage-text
+              "anthropic/claude-sonnet-4-6"
+              {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}
+                            {:name "Conversation" :tokens 1600 :emoji "🟩"}]
+               :used-tokens 6900
+               :free-tokens 193100
+               :free-emoji "⬜"
+               :context-limit 200000})]
+    (testing "renders header with model and used/limit"
+      (is (string/includes? text "Context Usage"))
+      (is (string/includes? text "anthropic/claude-sonnet-4-6"))
+      (is (string/includes? text "6.9k/200.0k tokens")))
+    (testing "groups the legend into Instructions and Chat sections"
+      (is (string/includes? text "Estimated usage"))
+      (is (string/includes? text "Instructions:"))
+      (is (string/includes? text "Chat:"))
+      (is (string/includes? text "System prompt"))
+      (is (string/includes? text "5.3k tokens"))
+      (is (string/includes? text "Free space"))
+      (is (string/includes? text "193.1k tokens")))
+    (testing "prefixes rows with the category emoji"
+      (is (string/includes? text "🟦"))
+      (is (string/includes? text "🟩"))
+      (is (string/includes? text "⬜")))
+    (testing "draws a 10x10 proportional emoji grid beside the legend"
+      ;; 100 grid cells, mostly free, far more than the single legend swatch
+      (is (> (count (re-seq #"⬜" text)) 1)))))

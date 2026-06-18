@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `/context` command showing context-window usage with a fixed 10x10 proportional emoji grid to the left of a two-section legend: Instructions (system prompt, rules, skills, AGENTS.md, tool definitions) and Chat (tool calls, conversation), plus free space. Each category has a canonical distinct color/emoji swatch.
+- Include `contextBreakdown` in the `usage` chat content so clients can render a live context-usage bar. Each category carries a canonical `color` and `emoji` (plus `freeColor`/`freeEmoji` for the unused portion) so all clients render the same colors/legend.
+
 ## 0.141.1
 
 - OpenAI OAuth (ChatGPT/Codex) models now report Codex context windows instead of inflated direct-API limits (e.g. gpt-5.5 272k, not 1.05M).

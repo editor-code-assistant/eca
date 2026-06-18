@@ -158,6 +158,10 @@
                        :type :native
                        :description "Total costs of the current chat session."
                        :arguments []}
+                      {:name "context"
+                       :type :native
+                       :description "Context window usage breakdown for the current chat."
+                       :arguments []}
                       {:name "compact"
                        :type :native
                        :description "Summarize the chat so far cleaning previous chat history to reduce context."
@@ -436,6 +440,78 @@
               (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
       "No rules available for the current agent and model.")))
 
+(defn ^:private fmt-tokens
+  "Formats a token count compactly (e.g. 5300 -> \"5.3k\")."
+  ^String [n]
+  (let [n (long n)]
+    (if (>= n 1000)
+      (format "%.1fk" (/ n 1000.0))
+      (str n))))
+
+(defn ^:private fmt-pct [n limit]
+  (if (and limit (pos? (long limit)))
+    (format "%.1f%%" (* 100.0 (/ (double n) (double limit))))
+    "-"))
+
+(def ^:private context-instructions-categories
+  "Category names grouped under the legend's Instructions section; the rest
+   (Tool calls, Conversation) go under Chat."
+  #{"System prompt" "Rules" "Skills" "AGENTS.md" "Tool definitions"})
+
+(defn ^:private context-grid-rows
+  "Builds a COLS-wide proportional emoji grid (ROWS rows) for the breakdown:
+   category emoji proportional to the context window, then free emoji to fill."
+  [categories free-emoji context-limit cols rows]
+  (let [total-cells (* cols rows)
+        window (max 1 (long context-limit))
+        counts (mapv (fn [{:keys [emoji tokens]}]
+                       [emoji (max 0 (long (Math/round (* (double total-cells)
+                                                          (/ (double tokens) window)))))])
+                     categories)
+        used (reduce + 0 (map second counts))
+        cells (vec (concat (mapcat (fn [[e n]] (repeat n e)) counts)
+                           (repeat (max 0 (- total-cells used)) free-emoji)))
+        cells (cond
+                (> (count cells) total-cells) (subvec cells 0 total-cells)
+                (< (count cells) total-cells) (into cells (repeat (- total-cells (count cells)) free-emoji))
+                :else cells)]
+    (mapv #(apply str %) (partition cols cells))))
+
+(defn ^:private context-usage-text
+  "Renders a human-readable context-window usage breakdown: a fixed 10x10
+   proportional emoji grid to the left of a two-section legend (Instructions and
+   Chat) plus the free-space row."
+  [model {:keys [categories used-tokens free-tokens context-limit free-emoji]}]
+  (let [all-rows (vec (concat categories
+                              (when free-tokens [{:name "Free space" :tokens free-tokens :emoji free-emoji}])))
+        label-w (reduce max 0 (map #(count (:name %)) all-rows))
+        fmt-cat (fn [indent {:keys [name tokens emoji]}]
+                  (format "%s%s %s%s  %s tokens (%s)"
+                          indent
+                          (or emoji " ")
+                          name
+                          (apply str (repeat (- label-w (count name)) \space))
+                          (fmt-tokens tokens)
+                          (fmt-pct tokens context-limit)))
+        header (if context-limit
+                 (format "%s  %s/%s tokens (%s used)"
+                         model (fmt-tokens used-tokens) (fmt-tokens context-limit)
+                         (fmt-pct used-tokens context-limit))
+                 (format "%s  %s tokens" model (fmt-tokens used-tokens)))]
+    (if (and context-limit (pos? (long context-limit)))
+      (let [instr (filterv #(contains? context-instructions-categories (:name %)) categories)
+            chat (filterv #(not (contains? context-instructions-categories (:name %))) categories)
+            legend (vec (concat
+                         (when (seq instr) (cons "Instructions:" (mapv #(fmt-cat "  " %) instr)))
+                         (when (seq chat) (cons "Chat:" (mapv #(fmt-cat "  " %) chat)))
+                         (when free-tokens [(fmt-cat "" {:name "Free space" :tokens free-tokens :emoji free-emoji})])))
+            grid (context-grid-rows categories free-emoji context-limit 10 10)
+            zipped (map-indexed (fn [i row]
+                                  (string/trimr (str row "  " (nth legend i ""))))
+                                grid)]
+        (multi-str "Context Usage" "" header "" "Estimated usage" "" zipped))
+      (multi-str "Context Usage" header "" (mapv #(fmt-cat "" %) all-rows)))))
+
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
@@ -626,6 +702,23 @@
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "context" (let [messages (get-in db [:chats chat-id :messages] [])
+                      usage (shared/usage-sumary chat-id full-model db)
+                      context-limit (get-in db [:models full-model :limit :context])
+                      breakdown (shared/context-breakdown
+                                 {:system-prompt (f.prompt/instructions->str instructions)
+                                  :tools all-tools
+                                  :messages messages
+                                  :context-limit context-limit
+                                  :session-tokens (:session-tokens usage)})]
+                  ;; Refresh the client's live usage payload so the header-line
+                  ;; context bar reflects the latest breakdown immediately.
+                  (lifecycle/send-content! chat-ctx :system
+                                           (merge {:type :usage} usage {:context-breakdown breakdown}))
+                  {:type :chat-messages
+                   :chats {chat-id {:messages [{:role "system"
+                                                :content [{:type :text
+                                                           :text (context-usage-text full-model breakdown)}]}]}}})
       "skills" (let [skills (f.skills/all config (:workspace-folders db))
                      msg (reduce
                           (fn [s {:keys [name description]}]
