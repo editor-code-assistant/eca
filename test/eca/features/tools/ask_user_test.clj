@@ -134,6 +134,36 @@
                                      (future {:answer "A" :cancelled false})))})
       (is (false? (:allowFreeform @captured-params))))))
 
+(deftest ask-user-normalizes-options-test
+  (letfn [(captured-options [arguments]
+            (let [captured (atom nil)]
+              (call-ask-user arguments
+                             {:messenger (reify messenger/IMessenger
+                                           (chat-content-received [_ _data])
+                                           (ask-question [_ params]
+                                             (reset! captured params)
+                                             (future {:answer "x" :cancelled false})))})
+              (:options @captured)))]
+    (testing "array of objects becomes label/description maps"
+      (is (= [{:label "A" :description "first"} {:label "B"}]
+             (captured-options {"question" "Pick"
+                                "options" [{"label" "A" "description" "first"}
+                                           {"label" "B"}]}))))
+    (testing "array of plain strings becomes label maps"
+      (is (= [{:label "A"} {:label "B"}]
+             (captured-options {"question" "Pick" "options" ["A" "B"]}))))
+    (testing "a JSON-encoded options string is recovered"
+      (is (= [{:label "A" :description "first"}]
+             (captured-options {"question" "Pick"
+                                "options" "[{\"label\": \"A\", \"description\": \"first\"}]"}))))
+    (testing "a malformed (non-JSON) options string is dropped"
+      (is (nil? (captured-options {"question" "Pick"
+                                   "options" "<parameter name=\"label\">A</parameter>"}))))
+    (testing "invalid entries are filtered, valid ones kept in order"
+      (is (= [{:label "Good"} {:label "Plain"}]
+             (captured-options {"question" "Pick"
+                                "options" [{"label" "Good"} {"description" "no label"} "" "Plain"]}))))))
+
 (deftest ask-user-stores-request-id-in-db-test
   (testing "ask-question-request-id is written to tool-call state in db*"
     (let [db* (atom {:chats {"c1" {:tool-calls {"tc-1" {:status :executing}}}}})

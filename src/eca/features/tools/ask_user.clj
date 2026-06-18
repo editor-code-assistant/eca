@@ -1,5 +1,6 @@
 (ns eca.features.tools.ask-user
   (:require
+   [cheshire.core :as json]
    [clojure.string :as string]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -9,10 +10,47 @@
 
 (def ^:private logger-tag "[TOOLS-USER]")
 
+(defn ^:private normalize-option
+  "Coerce a single raw option into a {:label .. :description ..} map.
+  Accepts a plain string (used as the label) or a map with label/description
+  under string or keyword keys. Returns nil when there is no usable label."
+  [opt]
+  (cond
+    (string? opt)
+    (when-not (string/blank? opt)
+      {:label opt})
+
+    (map? opt)
+    (let [label (or (get opt "label") (get opt :label))
+          description (or (get opt "description") (get opt :description))]
+      (when (and (string? label) (not (string/blank? label)))
+        (cond-> {:label label}
+          (and (string? description) (not (string/blank? description)))
+          (assoc :description description))))
+
+    :else nil))
+
+(defn ^:private normalize-options
+  "Coerce the raw `options` tool argument into a vector of valid option maps.
+  Tolerates an array of strings or objects, and a JSON-encoded string an LLM
+  may send by mistake. Returns nil when nothing usable remains so the question
+  is still asked, just without broken choices for the client to render."
+  [options]
+  (let [coll (cond
+               (sequential? options) options
+               (string? options) (try
+                                    (let [parsed (json/parse-string options)]
+                                      (when (sequential? parsed) parsed))
+                                    (catch Exception _ nil))
+               :else nil)
+        normalized (into [] (keep normalize-option) coll)]
+    (when (seq normalized)
+      normalized)))
+
 (defn ^:private ask-user
   [arguments {:keys [messenger db* chat-id tool-call-id]}]
   (let [question (get arguments "question")
-        options (get arguments "options")
+        options (normalize-options (get arguments "options"))
         allow-freeform (get arguments "allowFreeform" true)]
     (if (or (nil? question) (string/blank? question))
       (tools.util/single-text-content "INVALID_ARGS: `question` is required and must not be blank." :error)

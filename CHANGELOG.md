@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: `ask_user` normalizes the `options` argument so a malformed value (e.g. a stringified options an LLM sometimes emits) no longer reaches clients as broken choices. Accepts string/object arrays, recovers a JSON-encoded string, and drops unusable input.
+
 ## 0.142.0
 
 - Add `/context` command showing context-window usage with a fixed 10x10 proportional emoji grid to the left of a two-section legend: Instructions (system prompt, rules, skills, AGENTS.md, tool definitions) and Chat (tool calls, conversation), plus free space. Each category has a canonical distinct color/emoji swatch.
