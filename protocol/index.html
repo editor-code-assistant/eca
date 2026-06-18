@@ -3473,6 +3473,55 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">         */</span>
 <span class="w">        </span><span class="nx">output</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 <span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Provider-agnostic estimate of how the context window is occupied,</span>
+<span class="cm">     * broken down by category. Useful to render a context-usage bar.</span>
+<span class="cm">     * Per-category values are estimates (~4 chars/token); when the provider</span>
+<span class="cm">     * reports authoritative usage they are scaled to sum to `usedTokens`.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">contextBreakdown</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Occupied categories, in display order (e.g. &quot;System prompt&quot;,</span>
+<span class="cm">         * &quot;Tool definitions&quot;, &quot;Tool use &amp; results&quot;, &quot;Conversation&quot;).</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">categories</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">            </span><span class="nx">tokens</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">            </span><span class="cm">/**</span>
+<span class="cm">             * Canonical color (hex, e.g. &quot;#61afef&quot;) for this category. The</span>
+<span class="cm">             * server is the source of truth so all clients render the same</span>
+<span class="cm">             * colors; clients should use it to color their usage bar/legend.</span>
+<span class="cm">             */</span>
+<span class="w">            </span><span class="nx">color</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">            </span><span class="cm">/**</span>
+<span class="cm">             * Canonical emoji swatch (e.g. &quot;🟦&quot;) for this category, aligned</span>
+<span class="cm">             * with `color`. Used in plain-text legends (e.g. the `/context`</span>
+<span class="cm">             * command) where colors cannot be rendered.</span>
+<span class="cm">             */</span>
+<span class="w">            </span><span class="nx">emoji</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}[];</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Total occupied tokens (sum of categories).</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">usedTokens</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Remaining tokens in the context window. Absent when unknown.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">freeTokens?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * The model context window size in tokens. Absent when unknown.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">contextLimit?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Canonical color (hex) for the free/unused portion of the window.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">freeColor?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * Canonical emoji swatch for the free/unused portion of the window.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="nx">freeEmoji?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -5802,7 +5851,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 17, 2026 18:03:39 UTC">June 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 18, 2026 01:03:51 UTC">June 18, 2026</span>
   </span>
 
     
