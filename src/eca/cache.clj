@@ -4,6 +4,7 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.digest :as digest]
    [eca.logger :as logger])
   (:import
    [java.io File]))
@@ -53,11 +54,10 @@
    Order-independent: the same set of folders always yields the same hash."
   [workspaces uri->filename-fn]
   (let [joined (string/join ":" (sorted-workspace-paths workspaces uri->filename-fn))
-        md (java.security.MessageDigest/getInstance "SHA-256")
-        digest (.digest (doto md (.update (.getBytes joined "UTF-8"))))
+        digest-bytes (digest/sha-256-bytes joined)
         encoder (-> (java.util.Base64/getUrlEncoder)
                     (.withoutPadding))
-        key (.encodeToString encoder digest)]
+        key (.encodeToString encoder digest-bytes)]
     (subs key 0 (min 8 (count key)))))
 
 (def ^:private logger-tag "[CACHE]")

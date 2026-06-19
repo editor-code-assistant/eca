@@ -512,6 +512,45 @@
         (multi-str "Context Usage" "" header "" "Estimated usage" "" zipped))
       (multi-str "Context Usage" header "" (mapv #(fmt-cat "" %) all-rows)))))
 
+(defn ^:private prompt-show-section [title body]
+  (when-not (string/blank? body)
+    (multi-str
+     "────────────────────────────────────────"
+     (str "# " title)
+     "────────────────────────────────────────"
+     (string/trim body))))
+
+(defn ^:private prompt-show-user-messages-body [user-messages]
+  (->> (mapcat :content user-messages)
+       (map-indexed (fn [idx content]
+                      (when-let [text (shared/not-blank
+                                       (cond
+                                         (some? (:text content))    (:text content)
+                                         (= :image (:type content)) (format "[image: media-type=%s, base64 omitted (%s chars)]"
+                                                                            (:media-type content)
+                                                                            (count (or (:base64 content) "")))
+                                         :else                      (pr-str (dissoc content :base64))))]
+                        (if (and (zero? idx) text)
+                          (string/replace-first text #"^/prompt-show(?:\s+|$)" "")
+                          text))))
+       (remove string/blank?)
+       (string/join "\n\n")))
+
+(defn ^:private prompt-show-text [instructions user-messages]
+  (let [{:keys [static dynamic]} (if (map? instructions)
+                                   instructions
+                                   {:static instructions :dynamic nil})
+        system-prompt (->> [static dynamic]
+                           (remove string/blank?)
+                           (string/join "\n\n"))
+        sections (remove nil?
+                         [(prompt-show-section "Instructions (System prompt)" system-prompt)
+                          (prompt-show-section "Chat (User prompt)" (prompt-show-user-messages-body user-messages))])]
+    (multi-str
+     (string/join "\n\n" sections)
+     ""
+     "_Tool schemas are sent separately and are not included in this text dump._")))
+
 (defn handle-command! [command args {:keys [chat-id db* config messenger full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
@@ -782,21 +821,10 @@
                     msg (rules-msg config roots agent full-model all-tools)]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "prompt-show" (let [full-prompt (str "Instructions:\n" (f.prompt/instructions->str instructions) "\n"
-                                           "Prompt:\n" (reduce
-                                                        (fn [s {:keys [content]}]
-                                                          (str
-                                                           s
-                                                           (reduce
-                                                            #(str %1 (string/replace-first (:text %2) "/prompt-show " "") "\n")
-                                                            ""
-                                                            content)))
-                                                        ""
-                                                        user-messages))]
-                      {:type :chat-messages
-                       :chats {chat-id {:messages [{:role "system"
-                                                    :content [{:type :text
-                                                               :text full-prompt}]}]}}})
+      "prompt-show" {:type :chat-messages
+                     :chats {chat-id {:messages [{:role "system"
+                                                  :content [{:type :text
+                                                             :text (prompt-show-text instructions user-messages)}]}]}}}
       "subagents" (let [msg (subagents-msg config)]
                     {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
