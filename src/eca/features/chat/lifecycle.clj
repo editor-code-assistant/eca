@@ -306,15 +306,15 @@
     (run-post-compact-hooks! chat-ctx trigger summary)))
 
 (defn ^:private run-post-request-hooks!
-  "Run postRequest (and subagentPostRequest for subagents) hooks.
+  "Run postRequest (for primary chats) and subagentPostRequest (for subagents) hooks.
    Returns {:follow-up-text string-or-nil :stop-turn? boolean
             :stop-reason string-or-nil :stop-hook-name string-or-nil}.
 
-   postRequest exit 2 with stderr is treated as followUp: stderr becomes the
-   followUp text, analogous to how preToolCall/postToolCall exit 2 makes stderr
-   LLM-visible payload. This is because postRequest runs after the prompt
-   finished, so exit 2 cannot 'block' the request; instead it contributes a
-   continuation instruction."
+   postRequest/subagentPostRequest exit 2 with stderr is treated as followUp:
+   stderr becomes the followUp text, analogous to how preToolCall/postToolCall
+   exit 2 makes stderr LLM-visible payload. This is because these hooks run
+   after the prompt finished, so exit 2 cannot 'block' the request; instead it
+   contributes a continuation instruction."
   [{:keys [db* config chat-id response] :as chat-ctx}]
   (let [db @db*
         results* (atom [])
@@ -329,18 +329,14 @@
             :on-after-action (fn [result]
                                (notify-after-hook-action! chat-ctx result)
                                (swap! results* conj result))}
-        _ (f.hooks/trigger-if-matches! :postRequest base-hook-data cb db config)
-        ;; A successful continue:false on a postRequest hook stops the turn, so
-        ;; the remaining relevant hooks must not run. For subagents this means
-        ;; subagentPostRequest is skipped, otherwise it could emit side effects
-        ;; (systemMessage, followUp) after the turn was already stopped.
-        post-request-stopped? (boolean (some f.hooks/successful-continue-false? @results*))
-        _ (when (and subagent? (not post-request-stopped?))
+        ;; postRequest is primary-only. Subagent chats use subagentPostRequest.
+        _ (if subagent?
             (f.hooks/trigger-if-matches! :subagentPostRequest
                                          (assoc base-hook-data :parent-chat-id (db/parent-chat-id db chat-id))
                                          cb
                                          db
-                                         config))
+                                         config)
+            (f.hooks/trigger-if-matches! :postRequest base-hook-data cb db config))
         hook-results @results*
         follow-ups (->> hook-results
                         (keep (fn [{:keys [parsed exit raw-error]}]

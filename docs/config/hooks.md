@@ -267,7 +267,7 @@ Fires before a prompt is sent to the LLM. Use for prompt validation, rewriting, 
 
 ### `postRequest`
 
-Fires after a primary-agent prompt finishes. Also runs for subagents. Primary use: validate the response or trigger a follow-up turn.
+Fires after a primary-agent prompt finishes. It does not run for subagent chats; use [`subagentPostRequest`](#subagentpostrequest) for subagent completions. Primary use: validate the response or trigger a follow-up turn.
 
 !!! note
     `postRequest` fires only after LLM responses. Display-only commands (`/hooks`, `/model`, `/costs`) and compaction prompts (`/compact` and auto-compact) do **not** trigger it — use [`postCompact`](#postcompact) for compaction.
@@ -286,7 +286,7 @@ Fires after a primary-agent prompt finishes. Also runs for subagents. Primary us
 
 ### `subagentPostRequest`
 
-Fires after a subagent prompt finishes, **in addition** to `postRequest` (which also runs for subagents). Use for subagent-specific follow-ups or notifications.
+Fires after a subagent prompt finishes. Use for subagent-specific follow-ups or notifications; this is the subagent counterpart to primary-chat `postRequest`.
 
 - **Input adds** — `response`, `follow_up_active`, and `parent_chat_id`.
 - **Honored output** — same as [`postRequest`](#postrequest): `followUp`, `systemMessage`, `suppressOutput`, `continue: false` + `stopReason`.

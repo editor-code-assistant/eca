@@ -1854,8 +1854,8 @@
                                    (h/db) false "openai/gpt"))
       (is (= ["subagentStart"] @fired-types*)))))
 
-(deftest subagent-finish-fires-both-post-request-hooks-test
-  (testing "subagent finish fires postRequest then subagentPostRequest"
+(deftest subagent-finish-fires-subagentpostrequest-only-test
+  (testing "subagent finish fires only subagentPostRequest, not postRequest"
     (h/reset-components!)
     (swap! (h/db*) assoc :chats {"sub-1" {:agent "explorer"
                                            :subagent {:max-steps 10}
@@ -1875,10 +1875,10 @@
                                               :agent "explorer"
                                               :messenger (h/messenger)
                                               :metrics (h/metrics)}))
-      (is (= ["postRequest" "subagentPostRequest"] @fired-types*)))))
+      (is (= ["subagentPostRequest"] @fired-types*)))))
 
-(deftest subagent-postrequest-skipped-when-postrequest-stops-test
-  (testing "a successful postRequest continue:false stops the turn and skips subagentPostRequest"
+(deftest subagent-subagentpostrequest-continue-false-stops-turn-test
+  (testing "subagentPostRequest continue:false stops the subagent turn"
     (h/reset-components!)
     (swap! (h/db*) assoc :chats {"sub-1" {:agent "explorer"
                                           :subagent {:max-steps 10}
@@ -1891,7 +1891,6 @@
       (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [data (json/parse-string input true)]
                                               (swap! fired-types* conj (:hook_type data)))
-                                            ;; postRequest returns a successful continue:false
                                             {:exit 0
                                              :out "{\"continue\":false,\"stopReason\":\"halt\"}"
                                              :err nil})]
@@ -1902,8 +1901,8 @@
                                               :agent "explorer"
                                               :messenger (h/messenger)
                                               :metrics (h/metrics)}))
-      ;; Only postRequest ran; subagentPostRequest was skipped.
-      (is (= ["postRequest"] @fired-types*))
+      ;; Only subagentPostRequest ran; postRequest is not dispatched for subagents.
+      (is (= ["subagentPostRequest"] @fired-types*))
       ;; The turn-stop message is still surfaced on the subagent chat. The binding
       ;; (chat-id/parent-chat-id) is the contract here; the exact wording is covered
       ;; by lifecycle/turn-stopped-by-hook-message-test.
@@ -2011,13 +2010,13 @@
       (is (false? @finished*)))))
 
 (deftest subagent-postrequest-stop-binds-to-subagent-chat-test
-  (testing "subagent postRequest continue:false surfaces the prefixed stop message bound to the subagent chat"
+  (testing "subagentPostRequest continue:false surfaces the prefixed stop message bound to the subagent chat"
     (h/reset-components!)
     ;; Mark the chat as a subagent so finish runs the post-request hooks for it;
     ;; the chat-ctx carries :parent-chat-id, so send-content! tags the message
     ;; with it (nested under the parent in the UI).
     (swap! (h/db*) assoc-in [:chats "sub-1" :subagent] {:max-steps nil})
-    (h/config! {:hooks {"stopper" {:type "postRequest"
+    (h/config! {:hooks {"stopper" {:type "subagentPostRequest"
                                    :visible false
                                    :actions [{:type "shell" :shell "echo"}]}}})
     (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
