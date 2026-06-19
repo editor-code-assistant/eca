@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bugfix: `kill-job!` commits `:killed` before destroying the process, fixing a race where the exit monitor overwrote it with `:failed` (exit 143). (#510)
+
 ## 0.142.1
 
 - Bugfix: `postRequest` hook no longer fires for subagent chats; subagents use `subagentPostRequest` only, preventing duplicate hook notifications. (#505)

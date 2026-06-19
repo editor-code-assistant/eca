@@ -214,11 +214,13 @@
   (if-let [job (get-job job-id)]
     (if (= :running (:status job))
       (do
-        (kill-job-impl job)
+        ;; Commit :killed before destroying the process so monitor-process-exit!
+        ;; never races ahead and overwrites it with :failed (exit 143/SIGTERM).
         (swap! registry* (fn [reg]
                            (-> reg
                                (assoc-in [:jobs job-id :status] :killed)
                                (assoc-in [:jobs job-id :ended-at] (Instant/now)))))
+        (kill-job-impl job)
         (logger/info logger-tag "Killed background job" {:id job-id})
         true)
       (do
