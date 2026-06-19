@@ -4,8 +4,10 @@
    [clojure.java.io :as io]
    [clojure.set :as set]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.digest :as digest]
    [eca.features.background-tasks :as bg]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
@@ -63,6 +65,29 @@
   [agent]
   (str (System/getProperty "user.name") "@ECA"
        (when (not-empty agent) (str "/" agent))))
+
+(defn ^:private static-prompt-cache-signature
+  "SHA-256 cache identity for static prompt reuse."
+  [refined-contexts static-rules path-scoped-rules skills agent config chat-id all-tools db]
+  (let [static-contexts (vec (filter f.prompt/static-prompt-context? refined-contexts))]
+    (digest/sha-256-hex
+     (pr-str
+      {:agent agent
+       :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
+       :workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
+       :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
+                     :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
+                     :user-name (System/getProperty "user.name")
+                     :home-dir (cache/user-home)}
+       :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
+       :startup-context (get-in db [:chats chat-id :startup-context])
+       :static-contexts static-contexts
+       :repo-map (when (some #(= :repoMap (:type %)) static-contexts)
+                   :present)
+       :static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
+       :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)
+       :skills (mapv #(select-keys % [:name :description]) skills)
+       :tools (sort (map :full-name all-tools))}))))
 
 (defn ^:private prune-tool-results!
   "Prunes old tool result content from chat history to reduce context size.
@@ -1451,9 +1476,13 @@
                                                       agent)))))
             repo-map* (delay (f.index/repo-map db config {:as-string? true}))
             prompt-cache (get-in db [:chats chat-id :prompt-cache])
+            static-signature (static-prompt-cache-signature
+                              refined-contexts static-rules path-scoped-rules skills
+                              agent config chat-id all-tools db)
             instructions (if (and prompt-cache
                                   (= (:agent prompt-cache) agent)
-                                  (= (:model prompt-cache) full-model))
+                                  (= (:model prompt-cache) full-model)
+                                  (= (:static-signature prompt-cache) static-signature))
                            {:static (:static prompt-cache)
                             :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)}
                            (let [result (f.prompt/build-chat-instructions
@@ -1461,6 +1490,7 @@
                                          agent config chat-id all-tools db)]
                              (swap! db* assoc-in [:chats chat-id :prompt-cache]
                                     {:static (:static result)
+                                     :static-signature static-signature
                                      :agent agent
                                      :model full-model})
                              result))
@@ -1470,15 +1500,21 @@
                                                                      seq
                                                                      (f.prompt/contexts-str repo-map* nil))]
                                        [{:type :text :text contexts-str}])
+            decision (message->decision message db config)
             ;; Cursor (and other volatile editor-state) is delivered per-turn in the
             ;; user message - never the system prompt - and only re-sent when it
             ;; changed. This keeps the cached system/prefix stable across turns,
             ;; avoiding llama.cpp full prompt re-processing on every cursor move. #464
+            ;; Only normal prompts send this synthesized user message to the model;
+            ;; /prompt-show and MCP prompts use different messages.
             editor-state-context (f.prompt/build-editor-state-context refined-contexts)
-            editor-state-contents (when (and editor-state-context
-                                             (not= editor-state-context
-                                                   (get-in db [:chats chat-id :last-editor-state])))
-                                    (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context)
+            editor-state-changed? (and editor-state-context
+                                       (not= editor-state-context
+                                             (get-in db [:chats chat-id :last-editor-state])))
+            _ (when (and editor-state-changed?
+                         (= :prompt-message (:type decision)))
+                (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context))
+            editor-state-contents (when editor-state-changed?
                                     [{:type :text :text editor-state-context}])
             user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                                expanded-prompt-contexts
@@ -1492,8 +1528,7 @@
                              :full-model full-model
                              :provider provider
                              :model model
-                             :messenger messenger})
-            decision (message->decision message db config)]
+                             :messenger messenger})]
         ;; Show original prompt to user, but LLM receives the modified version
         (lifecycle/send-content! chat-ctx :user {:type :text
                                                  :content-id (:user-content-id chat-ctx)
