@@ -7,6 +7,8 @@
    [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.context :as f.context]
+   [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -867,6 +869,60 @@
         (is (string/includes? (turn-text 2) "<cursor"))
         (is (string/includes? (turn-text 2) "25:0"))))))
 
+(deftest prompt-show-does-not-consume-cursor-test
+  (testing "/prompt-show displays editor state without updating last-editor-state"
+    (h/reset-components!)
+    (let [user-msgs* (atom [])
+          cursor {:type "cursor" :path "foo.clj"
+                  :position {:start {:line 10 :character 0}
+                             :end {:line 10 :character 3}}}
+          api-mock (fn [{:keys [user-messages on-first-response-received on-message-received]}]
+                     (swap! user-msgs* conj user-messages)
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          mocks {:all-tools-mock (constantly []) :api-mock api-mock}
+          {:keys [chat-id]} (prompt! {:message "/prompt-show" :contexts [cursor]} mocks)]
+      (is (nil? (get-in (h/db) [:chats chat-id :last-editor-state])))
+      (is (some #(and (= "system" (:role %))
+                      (string/includes? (get-in % [:content :text] "") "<editor-state"))
+                (:chat-content-received (h/messages))))
+      (h/reset-messenger!)
+      (prompt! {:message "real prompt" :chat-id chat-id :contexts [cursor]} mocks)
+      (let [turn-text (->> @user-msgs* first first :content (keep :text) (string/join "\n"))]
+        (is (string/includes? turn-text "<editor-state"))
+        (is (string/includes? turn-text "<cursor"))))))
+
+(deftest mcp-prompt-does-not-consume-cursor-test
+  (testing "MCP prompts do not mark editor state as sent because they use MCP-provided messages"
+    (h/reset-components!)
+    (let [user-msgs* (atom [])
+          cursor {:type "cursor" :path "foo.clj"
+                  :position {:start {:line 10 :character 0}
+                             :end {:line 10 :character 3}}}
+          api-mock (fn [{:keys [user-messages on-first-response-received on-message-received]}]
+                     (swap! user-msgs* conj user-messages)
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          mocks {:all-tools-mock (constantly []) :api-mock api-mock}]
+      (with-redefs [f.mcp/all-prompts (constantly [{:name "my-prompt"
+                                                    :server "test-server"
+                                                    :arguments []}])
+                    f.prompt/get-prompt! (fn [_name _arguments _db]
+                                           {:messages [{:role "user"
+                                                       :content [{:type :text
+                                                                  :text "MCP prompt body"}]}]})]
+        (let [{:keys [chat-id]} (prompt! {:message "/test-server:my-prompt" :contexts [cursor]} mocks)]
+          (is (nil? (get-in (h/db) [:chats chat-id :last-editor-state])))
+          (is (not (string/includes? (->> @user-msgs* first first :content (keep :text) (string/join "\n"))
+                                     "<cursor")))
+          (h/reset-messenger!)
+          (prompt! {:message "real prompt" :chat-id chat-id :contexts [cursor]} mocks)
+          (let [turn-text (->> @user-msgs* second first :content (keep :text) (string/join "\n"))]
+            (is (string/includes? turn-text "<editor-state"))
+            (is (string/includes? turn-text "<cursor"))))))))
+
 (deftest basic-tool-calling-prompt-test
   (testing "Asking to list directories, LLM will check for allowed directories and then list files"
     (h/reset-components!)
@@ -1337,6 +1393,87 @@
           (is (= 3 @build-calls*)
               "Switching back to the first agent should also trigger a rebuild"))))))
 
+(deftest prompt-cache-stable-context-change-test
+  (testing "Static prompt cache is rebuilt when stable context content changes"
+    (h/reset-components!)
+    (let [build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions]
+      (with-redefs [f.context/agents-file-contexts (constantly [])
+                    f.context/raw-contexts->refined (fn [contexts _db] contexts)
+                    f.prompt/build-chat-instructions
+                    (fn [& args]
+                      (swap! build-calls* inc)
+                      (apply real-build args))]
+        (let [mocks {:all-tools-mock (constantly [])
+                     :api-mock (fn [{:keys [on-message-received]}]
+                                 (on-message-received {:type :finish}))}
+              ctx-v1 {:type :file :path "foo.clj" :content "v1"}
+              ctx-v2 {:type :file :path "foo.clj" :content "v2"}
+              {:keys [chat-id]} (prompt! {:message "Hi" :contexts [ctx-v1]} mocks)]
+          (is (= 1 @build-calls*))
+          (h/reset-messenger!)
+          (prompt! {:message "Again" :chat-id chat-id :contexts [ctx-v1]} mocks)
+          (is (= 1 @build-calls*) "Same stable context should reuse cached static instructions")
+          (h/reset-messenger!)
+          (prompt! {:message "Changed" :chat-id chat-id :contexts [ctx-v2]} mocks)
+          (is (= 2 @build-calls*) "Changed stable context should rebuild static instructions"))))))
+
+(deftest prompt-cache-repo-map-content-intentionally-does-not-change-test
+  (testing "Changing only repoMap content does not rebuild static instructions because repoMap is an expensive cached snapshot"
+    (h/reset-components!)
+    (let [build-calls* (atom 0)
+          repo-map-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions]
+      (with-redefs [f.context/agents-file-contexts (constantly [])
+                    f.context/raw-contexts->refined (fn [contexts _db] contexts)
+                    f.index/repo-map (fn [& _]
+                                       (str "TREE-" (swap! repo-map-calls* inc)))
+                    f.prompt/build-chat-instructions
+                    (fn [& args]
+                      (swap! build-calls* inc)
+                      (apply real-build args))]
+        (let [mocks {:all-tools-mock (constantly [])
+                     :api-mock (fn [{:keys [on-message-received]}]
+                                 (on-message-received {:type :finish}))}
+              ctx {:type :repoMap}
+              {:keys [chat-id]} (prompt! {:message "Hi" :contexts [ctx]} mocks)]
+          (is (= 1 @build-calls*))
+          (is (= 1 @repo-map-calls*) "Initial cache miss renders the repoMap snapshot")
+          (h/reset-messenger!)
+          (prompt! {:message "Again" :chat-id chat-id :contexts [ctx]} mocks)
+          (is (= 1 @build-calls*) "repoMap presence, not repoMap content, is part of cache identity")
+          (is (= 1 @repo-map-calls*) "Cache hit must not rebuild the expensive repoMap"))))))
+
+(deftest prompt-cache-absolute-prompt-file-change-test
+  (testing "Static prompt cache is rebuilt when an absolute systemPromptFile changes"
+    (h/reset-components!)
+    (let [build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions
+          prompt-file (fs/create-temp-file {:prefix "eca-prompt" :suffix ".md"})]
+      (try
+        (spit (str prompt-file) "Prompt v1")
+        (h/config! {:prompts {:chat nil}
+                    :agent {"code" {:prompts {:chat nil}
+                                      :systemPromptFile (str prompt-file)}}})
+        (with-redefs [f.prompt/build-chat-instructions
+                      (fn [& args]
+                        (swap! build-calls* inc)
+                        (apply real-build args))]
+          (let [mocks {:all-tools-mock (constantly [])
+                       :api-mock (fn [{:keys [on-message-received]}]
+                                   (on-message-received {:type :finish}))}
+                {:keys [chat-id]} (prompt! {:message "Hi" :agent "code"} mocks)]
+            (is (= 1 @build-calls*))
+            (h/reset-messenger!)
+            (prompt! {:message "Again" :chat-id chat-id :agent "code"} mocks)
+            (is (= 1 @build-calls*) "Unchanged prompt file should reuse cached static instructions")
+            (spit (str prompt-file) "Prompt v2")
+            (h/reset-messenger!)
+            (prompt! {:message "Changed" :chat-id chat-id :agent "code"} mocks)
+            (is (= 2 @build-calls*) "Changed prompt file content should rebuild static instructions")))
+        (finally
+          (fs/delete-if-exists prompt-file))))))
+
 (deftest prompt-cache-key-includes-agent-test
   (testing "sync-or-async-prompt! receives prompt-cache-key scoped by active agent"
     (h/reset-components!)
@@ -1644,10 +1781,11 @@
                      :agent "plan"
                      :model "openai/gpt-4.1"})
       (is (= 3 @build-calls*) "Changing model should rebuild instructions")
-      (is (= {:static "static-3"
-              :agent "plan"
-              :model "openai/gpt-4.1"}
-             (get-in (h/db) [:chats chat-id :prompt-cache]))))))
+      (is (match? {:static "static-3"
+                   :static-signature (m/pred #(re-matches #"[0-9a-f]{64}" %))
+                   :agent "plan"
+                   :model "openai/gpt-4.1"}
+                  (get-in (h/db) [:chats chat-id :prompt-cache]))))))
 
 (deftest message-content->chat-content-image-test
   (testing "image_generation_call role replays as a single :image ChatContent under assistant"

@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.digest :as digest]
    [eca.logger :as logger]
    [selmer.parser :as selmer]
    [hato.client :as http]
@@ -12,8 +13,7 @@
    [ring.util.codec :as ring.util]
    [ring.util.response :as response])
   (:import
-   [java.nio.charset StandardCharsets]
-   [java.security KeyStore MessageDigest SecureRandom]
+   [java.security KeyStore SecureRandom]
    [java.util Base64]
    [javax.net.ssl KeyManagerFactory SSLContext]
    [org.eclipse.jetty.server Server]))
@@ -96,17 +96,13 @@
 (defn ^:private ->base64url [base64-str]
   (-> base64-str (string/replace "+" "-") (string/replace "/" "_")))
 
-(defn ^:private str->sha256 [^String s]
-  (-> (MessageDigest/getInstance "SHA-256")
-      (.digest (.getBytes s StandardCharsets/UTF_8))))
-
 (defn ^:private random-verifier []
   (->base64url (->base64 (rand-bytes 63))))
 
 (defn generate-pkce []
   (let [verifier (random-verifier)]
     {:verifier verifier
-     :challenge (-> verifier str->sha256 ->base64 ->base64url (string/replace "=" ""))}))
+     :challenge (-> verifier digest/sha-256-bytes ->base64 ->base64url (string/replace "=" ""))}))
 
 (defn ^:private oauth-handler [request on-success on-error]
   ;; The HTML response is built and returned synchronously, but on-success/on-error
@@ -320,16 +316,16 @@
                                         :redirect_uri redirect-uri
                                         :resource url}
                                  scope (assoc :scope scope)))]
-            (cond-> {:callback-port callback-port
-                     :token-endpoint (or (:token_endpoint meta)
-                                         (str auth-server "/access_token"))
-                     :verifier verifier
-                     :client-id client-id
-                     :redirect-uri redirect-uri
-                     :resource url
-                     :authorization-endpoint (str base-auth-endpoint "?" query-params)}
-              ssl? (assoc :ssl? true)
-              client-secret (assoc :client-secret client-secret)))))))))
+             (cond-> {:callback-port callback-port
+                      :token-endpoint (or (:token_endpoint meta)
+                                          (str auth-server "/access_token"))
+                      :verifier verifier
+                      :client-id client-id
+                      :redirect-uri redirect-uri
+                      :resource url
+                      :authorization-endpoint (str base-auth-endpoint "?" query-params)}
+               ssl? (assoc :ssl? true)
+               client-secret (assoc :client-secret client-secret)))))))))
 
 (comment
   (oauth-info "https://mcp.atlassian.com/v1/sse")

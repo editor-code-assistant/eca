@@ -33,7 +33,13 @@
   (or (get-in config [:agent agent-name :prompts key])
       (get-in config [:prompts key])))
 
-(defn ^:private eca-chat-prompt [agent-name config chat-id db]
+(defn ^:private absolute-path? [path]
+  (and (string? path)
+       (.isAbsolute (io/file path))))
+
+(defn eca-chat-prompt
+  "Selected chat prompt template; single source of truth for rendering and cache identity."
+  [agent-name config chat-id db]
   (let [agent-config (get-in config [:agent agent-name])
         is-subagent? (boolean (get-in db [:chats chat-id :subagent]))
         subagent-prompt (and is-subagent?
@@ -52,7 +58,7 @@
       config-prompt
 
       ;; agent with absolute path
-      (and legacy-config-prompt-file (string/starts-with? legacy-config-prompt-file "/"))
+      (absolute-path? legacy-config-prompt-file)
       (slurp legacy-config-prompt-file)
 
       ;; Built-in or resource path
@@ -63,36 +69,66 @@
       :else
       (load-builtin-prompt "code_agent.md"))))
 
-(defn contexts-str [refined-contexts repo-map* startup-ctx]
-  (multi-str
-   "<contexts description=\"User-Provided. This content is current and accurate. Treat this as sufficient context for answering the query.\">"
-   ""
-   (reduce
-    (fn [context-str {:keys [type path position content lines-range uri]}]
-      (str context-str (case type
-                         :file (if lines-range
-                                 (format "<file line-start=%s line-end=%s path=\"%s\">%s</file>\n\n"
-                                         (:start lines-range)
-                                         (:end lines-range)
-                                         path
-                                         content)
-                                 (format "<file path=\"%s\">%s</file>\n\n" path content))
-                         :agents-file (multi-str
-                                       (format "<agents-file description=\"Primary System Directives & Coding Standards.\" path=\"%s\">" path)
-                                       content
-                                       "</agents-file>\n\n")
-                         :repoMap (format "<repoMap description=\"Workspaces structure in a tree view, spaces represent file hierarchy\" >%s</repoMap>\n\n" @repo-map*)
-                         :cursor (format "<cursor description=\"User editor cursor position (line:character)\" path=\"%s\" start=\"%s\" end=\"%s\"/>\n\n"
-                                         path
-                                         (str (:line (:start position)) ":" (:character (:start position)))
-                                         (str (:line (:end position)) ":" (:character (:end position))))
-                         :mcpResource (format "<resource uri=\"%s\">%s</resource>\n\n" uri content)
-                         "")))
-    ""
-    refined-contexts)
-   (when startup-ctx
-     (str "\n<additionalContext>\n" startup-ctx "\n</additionalContext>\n\n"))
-   "</contexts>"))
+(defn ^:private attr-value-str [value]
+  (let [value (str value)]
+    (cond
+      (not (string/includes? value "\""))
+      (format "\"%s\"" value)
+
+      (not (string/includes? value "'"))
+      (format "'%s'" value)
+
+      :else
+      (format "\"%s\"" (string/replace value "\"" "&quot;")))))
+
+(defn ^:private attr-str [attrs]
+  (->> attrs
+       (keep (fn [[k v]]
+               (when (some? v)
+                 (format " %s=%s" (name k) (attr-value-str v)))))
+       string/join))
+
+(defn ^:private render-context [{:keys [type path position content lines-range uri]} repo-map*]
+  (case type
+    :file (if lines-range
+            (format "<file%s>%s</file>"
+                    (attr-str {:line-start (:start lines-range)
+                               :line-end (:end lines-range)
+                               :path path})
+                    content)
+            (format "<file%s>%s</file>" (attr-str {:path path}) content))
+    :agents-file (multi-str
+                  (format "<agents-file%s>"
+                          (attr-str {:description "Primary System Directives & Coding Standards."
+                                     :path path}))
+                  content
+                  "</agents-file>")
+    :repoMap (format "<repo-map%s>%s</repo-map>"
+                     (attr-str {:description "Workspace structure tree; spaces represent file hierarchy."})
+                     @repo-map*)
+    :cursor (format "<cursor%s/>"
+                    (attr-str {:description "Editor cursor position (line:character)."
+                               :path path
+                               :start (str (:line (:start position)) ":" (:character (:start position)))
+                               :end (str (:line (:end position)) ":" (:character (:end position)))}))
+    :mcpResource (format "<resource%s>%s</resource>" (attr-str {:uri uri}) content)
+    nil))
+
+(defn contexts-str
+  ([refined-contexts repo-map* startup-ctx]
+   (contexts-str refined-contexts repo-map* startup-ctx {}))
+  ([refined-contexts repo-map* startup-ctx {:keys [tag description]
+                                            :or {tag "contexts"
+                                                 description "User-provided context. Treat as current and accurate."}}]
+   (let [body (cond-> (vec (keep #(render-context % repo-map*) refined-contexts))
+                startup-ctx (conj (multi-str "<additional-context>"
+                                             startup-ctx
+                                             "</additional-context>")))]
+     (multi-str
+      (format "<%s%s>" tag (attr-str {:description description}))
+      (when (seq body)
+        (string/join "\n\n" body))
+      (format "</%s>" tag)))))
 
 (defn ->base-selmer-ctx
   ([all-tools db]
@@ -111,6 +147,26 @@
      {}
      all-tools))))
 
+(defn ^:private workspace-roots-section [db]
+  (when-let [roots (seq (:workspace-folders db))]
+    (multi-str
+     "## Workspace Roots"
+     ""
+     (format "<workspace-roots%s>" (attr-str {:description "Workspace roots used for path resolution and tool scoping."}))
+     (->> roots
+          (map (fn [{:keys [uri]}]
+                 (format "<workspace-root%s/>"
+                         (attr-str {:path (shared/uri->filename uri)}))))
+          (string/join "\n"))
+     "</workspace-roots>"
+     "")))
+
+(def ^:private path-resolution-section
+  (multi-str
+   "## Path Resolution"
+   ""
+   "Use workspace roots as the base for resolving relative paths. Tool paths must be absolute unless the tool says otherwise."))
+
 (defn ^:private mcp-instructions-section [db]
   (let [servers-with-instructions
         (->> (:mcp-clients db)
@@ -122,20 +178,20 @@
              seq)]
     (when servers-with-instructions
       (multi-str
-       "<mcp-server-instructions description=\"Instructions provided by MCP servers describing their capabilities and usage guidelines.\">"
+       "## MCP Server Instructions"
        ""
-       (reduce
-        (fn [acc {:keys [name instructions]}]
-          (str acc (format "<mcp-server-instruction name=\"%s\">\n%s\n</mcp-server-instruction>\n\n" name instructions)))
-        ""
-        servers-with-instructions)
-       "</mcp-server-instructions>"
-       ""))))
+       (format "<mcp-server-instructions%s>" (attr-str {:description "Instructions from running MCP servers."}))
+       (->> servers-with-instructions
+            (map (fn [{:keys [name instructions]}]
+                   (multi-str
+                    (format "<mcp-server-instruction%s>" (attr-str {:name name}))
+                    instructions
+                    "</mcp-server-instruction>")))
+            (string/join "\n\n"))
+       "</mcp-server-instructions>"))))
 
 (def ^:private editor-state-context-types
-  "Volatile editor-state contexts (e.g. cursor) delivered per-turn in the user
-   message instead of the system prompt, so a moving cursor doesn't invalidate
-   the cached system prefix."
+  "Volatile editor-state contexts (e.g. cursor) delivered per-turn in the user message."
   #{:cursor})
 
 (def ^:private volatile-context-types
@@ -143,27 +199,31 @@
    static prompt."
   (into #{:mcpResource} editor-state-context-types))
 
+(def ^:private static-prompt-context-types
+  "Context types rendered into the cached static prompt block."
+  #{:file :agents-file :repoMap})
+
+(defn static-prompt-context?
+  "True when ctx renders into the cached static prompt block."
+  [ctx]
+  (boolean (static-prompt-context-types (:type ctx))))
+
 (defn ^:private rule-section
   [tag description rendered-rules]
   (when (seq rendered-rules)
-    [(format "<%s description=\"%s\">" tag description)
+    [(format "<%s%s>" tag (attr-str {:description description}))
      (string/join "\n" rendered-rules)
      (format "</%s>" tag)
      ""]))
 
 (defn ^:private path-scoped-rule-attrs
   [{rule-name :name :keys [id paths enforce scope workspace-root]}]
-  (let [attr (fn [[k v]]
-               (when v
-                 (str " " k "=\"" v "\"")))]
-    (->> [["id" id]
-          ["name" rule-name]
-          ["scope" (name scope)]
-          ["workspace-root" workspace-root]
-          ["paths" (string/join "," paths)]
-          ["enforce" (string/join "," (or enforce ["modify"]))]]
-         (keep attr)
-         string/join)))
+  (attr-str {:id id
+             :name rule-name
+             :scope (some-> scope name)
+             :workspace-root workspace-root
+             :paths (string/join "," paths)
+             :enforce (string/join "," (or enforce ["modify"]))}))
 
 (defn ^:private path-scoped-rule-catalog-entry
   [rule]
@@ -175,7 +235,7 @@
         project-rules (filter #(= :project (:scope %)) path-scoped-rules)]
     (multi-str
      (when (seq global-rules)
-       ["<global-path-scoped-rules description=\"Path-scoped rules loaded outside the current workspace.\">"
+       [(format "<global-path-scoped-rules%s>" (attr-str {:description "Path-scoped rules loaded outside the current workspace."}))
         (->> global-rules
              (map render-entry)
              (string/join "\n"))
@@ -184,7 +244,7 @@
           (group-by :workspace-root)
           (sort-by first)
           (map (fn [[workspace-root rules]]
-                 (str "<workspace-path-scoped-rules root=\"" workspace-root "\">\n"
+                 (str "<workspace-path-scoped-rules" (attr-str {:root workspace-root}) ">\n"
                       (->> rules
                            (map render-entry)
                            (string/join "\n"))
@@ -195,18 +255,15 @@
   (path-scoped-rule-sections path-scoped-rules path-scoped-rule-catalog-entry))
 
 (defn build-static-instructions
-  "Builds the stable portion of the system prompt: agent prompt, rules, skills,
-   stable contexts, and additional system info. Volatile contexts and MCP server
-   instructions are handled by build-dynamic-instructions; editor-state contexts
-   (cursor) by build-editor-state-context."
+  "Builds the cacheable static system-prompt prefix."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
   (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)
-        stable-contexts (remove #(volatile-context-types (:type %)) refined-contexts)
+        stable-contexts (filter static-prompt-context? refined-contexts)
         rendered-static-rules (keep (fn [{:keys [name content scope]}]
                                       (when-let [rendered (shared/safe-selmer-render content selmer-ctx (str "rule:" name) nil)]
                                         (when-not (string/blank? rendered)
                                           {:scope (if (= :global scope) :global :project)
-                                           :content (format "<rule name=\"%s\">%s</rule>" name rendered)})))
+                                           :content (format "<rule%s>%s</rule>" (attr-str {:name name}) rendered)})))
                                     static-rules)
         fetch-rule-available? (tools.util/tool-available? all-tools "eca__fetch_rule")
         global-rules (->> rendered-static-rules
@@ -216,22 +273,24 @@
                            (remove #(= :global (:scope %)))
                            (map :content))
         path-scoped-section (when (and fetch-rule-available? (seq path-scoped-rules))
-                              ["<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat.\">"
+                              [(format "<path-scoped-rules%s>" (attr-str {:description "Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat."}))
                                (path-scoped-rule-catalog path-scoped-rules)
                                "</path-scoped-rules>"])
         has-static-rules? (seq rendered-static-rules)]
     (multi-str
-     (shared/safe-selmer-render (eca-chat-prompt agent-name config chat-id db)
-                                selmer-ctx "chat-prompt")
+     (string/trimr
+      (shared/safe-selmer-render (eca-chat-prompt agent-name config chat-id db)
+                                 selmer-ctx "chat-prompt"))
+     ""
      (when (or has-static-rules? path-scoped-section)
        ["## Rules"
         ""
-        "<rules description=\"Rules defined by user. Follow them as closely as possible.\">"
+        (format "<rules%s>" (attr-str {:description "Rules defined by user. Follow them as closely as possible."}))
         (rule-section "global-rules"
-                      "Broader rules loaded outside the current workspace. Project rules below are more specific if guidance conflicts."
+                      "Global user rules; project rules are more specific."
                       global-rules)
         (rule-section "project-rules"
-                      "Rules loaded from the current workspace. Prefer these when they conflict with broader global rules."
+                      "Workspace rules; prefer over global rules when they conflict."
                       project-rules)
         path-scoped-section
         "</rules>"
@@ -239,66 +298,62 @@
      (when (seq skills)
        ["## Skills"
         ""
-        "<skills description=\"Basic information about available skills to load via `eca__skill` tool for more information later if matches user request\">\n"
+        (str (format "<skills%s>" (attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
         (reduce
          (fn [skills-str {:keys [name description]}]
-           (str skills-str (format "<skill name=\"%s\" description=\"%s\"/>\n" name description)))
+           (str skills-str (format "<skill%s/>\n" (attr-str {:name name :description description}))))
          ""
          skills)
         "</skills>"
         ""])
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
                                 selmer-ctx "additional-system-info")
-     ""
+     (workspace-roots-section db)
+     path-resolution-section
      (let [startup-ctx (get-in db [:chats chat-id :startup-context])]
        (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
-         ["## Static Contexts"
+         [""
+          "## Context"
           ""
           (contexts-str stable-contexts repo-map* startup-ctx)])))))
 
 (defn build-dynamic-instructions
-  "Builds the volatile portion of the system prompt: MCP resource contexts and
-   MCP server instructions. Editor-state contexts (cursor) are excluded here -
-   they are delivered per-turn in the user message via build-editor-state-context.
-   Recomputed every turn. Returns nil when empty."
+  "Per-turn dynamic system instructions (MCP resources, server instructions). Returns nil when empty."
   [refined-contexts db]
   (let [volatile-contexts (filter #(and (volatile-context-types (:type %))
                                         (not (editor-state-context-types (:type %))))
                                   refined-contexts)
         result (multi-str
                 (when (seq volatile-contexts)
-                  ["## Dynamic Contexts"
+                  ["## MCP Resources"
                    ""
-                   (contexts-str volatile-contexts nil nil)])
+                   (contexts-str volatile-contexts nil nil
+                                 {:description "Resources from connected MCP servers."})
+                   ""])
                 (mcp-instructions-section db))]
     (when-not (string/blank? result) result)))
 
 (defn build-editor-state-context
-  "Renders the volatile editor-state contexts (e.g. cursor) that are delivered
-   per-turn in the user message instead of the system prompt. Returns nil when
-   there are none."
+  "Renders editor-state contexts (e.g. cursor) for the user message. Returns nil when none."
   [refined-contexts]
   (let [editor-state-contexts (filter #(editor-state-context-types (:type %)) refined-contexts)]
     (when (seq editor-state-contexts)
-      (contexts-str editor-state-contexts nil nil))))
+      (contexts-str editor-state-contexts nil nil
+                    {:tag "editor-state"
+                     :description "Editor state reference; not a user request. Use only when relevant."}))))
 
 (defn build-chat-instructions
-  "Returns {:static \"...\" :dynamic \"...\"}.
-   Static content (agent prompt, rules, skills, stable contexts) can be cached
-   when unchanged across turns.
-   Dynamic content (MCP resources, MCP instructions) is recomputed every turn.
-   Editor-state (cursor) is delivered separately in the user message."
+  "Returns {:static :dynamic} system instructions."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
   {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills repo-map*
                                       agent-name config chat-id all-tools db)
    :dynamic (build-dynamic-instructions refined-contexts db)})
 
 (defn instructions->str
-  "Flattens a {:static :dynamic} instructions map into a single string.
-   Used by non-Anthropic providers that don't support split system prompt blocks."
+  "Flattens {:static :dynamic} into a single string for non-Anthropic providers."
   [{:keys [static dynamic]}]
   (if dynamic
-    (multi-str static dynamic)
+    (multi-str static "" dynamic)
     static))
 
 (defn build-rewrite-instructions [text path full-text range all-tools config db]
@@ -313,7 +368,7 @@
                      config-prompt
 
                      ;; Absolute path
-                     (and legacy-prompt-file (string/starts-with? legacy-prompt-file "/"))
+                     (absolute-path? legacy-prompt-file)
                      (slurp legacy-prompt-file)
 
                      ;; Resource path
@@ -382,7 +437,7 @@
       config-prompt
 
       ;; Absolute path
-      (and legacy-config-file-prompt (string/starts-with? legacy-config-file-prompt "/"))
+      (absolute-path? legacy-config-file-prompt)
       (slurp legacy-config-file-prompt)
 
       ;; Resource path

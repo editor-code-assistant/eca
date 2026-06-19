@@ -10,6 +10,19 @@
 
 (h/reset-components-before-test)
 
+(deftest prompt-show-text-test
+  (testing "uses compact section headings and omits the /prompt-show command itself"
+    (let [result (#'f.commands/prompt-show-text
+                  {:static "system prompt"}
+                  [{:role "user"
+                    :content [{:type :text :text "/prompt-show"}
+                              {:type :text :text "<editor-state/>"}]}])]
+      (is (string/includes? result "────────────────────────────────────────\n# Instructions (System prompt)\n────────────────────────────────────────\nsystem prompt"))
+      (is (string/includes? result "system prompt\n\n────────────────────────────────────────\n# Chat (User prompt)"))
+      (is (string/includes? result "────────────────────────────────────────\n# Chat (User prompt)\n────────────────────────────────────────\n<editor-state/>"))
+      (is (string/includes? result "_Tool schemas are sent separately and are not included in this text dump._"))
+      (is (not (string/includes? result "/prompt-show"))))))
+
 (deftest get-custom-command-tests
   (testing "returns nil when command not found"
     (is (nil? (#'f.commands/get-custom-command "nope" [] []))))
