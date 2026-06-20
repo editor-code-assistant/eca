@@ -1,6 +1,7 @@
 (ns eca.features.chat.tool-calls
   (:require
    [clojure.string :as string]
+   [eca.db :as db]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
@@ -829,7 +830,7 @@
                                                                                            tool-call all-tools @db* config agent chat-id
                                                                                            {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
                                                                                             :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
-                                                                                            :trust                 (get-in @db* [:chats chat-id :trust])
+                                                                                            :trust                 (db/resolve-trust @db* chat-id)
                                                                                             :full-model            (:full-model chat-ctx)
                                                                                             :variant               (:variant chat-ctx)})
                             {:keys [decision tool-call-blocked-by-hook? reason stop-turn?
@@ -878,7 +879,7 @@
                                                                                      metrics
                                                                                      (partial get-tool-call-state @db* chat-id id)
                                                                                      (partial transition-tool-call! db* chat-ctx id)
-                                                                                     {:trust (get-in @db* [:chats chat-id :trust])})
+                                                                                     {:trust (db/resolve-trust @db* chat-id)})
                                             details              (f.tools/tool-call-details-after-invocation name arguments details result
                                                                                                              {:db           @db*
                                                                                                               :config       config

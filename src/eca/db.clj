@@ -122,6 +122,20 @@
 (defn parent-chat-id [db chat-id]
   (get-in db [:chats chat-id :parent-chat-id]))
 
+(defn resolve-trust
+  "Resolve the effective trust for `chat-id`: the chat's own `:trust` when set,
+   otherwise the nearest ancestor's `:trust` by walking up `:parent-chat-id`.
+   Returns nil when no chat in the chain has trust set. This lets trust toggled
+   on a parent chat reach already-running subagents (#504)."
+  [db chat-id]
+  (loop [id chat-id
+         seen #{}]
+    (when (and id (not (contains? seen id)))
+      (let [chat (get-in db [:chats id])]
+        (if (some? (:trust chat))
+          (:trust chat)
+          (recur (:parent-chat-id chat) (conj seen id)))))))
+
 (defonce initial-db
   {:client-info {}
    :workspace-folders []

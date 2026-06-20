@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Bugfix: `kill-job!` commits `:killed` before destroying the process, fixing a race where the exit monitor overwrote it with `:failed` (exit 143). (#510)
+- Bugfix: enabling trust mode while a subagent is running now applies to it; subagents (including nested) inherit the parent chat's trust. (#504)
 
 ## 0.142.1
 

@@ -65,6 +65,33 @@
           "Old chat should be kept when cleanup is disabled")
       (is (false? @cache-updated?)))))
 
+(deftest resolve-trust-test
+  (let [db {:chats {"root"      {:id "root" :trust true}
+                    "sub"       {:id "sub" :parent-chat-id "root"}
+                    "sub-own"   {:id "sub-own" :parent-chat-id "root" :trust false}
+                    "mid"       {:id "mid" :parent-chat-id "root"}
+                    "leaf"      {:id "leaf" :parent-chat-id "mid"}
+                    "no-trust"  {:id "no-trust"}
+                    "deny-root" {:id "deny-root" :trust false}
+                    "deny-sub"  {:id "deny-sub" :parent-chat-id "deny-root"}
+                    "loop"      {:id "loop" :parent-chat-id "loop"}}}]
+    (testing "returns the chat's own trust when set"
+      (is (true? (db/resolve-trust db "root"))))
+    (testing "a running subagent with no own trust inherits the parent's trust toggled after spawn (#504)"
+      (is (true? (db/resolve-trust db "sub"))))
+    (testing "a nested subagent inherits trust from the root of the chain"
+      (is (true? (db/resolve-trust db "leaf"))))
+    (testing "the subagent's own trust takes precedence over the parent"
+      (is (false? (db/resolve-trust db "sub-own"))))
+    (testing "an explicit false is respected (inherited, not treated as unset)"
+      (is (false? (db/resolve-trust db "deny-sub"))))
+    (testing "returns nil when no chat in the chain has trust set"
+      (is (nil? (db/resolve-trust db "no-trust"))))
+    (testing "returns nil for an unknown chat-id"
+      (is (nil? (db/resolve-trust db "missing"))))
+    (testing "a self-referential parent chain terminates instead of looping forever"
+      (is (nil? (db/resolve-trust db "loop"))))))
+
 (defn ^:private read-transit-file ^Object [^File f]
   (with-open [is (io/input-stream f)]
     (transit/read (transit/reader is :json))))
