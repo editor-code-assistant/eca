@@ -325,11 +325,14 @@
         base-hook-data (assoc-some (f.hooks/chat-hook-data db chat-ctx)
                                    :response response
                                    :follow-up-active (boolean follow-up-active?))
+        post-request-hook-data (assoc-some base-hook-data
+                                           :parent-chat-id (when subagent?
+                                                             (db/parent-chat-id db chat-id)))
         cb {:on-before-action (partial notify-before-hook-action! chat-ctx)
             :on-after-action (fn [result]
                                (notify-after-hook-action! chat-ctx result)
                                (swap! results* conj result))}
-        _ (f.hooks/trigger-if-matches! :postRequest base-hook-data cb db config)
+        _ (f.hooks/trigger-if-matches! :postRequest post-request-hook-data cb db config)
         ;; A successful continue:false on a postRequest hook stops the turn, so
         ;; the remaining relevant hooks must not run. For subagents this means
         ;; subagentPostRequest is skipped, otherwise it could emit side effects
@@ -337,7 +340,7 @@
         post-request-stopped? (boolean (some f.hooks/successful-continue-false? @results*))
         _ (when (and subagent? (not post-request-stopped?))
             (f.hooks/trigger-if-matches! :subagentPostRequest
-                                         (assoc base-hook-data :parent-chat-id (db/parent-chat-id db chat-id))
+                                         post-request-hook-data
                                          cb
                                          db
                                          config))

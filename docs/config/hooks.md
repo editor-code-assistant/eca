@@ -272,7 +272,7 @@ Fires after a primary-agent prompt finishes. Also runs for subagents. Primary us
 !!! note
     `postRequest` fires only after LLM responses. Display-only commands (`/hooks`, `/model`, `/costs`) and compaction prompts (`/compact` and auto-compact) do **not** trigger it — use [`postCompact`](#postcompact) for compaction.
 
-- **Input adds** — `response` (last assistant text) and `follow_up_active` (`true` when this turn was triggered by a previous `followUp`).
+- **Input adds** — `response` (last assistant text), `follow_up_active` (`true` when this turn was triggered by a previous `followUp`), and, for subagents, `parent_chat_id`.
 - **Honored output**:
   - `followUp` — start a new LLM turn after this one (see [follow-up turns](#follow-up-turns)).
   - `systemMessage`, `suppressOutput`.

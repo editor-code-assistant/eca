@@ -1864,10 +1864,9 @@
                                :actions [{:type "shell" :shell "echo pr"}]}
                         "spr" {:type "subagentPostRequest"
                                 :actions [{:type "shell" :shell "echo spr"}]}}})
-    (let [fired-types* (atom [])]
+    (let [payloads* (atom [])]
       (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
-                                            (let [data (json/parse-string input true)]
-                                              (swap! fired-types* conj (:hook_type data)))
+                                            (swap! payloads* conj (json/parse-string input true))
                                             {:exit 0 :out "" :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
                                               :config (h/config)
@@ -1875,7 +1874,8 @@
                                               :agent "explorer"
                                               :messenger (h/messenger)
                                               :metrics (h/metrics)}))
-      (is (= ["postRequest" "subagentPostRequest"] @fired-types*)))))
+      (is (= ["postRequest" "subagentPostRequest"] (mapv :hook_type @payloads*)))
+      (is (= ["parent-1" "parent-1"] (mapv :parent_chat_id @payloads*))))))
 
 (deftest subagent-postrequest-skipped-when-postrequest-stops-test
   (testing "a successful postRequest continue:false stops the turn and skips subagentPostRequest"
