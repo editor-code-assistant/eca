@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `/context` now shows where auto-compaction triggers: a `🔲` marker on the threshold cell of the grid plus an `Auto-compaction at N%` line.
+- Include `autoCompactPercentage` in the `usage` chat content so clients can mark the auto-compaction threshold on their context-usage bar.
 - Bugfix: `kill-job!` commits `:killed` before destroying the process, fixing a race where the exit monitor overwrote it with `:failed` (exit 143). (#510)
 - Bugfix: enabling trust mode while a subagent is running now applies to it; subagents (including nested) inherit the parent chat's trust. (#504)
 

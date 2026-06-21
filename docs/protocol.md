@@ -878,6 +878,14 @@ interface ChatUsageContent {
     }
 
     /**
+     * The percentage of the model context window at which the server will
+     * automatically compact (summarize) the conversation. Absent when
+     * auto-compaction is disabled. Clients can render it as a threshold
+     * marker on the usage bar.
+     */
+    autoCompactPercentage?: number;
+
+    /**
      * Provider-agnostic estimate of how the context window is occupied,
      * broken down by category. Useful to render a context-usage bar.
      * Per-category values are estimates (~4 chars/token); when the provider

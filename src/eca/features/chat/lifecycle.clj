@@ -15,11 +15,17 @@
 (defn new-content-id []
   (str (random-uuid)))
 
+(defn auto-compact-percentage
+  "Threshold percentage at which the conversation is auto-compacted.
+   Per-agent value wins over the global one; nil when disabled."
+  [config agent-name]
+  (or (get-in config [:agent agent-name :autoCompactPercentage])
+      (get-in config [:autoCompactPercentage])))
+
 (defn auto-compact? [chat-id agent-name full-model config db]
   (when (and (not (get-in db [:chats chat-id :compacting?]))
              (not (get-in db [:chats chat-id :auto-compacting?])))
-    (let [compact-threshold (or (get-in config [:agent agent-name :autoCompactPercentage])
-                                (get-in config [:autoCompactPercentage]))
+    (let [compact-threshold (auto-compact-percentage config agent-name)
           {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
           context-limit (:context limit)]
       (when (and compact-threshold

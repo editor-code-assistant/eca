@@ -458,10 +458,16 @@
    (Tool calls, Conversation) go under Chat."
   #{"System prompt" "Rules" "Skills" "AGENTS.md" "Tool definitions"})
 
+(def ^:private context-compact-emoji
+  "Grid swatch marking the cell where auto-compaction triggers."
+  "🔲")
+
 (defn ^:private context-grid-rows
   "Builds a COLS-wide proportional emoji grid (ROWS rows) for the breakdown:
-   category emoji proportional to the context window, then free emoji to fill."
-  [categories free-emoji context-limit cols rows]
+   category emoji proportional to the context window, then free emoji to fill.
+   COMPACT-PERCENTAGE, when set, marks the auto-compaction cell with
+   `context-compact-emoji'."
+  [categories free-emoji context-limit cols rows compact-percentage]
   (let [total-cells (* cols rows)
         window (max 1 (long context-limit))
         counts (mapv (fn [{:keys [emoji tokens]}]
@@ -474,14 +480,21 @@
         cells (cond
                 (> (count cells) total-cells) (subvec cells 0 total-cells)
                 (< (count cells) total-cells) (into cells (repeat (- total-cells (count cells)) free-emoji))
-                :else cells)]
+                :else cells)
+        cells (if compact-percentage
+                (let [idx (min (dec total-cells)
+                               (max 0 (long (Math/round (* (double total-cells)
+                                                           (/ (double compact-percentage) 100.0))))))]
+                  (assoc cells idx context-compact-emoji))
+                cells)]
     (mapv #(apply str %) (partition cols cells))))
 
 (defn ^:private context-usage-text
   "Renders a human-readable context-window usage breakdown: a fixed 10x10
    proportional emoji grid to the left of a two-section legend (Instructions and
-   Chat) plus the free-space row."
-  [model {:keys [categories used-tokens free-tokens context-limit free-emoji]}]
+   Chat) plus the free-space row. COMPACT-PERCENTAGE, when set, adds a line
+   stating at what point the conversation is auto-compacted."
+  [model {:keys [categories used-tokens free-tokens context-limit free-emoji]} compact-percentage]
   (let [all-rows (vec (concat categories
                               (when free-tokens [{:name "Free space" :tokens free-tokens :emoji free-emoji}])))
         label-w (reduce max 0 (map #(count (:name %)) all-rows))
@@ -497,7 +510,16 @@
                  (format "%s  %s/%s tokens (%s used)"
                          model (fmt-tokens used-tokens) (fmt-tokens context-limit)
                          (fmt-pct used-tokens context-limit))
-                 (format "%s  %s tokens" model (fmt-tokens used-tokens)))]
+                 (format "%s  %s tokens" model (fmt-tokens used-tokens)))
+        compact-line (when (and compact-percentage context-limit (pos? (long context-limit)))
+                       (let [pct (double compact-percentage)
+                             pct-str (if (== pct (Math/rint pct))
+                                       (str (long pct))
+                                       (format "%.1f" pct))]
+                         (format "%s Auto-compaction at %s%% (~%s tokens)"
+                                 context-compact-emoji
+                                 pct-str
+                                 (fmt-tokens (Math/round (* (double context-limit) (/ pct 100.0)))))))]
     (if (and context-limit (pos? (long context-limit)))
       (let [instr (filterv #(contains? context-instructions-categories (:name %)) categories)
             chat (filterv #(not (contains? context-instructions-categories (:name %))) categories)
@@ -505,11 +527,11 @@
                          (when (seq instr) (cons "Instructions:" (mapv #(fmt-cat "  " %) instr)))
                          (when (seq chat) (cons "Chat:" (mapv #(fmt-cat "  " %) chat)))
                          (when free-tokens [(fmt-cat "" {:name "Free space" :tokens free-tokens :emoji free-emoji})])))
-            grid (context-grid-rows categories free-emoji context-limit 10 10)
+            grid (context-grid-rows categories free-emoji context-limit 10 10 compact-percentage)
             zipped (map-indexed (fn [i row]
                                   (string/trimr (str row "  " (nth legend i ""))))
                                 grid)]
-        (multi-str "Context Usage" "" header "" "Estimated usage" "" zipped))
+        (multi-str "Context Usage" "" header compact-line "" "Estimated usage" "" zipped))
       (multi-str "Context Usage" header "" (mapv #(fmt-cat "" %) all-rows)))))
 
 (defn ^:private prompt-show-section [title body]
@@ -744,6 +766,7 @@
       "context" (let [messages (get-in db [:chats chat-id :messages] [])
                       usage (shared/usage-sumary chat-id full-model db)
                       context-limit (get-in db [:models full-model :limit :context])
+                      compact-percentage (lifecycle/auto-compact-percentage config agent)
                       breakdown (shared/context-breakdown
                                  {:system-prompt (f.prompt/instructions->str instructions)
                                   :tools all-tools
@@ -753,11 +776,13 @@
                   ;; Refresh the client's live usage payload so the header-line
                   ;; context bar reflects the latest breakdown immediately.
                   (lifecycle/send-content! chat-ctx :system
-                                           (merge {:type :usage} usage {:context-breakdown breakdown}))
+                                           (merge {:type :usage} usage {:context-breakdown breakdown}
+                                                  (when compact-percentage
+                                                    {:auto-compact-percentage compact-percentage})))
                   {:type :chat-messages
                    :chats {chat-id {:messages [{:role "system"
                                                 :content [{:type :text
-                                                           :text (context-usage-text full-model breakdown)}]}]}}})
+                                                           :text (context-usage-text full-model breakdown compact-percentage)}]}]}}})
       "skills" (let [skills (f.skills/all config (:workspace-folders db))
                      msg (reduce
                           (fn [s {:keys [name description]}]

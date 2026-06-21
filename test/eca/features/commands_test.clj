@@ -538,7 +538,8 @@
                :used-tokens 6900
                :free-tokens 193100
                :free-emoji "⬜"
-               :context-limit 200000})]
+               :context-limit 200000}
+              nil)]
     (testing "renders header with model and used/limit"
       (is (string/includes? text "Context Usage"))
       (is (string/includes? text "anthropic/claude-sonnet-4-6"))
@@ -558,3 +559,20 @@
     (testing "draws a 10x10 proportional emoji grid beside the legend"
       ;; 100 grid cells, mostly free, far more than the single legend swatch
       (is (> (count (re-seq #"⬜" text)) 1)))))
+
+(deftest context-usage-text-compaction-marker-test
+  (let [text (#'f.commands/context-usage-text
+              "anthropic/claude-sonnet-4-6"
+              {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}
+                            {:name "Conversation" :tokens 1600 :emoji "🟩"}]
+               :used-tokens 6900
+               :free-tokens 193100
+               :free-emoji "⬜"
+               :context-limit 200000}
+              75)]
+    (testing "states the auto-compaction threshold with the marker swatch"
+      (is (string/includes? text "Auto-compaction at 75%"))
+      (is (string/includes? text "150.0k tokens")))
+    (testing "marks the threshold cell in the grid plus the legend swatch"
+      ;; one 🔲 in the grid (the threshold cell) + one in the legend line
+      (is (= 2 (count (re-seq #"🔲" text)))))))
