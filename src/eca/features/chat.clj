@@ -21,6 +21,7 @@
    [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
+   [eca.features.tools.task :as f.tools.task]
    [eca.llm-api :as llm-api]
    [eca.llm-providers.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
@@ -1653,6 +1654,13 @@
             _ (when (and seeded-default-trust? provided-chat-id)
                 (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
         (logger/with-chat-context chat-id (:parent-chat-id base-chat-ctx)
+          (when-let [cleared-details (f.tools.task/auto-clear-completed! db* chat-id)]
+            (logger/info logger-tag "Auto-cleared completed task list" {:chat-id chat-id})
+            (lifecycle/send-content! base-chat-ctx :assistant
+                                     {:type :toolCalled
+                                      :server "eca"
+                                      :name "task"
+                                      :details cleared-details}))
           (try
             (prompt* params base-chat-ctx)
             (catch Exception e
