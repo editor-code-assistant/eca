@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Auto-clear completed task lists: when a new prompt is sent and all tasks are done, the list is automatically cleared.
+
 ## 0.142.2
 
 - `/context` now shows where auto-compaction triggers: a `🔲` marker on the threshold cell of the grid plus an `Auto-compaction at N%` line.

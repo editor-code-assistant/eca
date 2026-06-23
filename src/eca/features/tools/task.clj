@@ -256,6 +256,23 @@
   [_name _arguments before-details result _ctx]
   (or (:details result) before-details))
 
+;; --- Auto-clear ---
+
+(defn ^:private all-tasks-done?
+  "Returns true if the task list has tasks and all are :done."
+  [state]
+  (let [tasks (:tasks state)
+        {:keys [done pending in-progress]} (status-counts tasks)]
+    (and (pos? done) (zero? pending) (zero? in-progress))))
+
+(defn auto-clear-completed!
+  "Clear the task list when all tasks are done.
+   Returns task-details of the cleared state if clearing occurred, nil otherwise."
+  [db* chat-id]
+  (when (all-tasks-done? (get-task @db* chat-id))
+    (mutate-task! db* chat-id (fn [_] {:state empty-task}))
+    (task-details empty-task)))
+
 ;; --- Operations ---
 
 (defn ^:private op-read [_arguments {:keys [db chat-id]}]
@@ -502,7 +519,7 @@
                                     :items {:type "integer"}
                                     :description "Task IDs (required for start/complete/delete)"}
                               :active_summary {:type "string"
-                                              :description "Summary of what will be done in the current active session. Required for start operation."}
+                                               :description "Summary of what will be done in the current active session. Required for start operation."}
                               :task {:type "object"
                                      :description "Single task data (for add/update)"
                                      :properties {:subject {:type "string" :description "Task subject/title (required)"}
