@@ -669,3 +669,51 @@
            nil)))
       (is (= [[:refresh "s" "https://example.com/mcp"] [:init "s"]] @calls*)
           "refresh runs before init, scoped to the server's url"))))
+
+(defn ^:private call-tool-db* [expires-at]
+  (atom {:mcp-clients {"s" {:client :client-s
+                            :tools [{:name "tool"}]
+                            :needs-reinit?* (atom false)}}
+         :mcp-auth {"s" {:access-token "old" :expires-at expires-at}}}))
+
+(def ^:private call-tool-ctx-config {:mcpServers {"s" {:url "https://example.com/mcp"}}})
+
+(deftest call-tool!-refreshes-expired-token-test
+  (testing "expired token is refreshed in place, then the call runs on the existing client (no reinit)"
+    (let [db* (call-tool-db* 0)
+          calls* (atom [])]
+      (with-redefs [mcp/try-refresh-token! (fn [name _db* url _metrics _config]
+                                             (swap! calls* conj [:refresh name url])
+                                             true)
+                    mcp/reinitialize-server! (fn [& _] (swap! calls* conj [:reinit]))
+                    mcp/do-call-tool (fn [client _name _args _nr]
+                                       (swap! calls* conj [:call client])
+                                       {:error false :contents []})]
+        (is (= {:error false :contents []}
+               (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
+                                              :config call-tool-ctx-config :metrics {}})))
+        (is (= [[:refresh "s" "https://example.com/mcp"] [:call :client-s]] @calls*)))))
+
+  (testing "expired token whose refresh fails routes to a full reinit"
+    (let [db* (call-tool-db* 0)
+          calls* (atom [])]
+      (with-redefs [mcp/try-refresh-token! (fn [_name _db* _url _metrics _config] nil)
+                    mcp/reinitialize-server! (fn [name _client _db* _config _metrics]
+                                               (swap! calls* conj [:reinit name]))
+                    mcp/do-call-tool (fn [client _name _args _nr]
+                                       (swap! calls* conj [:call client])
+                                       {:error false :contents []})]
+        (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
+                                       :config call-tool-ctx-config :metrics {}})
+        (is (= [:reinit "s"] (first @calls*)) "refresh failure reinitializes before calling"))))
+
+  (testing "fresh token: no proactive refresh, calls directly"
+    (let [db* (call-tool-db* (+ (quot (System/currentTimeMillis) 1000) 3600))
+          calls* (atom [])]
+      (with-redefs [mcp/try-refresh-token! (fn [& _] (swap! calls* conj [:refresh]) true)
+                    mcp/do-call-tool (fn [client _name _args _nr]
+                                       (swap! calls* conj [:call client])
+                                       {:error false :contents []})]
+        (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
+                                       :config call-tool-ctx-config :metrics {}})
+        (is (= [[:call :client-s]] @calls*) "no refresh when token is not expired")))))

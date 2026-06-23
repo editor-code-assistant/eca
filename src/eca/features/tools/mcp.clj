@@ -1073,13 +1073,32 @@
     (do-call-tool new-client name arguments nil)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
+(defn ^:private refresh-expired-auth!
+  "Refresh a locally-expired OAuth token before a tool call so we don't send a
+   doomed request. A successful refresh updates db* (the request middleware
+   picks it up). Returns true when a full reinit is needed instead (no/failed
+   refresh)."
+  [server-name db* config metrics]
+  (let [db @db*
+        server-config (get-in config [:mcpServers server-name])
+        url (:url server-config)
+        mcp-auth (get-in db [:mcp-auth (mcp-auth-key server-name server-config db)])]
+    (when (and url
+               (:access-token mcp-auth)
+               (token-expired? (:expires-at mcp-auth)))
+      (logger/info logger-tag
+                   (format "MCP server '%s' OAuth token expired, refreshing before tool call" server-name))
+      (not (try-refresh-token! server-name db* url metrics server-config)))))
+
 (defn call-tool! [server-name name arguments {:keys [db db* config metrics]}]
   (if-let [[mcp-client needs-reinit?*]
            (when-let [{:keys [client tools needs-reinit?*]} (get-in db [:mcp-clients server-name])]
              (when (some #(= name (:name %)) tools)
                [client needs-reinit?*]))]
-    (if (and needs-reinit?* @needs-reinit?* db* config metrics)
-      ;; Already flagged — reinit before attempting the call
+    (if (and needs-reinit?* db* config metrics
+             (or @needs-reinit?*
+                 (refresh-expired-auth! server-name db* config metrics)))
+      ;; Flagged, or expired token couldn't be refreshed — reinit before the call
       (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
       (let [result (do-call-tool mcp-client name arguments needs-reinit?*)]
         (cond
