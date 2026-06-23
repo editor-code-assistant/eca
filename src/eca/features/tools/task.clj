@@ -269,9 +269,14 @@
   "Clear the task list when all tasks are done.
    Returns task-details of the cleared state if clearing occurred, nil otherwise."
   [db* chat-id]
-  (when (all-tasks-done? (get-task @db* chat-id))
-    (mutate-task! db* chat-id (fn [_] {:state empty-task}))
-    (task-details empty-task)))
+  (loop []
+    (let [db @db*
+          state (get-task db chat-id)]
+      (when (all-tasks-done? state)
+        (let [new-db (assoc-in db [:chats chat-id :task] empty-task)]
+          (if (compare-and-set! db* db new-db)
+            (task-details empty-task)
+            (recur)))))))
 
 ;; --- Operations ---
 
