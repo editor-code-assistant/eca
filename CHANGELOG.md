@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- MCP: detect a broken/logged-out session (expired/revoked token, expired session) and re-initialize instead of hanging the tool call until timeout; relies on plumcp 0.2.2 correlating HTTP error responses to the originating request.
+- MCP OAuth: proactively refresh an expired token before a tool call instead of waiting for the server to reject it.
+
 ## 0.142.2
 
 - `/context` now shows where auto-compaction triggers: a `🔲` marker on the threshold cell of the grid plus an `Auto-compaction at N%` line.
