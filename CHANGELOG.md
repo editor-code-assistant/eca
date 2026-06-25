@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Auto-clear completed task lists: when a new prompt is sent and all tasks are done, the list is automatically cleared.
+- Bugfix: remote HTTP endpoints (`/chats`, `/session`, `/chats/:id`) now use the chat map key as the authoritative id instead of the record's `:id` field. When the two drift apart for a runtime-created chat, the chat no longer disappears from the web UI list (and on reload), and no longer loses its messages when switching tabs.
 
 ## 0.142.2
 
