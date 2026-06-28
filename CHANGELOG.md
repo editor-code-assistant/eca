@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Auto-clear completed task lists: when a new prompt is sent and all tasks are done, the list is automatically cleared.
+- Bugfix: renew the bundled `*.local.eca.dev` TLS certificate (remote server HTTPS); the previous one had expired.
 
 ## 0.142.2
 
