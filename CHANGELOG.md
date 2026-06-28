@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.143.0
+
 - Remote server fetches the `*.local.eca.dev` HTTPS cert from `tls.eca.dev` at runtime and caches it (override via `remote.tls`) instead of bundling it, so cert renewals need no ECA release.
 
 ## 0.142.3
