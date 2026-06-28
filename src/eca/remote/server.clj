@@ -2,13 +2,13 @@
   "HTTP server lifecycle for the remote web control server."
   (:require
    [clojure.core.async :as async]
-   [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.remote.auth :as auth]
    [eca.remote.routes :as routes]
    [eca.remote.sse :as sse]
+   [eca.remote.tls :as tls]
    [eca.shared :as shared]
    [ring.adapter.jetty :as jetty])
   (:import
@@ -18,11 +18,7 @@
     Inet4Address
     InetAddress
     NetworkInterface]
-   [java.security KeyFactory KeyStore]
-   [java.security.cert CertificateFactory]
-   [java.security.spec PKCS8EncodedKeySpec]
-   [java.util Base64]
-   [javax.net.ssl KeyManagerFactory SSLContext]
+   [javax.net.ssl SSLContext]
    [org.eclipse.jetty.server NetworkConnector Server ServerConnector]
    [org.eclipse.jetty.util.ssl SslContextFactory$Server]))
 
@@ -119,46 +115,6 @@
 (def ^:private sslip-domain
   "Domain suffix for sslip.io-style hostnames that resolve to the embedded IP."
   "local.eca.dev")
-
-(defn ^:private build-server-ssl-context
-  "Loads the bundled TLS certificate chain and private key from classpath
-   resources and builds an SSLContext for the HTTPS server.
-   Returns nil if the resources are not found (TLS disabled)."
-  ^SSLContext []
-  (let [cert-url (io/resource "tls/local-eca-dev-fullchain.pem")
-        key-url (io/resource "tls/local-eca-dev-privkey.pem")]
-    (when (and cert-url key-url)
-      (try
-        (let [cf (CertificateFactory/getInstance "X.509")
-              certs (with-open [is (.openStream ^java.net.URL cert-url)]
-                      (into [] (.generateCertificates cf is)))
-              pem-text (slurp key-url)
-              b64 (->> (string/split-lines pem-text)
-                       (remove #(or (string/starts-with? % "-----BEGIN")
-                                    (string/starts-with? % "-----END")))
-                       (map string/trim)
-                       (remove string/blank?)
-                       (string/join))
-              key-bytes (.decode (Base64/getDecoder) ^String b64)
-              pk (or (try (.generatePrivate (KeyFactory/getInstance "RSA")
-                                            (PKCS8EncodedKeySpec. key-bytes))
-                          (catch Exception _ nil))
-                     (try (.generatePrivate (KeyFactory/getInstance "EC")
-                                            (PKCS8EncodedKeySpec. key-bytes))
-                          (catch Exception _ nil)))
-              ks (doto (KeyStore/getInstance (KeyStore/getDefaultType))
-                   (.load nil nil)
-                   (.setKeyEntry "server" pk (char-array 0)
-                                 (into-array java.security.cert.Certificate certs)))
-              kmf (doto (KeyManagerFactory/getInstance (KeyManagerFactory/getDefaultAlgorithm))
-                    (.init ks (char-array 0)))
-              ctx (doto (SSLContext/getInstance "TLS")
-                    (.init (.getKeyManagers kmf) nil nil))]
-          (logger/info logger-tag (str "TLS enabled with bundled *." sslip-domain " certificate"))
-          ctx)
-        (catch Exception e
-          (logger/warn logger-tag "Failed to load TLS certificates:" (.getMessage e))
-          nil)))))
 
 (defn ^:private ip->sslip-hostname
   "Converts an IP address to an sslip.io-style hostname under local.eca.dev.
@@ -279,7 +235,7 @@
                           (detect-host))
             lan-ip (detect-lan-ip)
             user-port (:port remote-config)
-            ssl-context (build-server-ssl-context)
+            ssl-context (tls/ssl-context remote-config)
             ;; Use atom so the handler sees host:port after Jetty resolves the actual port
             host+port* (atom host-base)
             handler (routes/create-handler components
