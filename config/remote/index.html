@@ -1392,7 +1392,7 @@ When enabled, ECA starts an embedded HTTPS server that the web frontend at <a hr
 <p>Or open <code>https://web.eca.dev</code>, enter your machine's LAN IP (e.g. <code>192.168.1.42</code>) and password — the web UI automatically resolves it to the secure <code>*.local.eca.dev</code> hostname.</p>
 </li>
 </ol>
-<p>ECA ships with a TLS certificate for <code>*.local.eca.dev</code>. On startup, the server detects your LAN IP and serves HTTPS using a hostname like <code>192-168-1-42.local.eca.dev</code>, which resolves back to your IP via <a href="https://sslip.io">sslip.io</a> DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.</p>
+<p>ECA serves HTTPS for <code>*.local.eca.dev</code> using a certificate it fetches from <code>tls.eca.dev</code> on first use and caches locally (you can self-supply or override the source via <code>remote.tls</code>). On startup, the server detects your LAN IP and serves HTTPS using a hostname like <code>192-168-1-42.local.eca.dev</code>, which resolves back to your IP via <a href="https://sslip.io">sslip.io</a> DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.</p>
 <div class="admonition note">
 <p class="admonition-title">Firewall</p>
 <p>Make sure your firewall allows incoming TCP on ports <code>7777</code>–<code>7796</code> from your LAN.
@@ -1492,7 +1492,15 @@ only that interface:</p>
 <span class="w">    </span><span class="c1">// optional — defaults to 7777, auto-increments up to 7796 if busy</span>
 <span class="w">    </span><span class="s2">&quot;port&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">9876</span><span class="p">,</span>
 <span class="w">    </span><span class="c1">// optional — auto-generated when unset, supports ${env:MY_PASS}</span>
-<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-secret-token&quot;</span>
+<span class="w">    </span><span class="s2">&quot;password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;my-secret-token&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">// optional — HTTPS cert for *.local.eca.dev. Fetched from tls.eca.dev and</span>
+<span class="w">    </span><span class="c1">// cached by default; supply your own or override the fetch source.</span>
+<span class="w">    </span><span class="s2">&quot;tls&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;certFile&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/path/to/fullchain.pem&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// use your own cert (with keyFile)</span>
+<span class="w">      </span><span class="s2">&quot;keyFile&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/path/to/privkey.pem&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;certUrl&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://tls.eca.dev/local-eca-dev-fullchain.pem&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// or override source</span>
+<span class="w">      </span><span class="s2">&quot;keyUrl&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://tls.eca.dev/local-eca-dev-privkey.pem&quot;</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -1520,7 +1528,7 @@ only that interface:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 28, 2026 17:13:10 UTC">June 28, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 28, 2026 18:37:34 UTC">June 28, 2026</span>
   </span>
 
     
