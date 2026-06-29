@@ -126,10 +126,10 @@
                          {:name name :status (or (:status client-info) "unknown")})
                        (:mcp-clients db))
      :chats (let [editor-open (:editor-open-chats db)]
-              (->> (vals (:chats db))
-                   (remove :subagent)
-                   (filter #(contains? editor-open (:id %)))
-                   (mapv chat-summary)))
+              (->> (:chats db)
+                   (remove (fn [[_ chat]] (:subagent chat)))
+                   (filter (fn [[id _]] (contains? editor-open id)))
+                   (mapv (fn [[id chat]] (chat-summary (assoc chat :id id))))))
      :startedAt (when-let [ms (:started-at db)]
                   (.toString (Instant/ofEpochMilli ^long ms)))
      :welcomeMessage (handlers/welcome-message config)
@@ -158,10 +158,10 @@
 (defn handle-list-chats [{:keys [db*]} _request]
   (let [db @db*
         editor-open (:editor-open-chats db)
-        chats (->> (vals (:chats db))
-                   (remove :subagent)
-                   (filter #(contains? editor-open (:id %)))
-                   (mapv chat-summary))]
+        chats (->> (:chats db)
+                   (remove (fn [[_ chat]] (:subagent chat)))
+                   (filter (fn [[id _]] (contains? editor-open id)))
+                   (mapv (fn [[id chat]] (chat-summary (assoc chat :id id)))))]
     (json-response chats)))
 
 (defn handle-get-chat [{:keys [db*]} request chat-id]
@@ -176,7 +176,7 @@
                                                  {:limit (:limit params)
                                                   :before (:before params)
                                                   :after (:after params)}))
-          base {:id (:id chat)
+          base {:id chat-id
                 :title (:title chat)
                 :status (or (:status chat) :idle)
                 :created-at (:created-at chat)

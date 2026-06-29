@@ -71,7 +71,18 @@
           by-id (into {} (map (juxt :id identity) body))]
       (is (= 2 (count body)))
       (is (= 2 (get-in by-id ["c1" :pendingApprovalCount])))
-      (is (= 0 (get-in by-id ["c2" :pendingApprovalCount]))))))
+      (is (= 0 (get-in by-id ["c2" :pendingApprovalCount])))))
+
+  (testing "uses the map key as the authoritative id when the :id field has drifted"
+    ;; editor-open-chats is keyed by the map key; a runtime chat's :id field
+    ;; may differ from its key. The list must still surface it, reported by key.
+    (swap! (h/db*) assoc
+           :chats {"key-1" {:id "stale-id" :title "Drifted" :status :idle}}
+           :editor-open-chats #{"key-1"})
+    (let [response (handlers/handle-list-chats (components) nil)
+          body (json/parse-string (:body response) true)]
+      (is (= 1 (count body)))
+      (is (= "key-1" (:id (first body)))))))
 
 (deftest handle-get-chat-test
   (testing "returns 404 for missing chat"
@@ -87,6 +98,18 @@
       (is (= 200 (:status response)))
       (is (= "c1" (:id body)))
       (is (= "My Chat" (:title body)))))
+
+  (testing "returns the requested key as id even when the stored :id field has drifted"
+    ;; The map key (path param) is authoritative; the client selects/restores
+    ;; by it, so the response must echo it rather than the stale :id field.
+    (swap! (h/db*) assoc-in [:chats "key-1"]
+           {:id "stale-id" :title "Drifted" :status :idle
+            :messages [{:role "user" :content [{:type "text" :text "hi"}]}]})
+    (let [response (handlers/handle-get-chat (components) nil "key-1")
+          body (json/parse-string (:body response) true)]
+      (is (= 200 (:status response)))
+      (is (= "key-1" (:id body)))
+      (is (= 1 (count (:messages body))))))
 
   (testing "pendingToolCalls is an empty array when no tool calls are waiting"
     (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle})
