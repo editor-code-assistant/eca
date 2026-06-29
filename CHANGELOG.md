@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.143.1
+
 - MCP: detect a broken/logged-out session (expired/revoked token, expired session) and re-initialize instead of hanging the tool call until timeout; relies on plumcp 0.2.2 correlating HTTP error responses to the originating request.
 - MCP OAuth: proactively refresh an expired token before a tool call instead of waiting for the server to reject it.
 - Bugfix: remote HTTP endpoints (`/chats`, `/session`, `/chats/:id`) now use the chat map key as the authoritative id instead of the record's `:id` field.
