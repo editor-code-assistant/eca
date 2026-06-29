@@ -5,6 +5,15 @@
 - MCP: detect a broken/logged-out session (expired/revoked token, expired session) and re-initialize instead of hanging the tool call until timeout; relies on plumcp 0.2.2 correlating HTTP error responses to the originating request.
 - MCP OAuth: proactively refresh an expired token before a tool call instead of waiting for the server to reject it.
 
+## 0.143.0
+
+- Remote server fetches the `*.local.eca.dev` HTTPS cert from `tls.eca.dev` at runtime and caches it (override via `remote.tls`) instead of bundling it, so cert renewals need no ECA release.
+
+## 0.142.3
+
+- Auto-clear completed task lists: when a new prompt is sent and all tasks are done, the list is automatically cleared.
+- Bugfix: renew the bundled `*.local.eca.dev` TLS certificate (remote server HTTPS); the previous one had expired.
+
 ## 0.142.2
 
 - `/context` now shows where auto-compaction triggers: a `🔲` marker on the threshold cell of the grid plus an `Auto-compaction at N%` line.

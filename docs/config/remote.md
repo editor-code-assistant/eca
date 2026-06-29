@@ -36,7 +36,7 @@ When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.
 
     2. Or open `https://web.eca.dev`, enter your machine's LAN IP (e.g. `192.168.1.42`) and password — the web UI automatically resolves it to the secure `*.local.eca.dev` hostname.
 
-    ECA ships with a TLS certificate for `*.local.eca.dev`. On startup, the server detects your LAN IP and serves HTTPS using a hostname like `192-168-1-42.local.eca.dev`, which resolves back to your IP via [sslip.io](https://sslip.io) DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.
+    ECA serves HTTPS for `*.local.eca.dev` using a certificate it fetches from `tls.eca.dev` on first use and caches locally (you can self-supply or override the source via `remote.tls`). On startup, the server detects your LAN IP and serves HTTPS using a hostname like `192-168-1-42.local.eca.dev`, which resolves back to your IP via [sslip.io](https://sslip.io) DNS. This gives you a valid HTTPS connection to a private IP — no mixed-content blocking, no browser prompts.
 
     !!! note "Firewall"
         Make sure your firewall allows incoming TCP on ports `7777`–`7796` from your LAN.
@@ -141,7 +141,15 @@ When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.
     // optional — defaults to 7777, auto-increments up to 7796 if busy
     "port": 9876,
     // optional — auto-generated when unset, supports ${env:MY_PASS}
-    "password": "my-secret-token"
+    "password": "my-secret-token",
+    // optional — HTTPS cert for *.local.eca.dev. Fetched from tls.eca.dev and
+    // cached by default; supply your own or override the fetch source.
+    "tls": {
+      "certFile": "/path/to/fullchain.pem", // use your own cert (with keyFile)
+      "keyFile": "/path/to/privkey.pem",
+      "certUrl": "https://tls.eca.dev/local-eca-dev-fullchain.pem", // or override source
+      "keyUrl": "https://tls.eca.dev/local-eca-dev-privkey.pem"
+    }
   }
 }
 ```

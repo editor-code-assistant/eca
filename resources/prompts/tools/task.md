@@ -36,4 +36,3 @@ Workflow & Strict Execution Rules:
 4. SUBAGENTS & PARALLEL WORK: For sequential work, keep only one task `in_progress`; later tasks must stay pending until you start them. Multiple tasks may be `in_progress` only for concurrent separate workstreams (e.g. separate subagents). Only the main agent updates the task list.
 5. COMPLETION TIMING: Once a task is verified, close it as soon as possible. Do not delay completion just to align with other tasks.
 6. ADAPTABILITY: If completing tasks reveals follow-up work, use 'add' to append new tasks.
-7. CLEANUP: When all tasks are done and no further work remains, use 'clear'.

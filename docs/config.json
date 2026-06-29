@@ -444,6 +444,34 @@
           "type": "string",
           "description": "Auth token for Bearer authentication. When unset, a 32-byte hex token is auto-generated and logged to stderr.",
           "markdownDescription": "Auth token for Bearer authentication. When unset, a 32-byte hex token is auto-generated and logged to stderr."
+        },
+        "tls": {
+          "type": "object",
+          "description": "HTTPS certificate for the remote server (a *.local.eca.dev wildcard). By default ECA fetches it from tls.eca.dev and caches it under the cache dir; set certFile/keyFile to use your own, or certUrl/keyUrl to override the fetch source.",
+          "markdownDescription": "HTTPS certificate for the remote server (a `*.local.eca.dev` wildcard). By default ECA fetches it from `tls.eca.dev` and caches it under the cache dir; set `certFile`/`keyFile` to use your own, or `certUrl`/`keyUrl` to override the fetch source.",
+          "additionalProperties": false,
+          "properties": {
+            "certFile": {
+              "type": "string",
+              "description": "Path to a PEM certificate chain to use instead of fetching. Requires keyFile.",
+              "markdownDescription": "Path to a PEM certificate chain to use instead of fetching. Requires `keyFile`."
+            },
+            "keyFile": {
+              "type": "string",
+              "description": "Path to the PKCS#8 PEM private key matching certFile.",
+              "markdownDescription": "Path to the PKCS#8 PEM private key matching `certFile`."
+            },
+            "certUrl": {
+              "type": "string",
+              "description": "Override URL to fetch the certificate chain from.",
+              "markdownDescription": "Override URL to fetch the certificate chain from."
+            },
+            "keyUrl": {
+              "type": "string",
+              "description": "Override URL to fetch the private key from.",
+              "markdownDescription": "Override URL to fetch the private key from."
+            }
+          }
         }
       }
     },

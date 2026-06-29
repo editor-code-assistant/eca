@@ -482,3 +482,48 @@
                    result
                    nil)]
       (is (= (:details result) details)))))
+
+(deftest auto-clear-completed-test
+  (testing "clears task list when all tasks are done"
+    (let [db* (atom {:chats {"c1" {:task {:next-id 3
+                                          :active-summary nil
+                                          :tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
+                                                  {:id 2 :subject "T2" :description "D2" :status :done :priority :medium :blocked-by #{}}]}}}})
+          result (task/auto-clear-completed! db* "c1")]
+      (is (some? result))
+      (is (= :task (:type result)))
+      (is (empty? (:tasks result)))
+      (is (= {:next-id 1 :active-summary nil :tasks []}
+             (task/get-task @db* "c1")))))
+
+  (testing "does not clear when tasks are still pending"
+    (let [db* (atom {:chats {"c1" {:task {:next-id 3
+                                          :active-summary nil
+                                          :tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
+                                                  {:id 2 :subject "T2" :description "D2" :status :pending :priority :medium :blocked-by #{}}]}}}})
+          result (task/auto-clear-completed! db* "c1")]
+      (is (nil? result))
+      (is (= 2 (count (:tasks (task/get-task @db* "c1")))))))
+
+  (testing "does not clear when tasks are in progress"
+    (let [db* (atom {:chats {"c1" {:task {:next-id 3
+                                          :active-summary "working"
+                                          :tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
+                                                  {:id 2 :subject "T2" :description "D2" :status :in-progress :priority :medium :blocked-by #{}}]}}}})
+          result (task/auto-clear-completed! db* "c1")]
+      (is (nil? result))
+      (is (= 2 (count (:tasks (task/get-task @db* "c1")))))))
+
+  (testing "does nothing when task list is empty"
+    (let [db* (atom {:chats {"c1" {:task {:next-id 1 :active-summary nil :tasks []}}}})
+          result (task/auto-clear-completed! db* "c1")]
+      (is (nil? result))
+      (is (= {:next-id 1 :active-summary nil :tasks []}
+             (task/get-task @db* "c1")))))
+
+  (testing "does nothing when chat has no task list"
+    (let [db* (atom {})
+          result (task/auto-clear-completed! db* "c1")]
+      (is (nil? result))
+      (is (= {:next-id 1 :active-summary nil :tasks []}
+             (task/get-task @db* "c1"))))))
