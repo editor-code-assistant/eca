@@ -1063,24 +1063,24 @@
       "hash": "sha256-RLTLjpPU9rJiwE7Qdx1w3WbnbUXX/HVYIGcaYmVcVDk="
     },
     {
-      "mvn-path": "io/github/plumce/plumcp.core-json-cheshire/0.2.0-beta6/plumcp.core-json-cheshire-0.2.0-beta6.jar",
+      "mvn-path": "io/github/plumce/plumcp.core-json-cheshire/0.2.2/plumcp.core-json-cheshire-0.2.2.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-3HJeEyYWHhRYLVOg6NbqUNY5ggjlbZP8HLkWhxcrxH0="
+      "hash": "sha256-KuvTGmGhr1XKHZtxgrIKqFs1R3YSGCbjvXQllZTiR7g="
     },
     {
-      "mvn-path": "io/github/plumce/plumcp.core-json-cheshire/0.2.0-beta6/plumcp.core-json-cheshire-0.2.0-beta6.pom",
+      "mvn-path": "io/github/plumce/plumcp.core-json-cheshire/0.2.2/plumcp.core-json-cheshire-0.2.2.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-KDt9ErjS5xemxNULIZ0jW9VMty/QqIptUqEo35S+9EI="
+      "hash": "sha256-5ECb6C6r7dEUpay8xw6ykojq2Cc0Kj1sS57Xuu7yA0Y="
     },
     {
-      "mvn-path": "io/github/plumce/plumcp.core/0.2.0-beta6/plumcp.core-0.2.0-beta6.jar",
+      "mvn-path": "io/github/plumce/plumcp.core/0.2.2/plumcp.core-0.2.2.jar",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-su36hUT/Y6qK58rSdbjldLmwyNX+MwTnGxIvXNOU5C8="
+      "hash": "sha256-XvWt0TS0ZmSxWNVNK5IHJ+5OQ6Ya2ZZKUbKkdn0s5WE="
     },
     {
-      "mvn-path": "io/github/plumce/plumcp.core/0.2.0-beta6/plumcp.core-0.2.0-beta6.pom",
+      "mvn-path": "io/github/plumce/plumcp.core/0.2.2/plumcp.core-0.2.2.pom",
       "mvn-repo": "https://repo.clojars.org/",
-      "hash": "sha256-wSQlx/kT5oAkiUB5t1XhrwD4w8K8TSYKMVzSFHmnWvk="
+      "hash": "sha256-L8GyN7xLfJS7d5sN7dquXqtm/mBr/pJPvlkBq2/i0Wo="
     },
     {
       "mvn-path": "io/methvin/directory-watcher/0.17.3/directory-watcher-0.17.3.jar",

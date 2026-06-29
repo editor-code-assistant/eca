@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- MCP: detect a broken/logged-out session (expired/revoked token, expired session) and re-initialize instead of hanging the tool call until timeout; relies on plumcp 0.2.2 correlating HTTP error responses to the originating request.
+- MCP OAuth: proactively refresh an expired token before a tool call instead of waiting for the server to reject it.
+
 ## 0.143.0
 
 - Remote server fetches the `*.local.eca.dev` HTTPS cert from `tls.eca.dev` at runtime and caches it (override via `remote.tls`) instead of bundling it, so cert renewals need no ECA release.
