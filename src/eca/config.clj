@@ -82,6 +82,11 @@
    "high" {:reasoning_effort "high"}
    "max" {:reasoning_effort "max"}})
 
+(def ^:private glm-variants
+  {"none" {:reasoning_effort "none"}
+   "high" {:reasoning_effort "high"}
+   "max" {:reasoning_effort "max"}})
+
 (def ^:private initial-config*
   {:providers {"openai" {:api "openai-responses"
                          :url "${env:OPENAI_API_URL:https://api.openai.com}"
@@ -205,7 +210,8 @@
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*deepseek[-._]v4[-._]pro" {:variants deepseek-variants
-                                                  :api "openai-chat"}}
+                                                  :api "openai-chat"}
+                     "(?i).*glm[-._]5[-._]2" {:variants glm-variants}}
    :mcpTimeoutSeconds 60
    :mcpKeepAliveSeconds 30
    :lspTimeoutSeconds 30
