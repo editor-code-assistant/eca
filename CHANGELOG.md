@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add built-in variants for `glm-5.2` (case-insensitive): `none`, `medium`, `high`.
+
 ## 0.143.1
 
 - MCP: detect a broken/logged-out session (expired/revoked token, expired session) and re-initialize instead of hanging the tool call until timeout; relies on plumcp 0.2.2 correlating HTTP error responses to the originating request.
