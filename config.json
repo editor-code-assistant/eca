@@ -650,6 +650,14 @@
             "okhttp"
           ]
         },
+        "extraHeaders": {
+          "type": "object",
+          "description": "Additional HTTP headers to include in all requests to this provider (completions and models list fetching). Model-level extraHeaders take precedence on conflicts.",
+          "markdownDescription": "Additional HTTP headers to include in all requests to this provider (completions and models list fetching). Model-level `extraHeaders` take precedence on conflicts.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "retryRules": {
           "type": "array",
           "description": "Custom retry rules. Each rule can match by HTTP status code and/or error text regex pattern. When matched, the request is retried with exponential backoff.",
