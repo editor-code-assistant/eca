@@ -8,6 +8,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.debug :as f.chat.debug]
+   [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
@@ -174,6 +175,14 @@
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
                        :arguments [{:name "chat-id"}]}
+                      {:name "export"
+                       :type :native
+                       :description "Export the current chat to a file or directory to transfer/import it elsewhere. Ex: /export /tmp/chat.edn or /export ."
+                       :arguments [{:name "filepath"}]}
+                      {:name "import"
+                       :type :native
+                       :description "Import a chat from a file as a new resumable chat. Ex: /import /tmp/chat.edn"
+                       :arguments [{:name "filepath"}]}
                       {:name "remote"
                        :type :native
                        :description "Show remote server connection details."
@@ -840,6 +849,47 @@
                                            "Content is obfuscated (text/reasoning/tool input/output); share this file for debugging."))]
                      {:type :chat-messages
                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "export" (let [{:keys [path message-count error]}
+                     (f.chat.export/export-chat! {:db db
+                                                  :chat-id chat-id
+                                                  :filepath (first args)})
+                     text (if error
+                            (str "Failed to export chat: " error)
+                            (multi-str (str "Chat exported to `" path "`")
+                                       (str "Messages: " message-count)
+                                       ""
+                                       (str "Import it elsewhere with `/import " path "`")))]
+                 {:type :chat-messages
+                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "import" (let [{:keys [chat error]} (f.chat.export/import-chat! {:filepath (first args)})]
+                 (if error
+                   {:type :chat-messages
+                    :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (str "Failed to import chat: " error)}]}]}}}
+                   (let [imported-id (:id chat)
+                         replaced? (contains? (:chats db) imported-id)
+                         model-available? (contains? (:models db) (:model chat))
+                         imported-chat (-> chat
+                                           (dissoc :prompt-finished? :auto-compacting? :compacting?
+                                                   :tool-calls :last-status-payload)
+                                           (assoc :status :idle :prompt-finished? true))
+                         summary (multi-str
+                                  (str "Imported chat: " (or (:title imported-chat) imported-id))
+                                  (when replaced? "Replaced an existing chat with the same id.")
+                                  (when-not model-available?
+                                    (str "Model `" (:model imported-chat) "` is not available here; switch with `/model` or login.")))]
+                     ;; Persist under the original id so the chat stays /resume-able
+                     ;; and reuses provider/cache keyed by chat-id (#28).
+                     (swap! db* assoc-in [:chats imported-id] imported-chat)
+                     (db/update-workspaces-cache! @db* metrics)
+                     (messenger/chat-opened messenger {:chat-id imported-id :title (:title imported-chat)})
+                     ;; Align the client's model/trust with the imported chat (like /resume).
+                     (config/notify-selected-model-changed! (:model imported-chat) db* messenger config (:variant imported-chat))
+                     (config/notify-selected-trust-changed! (:trust imported-chat) db* messenger)
+                     {:type :chat-messages
+                      :chats {imported-id {:title (:title imported-chat)
+                                           :messages (concat [{:role "system" :content [{:type :text :text summary}]}]
+                                                             (:messages imported-chat))}
+                              chat-id {:messages [{:role "system" :content [{:type :text :text (str "Imported chat to: " (or (:title imported-chat) imported-id))}]}]}}})))
       "repo-map-show" {:type :chat-messages
                        :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
       "rules" (let [roots (:workspace-folders db)

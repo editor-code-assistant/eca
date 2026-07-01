@@ -34,6 +34,8 @@
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "fork" :arguments []}
                        {:name "resume" :arguments [{:name "chat-id"}]}
+                       {:name "export" :arguments [{:name "filepath"}]}
+                       {:name "import" :arguments [{:name "filepath"}]}
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "doctor" :arguments []}

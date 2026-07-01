@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add built-in variants for `glm-5.2` (case-insensitive): `none`, `medium`, `high`.
+- New `/export` and `/import` commands to transfer a chat between machines as a structured, resumable file preserving model, variant, usage and chat-id. #28
 
 ## 0.143.1
 
