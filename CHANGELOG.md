@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support provider-level `extraHeaders`, sent on completion and models list requests. #517
+
 ## 0.144.0
 
 - Add built-in variants for `glm-5.2` (case-insensitive): `none`, `medium`, `high`.

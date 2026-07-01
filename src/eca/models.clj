@@ -45,17 +45,19 @@
     nil))
 
 (defn ^:private models-endpoint-headers
-  [provider auth-type api-type api-key]
+  [provider auth-type api-type api-key extra-headers]
   (let [oauth? (= :auth/oauth auth-type)
         anthropic? (= "anthropic" api-type)]
     (client/merge-llm-headers
-     (assoc-some
-      (cond-> {"Content-Type" "application/json"}
-        (= "github-copilot" provider) (merge (llm-util/copilot-ide-headers)))
-      "anthropic-version" (when anthropic? "2023-06-01")
-      "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
-      "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
-      "anthropic-beta" (when (and anthropic? oauth?) "oauth-2025-04-20")))))
+     (merge
+      (assoc-some
+       (cond-> {"Content-Type" "application/json"}
+         (= "github-copilot" provider) (merge (llm-util/copilot-ide-headers)))
+       "anthropic-version" (when anthropic? "2023-06-01")
+       "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
+       "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
+       "anthropic-beta" (when (and anthropic? oauth?) "oauth-2025-04-20"))
+      extra-headers))))
 
 (defn ^:private fetch-models-dev-data []
   (let [{:keys [status body]} (http/get models-dev-api-url
@@ -280,11 +282,11 @@
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> {} on success, nil on failure."
-  [{:keys [api-url auth-type api-key api-type provider]}]
+  [{:keys [api-url auth-type api-key api-type provider extra-headers]}]
   (when-let [models-path (provider-models-endpoint-path api-type)]
     (let [url (shared/join-api-url api-url models-path)
           rid (llm-util/gen-rid)
-          headers (models-endpoint-headers provider auth-type api-type api-key)]
+          headers (models-endpoint-headers provider auth-type api-type api-key extra-headers)]
       (try
         (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
         (let [{:keys [status body]} (http/get url
@@ -339,7 +341,8 @@
                                 :api-url api-url
                                 :auth-type auth-type
                                 :api-key api-key
-                                :api-type api-type})))]
+                                :api-type api-type
+                                :extra-headers (:extraHeaders provider-config)})))]
         (logger/debug logger-tag
                       (format "Provider '%s': Discovered %d models"
                               provider (count models)))

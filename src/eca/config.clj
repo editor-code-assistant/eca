@@ -540,6 +540,7 @@
    :stringfy-key
    [[:agent]
     [:providers]
+    [:providers :ANY :extraHeaders]
     [:providers :ANY :models]
     [:providers :ANY :models :ANY :extraHeaders]
     [:providers :ANY :models :ANY :variants]

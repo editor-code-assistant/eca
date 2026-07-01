@@ -436,6 +436,26 @@
         (is (re-find #"^copilot-chat/" (get-in @request* [1 :headers "editor-plugin-version"])))
         (is (= "vscode-chat" (get-in @request* [1 :headers "copilot-integration-id"])))))))
 
+(deftest fetch-provider-models-sends-provider-extra-headers-test
+  (testing "Provider-level extraHeaders are sent on the native /models fetch"
+    (let [request* (atom nil)]
+      (with-redefs [http/get (fn [url opts]
+                               (reset! request* [url opts])
+                               {:status 200
+                                :body {:data [{:id "gpt-5.2"}]}})]
+        (is (match?
+             {"my-gateway" {"gpt-5.2" {}}}
+             (#'models/fetch-provider-models-with-priority
+              {:providers {"my-gateway" {:api "openai-chat"
+                                         :url "https://gateway.example.com"
+                                         :key "sk-test"
+                                         :extraHeaders {"Ocp-Apim-Subscription-Key" "apim-secret"}}}}
+              {}
+              {})))
+        (is (= "https://gateway.example.com/models" (first @request*)))
+        (is (= "apim-secret" (get-in @request* [1 :headers "Ocp-Apim-Subscription-Key"])))
+        (is (= "Bearer sk-test" (get-in @request* [1 :headers "Authorization"])))))))
+
 (deftest fetch-provider-models-with-priority-fallback-test
   (let [models-dev-data {"native-provider" {"api" "https://api.openai.com"
                                             "models" {"from-models-dev" {"id" "from-models-dev"}}}}]

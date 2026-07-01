@@ -236,7 +236,8 @@
               (catch Exception e
                 (logger/warn logger-tag "on-history-sanitized callback failed" {:exception (ex-message e)}))))
         extra-payload (extra-payload-considering-variant model-config variant api-handler reason?)
-        extra-headers (:extraHeaders model-config)
+        extra-headers (merge (:extraHeaders provider-config)
+                             (:extraHeaders model-config))
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)

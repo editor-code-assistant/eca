@@ -417,6 +417,32 @@
       (is (= 300 (:stream-idle-timeout-seconds @captured*))
           "anthropic handler should receive :stream-idle-timeout-seconds from top-level config"))))
 
+(deftest prompt-merges-provider-and-model-extra-headers-test
+  (testing "provider-level extraHeaders are sent and model-level ones win on conflicts"
+    (let [captured* (atom nil)]
+      (with-redefs [llm-providers.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-5.2"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :model-name "gpt-5.2"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :past-messages []
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com"
+                                         :key "test-key"
+                                         :extraHeaders {"Ocp-Apim-Subscription-Key" "prov-secret"
+                                                        "X-Shared" "provider"}
+                                         :models {"gpt-5.2" {:extraHeaders {"X-Shared" "model"}}}}}}
+          :sync? false}))
+      (is (= {"Ocp-Apim-Subscription-Key" "prov-secret"
+              "X-Shared" "model"}
+             (:extra-headers @captured*))))))
+
 (deftest retry-delay-ms-test
   ;; Formula: (quot capped 2) + rand(0, capped)
   ;; Range: [capped/2, capped/2 + capped) = [capped/2, capped*3/2)

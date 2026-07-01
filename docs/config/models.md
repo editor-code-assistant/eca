@@ -368,6 +368,7 @@ Schema:
 | `thinkTagEnd`                     | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
 | `httpClient`                      | map     | Allow customize the http-client for this provider requests, like changing http version                       | No       |
 | `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Rules](#retry-rules))    | No       |
+| `extraHeaders`                    | map     | Extra headers sent on all requests to this provider (completion and models list fetch). Model-level `extraHeaders` win on conflicts | No       |
 | `models`                          | map     | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload`     | map     | Extra payload sent in body to LLM                                                                            | No       |
 | `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
