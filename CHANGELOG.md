@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Support provider-level `extraHeaders`, sent on completion and models list requests. #517
+- Improve `/init` prompt, `AGENTS.md`, and development docs.
 
 ## 0.144.0
 
