@@ -1358,20 +1358,36 @@
 <td>Markdown documentation shown at https://eca.dev</td>
 </tr>
 <tr>
-<td><code>src/eca/config.clj</code></td>
-<td>Centralized place to get ECA configs from multiple places.</td>
+<td><code>src/eca/main.clj</code></td>
+<td>The CLI interface (<code>eca server</code>, etc.).</td>
 </tr>
 <tr>
-<td><code>src/eca/logger.clj</code></td>
-<td>Logger interface to log to stderr.</td>
+<td><code>src/eca/server.clj</code></td>
+<td>stdio <strong>entry point</strong>; wires everything together via <code>jsonrpc4clj</code>.</td>
 </tr>
 <tr>
-<td><code>src/eca/shared.clj</code></td>
-<td>shared utility fns to whole project.</td>
+<td><code>src/eca/handlers.clj</code></td>
+<td>Entrypoint for all features; every JSON-RPC request/notification lands here.</td>
+</tr>
+<tr>
+<td><code>src/eca/messenger.clj</code></td>
+<td>Protocol to send requests/notifications back to the client (stdio or remote).</td>
 </tr>
 <tr>
 <td><code>src/eca/db.clj</code></td>
-<td>Simple in-memory KV store that backs sessions/MCP, all in-memory state lives here.</td>
+<td>In-memory state atom (<code>db*</code>); sessions, chats, tool servers — all state lives here.</td>
+</tr>
+<tr>
+<td><code>src/eca/config.clj</code></td>
+<td>Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).</td>
+</tr>
+<tr>
+<td><code>src/eca/logger.clj</code></td>
+<td>Logger interface, logs to stderr (stdout is reserved for JSON-RPC).</td>
+</tr>
+<tr>
+<td><code>src/eca/shared.clj</code></td>
+<td>Shared utility fns for the whole project.</td>
 </tr>
 <tr>
 <td><code>src/eca/llm_api.clj</code></td>
@@ -1379,80 +1395,108 @@
 </tr>
 <tr>
 <td><code>src/eca/llm_providers/</code></td>
-<td>Vendor adapters (<code>openai.clj</code>, <code>anthropic.clj</code>, <code>ollama.clj</code>).</td>
+<td>Vendor adapters (<code>anthropic.clj</code>, <code>openai.clj</code>, <code>openai_chat.clj</code>, <code>google.clj</code>, <code>copilot.clj</code>, <code>bedrock.clj</code>, <code>azure.clj</code>, <code>ollama.clj</code>, <code>openrouter.clj</code>, ...).</td>
 </tr>
 <tr>
 <td><code>src/eca/llm_util.clj</code></td>
-<td>Token counting, chunking, rate-limit helpers.</td>
+<td>Streaming/event helpers shared by providers.</td>
 </tr>
 <tr>
 <td><code>src/eca/features/</code></td>
 <td><strong>High-level capabilities exposed to the editor</strong></td>
 </tr>
 <tr>
-<td>├─ <code>chat.clj</code></td>
-<td>Streaming chat orchestration &amp; tool-call pipeline.</td>
+<td>├─ <code>chat.clj</code> + <code>chat/</code></td>
+<td>Streaming chat orchestration &amp; tool-call pipeline (lifecycle, history, tool calls).</td>
 </tr>
 <tr>
-<td>├─ <code>prompt.clj</code></td>
-<td>Prompt templates and variable interpolation.</td>
+<td>├─ <code>agents.clj</code></td>
+<td>Agents and subagents (definitions, spawning).</td>
 </tr>
 <tr>
-<td>├─ <code>index.clj</code></td>
-<td>Embedding &amp; retrieval-augmented generation helpers.</td>
+<td>├─ <code>commands.clj</code></td>
+<td>Chat commands (<code>/init</code>, <code>/login</code>, <code>/context</code>, custom commands, ...).</td>
+</tr>
+<tr>
+<td>├─ <code>hooks.clj</code></td>
+<td>User-configured hooks triggered on server events.</td>
+</tr>
+<tr>
+<td>├─ <code>skills.clj</code> + <code>skills/</code></td>
+<td>Skills discovery and loading.</td>
 </tr>
 <tr>
 <td>├─ <code>rules.clj</code></td>
-<td>Guards that enforce user-defined project rules.</td>
+<td>User-defined global/project/path-scoped rules.</td>
+</tr>
+<tr>
+<td>├─ <code>context.clj</code></td>
+<td>Contexts attached to prompts (files, repo map, ...).</td>
+</tr>
+<tr>
+<td>├─ <code>prompt.clj</code></td>
+<td>System prompt templates and variable interpolation.</td>
+</tr>
+<tr>
+<td>├─ <code>login.clj</code></td>
+<td>Provider auth flows.</td>
+</tr>
+<tr>
+<td>├─ <code>providers.clj</code></td>
+<td>Model/provider resolution.</td>
+</tr>
+<tr>
+<td>├─ <code>completion.clj</code></td>
+<td>Non-chat LLM feature: code completion.</td>
+</tr>
+<tr>
+<td>├─ <code>rewrite.clj</code></td>
+<td>Non-chat LLM feature: text rewrite.</td>
+</tr>
+<tr>
+<td>├─ <code>index.clj</code></td>
+<td>Workspace indexing helpers (repo map).</td>
 </tr>
 <tr>
 <td>├─ <code>tools.clj</code></td>
-<td>Registry of built-in tool descriptors (run, approve…).</td>
+<td>Registry of tool servers and built-in tool descriptors, approval logic.</td>
 </tr>
 <tr>
 <td>└─ <code>tools/</code></td>
-<td>Implementation of side-effectful tools:</td>
+<td>Implementation of built-in tools:</td>
 </tr>
 <tr>
 <td>──├─ <code>filesystem.clj</code></td>
-<td>read/write/edit helpers </td>
+<td>read/write/edit/grep helpers</td>
 </tr>
 <tr>
 <td>──├─ <code>shell.clj</code></td>
-<td>runs user-approved shell commands </td>
+<td>runs user-approved shell commands, background jobs</td>
 </tr>
 <tr>
 <td>──├─ <code>mcp.clj</code></td>
-<td>Multi-Command Plan supervisor </td>
+<td>MCP (Model Context Protocol) servers integration</td>
+</tr>
+<tr>
+<td>──├─ ...</td>
+<td>other built-in tools: <code>git.clj</code>, <code>task.clj</code>, <code>agent.clj</code>, <code>ask_user.clj</code>, <code>skill.clj</code>, ...</td>
 </tr>
 <tr>
 <td>──└─ <code>util.clj</code></td>
 <td>misc helpers shared by tools.</td>
 </tr>
 <tr>
-<td><code>src/eca/messenger.clj</code></td>
-<td>To send back to client requests/notifications over stdio.</td>
-</tr>
-<tr>
-<td><code>src/eca/handlers.clj</code></td>
-<td>Entrypoint for all features.</td>
-</tr>
-<tr>
-<td><code>src/eca/server.clj</code></td>
-<td>stdio <strong>entry point</strong>; wires everything together via <code>jsonrpc4clj</code>.</td>
-</tr>
-<tr>
-<td><code>src/eca/main.clj</code></td>
-<td>The CLI interface.</td>
+<td><code>src/eca/remote/</code></td>
+<td>Optional remote HTTP/SSE server exposing chats to non-stdio clients.</td>
 </tr>
 <tr>
 <td><code>src/eca/nrepl.clj</code></td>
-<td>Starts an nREPL when <code>:debug</code> flag is passed.</td>
+<td>Starts an nREPL when built with <code>bb debug-cli</code>.</td>
 </tr>
 </tbody>
 </table>
 <p>Together these files implement the request flow:</p>
-<p><code>client/editor</code> → <code>stdin JSON-RPC</code> → <code>handlers</code> → <code>features</code> → <code>llm_api</code> → <code>llm_provider</code> → results streamed back.</p>
+<p><code>client/editor</code> → <code>stdin JSON-RPC</code> → <code>handlers</code> → <code>features</code> → <code>llm_api</code> → <code>llm_provider</code> → results streamed back via <code>messenger</code>.</p>
 <p>With this map you can usually answer:</p>
 <ul>
 <li><em>"Where does request X enter the system?"</em> – look in <code>handlers.clj</code>.</li>
@@ -1460,9 +1504,18 @@
 <li><em>"How do we talk to provider Z?"</em> – adapter under <code>llm_providers/</code>.</li>
 </ul>
 <h3 id="unit-tests">Unit Tests<a class="headerlink" href="#unit-tests" title="Permanent link">#</a></h3>
-<p>Run with <code>bb test</code> or run test via Clojure REPL. CI will run the same task.</p>
+<p>Run with <code>bb test</code> or run tests via Clojure REPL. CI runs the same task.</p>
+<p>To run a single namespace or test, use kaocha's focus:</p>
+<div class="highlight"><pre><span></span><code>clojure<span class="w"> </span>-M:test<span class="w"> </span>--focus<span class="w"> </span>eca.features.chat-test
+</code></pre></div>
 <h3 id="integration-tests">Integration Tests<a class="headerlink" href="#integration-tests" title="Permanent link">#</a></h3>
-<p>Run with <code>bb integration-test</code>, it will use your <code>eca</code> binary project root to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor.</p>
+<p>Run with <code>bb integration-test</code>, it will use your <code>eca</code> binary at project root (build one with <code>bb debug-cli</code> or <code>bb prod-cli</code>) to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor. LLM and MCP servers are mocked (<code>integration-test/llm_mock</code>, <code>integration-test/mcp_mock</code>), so no API keys are needed.</p>
+<p>Useful flags (see <code>bb integration-test -h</code>):</p>
+<ul>
+<li><code>--dev</code>: run the server from source via the <code>clojure</code> CLI instead of a binary.</li>
+<li><code>--ns integration.chat.anthropic-test</code>: run only specific test namespaces (comma-separated); <code>-l</code> lists them.</li>
+<li><code>--proxy</code>: route requests through a transient Tinyproxy to verify proxy support.</li>
+</ul>
 <h2 id="coding">Coding<a class="headerlink" href="#coding" title="Permanent link">#</a></h2>
 <p>There are several ways of finding and fixing a bug or implementing a new feature:</p>
 <ul>
@@ -1526,7 +1579,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 1, 2026 23:08:40 UTC">July 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 5, 2026 02:50:46 UTC">July 5, 2026</span>
   </span>
 
     
