@@ -15,38 +15,49 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
 
 ### Files overview
 
-   Path                     | Responsibility
-   -------------------------|-------------------------------------------------------
-       `bb.edn`             | Babashka tasks (e.g. `bb test`, `bb debug-cli`) for local workflows and CI, the main entrypoint for most tasks.
-   `deps.edn`               | Clojure dependency coordinates and aliases used by the JVM build and the native GraalVM image.
-   `docs/`                  | Markdown documentation shown at https://eca.dev
-   `src/eca/config.clj`     | Centralized place to get ECA configs from multiple places.
-   `src/eca/logger.clj`     | Logger interface to log to stderr.
-   `src/eca/shared.clj`     | shared utility fns to whole project.
-   `src/eca/db.clj`         | Simple in-memory KV store that backs sessions/MCP, all in-memory state lives here.
-   `src/eca/llm_api.clj`    | Public façade used by features to call an LLM.
-   `src/eca/llm_providers/` | Vendor adapters (`openai.clj`, `anthropic.clj`, `ollama.clj`).
-   `src/eca/llm_util.clj`   | Token counting, chunking, rate-limit helpers.
-   `src/eca/features/`      | **High-level capabilities exposed to the editor**
-   ├─ `chat.clj`            | Streaming chat orchestration & tool-call pipeline.
-   ├─ `prompt.clj`          | Prompt templates and variable interpolation.
-   ├─ `index.clj`           | Embedding & retrieval-augmented generation helpers.
-   ├─ `rules.clj`           | Guards that enforce user-defined project rules.
-   ├─ `tools.clj`           | Registry of built-in tool descriptors (run, approve…).
-   └─ `tools/`              | Implementation of side-effectful tools:
-   ──├─ `filesystem.clj`    | read/write/edit helpers 
-   ──├─ `shell.clj`         | runs user-approved shell commands 
-   ──├─ `mcp.clj`           | Multi-Command Plan supervisor 
-   ──└─ `util.clj`          | misc helpers shared by tools.
-   `src/eca/messenger.clj`  | To send back to client requests/notifications over stdio.
-   `src/eca/handlers.clj`   | Entrypoint for all features.
-   `src/eca/server.clj`     | stdio **entry point**; wires everything together via `jsonrpc4clj`.
-   `src/eca/main.clj`       | The CLI interface.
-   `src/eca/nrepl.clj`      | Starts an nREPL when `:debug` flag is passed.
+   Path                        | Responsibility
+   ----------------------------|-------------------------------------------------------
+   `bb.edn`                    | Babashka tasks (e.g. `bb test`, `bb debug-cli`) for local workflows and CI, the main entrypoint for most tasks.
+   `deps.edn`                  | Clojure dependency coordinates and aliases used by the JVM build and the native GraalVM image.
+   `docs/`                     | Markdown documentation shown at https://eca.dev
+   `src/eca/main.clj`          | The CLI interface (`eca server`, etc.).
+   `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`.
+   `src/eca/handlers.clj`      | Entrypoint for all features; every JSON-RPC request/notification lands here.
+   `src/eca/messenger.clj`     | Protocol to send requests/notifications back to the client (stdio or remote).
+   `src/eca/db.clj`            | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here.
+   `src/eca/config.clj`        | Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).
+   `src/eca/logger.clj`        | Logger interface, logs to stderr (stdout is reserved for JSON-RPC).
+   `src/eca/shared.clj`        | Shared utility fns for the whole project.
+   `src/eca/llm_api.clj`       | Public façade used by features to call an LLM.
+   `src/eca/llm_providers/`    | Vendor adapters (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, `google.clj`, `copilot.clj`, `bedrock.clj`, `azure.clj`, `ollama.clj`, `openrouter.clj`, ...).
+   `src/eca/llm_util.clj`      | Streaming/event helpers shared by providers.
+   `src/eca/features/`         | **High-level capabilities exposed to the editor**
+   ├─ `chat.clj` + `chat/`     | Streaming chat orchestration & tool-call pipeline (lifecycle, history, tool calls).
+   ├─ `agents.clj`             | Agents and subagents (definitions, spawning).
+   ├─ `commands.clj`           | Chat commands (`/init`, `/login`, `/context`, custom commands, ...).
+   ├─ `hooks.clj`              | User-configured hooks triggered on server events.
+   ├─ `skills.clj` + `skills/` | Skills discovery and loading.
+   ├─ `rules.clj`              | User-defined global/project/path-scoped rules.
+   ├─ `context.clj`            | Contexts attached to prompts (files, repo map, ...).
+   ├─ `prompt.clj`             | System prompt templates and variable interpolation.
+   ├─ `login.clj`              | Provider auth flows.
+   ├─ `providers.clj`          | Model/provider resolution.
+   ├─ `completion.clj`         | Non-chat LLM feature: code completion.
+   ├─ `rewrite.clj`            | Non-chat LLM feature: text rewrite.
+   ├─ `index.clj`              | Workspace indexing helpers (repo map).
+   ├─ `tools.clj`              | Registry of tool servers and built-in tool descriptors, approval logic.
+   └─ `tools/`                 | Implementation of built-in tools:
+   ──├─ `filesystem.clj`       | read/write/edit/grep helpers
+   ──├─ `shell.clj`            | runs user-approved shell commands, background jobs
+   ──├─ `mcp.clj`              | MCP (Model Context Protocol) servers integration
+   ──├─ ...                    | other built-in tools: `git.clj`, `task.clj`, `agent.clj`, `ask_user.clj`, `skill.clj`, ...
+   ──└─ `util.clj`             | misc helpers shared by tools.
+   `src/eca/remote/`           | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
+   `src/eca/nrepl.clj`         | Starts an nREPL when built with `bb debug-cli`.
 
 Together these files implement the request flow:
 
-`client/editor` → `stdin JSON-RPC` → `handlers` → `features` → `llm_api` → `llm_provider` → results streamed back.
+`client/editor` → `stdin JSON-RPC` → `handlers` → `features` → `llm_api` → `llm_provider` → results streamed back via `messenger`.
 
 With this map you can usually answer:
 
@@ -56,11 +67,23 @@ With this map you can usually answer:
 
 ### Unit Tests
 
-Run with `bb test` or run test via Clojure REPL. CI will run the same task.
+Run with `bb test` or run tests via Clojure REPL. CI runs the same task.
+
+To run a single namespace or test, use kaocha's focus:
+
+```bash
+clojure -M:test --focus eca.features.chat-test
+```
 
 ### Integration Tests
 
-Run with `bb integration-test`, it will use your `eca` binary project root to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor.
+Run with `bb integration-test`, it will use your `eca` binary at project root (build one with `bb debug-cli` or `bb prod-cli`) to spawn a server process and communicate with it via JSONRPC, testing the whole eca flow like an editor. LLM and MCP servers are mocked (`integration-test/llm_mock`, `integration-test/mcp_mock`), so no API keys are needed.
+
+Useful flags (see `bb integration-test -h`):
+
+- `--dev`: run the server from source via the `clojure` CLI instead of a binary.
+- `--ns integration.chat.anthropic-test`: run only specific test namespaces (comma-separated); `-l` lists them.
+- `--proxy`: route requests through a transient Tinyproxy to verify proxy support.
 
 ## Coding
 
