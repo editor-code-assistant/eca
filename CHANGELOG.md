@@ -4,6 +4,7 @@
 
 - Support provider-level `extraHeaders`, sent on completion and models list requests. #517
 - Improve `/init` prompt, `AGENTS.md`, and development docs.
+- Improve `chat/queryContext`/`chat/queryFiles`: rank results (basename matches first) keeping a stable order, include directories matching the query, list directory contents for workspace-relative queries like `src/foo/`, and refresh the workspace file index every few seconds so new files show up in completion.
 
 ## 0.144.0
 

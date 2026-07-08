@@ -2,7 +2,6 @@
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]
-   [clojure.set :as set]
    [clojure.string :as string]
    [eca.cache :as cache]
    [eca.config :as config]
@@ -1710,15 +1709,19 @@
    db*
    config]
   {:chat-id chat-id
-   :contexts (set/difference (set (f.context/all-contexts query false db* config))
-                             (set contexts))})
+   :contexts (into []
+                   (comp (remove (set contexts))
+                         (distinct))
+                   (f.context/all-contexts query false db* config))})
 
 (defn query-files
   [{:keys [query chat-id]}
    db*
    config]
   {:chat-id chat-id
-   :files (set (f.context/all-contexts query true db* config))})
+   :files (into []
+                (distinct)
+                (f.context/all-contexts query true db* config))})
 
 (defn query-commands
   [{:keys [query chat-id]}

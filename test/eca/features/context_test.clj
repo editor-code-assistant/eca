@@ -111,6 +111,79 @@
               file-paths (->> results (filter #(= "file" (:type %))) (map :path) set)]
           (is (contains? file-paths readme)))))))
 
+(deftest workspace-relative-dir-listing-test
+  (let [root (h/file-path "/fake/repo")
+        src (str root "/src")
+        entries [(str src "/a.clj") (str src "/pkg")]
+        dirs #{src (str src "/pkg")}
+        db* (atom {:workspace-folders [{:uri (h/file-uri "file:///fake/repo")}]})]
+    (testing "query resolving to an existing dir lists its entries, dirs first"
+      (with-redefs [fs/glob (fn [& _] (throw (ex-info "glob should not be called when listing dirs" {})))
+                    fs/path (fn [& parts] (string/replace (string/join "/" (map str parts)) #"/+$" ""))
+                    fs/normalize identity
+                    fs/parent (fn [p] (let [s (str p)
+                                            i (string/last-index-of s "/")]
+                                        (when (and i (pos? i)) (subs s 0 i))))
+                    fs/exists? (fn [p] (contains? dirs (str p)))
+                    fs/directory? (fn [p] (contains? dirs (str p)))
+                    fs/list-dir (fn [p] (is (= src (str p))) entries)
+                    fs/canonicalize identity
+                    f.index/filter-allowed (fn [files _root _config] files)
+                    f.mcp/all-resources (fn [_] [])]
+        (is (match?
+             [{:type "repoMap"}
+              {:type "cursor"}
+              {:type "directory" :path root}
+              {:type "directory" :path (str src "/pkg")}
+              {:type "file" :path (str src "/a.clj")}]
+             (f.context/all-contexts "src/" false db* {})))))
+    (testing "query with a partial last segment lists the parent dir"
+      (with-redefs [fs/glob (fn [& _] (throw (ex-info "glob should not be called when listing dirs" {})))
+                    fs/path (fn [& parts] (string/replace (string/join "/" (map str parts)) #"/+$" ""))
+                    fs/normalize identity
+                    fs/parent (fn [p] (let [s (str p)
+                                            i (string/last-index-of s "/")]
+                                        (when (and i (pos? i)) (subs s 0 i))))
+                    fs/exists? (fn [p] (contains? dirs (str p)))
+                    fs/directory? (fn [p] (contains? dirs (str p)))
+                    fs/list-dir (fn [p] (is (= src (str p))) entries)
+                    fs/canonicalize identity
+                    f.index/filter-allowed (fn [files _root _config] files)
+                    f.mcp/all-resources (fn [_] [])]
+        (is (match?
+             [{:type "repoMap"}
+              {:type "cursor"}
+              {:type "directory" :path root}
+              {:type "directory" :path (str src "/pkg")}
+              {:type "file" :path (str src "/a.clj")}]
+             (f.context/all-contexts "src/a" false db* {})))))))
+
+(deftest query-ranking-test
+  (testing "basename matches rank first; matching dirs are derived from files"
+    (let [root (h/file-path "/fake/repo")
+          f-chat (str root "/src/chat.clj")
+          f-xchat (str root "/src/xchat.clj")
+          f-xyz (str root "/chatter/xyz.clj")
+          db* (atom {:workspace-folders [{:uri (h/file-uri "file:///fake/repo")}]})]
+      (with-redefs [f.context/all-files-from #'f.context/all-files-from*
+                    fs/glob (fn [_ _] [f-xyz f-xchat f-chat])
+                    fs/parent (fn [p] (let [s (str p)
+                                            i (string/last-index-of s "/")]
+                                        (when (and i (pos? i)) (subs s 0 i))))
+                    fs/directory? (fn [p] (= (str root "/chatter") (str p)))
+                    fs/canonicalize identity
+                    f.index/filter-allowed (fn [files _root _config] files)
+                    f.mcp/all-resources (fn [_] [])]
+        (is (match?
+             [{:type "repoMap"}
+              {:type "cursor"}
+              {:type "directory" :path root}
+              {:type "directory" :path (str root "/chatter")}
+              {:type "file" :path f-chat}
+              {:type "file" :path f-xchat}
+              {:type "file" :path f-xyz}]
+             (f.context/all-contexts "chat" false db* {})))))))
+
 (deftest relative-path-query-test
   (testing "./relative path lists entries in that directory (no glob)"
     (let [root (h/file-path "/fake/repo")

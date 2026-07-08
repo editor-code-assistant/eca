@@ -37,6 +37,33 @@
       (is (= 2 (count chats)))
       (is (= ["c1" "c2"] (mapv :id chats))))))
 
+(deftest query-context-test
+  (testing "preserves order and removes already added contexts"
+    (with-redefs [f.context/all-contexts (fn [& _]
+                                           [{:type "file" :path "/a"}
+                                            {:type "directory" :path "/b"}
+                                            {:type "file" :path "/a"}
+                                            {:type "file" :path "/c"}])]
+      (is (= {:chat-id "c1"
+              :contexts [{:type "file" :path "/a"}
+                         {:type "file" :path "/c"}]}
+             (f.chat/query-context {:chat-id "c1"
+                                    :query ""
+                                    :contexts [{:type "directory" :path "/b"}]}
+                                   (atom {})
+                                   {}))))))
+
+(deftest query-files-test
+  (testing "preserves order and dedupes"
+    (with-redefs [f.context/all-contexts (fn [& _]
+                                           [{:type "file" :path "/b"}
+                                            {:type "file" :path "/a"}
+                                            {:type "file" :path "/b"}])]
+      (is (= {:chat-id "c1"
+              :files [{:type "file" :path "/b"}
+                      {:type "file" :path "/a"}]}
+             (f.chat/query-files {:chat-id "c1" :query "x"} (atom {}) {}))))))
+
 (h/reset-components-before-test)
 
 (defn ^:private prompt! [params mocks]

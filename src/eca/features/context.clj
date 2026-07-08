@@ -1,6 +1,7 @@
 (ns eca.features.context
   (:require
    [babashka.fs :as fs]
+   [clojure.core.memoize :as memoize]
    [clojure.string :as string]
    [eca.features.index :as f.index]
    [eca.features.tools.mcp :as f.mcp]
@@ -178,19 +179,50 @@
     (when (seq raw-contexts)
       (raw-contexts->refined raw-contexts db))))
 
+(def ^:private ttl-all-files-ms 5000)
+
 (defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
-(def ^:private all-files-from (memoize all-files-from*))
+(def ^:private all-files-from (memoize/ttl all-files-from* :ttl/threshold ttl-all-files-ms))
+
+(defn ^:private match-sort-key
+  "Sort key ranking basename matches first, then earlier and shorter matches."
+  [lower-query path]
+  (let [path-str (string/lower-case (str path))
+        basename (string/lower-case (str (fs/file-name path)))]
+    [(if (string/starts-with? basename lower-query) 0 1)
+     (if (string/includes? basename lower-query) 0 1)
+     (or (string/index-of path-str lower-query) Integer/MAX_VALUE)
+     (count path-str)]))
+
+(defn ^:private matching-dirs-of
+  "Directories under `root-filename` matching `lower-query`, derived from
+   the matched `files` since the workspace glob results are usually
+   filtered to git-tracked files only, which excludes directories."
+  [root-filename lower-query files]
+  (let [root-str (str root-filename)]
+    (->> files
+         (mapcat (fn [file]
+                   (->> (iterate fs/parent (fs/parent file))
+                        (take-while (fn [dir]
+                                      (and dir
+                                           (not= (str dir) root-str)
+                                           (string/starts-with? (str dir) root-str)))))))
+         (distinct)
+         (filter #(string/includes? (string/lower-case (str %)) lower-query)))))
 
 (defn ^:private contexts-for [root-filename query config]
-  (let [all-paths (all-files-from root-filename)
-        filtered (if (or (nil? query) (string/blank? query))
-                   all-paths
-                   (filter (fn [p]
-                             (string/includes? (-> (str p) string/lower-case)
-                                               (string/lower-case query)))
-                           all-paths))
-        allowed-files (f.index/filter-allowed filtered root-filename config)]
-    allowed-files))
+  (let [all-paths (all-files-from root-filename)]
+    (if (string/blank? query)
+      (f.index/filter-allowed all-paths root-filename config)
+      (let [lower-query (string/lower-case query)
+            filtered (filter (fn [p]
+                               (string/includes? (-> (str p) string/lower-case)
+                                                 lower-query))
+                             all-paths)
+            allowed-files (f.index/filter-allowed filtered root-filename config)
+            dirs (matching-dirs-of root-filename lower-query allowed-files)]
+        (sort-by (partial match-sort-key lower-query)
+                 (concat dirs allowed-files))))))
 
 (defn ^:private file->context [file-or-dir]
   (let [path (str (fs/canonicalize file-or-dir))]
@@ -200,44 +232,80 @@
       {:type "file"
        :path path})))
 
+(defn ^:private list-dir-entries
+  "List the entries of `dir` (or of its parent when `dir` does not exist),
+   directories first, alphabetically."
+  [dir]
+  (->> (try
+         (if (fs/exists? dir)
+           (fs/list-dir dir)
+           (fs/list-dir (fs/parent dir)))
+         (catch Exception _ nil))
+       (sort-by (fn [p] [(if (fs/directory? p) 0 1)
+                         (string/lower-case (str p))]))))
+
+(defn ^:private workspace-dirs-to-list
+  "Resolve `query` against each workspace root, returning the existing
+   directories to list. Only queries containing a path separator opt into
+   directory listing, other queries keep substring matching."
+  [query roots]
+  (when (string/includes? query "/")
+    (into []
+          (keep (fn [root]
+                  (let [root-str (str root)
+                        candidate (fs/normalize (fs/path root query))
+                        parent (fs/parent candidate)]
+                    (cond
+                      (and (string/starts-with? (str candidate) root-str)
+                           (fs/directory? candidate))
+                      candidate
+
+                      (and parent
+                           (string/starts-with? (str parent) root-str)
+                           (fs/directory? parent))
+                      parent
+
+                      :else nil))))
+          roots)))
+
 (defn all-contexts [query files-only? db* config]
   (let [query (or (some-> query string/trim) "")
-        first-project-path (shared/uri->filename (:uri (first (:workspace-folders @db*))))
-        relative-path (and query
-                           (or
-                            (when (string/starts-with? query "~")
-                              (fs/expand-home (fs/file query)))
-                            (when (string/starts-with? query "/")
-                              (fs/file query))
-                            (when (or (string/starts-with? query "./")
-                                      (string/starts-with? query "../"))
-                              (fs/file first-project-path query))))
-        relative-files (when relative-path
-                         (mapv file->context
-                               (try
-                                 (if (fs/exists? relative-path)
-                                   (fs/list-dir relative-path)
-                                   (fs/list-dir (fs/parent relative-path)))
-                                 (catch Exception _ nil))))
-        workspace-files (when-not relative-path
+        roots (mapv (comp shared/uri->filename :uri) (:workspace-folders @db*))
+        first-project-path (first roots)
+        absolute-path (or (when (string/starts-with? query "~")
+                            (fs/expand-home (fs/file query)))
+                          (when (string/starts-with? query "/")
+                            (fs/file query))
+                          (when (or (string/starts-with? query "./")
+                                    (string/starts-with? query "../"))
+                            (fs/file first-project-path query)))
+        listed-dirs (when-not absolute-path
+                      (workspace-dirs-to-list query roots))
+        relative-files (when absolute-path
+                         (mapv file->context (list-dir-entries absolute-path)))
+        workspace-listed-files (when (seq listed-dirs)
+                                 (->> listed-dirs
+                                      (mapcat list-dir-entries)
+                                      (distinct)
+                                      (mapv file->context)))
+        workspace-files (when (and (not absolute-path)
+                                   (empty? listed-dirs))
                           (into []
                                 (comp
-                                 (map :uri)
-                                 (map shared/uri->filename)
                                  (mapcat #(contexts-for % query config))
                                  (take 100) ;; for performance, user can always make query specific for better results.
                                  (map file->context))
-                                (:workspace-folders @db*)))
-        root-dirs (mapv (fn [{:keys [uri]}] {:type "directory"
-                                             :path (shared/uri->filename uri)})
-                        (:workspace-folders @db*))
+                                roots))
+        root-dirs (mapv (fn [root] {:type "directory" :path root}) roots)
         mcp-resources (mapv #(assoc % :type "mcpResource") (f.mcp/all-resources @db*))]
     (if files-only?
       (concat relative-files
+              workspace-listed-files
               workspace-files)
       (concat [{:type "repoMap"}
                {:type "cursor"}]
               root-dirs
               relative-files
+              workspace-listed-files
               workspace-files
               mcp-resources))))
