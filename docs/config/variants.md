@@ -42,7 +42,7 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
 
 === "OpenAI"
 
-    Applies to models matching `gpt-5-3-codex`, `gpt-5-2`. Excluded for `github-copilot` provider.
+    Applies to models matching `gpt-5-3-codex`, `gpt-5-2`, `gpt-5-4`, `gpt-5-5`. Excluded for `github-copilot` provider.
 
     | Variant    | Payload |
     | ---------- | ------- |
@@ -51,6 +51,19 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `medium`   | `{"reasoning": {"effort": "medium", "summary": "auto"}}` |
     | `high`     | `{"reasoning": {"effort": "high", "summary": "auto"}}` |
     | `xhigh`    | `{"reasoning": {"effort": "xhigh", "summary": "auto"}}` |
+
+=== "OpenAI (gpt-5.6)"
+
+    Applies to models matching `gpt-5.6` (e.g. `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`; any separator: `-`, `.`, `_`). Excluded for `github-copilot` provider.
+
+    | Variant    | Payload |
+    | ---------- | ------- |
+    | `none`     | `{"reasoning": {"effort": "none"}}` |
+    | `low`      | `{"reasoning": {"effort": "low", "summary": "auto"}}` |
+    | `medium`   | `{"reasoning": {"effort": "medium", "summary": "auto"}}` |
+    | `high`     | `{"reasoning": {"effort": "high", "summary": "auto"}}` |
+    | `xhigh`    | `{"reasoning": {"effort": "xhigh", "summary": "auto"}}` |
+    | `max`      | `{"reasoning": {"effort": "max", "summary": "auto"}}` |
 
 === "DeepSeek"
 
