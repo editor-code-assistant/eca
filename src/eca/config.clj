@@ -63,6 +63,18 @@
    "high" {:reasoning {:effort "high" :summary "auto"}}
    "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}})
 
+(def ^:private openai-gpt-5-6-variants
+  "Variants for gpt-5.6 models (gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna).
+   Same reasoning effort levels as `openai-variants` (none, low, medium, high,
+   xhigh) plus \"max\". Note: codex also defines \"ultra\" but downgrades it to
+   \"max\" on the wire, so it is not included here."
+  {"none" {:reasoning {:effort "none"}}
+   "low" {:reasoning {:effort "low" :summary "auto"}}
+   "medium" {:reasoning {:effort "medium" :summary "auto"}}
+   "high" {:reasoning {:effort "high" :summary "auto"}}
+   "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}
+   "max" {:reasoning {:effort "max" :summary "auto"}}})
+
 (def ^:private anthropic-variants
   {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
    "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive"}}
@@ -210,6 +222,8 @@
                      ".*opus[-._]4[-._][78]|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
+                     ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants
+                                                  :excludeProviders ["github-copilot"]}
                      ".*deepseek[-._]v4[-._]pro" {:variants deepseek-variants
                                                   :api "openai-chat"}
                      "(?i).*glm[-._]5[-._]2" {:variants glm-variants}}
