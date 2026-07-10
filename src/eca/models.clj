@@ -285,9 +285,82 @@
                (format "Provider '%s': Ignoring models.dev model entry '%s' with invalid key/model fields"
                        provider model-key)))
 
+(defn ^:private copilot-model-api [supported-endpoints]
+  (let [endpoints (set supported-endpoints)]
+    (cond
+      (contains? endpoints "/v1/messages") :anthropic
+      (contains? endpoints "/responses") :openai-responses
+      (contains? endpoints "/chat/completions") :openai-chat)))
+
+(defn ^:private copilot-reasoning-variants [model-id api supports]
+  (let [efforts (some->> (:reasoning_effort supports)
+                         (filter string?)
+                         seq)
+        adaptive? (true? (:adaptive_thinking supports))
+        min-budget (:min_thinking_budget supports)
+        max-budget (:max_thinking_budget supports)]
+    (case api
+      :openai-responses
+      (when efforts
+        (into {}
+              (map (fn [effort]
+                     [effort {:reasoning {:effort effort :summary "auto"}}]))
+              efforts))
+
+      :openai-chat
+      (when efforts
+        (into {}
+              (map (fn [effort]
+                     [effort {:reasoning_effort effort}]))
+              efforts))
+
+      :anthropic
+      (cond
+        (and efforts adaptive?)
+        (into {}
+              (map (fn [effort]
+                     [effort {:thinking (cond-> {:type "adaptive"}
+                                          ;; Opus 4.7 defaults adaptive thinking display to "omitted", which
+                                          ;; produces empty thinking blocks. Request summaries explicitly.
+                                          (re-find #"(?i)opus[-._]4[-._]7(?:$|[-._])" model-id)
+                                          (assoc :display "summarized"))
+                              :output_config {:effort effort}}]))
+              efforts)
+
+        ;; Some Copilot Messages models (for example Claude Opus/Sonnet 4.6) advertise
+        ;; budget bounds instead of named reasoning efforts. Project that range into
+        ;; the existing variant picker without exposing raw token budgets in the UI.
+        (and (number? max-budget) (pos? max-budget))
+        (let [min-value (max 1024 (long (if (number? min-budget) min-budget 1024)))
+              max-value (dec (long max-budget))
+              high-value (max min-value (quot (long max-budget) 2))]
+          (when (<= min-value max-value)
+            {"high" {:thinking {:type "enabled"
+                                :budget_tokens high-value}}
+             "max" {:thinking {:type "enabled"
+                               :budget_tokens max-value}}}))
+
+        :else nil)
+
+      nil)))
+
+(defn ^:private parse-copilot-model-entry [{:keys [id supported_endpoints capabilities]}]
+  (when (and (string? id) (not (string/blank? id)))
+    (let [supports (:supports capabilities)
+          api (copilot-model-api supported_endpoints)
+          variants (copilot-reasoning-variants id api supports)
+          reason? (or (true? (:adaptive_thinking supports))
+                      (seq (:reasoning_effort supports))
+                      (number? (:max_thinking_budget supports))
+                      (number? (:min_thinking_budget supports)))]
+      [id (assoc-some {}
+                      :discovered-api api
+                      :discovered-reason? (when reason? true)
+                      :discovered-variants (not-empty variants))])))
+
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
-   Returns a map of model-id -> {} on success, nil on failure."
+   Returns a map of model-id -> discovered model config on success, nil on failure."
   [{:keys [api-url auth-type api-key api-type provider extra-headers]}]
   (when-let [models-path (provider-models-endpoint-path api-type)]
     (let [url (shared/join-api-url api-url models-path)
@@ -316,7 +389,10 @@
                   (logger/debug logger-tag
                                 (format "[%s] Provider '%s': Received %d models from %s"
                                         rid provider (count models-data) url))
-                  (zipmap (keep :id models-data) (repeat {})))))))
+                  (not-empty
+                   (if (= "github-copilot" provider)
+                     (into {} (keep parse-copilot-model-entry) models-data)
+                     (zipmap (keep :id models-data) (repeat {})))))))))
         (catch Exception e
           (logger/warn logger-tag
                        (format "Provider '%s': Failed to fetch models from %s: %s"
@@ -408,11 +484,9 @@
   (some-> n float (/ one-million)))
 
 (defn ^:private config-overrides->capabilities
-  "Translate a user's per-model `:limit`/`:cost`/`:imageInput` config into
-   internal capability keys, letting users override context/output limits and
-   pricing for models models.dev doesn't know (e.g. local models) or cap a known
-   one, and declare image input for custom models. Costs are given per 1M
-   tokens, like models.dev."
+  "Translate per-model config and discovered provider metadata into internal
+   capability keys. User limits, costs, and image support override catalog
+   values; provider discovery contributes API routing and reasoning variants."
   [model-config]
   (let [limit (:limit model-config)
         cost (:cost model-config)
@@ -420,6 +494,9 @@
                                     :context (pos-num (:context limit))
                                     :output (pos-num (:output limit)))]
     (assoc-some {}
+                :reason? (:discovered-reason? model-config)
+                :api (:discovered-api model-config)
+                :variants (:discovered-variants model-config)
                 :image-input? (:imageInput model-config)
                 :limit (not-empty limit-overrides)
                 :max-output-tokens (pos-num (:output limit))
@@ -532,7 +609,16 @@
        (merge p
               (reduce
                (fn [m [model model-config]]
-                 (let [[full-model capabilities] (build-model-capabilities
+                 (let [real-model-name (:modelName model-config)
+                       [real-provider real-model] (when (and (string? real-model-name)
+                                                             (string/includes? real-model-name "/"))
+                                                    (shared/full-model->provider+model real-model-name))
+                       discovered-config (when real-model-name
+                                           (or (get dynamic-models real-model-name)
+                                               (when (= provider real-provider)
+                                                 (get dynamic-models real-model))))
+                       model-config (merge discovered-config model-config)
+                       [full-model capabilities] (build-model-capabilities
                                                   known-models provider model model-config)]
                    (assoc m full-model capabilities)))
                {}

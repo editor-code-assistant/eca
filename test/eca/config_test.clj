@@ -669,6 +669,43 @@
              (config/effective-model-variants config "anthropic" "claude-sonnet-4-6"
                                              {"high" {:custom "payload"}}))))
 
+    (testing "Discovered variants replace built-ins and user variants have final priority"
+      (is (= {"low" {:source "endpoint"}
+              "high" {:source "user"}}
+             (config/effective-model-variants
+              config "openai" "gpt-5.2"
+              {:api :openai-responses
+               :variants {"low" {:source "endpoint"}}}
+              {"high" {:source "user"}}))))
+
+    (testing "User variant set to {} removes a discovered variant"
+      (is (= {"low" {:source "endpoint"}}
+             (config/effective-model-variants
+              {} "github-copilot" "future-model"
+              {:api :openai-chat
+               :variants {"low" {:source "endpoint"}
+                          "high" {:source "endpoint"}}}
+              {"high" {}}))))
+
+    (testing "Discovered API participates in built-in API filtering"
+      (let [api-config {:variantsByModel {".*claude.*" {:api ["anthropic" "bedrock"]
+                                                         :variants anthropic-variants}}}]
+        (is (= anthropic-variants
+               (config/effective-model-variants api-config "github-copilot" "claude-opus-4-6"
+                                                {:api :anthropic} nil)))
+        (is (nil? (config/effective-model-variants api-config "github-copilot" "claude-opus-4-6"
+                                                   {:api :openai-chat} nil)))))
+
+    (testing "Default config: Copilot Claude models get no built-in variants without discovered metadata"
+      ;; Intentional: Copilot variants come only from /models discovery; built-in
+      ;; Claude variants are restricted to the anthropic/bedrock APIs (see
+      ;; :variantsByModel :api and docs/config/variants.md).
+      (let [default-config (config/initial-config)]
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-sonnet-4-6" nil nil)))
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-sonnet-5" nil nil)))
+        (is (= anthropic-variants
+               (config/effective-model-variants default-config "anthropic" "claude-sonnet-4-6" nil nil)))))
+
     (testing "User variant set to {} removes it from result"
       (is (= (dissoc anthropic-variants "high" "max")
              (config/effective-model-variants config "anthropic" "claude-sonnet-4-6"
@@ -726,6 +763,23 @@
     (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-sonnet-4-5"
                                           :variants ["high" "low" "medium"]
                                           :select-variant "medium"}}]}
+                (h/messages))))
+
+  (testing "Advertises variants discovered from provider model metadata"
+    (h/reset-components!)
+    (h/config! {:providers {"github-copilot" {:models {}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) update :models
+           #(merge % {"github-copilot/future-model"
+                      {:api :openai-chat
+                       :variants {"low" {:reasoning_effort "low"}
+                                  "high" {:reasoning_effort "high"}}}}))
+    (config/notify-selected-model-changed! "github-copilot/future-model"
+                                           (h/db*) (h/messenger) (h/config))
+    (is (match? {:config-updated [{:chat {:select-model "github-copilot/future-model"
+                                          :variants ["high" "low"]
+                                          :select-variant "high"}}]}
                 (h/messages))))
 
   (testing "No-op when model is missing from (:models db*) (stale persisted model)"

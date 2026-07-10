@@ -123,31 +123,39 @@
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
-(defn provider->api-handler [provider model config]
-  (cond
-    (= "openai" provider) {:api :openai-responses
-                           :handler llm-providers.openai/create-response!}
-    (= "anthropic" provider) {:api :anthropic
-                              :handler llm-providers.anthropic/chat!}
-    (= "github-copilot" provider) (if (copilot-responses-api-models model)
-                                    {:api :openai-responses
-                                     :handler llm-providers.openai/create-response!}
-                                    {:api :openai-chat
-                                     :handler llm-providers.openai-chat/chat-completion!})
-    (= "google" provider) {:api :openai-chat
-                           :handler llm-providers.openai-chat/chat-completion!}
-    (= "ollama" provider) {:api :ollama
-                           :handler llm-providers.ollama/chat!}
-    :else (case (get-in config [:providers provider :api])
-            ("openai-responses" "openai") {:api :openai-responses
-                                           :handler llm-providers.openai/create-response!}
-            "anthropic" {:api :anthropic
-                         :handler llm-providers.anthropic/chat!}
-            "openai-chat" {:api :openai-chat
-                           :handler llm-providers.openai-chat/chat-completion!}
-            "bedrock" {:api :bedrock
-                       :handler llm-providers.bedrock/chat!}
-            nil)))
+(defn ^:private api->handler [api]
+  (case (some-> api keyword)
+    :openai-responses {:api     :openai-responses
+                       :handler llm-providers.openai/create-response!}
+    :anthropic {:api     :anthropic
+                :handler llm-providers.anthropic/chat!}
+    :openai-chat {:api     :openai-chat
+                  :handler llm-providers.openai-chat/chat-completion!}
+    :ollama {:api     :ollama
+             :handler llm-providers.ollama/chat!}
+    :bedrock {:api     :bedrock
+              :handler llm-providers.bedrock/chat!}
+    nil))
+
+(defn provider->api-handler
+  ([provider model config]
+   (provider->api-handler provider model nil config))
+  ([provider model model-capabilities config]
+   (or (api->handler (:api model-capabilities))
+       (cond
+         (= "openai" provider) (api->handler :openai-responses)
+         (= "anthropic" provider) (api->handler :anthropic)
+         (= "github-copilot" provider) (api->handler (if (copilot-responses-api-models model)
+                                                       :openai-responses
+                                                       :openai-chat))
+         (= "google" provider) (api->handler :openai-chat)
+         (= "ollama" provider) (api->handler :ollama)
+         :else (case (get-in config [:providers provider :api])
+                 ("openai-responses" "openai") (api->handler :openai-responses)
+                 "anthropic" (api->handler :anthropic)
+                 "openai-chat" (api->handler :openai-chat)
+                 "bedrock" (api->handler :bedrock)
+                 nil)))))
 
 (def ^:private reasoning-keys-by-api
   {:anthropic [:thinking]
@@ -222,8 +230,8 @@
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
-        model-config (update model-config :variants #(config/effective-model-variants config provider model %))
-        {:keys [handler] :as api-handler} (provider->api-handler provider model config)
+        model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
+        {:keys [handler] :as api-handler} (provider->api-handler provider model model-capabilities config)
         {past-messages :messages
          sanitized-dropped-count :dropped-count
          sanitized-dropped-apis :dropped-apis} (sanitize-past-messages-for-api (:api api-handler) past-messages)
@@ -243,6 +251,24 @@
         api-url (llm-util/provider-api-url provider config)
         ;; Flatten {:static :dynamic} instructions map into a single string for non-Anthropic providers
         flat-instructions (if (map? instructions) (f.prompt/instructions->str instructions) instructions)
+        anthropic-opts {:model real-model
+                        :instructions instructions
+                        :user-messages user-messages
+                        :max-output-tokens max-output-tokens
+                        :reason? reason?
+                        :supports-image? supports-image?
+                        :past-messages past-messages
+                        :tools tools
+                        :web-search web-search
+                        :mid-conversation-system? mid-conversation-system?
+                        :extra-payload extra-payload
+                        :extra-headers extra-headers
+                        :api-url api-url
+                        :api-key api-key
+                        :auth-type auth-type
+                        :cancelled? cancelled?
+                        :cache-retention (:cacheRetention provider-config)
+                        :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -279,39 +305,26 @@
          callbacks)
 
         (= "anthropic" provider)
-        (handler
-         {:model real-model
-          :instructions instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :web-search web-search
-          :mid-conversation-system? mid-conversation-system?
-          :extra-payload extra-payload
-          :extra-headers extra-headers
-          :api-url api-url
-          :api-key api-key
-          :auth-type auth-type
-          :cancelled? cancelled?
-          :cache-retention (:cacheRetention provider-config)
-          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
-         callbacks)
+        (handler anthropic-opts callbacks)
 
         (= "github-copilot" provider)
         (let [api-url (or (:api-url provider-auth) api-url)
-              copilot-headers (fn [user-initiator?]
-                                (merge {"openai-intent" "conversation-panel"
-                                        "x-request-id" (str (random-uuid))
-                                        "x-initiator" (if user-initiator? "user" "agent")
-                                        "vscode-sessionid" ""
-                                        "vscode-machineid" ""
-                                        "Copilot-Vision-Request" "true"
-                                        "copilot-integration-id" "vscode-chat"}
-                                       (llm-util/copilot-ide-headers)
-                                       extra-headers))
+              copilot-headers (fn [user-initiator? anthropic?]
+                                (cond-> (merge {"openai-intent" "conversation-panel"
+                                                "x-request-id" (str (random-uuid))
+                                                "x-initiator" (if user-initiator? "user" "agent")
+                                                "vscode-sessionid" ""
+                                                "vscode-machineid" ""
+                                                "Copilot-Vision-Request" "true"
+                                                "copilot-integration-id" "vscode-chat"}
+                                               (llm-util/copilot-ide-headers)
+                                               extra-headers)
+                                  ;; Copilot uses a GitHub bearer token, not Anthropic OAuth, so replace the
+                                  ;; handler's OAuth beta with the Messages shim's required beta.
+                                  anthropic? (assoc "anthropic-beta" "interleaved-thinking-2025-05-14")))
+              user-initiator? (fn [body message-key]
+                                (and (not subagent?)
+                                     (= "user" (-> body message-key last :role))))
               base-opts {:model real-model
                          :instructions flat-instructions
                          :user-messages user-messages
@@ -320,26 +333,34 @@
                          :supports-image? supports-image?
                          :past-messages past-messages
                          :tools tools
-                         :extra-payload (merge {:parallel_tool_calls true}
-                                               extra-payload)
                          :reasoning-history reasoning-history
                          :api-url api-url
                          :api-key api-key
                          :prompt-cache-key prompt-cache-key}]
-          (if (= :openai-responses (:api api-handler))
+          (case (:api api-handler)
+            :openai-responses
             (handler
              (assoc base-opts
                     :web-search web-search
                     :image-generation image-generation
+                    :extra-payload (merge {:parallel_tool_calls true} extra-payload)
                     :extra-headers (fn [{:keys [body]}]
-                                     (copilot-headers (and (not subagent?)
-                                                           (= "user" (-> body :input last :role))))))
+                                     (copilot-headers (user-initiator? body :input) false)))
              callbacks)
+
+            :anthropic
+            (handler
+             (assoc anthropic-opts
+                    :api-url api-url
+                    :extra-headers (fn [{:keys [body]}]
+                                     (copilot-headers (user-initiator? body :messages) true)))
+             callbacks)
+
             (handler
              (assoc base-opts
+                    :extra-payload (merge {:parallel_tool_calls true} extra-payload)
                     :extra-headers (fn [{:keys [body]}]
-                                     (copilot-headers (and (not subagent?)
-                                                           (= "user" (-> body :messages last :role))))))
+                                     (copilot-headers (user-initiator? body :messages) false)))
              callbacks)))
 
         (= "google" provider)
@@ -507,8 +528,8 @@
                               (on-give-up error-data)))
                           (on-give-up error-data))))
         model-config (get-in provider-config [:models model])
-        model-config (update model-config :variants #(config/effective-model-variants config provider model %))
-        api-handler (provider->api-handler provider model config)
+        model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
+        api-handler (provider->api-handler provider model model-capabilities config)
         extra-payload (extra-payload-considering-variant model-config variant api-handler (:reason? model-capabilities))
         stream? (if (not (nil? (:stream extra-payload)))
                   (:stream extra-payload)

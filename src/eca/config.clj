@@ -218,8 +218,10 @@
               :readFile {:maxLines 2000}
               :shellCommand {:summaryMaxLength 35}
               :outputTruncation {:lines 2000 :sizeKb 50}}
-   :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants}
-                     ".*opus[-._]4[-._][78]|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants}
+   :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants
+                                                                  :api ["anthropic" "bedrock"]}
+                     ".*opus[-._]4[-._][78]|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants
+                                                                                          :api ["anthropic" "bedrock"]}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants
@@ -282,32 +284,31 @@
       false)))
 
 (defn effective-model-variants
-  "Returns effective variants for a model by merging built-in variants (from
-   :variantsByModel regex matching on the model key) with user-defined variants.
-   User-defined variants override built-in ones on name clash.
-   A variant set to {} is removed from the result, allowing users to disable
-   built-in variants."
-  [config provider model-name user-variants]
-  (let [provider-api (get-in config [:providers provider :api])
-        api-match? (fn [api config-val]
-                     (cond (sequential? config-val) (some #{api} config-val)
-                           config-val (= api config-val)
-                           :else true))
-        builtin (when model-name
-                  (some (fn [[pattern-str {:keys [variants excludeProviders api]}]]
-                          (when (and (regex-matches? pattern-str model-name)
-                                     (not (some #{provider} excludeProviders))
-                                     (api-match? provider-api api))
-                            variants))
-                        (:variantsByModel config)))
-        merged (cond
-                 (and builtin user-variants) (merge builtin user-variants)
-                 builtin builtin
-                 :else user-variants)]
-    (when merged
-      (let [filtered (into {} (remove (fn [[_ v]] (= {} v))) merged)]
-        (when (seq filtered)
-          filtered)))))
+  "Returns effective variants for a model. Built-in regex variants are the
+   fallback, discovered provider variants override them, and user variants have
+   final priority. A variant set to {} is removed from the result."
+  ([config provider model-name user-variants]
+   (effective-model-variants config provider model-name nil user-variants))
+  ([config provider model-name model-capabilities user-variants]
+   (let [provider-api (or (some-> (:api model-capabilities) name)
+                          (get-in config [:providers provider :api]))
+         api-match? (fn [api config-val]
+                      (cond (sequential? config-val) (some #{api} config-val)
+                            config-val (= api config-val)
+                            :else true))
+         builtin (when model-name
+                   (some (fn [[pattern-str {:keys [variants excludeProviders api]}]]
+                           (when (and (regex-matches? pattern-str model-name)
+                                      (not (some #{provider} excludeProviders))
+                                      (api-match? provider-api api))
+                             variants))
+                         (:variantsByModel config)))
+         merged (merge (or (not-empty (:variants model-capabilities)) builtin)
+                       user-variants)]
+     (when (seq merged)
+       (let [filtered (into {} (remove (fn [[_ v]] (= {} v))) merged)]
+         (when (seq filtered)
+           filtered))))))
 
 (defn selectable-variant-names
   "Returns sorted variant names suitable for UI display, excluding internal-only
@@ -826,11 +827,12 @@
                                config)
            agent-config (get-in config [:agent default-agent-name])
            [provider model-name] (shared/full-model->provider+model full-model)
+           model-capabilities (get-in @db* [:models full-model])
            user-variants (when (and provider model-name)
                            (get-in config [:providers provider :models model-name :variants]))
            variants (when (and provider model-name)
                       (selectable-variant-names
-                       (effective-model-variants config provider model-name user-variants)))
+                       (effective-model-variants config provider model-name model-capabilities user-variants)))
            agent-variant (:variant agent-config)
            valid? (fn [v] (and v variants (some #{v} variants)))
            select-variant (cond

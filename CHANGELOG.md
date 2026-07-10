@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Discover GitHub Copilot model APIs and reasoning variants from its authenticated `/models` endpoint.
 - Add built-in variants for `gpt-5.6` models (`gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`): `none`, `low`, `medium`, `high`, `xhigh`, `max`.
 - Support provider-level `extraHeaders`, sent on completion and models list requests. #517
 - Improve `/init` prompt, `AGENTS.md`, and development docs.

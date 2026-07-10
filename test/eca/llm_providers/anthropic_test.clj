@@ -36,6 +36,33 @@
           (is (= {:output-text "Hello from Anthropics proxy!"}
                  (select-keys response [:output-text]))))))))
 
+(deftest base-request-resolves-dynamic-extra-headers-test
+  (let [seen-body* (atom nil)
+        req* (atom nil)]
+    (with-client-proxied {}
+      (fn handler [req]
+        (reset! req* req)
+        {:status 200
+         :body {:content [{:text "ok"}]}})
+      (#'llm-providers.anthropic/base-request!
+       {:rid "r1"
+        :api-key "oauth-token"
+        :api-url "http://localhost:1"
+        :body {:model "claude" :messages [{:role "user"}] :stream false}
+        :auth-type :auth/oauth
+        :extra-headers (fn [{:keys [body]}]
+                         (reset! seen-body* body)
+                         {"anthropic-beta" "interleaved-thinking-2025-05-14"
+                          "x-initiator" "user"})})
+      (is (= {:model "claude" :messages [{:role "user"}] :stream false}
+             @seen-body*))
+            (is (= "interleaved-thinking-2025-05-14"
+                   (get-in @req* [:headers "anthropic-beta"])))
+            (is (not (string/includes? (get-in @req* [:headers "anthropic-beta"])
+                                       "oauth-2025-04-20"))
+                "Copilot's GitHub bearer must not opt into Anthropic OAuth beta behavior")
+            (is (= "user" (get-in @req* [:headers "x-initiator"]))))))
+
 (deftest oauth-authorize-test
   (testing "exchanges an OAuth code for tokens and returns refresh/access tokens with expiry"
     (let [req* (atom nil)

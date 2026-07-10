@@ -36,6 +36,7 @@ If `*http-proxy*` is set, passes it as the `HTTP_PROXY` environment variable."
     (println :--eca.integration.start-server/starting :cmd cmd-full :log-path log-path :http-proxy *http-proxy*)
     (p/process cmd-full
                (cond-> {:err  log-path
+                        :extra-env {"XDG_CACHE_HOME" (str (fs/path *eca-out-dir* "cache"))}
                         :exit-fn (fn [{:keys [cmd exit]}]
                                    (when (not= exit 0)
                                      (println :--eca.integration.start-server/exited :cmd cmd :exit-status exit)
@@ -44,7 +45,7 @@ If `*http-proxy*` is set, passes it as the `HTTP_PROXY` environment variable."
                                        (catch Exception _e))
                                      (System/exit exit)))}
                  *http-proxy*
-                 (assoc :extra-env {"HTTP_PROXY" *http-proxy*})))))
+                 (assoc-in [:extra-env "HTTP_PROXY"] *http-proxy*)))))
 
 (defn start-process! []
   (let [server (start-server *eca-binary-path*)

@@ -6,6 +6,7 @@
    [eca.llm-api :as llm-api]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.openai :as llm-providers.openai]
+   [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [eca.secrets :as secrets]
    [eca.test-helper :as h]))
 
@@ -195,6 +196,30 @@
             config {:providers {"anthropic" {:key "something"}}}]
         (is (= "custom/zeta" (llm-api/default-model db config)))))))
 
+(deftest provider->api-handler-copilot-metadata-test
+  (let [config {:providers {"github-copilot" {:api "openai-chat"}}}]
+    (testing "Discovered endpoint overrides the old model-name fallback"
+      (is (= :openai-responses
+             (:api (llm-api/provider->api-handler
+                    "github-copilot" "future-model" {:api :openai-responses} config))))
+      (is (= :anthropic
+             (:api (llm-api/provider->api-handler
+                    "github-copilot" "claude-future" {:api :anthropic} config))))
+      (is (= :openai-chat
+             (:api (llm-api/provider->api-handler
+                    "github-copilot" "gpt-5.5" {:api :openai-chat} config))))
+      (is (= :anthropic
+             (:api (llm-api/provider->api-handler
+                    "github-copilot" "claude-future" {:api "anthropic"} config)))))
+
+    (testing "Existing hardcoded routing remains the fallback without endpoint metadata"
+      (is (= :openai-responses
+             (:api (llm-api/provider->api-handler "github-copilot" "gpt-5.5" config))))
+      (is (= :openai-chat
+             (:api (llm-api/provider->api-handler "github-copilot" "gpt-5" config))))
+      (is (= :openai-chat
+             (:api (llm-api/provider->api-handler "github-copilot" "unknown-model" config)))))))
+
 (deftest prompt-test
   (testing "Custom OpenAI provider behavior and proper passing of httpClient options to the Hato client"
     (let [req* (atom nil)]
@@ -265,6 +290,71 @@
                   :uri "/v1/chat/completions"}
                  (select-keys @req* [:method :uri])))
           (is (= "hi" (:output-text response))))))))
+
+(deftest prompt-uses-copilot-discovered-variants-test
+  (let [base-opts {:provider "github-copilot"
+                   :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                   :past-messages []
+                   :tools []
+                   :variant "high"
+                   :provider-auth {:api-key "copilot-token"
+                                   :api-url "https://api.githubcopilot.com"
+                                   :type :auth/oauth}
+                   :config {:providers {"github-copilot" {:api "openai-chat"
+                                                           :url "https://api.githubcopilot.com"
+                                                           :models {}}}}
+                   :sync? false}]
+    (testing "Chat models receive reasoning_effort"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai-chat/chat-completion!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (assoc base-opts
+                  :model "gpt-chat"
+                  :model-capabilities {:api :openai-chat
+                                       :tools true
+                                       :reason? true
+                                       :web-search false
+                                       :model-name "gpt-chat"
+                                       :variants {"high" {:reasoning_effort "high"}}})))
+        (is (= "high" (get-in @captured* [:extra-payload :reasoning_effort])))
+        (is (nil? (get-in @captured* [:extra-payload :reasoning])))))
+
+    (testing "Responses models receive nested reasoning config"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai/create-response!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (assoc base-opts
+                  :model "gpt-responses"
+                  :model-capabilities {:api :openai-responses
+                                       :tools true
+                                       :reason? true
+                                       :web-search false
+                                       :model-name "gpt-responses"
+                                       :variants {"high" {:reasoning {:effort "high" :summary "auto"}}}})))
+        (is (= {:effort "high" :summary "auto"}
+               (get-in @captured* [:extra-payload :reasoning])))))
+
+    (testing "Messages models receive Anthropic payload and headers"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.anthropic/chat!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (assoc base-opts
+                  :model "claude-adaptive"
+                  :model-capabilities {:api :anthropic
+                                       :tools true
+                                       :reason? true
+                                       :web-search false
+                                       :model-name "claude-adaptive"
+                                       :variants {"high" {:thinking {:type "adaptive"}
+                                                          :output_config {:effort "high"}}}})))
+        (is (= {:type "adaptive"} (get-in @captured* [:extra-payload :thinking])))
+        (is (= {:effort "high"} (get-in @captured* [:extra-payload :output_config])))
+        (let [headers ((:extra-headers @captured*) {:body {:messages [{:role "user"}]}})]
+          (is (= "interleaved-thinking-2025-05-14" (get headers "anthropic-beta")))
+          (is (= "user" (get headers "x-initiator"))))))))
 
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"
