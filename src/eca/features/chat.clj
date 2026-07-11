@@ -67,27 +67,41 @@
        (when (not-empty agent) (str "/" agent))))
 
 (defn ^:private static-prompt-cache-signature
-  "SHA-256 cache identity for static prompt reuse."
+  "Per-component SHA-256 cache identity for static prompt reuse.
+   Returns a map of category -> hash so mid-chat instruction changes
+   can be attributed to what changed (prompt, contexts, rules, skills, tools)."
   [refined-contexts static-rules path-scoped-rules skills agent config chat-id all-tools db]
-  (let [static-contexts (vec (filter f.prompt/static-prompt-context? refined-contexts))]
-    (digest/sha-256-hex
-     (pr-str
-      {:agent agent
-       :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
-       :workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
-       :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
-                     :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
-                     :user-name (System/getProperty "user.name")
-                     :home-dir (cache/user-home)}
-       :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
-       :startup-context (get-in db [:chats chat-id :startup-context])
-       :static-contexts static-contexts
-       :repo-map (when (some #(= :repoMap (:type %)) static-contexts)
-                   :present)
-       :static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
-       :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)
-       :skills (mapv #(select-keys % [:name :description]) skills)
-       :tools (sort (map :full-name all-tools))}))))
+  (let [static-contexts (vec (filter f.prompt/static-prompt-context? refined-contexts))
+        sha (comp digest/sha-256-hex pr-str)]
+    {:prompt (sha {:agent agent
+                   :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
+                   :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
+                                 :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
+                                 :user-name (System/getProperty "user.name")
+                                 :home-dir (cache/user-home)}
+                   :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
+                   :startup-context (get-in db [:chats chat-id :startup-context])})
+     :contexts (sha {:workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
+                     :static-contexts static-contexts
+                     :repo-map (when (some #(= :repoMap (:type %)) static-contexts)
+                                 :present)})
+     :rules (sha {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
+                  :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)})
+     :skills (sha (mapv #(select-keys % [:name :description]) skills))
+     :tools (sha (sort (map :full-name all-tools)))}))
+
+(defn ^:private changed-instruction-categories
+  "Names of instruction categories that changed vs the cached signature.
+   Empty when the old signature has an unknown (legacy) shape."
+  [prompt-cache static-signature agent full-model]
+  (let [old-sig (:static-signature prompt-cache)]
+    (cond-> []
+      (not= (:agent prompt-cache) agent) (conj "agent")
+      (not= (:model prompt-cache) full-model) (conj "model")
+      (map? old-sig) (into (keep (fn [[k v]]
+                                   (when (not= v (get old-sig k))
+                                     (name k)))
+                                 static-signature)))))
 
 (defn ^:private prune-tool-results!
   "Prunes old tool result content from chat history to reduce context size.
@@ -1490,6 +1504,15 @@
                            (let [result (f.prompt/build-chat-instructions
                                          refined-contexts static-rules path-scoped-rules skills repo-map*
                                          agent config chat-id all-tools db)]
+                             (when prompt-cache
+                               (let [categories (changed-instruction-categories prompt-cache static-signature agent full-model)]
+                                 (lifecycle/send-content!
+                                  base-chat-ctx :system
+                                  {:type :text
+                                   :text (str "Instructions changed"
+                                              (when (seq categories)
+                                                (str " (" (string/join ", " categories) ")"))
+                                              ", prompt cache invalidated.\n")})))
                              (swap! db* assoc-in [:chats chat-id :prompt-cache]
                                     {:static (:static result)
                                      :static-signature static-signature

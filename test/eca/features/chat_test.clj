@@ -10,6 +10,7 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
+   [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
@@ -1501,6 +1502,32 @@
         (finally
           (fs/delete-if-exists prompt-file))))))
 
+(deftest instructions-changed-notice-test
+  (testing "System notice is sent when instructions change mid-chat"
+    (h/reset-components!)
+    (let [skills* (atom [])
+          mocks {:all-tools-mock (constantly [])
+                 :api-mock (fn [{:keys [on-message-received]}]
+                             (on-message-received {:type :finish}))}
+          notices (fn []
+                    (->> (h/messages)
+                         :chat-content-received
+                         (filter #(= :system (:role %)))
+                         (keep #(get-in % [:content :text]))
+                         (filter #(string/includes? % "Instructions changed"))))]
+      (with-redefs [f.skills/all (fn [& _] @skills*)]
+        (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+          (is (empty? (notices)) "No notice on the first prompt")
+          (h/reset-messenger!)
+          (prompt! {:message "Again" :chat-id chat-id} mocks)
+          (is (empty? (notices)) "No notice when nothing changed")
+          (h/reset-messenger!)
+          (reset! skills* [{:name "my-skill" :description "Does things"}])
+          (prompt! {:message "Changed" :chat-id chat-id} mocks)
+          (is (= ["Instructions changed (skills), prompt cache invalidated.\n"]
+                 (notices))
+              "Notice names the changed category"))))))
+
 (deftest prompt-cache-key-includes-agent-test
   (testing "sync-or-async-prompt! receives prompt-cache-key scoped by active agent"
     (h/reset-components!)
@@ -1808,11 +1835,16 @@
                      :agent "plan"
                      :model "openai/gpt-4.1"})
       (is (= 3 @build-calls*) "Changing model should rebuild instructions")
-      (is (match? {:static "static-3"
-                   :static-signature (m/pred #(re-matches #"[0-9a-f]{64}" %))
-                   :agent "plan"
-                   :model "openai/gpt-4.1"}
-                  (get-in (h/db) [:chats chat-id :prompt-cache]))))))
+      (let [sha? (m/pred #(re-matches #"[0-9a-f]{64}" %))]
+        (is (match? {:static "static-3"
+                     :static-signature {:prompt sha?
+                                        :contexts sha?
+                                        :rules sha?
+                                        :skills sha?
+                                        :tools sha?}
+                     :agent "plan"
+                     :model "openai/gpt-4.1"}
+                    (get-in (h/db) [:chats chat-id :prompt-cache])))))))
 
 (deftest message-content->chat-content-image-test
   (testing "image_generation_call role replays as a single :image ChatContent under assistant"

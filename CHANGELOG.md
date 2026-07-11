@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Notify in chat when instructions change mid-chat (prompt, contexts, rules, skills, tools), invalidating the prompt cache.
+
 ## 0.145.0
 
 - Add built-in variants for `gpt-5.6` models (`gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`): `none`, `low`, `medium`, `high`, `xhigh`, `max`.
