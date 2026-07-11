@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.145.1
+
 - Notify in chat when instructions change mid-chat (prompt, contexts, rules, skills, tools), invalidating the prompt cache.
 
 ## 0.145.0
