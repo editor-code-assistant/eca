@@ -202,6 +202,18 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
     steps:
+      - name: Ensure signing secrets are set
+        if: github.repository == 'editor-code-assistant/eca'
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "::error::CSC_LINK secret is empty, binary would be released unsigned"
+            exit 1
+          fi
+          if [ -z "$APPLE_ID" ]; then
+            echo "::error::APPLE_ID secret is empty, binary would be released without notarization"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
@@ -294,6 +306,18 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
     steps:
+      - name: Ensure signing secrets are set
+        if: github.repository == 'editor-code-assistant/eca'
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "::error::CSC_LINK secret is empty, binary would be released unsigned"
+            exit 1
+          fi
+          if [ -z "$APPLE_ID" ]; then
+            echo "::error::APPLE_ID secret is empty, binary would be released without notarization"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
