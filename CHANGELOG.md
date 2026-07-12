@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Discover GitHub Copilot model APIs and reasoning variants from its authenticated `/models` endpoint.
+
 ## 0.145.1
 
 - Notify in chat when instructions change mid-chat (prompt, contexts, rules, skills, tools), invalidating the prompt cache.

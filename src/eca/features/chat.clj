@@ -631,7 +631,8 @@
    opaque ids the new provider would reject and triggers a chat-visible
    notice via `:on-history-sanitized`. This used to throw outright (#209)."
   [db chat-id provider model config]
-  (let [current-api (:api (llm-api/provider->api-handler provider model config))
+  (let [model-capabilities (get-in db [:models (str provider "/" model)])
+        current-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
         last-api (get-in db [:chats chat-id :last-api])]
     (when (and last-api current-api (not= last-api current-api))
       (logger/info logger-tag
@@ -837,7 +838,7 @@
             ;; eca.llm-api so a later swap to a different model can drop entries
             ;; whose opaque ids (Anthropic signatures, OpenAI rs_*/encrypted_content,
             ;; toolu_*/call_* tool ids) the new provider would reject. #209
-            current-api (:api (llm-api/provider->api-handler provider model config))
+            current-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
             add-to-history! (fn [{:keys [role content] :as msg}]
                               (let [with-ts (update msg :created-at #(or % (System/currentTimeMillis)))
                                     tagged (if (and current-api
@@ -990,7 +991,7 @@
                                               (doseq [message user-messages]
                                                 (add-to-history!
                                                  (assoc message :content-id (:user-content-id chat-ctx))))
-                                              (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider model config)))
+                                              (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider model model-capabilities config)))
                                               (lifecycle/send-content! chat-ctx :system {:type :progress
                                                                                          :state :running
                                                                                          :text "Generating"}))

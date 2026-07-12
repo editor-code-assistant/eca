@@ -145,6 +145,75 @@
         (is (some #(re-find #"status 400" %) @warnings*))
         (is (some #(re-find #"model_not_supported" %) @warnings*))))))
 
+(deftest fetch-provider-native-copilot-models-metadata-test
+  (with-redefs [http/get (fn [_url _opts]
+                           {:status 200
+                            :body {:data [{:id "gpt-responses"
+                                           :supported_endpoints ["/responses" "/chat/completions"]
+                                           :capabilities {:supports {:reasoning_effort ["low" "max"]}}}
+                                          {:id "gpt-chat"
+                                           :supported_endpoints ["/chat/completions"]
+                                           :capabilities {:supports {:reasoning_effort ["low" "high"]}}}
+                                          {:id "claude-adaptive"
+                                           :supported_endpoints ["/chat/completions" "/responses" "/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :reasoning_effort ["low" "high"]}}}
+                                          {:id "claude-opus-4-7"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :reasoning_effort ["high"]}}}
+                                          {:id "claude-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:max_thinking_budget 10000}}}
+                                          {:id "claude-small-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:min_thinking_budget 1400
+                                                                     :max_thinking_budget 1500}}}
+                                          {:id "claude-invalid-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:max_thinking_budget 1000}}}]}})]
+    (is (match?
+         {"gpt-responses" {:discovered-api :openai-responses
+                            :discovered-reason? true
+                            :discovered-variants
+                            {"low" {:reasoning {:effort "low" :summary "auto"}}
+                             "max" {:reasoning {:effort "max" :summary "auto"}}}}
+          "gpt-chat" {:discovered-api :openai-chat
+                      :discovered-reason? true
+                      :discovered-variants
+                      {"low" {:reasoning_effort "low"}
+                       "high" {:reasoning_effort "high"}}}
+          "claude-adaptive" {:discovered-api :anthropic
+                             :discovered-reason? true
+                             :discovered-variants
+                             {"low" {:thinking {:type "adaptive"}
+                                     :output_config {:effort "low"}}
+                              "high" {:thinking {:type "adaptive"}
+                                      :output_config {:effort "high"}}}}
+          "claude-opus-4-7" {:discovered-api :anthropic
+                              :discovered-reason? true
+                              :discovered-variants
+                              {"high" {:thinking {:type "adaptive" :display "summarized"}
+                                       :output_config {:effort "high"}}}}
+          "claude-budget" {:discovered-api :anthropic
+                           :discovered-reason? true
+                           :discovered-variants
+                           {"high" {:thinking {:type "enabled" :budget_tokens 5000}}
+                            "max" {:thinking {:type "enabled" :budget_tokens 9999}}}}
+          "claude-small-budget" {:discovered-api :anthropic
+                                 :discovered-reason? true
+                                 :discovered-variants
+                                 {"high" {:thinking {:type "enabled" :budget_tokens 1400}}
+                                  "max" {:thinking {:type "enabled" :budget_tokens 1499}}}}
+          "claude-invalid-budget" {:discovered-api :anthropic
+                                   :discovered-reason? true}}
+         (#'models/fetch-provider-native-models
+          {:provider "github-copilot"
+           :api-url "https://api.githubcopilot.com"
+           :auth-type :auth/oauth
+           :api-key "tok"
+           :api-type "openai-chat"})))))
+
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
     (let [dynamic {"gpt-4" {}
@@ -435,6 +504,72 @@
         (is (re-find #"^vscode/" (get-in @request* [1 :headers "editor-version"])))
         (is (re-find #"^copilot-chat/" (get-in @request* [1 :headers "editor-plugin-version"])))
         (is (= "vscode-chat" (get-in @request* [1 :headers "copilot-integration-id"])))))))
+
+(deftest copilot-discovered-metadata-builds-model-capabilities-test
+  (with-redefs [http/get (fn [_url _opts]
+                           {:status 200
+                            :body {:data [{:id "gpt-future"
+                                           :supported_endpoints ["/responses"]
+                                           :capabilities {:supports {:reasoning_effort ["low" "high"]}}}
+                                          {:id "claude-future"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :reasoning_effort ["low" "high"]}}}]}})]
+    (let [supported (build-supported-models
+                     {:providers {"github-copilot" {:api "openai-chat"
+                                                     :url "https://api.githubcopilot.com"
+                                                     :requiresAuth? true
+                                                     :models {"gpt-alias" {:modelName "gpt-future"}
+                                                              "claude-alias" {:modelName "github-copilot/claude-future"}}}}}
+                     {:auth {"github-copilot" {:api-key "copilot-token"
+                                                 :type :auth/oauth}}}
+                     {})]
+      (is (= :openai-responses (get-in supported ["github-copilot/gpt-future" :api])))
+      (is (true? (get-in supported ["github-copilot/gpt-future" :reason?])))
+      (is (= {"low" {:reasoning {:effort "low" :summary "auto"}}
+              "high" {:reasoning {:effort "high" :summary "auto"}}}
+             (get-in supported ["github-copilot/gpt-future" :variants])))
+      (is (= :openai-responses (get-in supported ["github-copilot/gpt-alias" :api])))
+      (is (= (get-in supported ["github-copilot/gpt-future" :variants])
+             (get-in supported ["github-copilot/gpt-alias" :variants])))
+      (is (= :anthropic (get-in supported ["github-copilot/claude-alias" :api])))
+      (is (= (get-in supported ["github-copilot/claude-future" :variants])
+             (get-in supported ["github-copilot/claude-alias" :variants]))))))
+
+(deftest copilot-model-capabilities-fallback-test
+  (let [models-dev-data {"github-copilot"
+                         {"models" {"claude-sonnet-4-6" {"reasoning" true}
+                                    "gpt-5.5" {"reasoning" true}
+                                    "gpt-5.6-sol" {"reasoning" true}
+                                    "future-reasoner" {"reasoning" true}}}}
+        config {:providers {"github-copilot" {:api "openai-chat"
+                                               :url "https://api.githubcopilot.com"
+                                               :requiresAuth? true
+                                               :models {"claude-sonnet-4-6" {}
+                                                        "gpt-5.5" {}
+                                                        "gpt-5.6-sol" {}
+                                                        "future-reasoner" {}}}}}
+        db {:auth {"github-copilot" {:api-key "copilot-token"
+                                      :type :auth/oauth}}}]
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 503 :body {:error "temporary"}})]
+      (let [supported (build-supported-models config db models-dev-data)]
+        (is (nil? (get-in supported ["github-copilot/claude-sonnet-4-6" :api])))
+        (is (nil? (get-in supported ["github-copilot/claude-sonnet-4-6" :variants])))
+        (is (nil? (get-in supported ["github-copilot/gpt-5.5" :api])))
+        (is (nil? (get-in supported ["github-copilot/gpt-5.5" :variants])))
+        (is (nil? (get-in supported ["github-copilot/future-reasoner" :api])))
+        (is (nil? (get-in supported ["github-copilot/future-reasoner" :variants])))
+        (is (nil? (get-in supported ["github-copilot/gpt-5.6-sol" :api])))
+        (is (nil? (get-in supported ["github-copilot/gpt-5.6-sol" :variants])))))
+
+    (testing "Empty native catalogs also fall back to models.dev"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200 :body {:data []}})]
+        (let [supported (build-supported-models config db models-dev-data)]
+          (is (contains? supported "github-copilot/claude-sonnet-4-6"))
+          (is (nil? (get-in supported ["github-copilot/claude-sonnet-4-6" :variants])))
+          (is (nil? (get-in supported ["github-copilot/gpt-5.6-sol" :variants]))))))))
 
 (deftest fetch-provider-models-sends-provider-extra-headers-test
   (testing "Provider-level extraHeaders are sent on the native /models fetch"

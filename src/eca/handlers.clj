@@ -22,17 +22,16 @@
 (set! *warn-on-reflection* true)
 
 (defn ^:private model-variants
-  "Returns sorted variant names for a full model (e.g. \"anthropic/claude-sonnet-4-5\")
-   by resolving effective variants: built-in (from :variantsByModel regex match)
-   merged with user-defined [:providers provider :models model :variants]."
-  ^clojure.lang.IPersistentVector [config ^String full-model]
+  "Returns sorted built-in, discovered, and user-defined variant names for a full model."
+  ^clojure.lang.IPersistentVector [config db ^String full-model]
   (when full-model
     (let [idx (.indexOf full-model "/")]
       (when (pos? idx)
         (let [provider (subs full-model 0 idx)
               model (subs full-model (inc idx))
+              model-capabilities (get-in db [:models full-model])
               user-variants (get-in config [:providers provider :models model :variants])
-              variants (config/effective-model-variants config provider model user-variants)]
+              variants (config/effective-model-variants config provider model model-capabilities user-variants)]
           (config/selectable-variant-names variants))))))
 
 (defn ^:private select-variant
@@ -93,7 +92,7 @@
                                                                                 (:defaultAgent fresh-config))
                                                                             fresh-config)
                                                         default-agent-config (get-in fresh-config [:agent default-agent-name])
-                                                        variants (model-variants fresh-config default-model)]
+                                                        variants (model-variants fresh-config db default-model)]
                                                     (config/notify-fields-changed-only!
                                                      {:chat
                                                       ;; Advertise the default trust only when enabled, so clients
@@ -416,7 +415,7 @@
   ([agent-config config messenger db* chat-id]
    (when-let [model (or (:defaultModel agent-config)
                         (:defaultModel config))]
-     (let [variants (model-variants config model)
+     (let [variants (model-variants config @db* model)
            agent-variant (select-variant agent-config variants)
            ;; CAS: only mutate the chat record if it still exists at swap
            ;; time, avoiding TOCTOU resurrection when chat/delete races us.
@@ -482,7 +481,7 @@
                               (or (:defaultAgent (:chat config))
                                   (:defaultAgent config))
                               config)
-          variants (model-variants config model)
+          variants (model-variants config @db* model)
           ;; CAS: only mutate the chat record if it still exists at swap
           ;; time, avoiding TOCTOU resurrection when chat/delete races us.
           [old-db _new-db] (when chat-id

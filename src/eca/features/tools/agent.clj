@@ -111,14 +111,15 @@
 
 (defn ^:private model-variant-names
   "Returns sorted variant names for a specific full model string (e.g. \"anthropic/claude-sonnet-4-6\")."
-  [config ^String full-model]
+  [config db ^String full-model]
   (when full-model
     (let [idx (.indexOf full-model "/")]
       (when (pos? idx)
         (let [provider (subs full-model 0 idx)
               model (subs full-model (inc idx))
+              model-capabilities (get-in db [:models full-model])
               user-variants (get-in config [:providers provider :models model :variants])
-              variants (config/effective-model-variants config provider model user-variants)]
+              variants (config/effective-model-variants config provider model model-capabilities user-variants)]
           (config/selectable-variant-names variants))))))
 
 (defn ^:private spawn-agent
@@ -177,7 +178,7 @@
         ;; configured variants accept any variant (the LLM API will reject if invalid).
         user-variant (get arguments "variant")
         _ (when user-variant
-            (let [valid-variants (model-variant-names config subagent-model)]
+            (let [valid-variants (model-variant-names config db subagent-model)]
               (when (and (seq valid-variants)
                          (not (some #{user-variant} valid-variants)))
                 (throw (ex-info (format "Variant '%s' is not available for model '%s'. Available variants: %s"

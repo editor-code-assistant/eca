@@ -93,6 +93,9 @@
   (let [url (join-api-url api-url (or url-relative-path messages-path))
         reason-id* (atom (str (random-uuid)))
         oauth? (= :auth/oauth auth-type)
+        extra-headers (if (fn? extra-headers)
+                        (extra-headers {:body body})
+                        extra-headers)
         headers (client/merge-llm-headers
                  (merge
                   (assoc-some

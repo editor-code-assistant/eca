@@ -10,7 +10,7 @@ Variants are named payload presets for a model, allowing you to quickly switch b
 
 ## Built-in Variants
 
-ECA ships with built-in variants for some known models via the `variantsByModel` config which has a good default.
+ECA ships with built-in variants for some known models via the `variantsByModel` config which has a good default. For authenticated GitHub Copilot, ECA uses only the model's advertised reasoning capabilities from Copilot's `/models` endpoint and does not guess variants when that metadata is unavailable.
 
 !!! note
 
