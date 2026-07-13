@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.147.0
+
 - Granular shell/git approve & remember by command + subcommand (e.g. `git checkout`) instead of whole tool; details carry breakdown, approval keys and remembered state. #153
 
 ## 0.146.2
