@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.146.1
+
 - Wait for rate-limit reset from response headers (Anthropic, OpenAI-compatible) on 429, showing reset time in chat; optional provider config `rateLimitMaxWaitSeconds` caps the wait.
 
 ## 0.146.0
