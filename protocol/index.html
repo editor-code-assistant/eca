@@ -3776,7 +3776,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 
 <span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallOrigin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;mcp&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;server&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;unknown&#39;</span><span class="p">;</span>
 
-<span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallDetails</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileChangeDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">JsonOutputsDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">SubagentDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">TaskDetails</span><span class="p">;</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">ToolCallDetails</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileChangeDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">JsonOutputsDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">SubagentDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">TaskDetails</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">ShellCommandDetails</span><span class="p">;</span>
 
 <span class="kd">interface</span><span class="w"> </span><span class="nx">FileChangeDetails</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;fileChange&#39;</span><span class="p">;</span>
@@ -3921,6 +3921,53 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
+<span class="cm"> * Breakdown of a shell command tool call.</span>
+<span class="cm"> * Present when the server could safely parse the command; clients can use it</span>
+<span class="cm"> * to show what an &quot;approve &amp; remember&quot; would remember.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ShellCommandDetails</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;shellCommand&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The individual commands extracted from the shell invocation.</span>
+<span class="cm">     * Chained commands (&amp;&amp;, ||, ;, |) are split into separate entries.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="kt">ShellCommandBreakdown</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether the command runs in background as a job.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">background?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ShellCommandBreakdown</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The command being executed, e.g. &quot;ls&quot;, &quot;git&quot;.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">command</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * All arguments to the command, including flags.</span>
+<span class="cm">     * e.g. [&quot;-la&quot;, &quot;*.clj&quot;] for &quot;ls -la *.clj&quot;.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">args</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The key that &quot;approve &amp; remember&quot; would remember for this command,</span>
+<span class="cm">     * e.g. &quot;git checkout&quot; or &quot;rg&quot;. Absent when this command can never be</span>
+<span class="cm">     * auto-approved (wrapper commands like sudo/xargs, file output</span>
+<span class="cm">     * redirections, dynamic command words).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">approvalKey?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether approvalKey is already remembered for this session.</span>
+<span class="cm">     * Only present when approvalKey is present.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">remembered?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/**</span>
 <span class="cm"> * Extra information about a chat</span>
 <span class="cm"> */</span>
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ChatMetadataContent</span><span class="w"> </span><span class="p">{</span>
@@ -3967,6 +4014,8 @@ This will execute the tool call and continue the LLM chat loop.</p>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The approach to save this tool call.</span>
+<span class="cm">     * For tools with granular approval (eca shell_command and git), &#39;session&#39; remembers</span>
+<span class="cm">     * the specific approved commands (e.g. &quot;git checkout&quot;) instead of the whole tool.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">save</span><span class="o">?:</span><span class="w"> </span><span class="s1">&#39;session&#39;</span><span class="p">;</span>
 
@@ -5859,7 +5908,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 18:45:12 UTC">July 13, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 13, 2026 23:28:38 UTC">July 13, 2026</span>
   </span>
 
     
