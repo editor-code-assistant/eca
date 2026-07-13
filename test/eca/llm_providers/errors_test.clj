@@ -329,3 +329,103 @@
     (is (true? (llm-providers.errors/retryable?
                 {:message "Remote host terminated the handshake"}
                 [{:errorPattern "terminated.*handshake" :label "TLS error"}])))))
+
+(defn ^:private instant-str [epoch-ms]
+  (str (java.time.Instant/ofEpochMilli epoch-ms)))
+
+(deftest rate-limit-wait-test
+  (let [now-ms 1000000000000]
+    (testing "retry-after delta seconds"
+      (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
+             (llm-providers.errors/rate-limit-wait {"retry-after" "7"} now-ms))))
+
+    (testing "retry-after HTTP-date"
+      (let [resets-at (+ now-ms 120000)
+            http-date (.format java.time.format.DateTimeFormatter/RFC_1123_DATE_TIME
+                               (.atZone (java.time.Instant/ofEpochMilli resets-at)
+                                        (java.time.ZoneId/of "GMT")))]
+        (is (= {:delay-ms 120000 :resets-at resets-at}
+               (llm-providers.errors/rate-limit-wait {"retry-after" http-date} now-ms)))))
+
+    (testing "anthropic unified reset in epoch seconds (subscription session limits)"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 3600)]
+        (is (= {:delay-ms 3600000 :resets-at (* reset-epoch-s 1000)}
+               (llm-providers.errors/rate-limit-wait
+                {"anthropic-ratelimit-unified-reset" (str reset-epoch-s)} now-ms)))))
+
+    (testing "anthropic unified reset already in epoch millis is kept as-is"
+      (is (= {:delay-ms 5000 :resets-at (+ now-ms 5000)}
+             (llm-providers.errors/rate-limit-wait
+              {"anthropic-ratelimit-unified-reset" (str (+ now-ms 5000))} now-ms))))
+
+    (testing "retry-after takes precedence over reset headers"
+      (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
+             (llm-providers.errors/rate-limit-wait
+              {"retry-after" "7"
+               "anthropic-ratelimit-unified-reset" (str (+ (quot now-ms 1000) 3600))} now-ms))))
+
+    (testing "RFC 3339 bucket resets: latest exhausted bucket wins"
+      (is (= {:delay-ms 60000 :resets-at (+ now-ms 60000)}
+             (llm-providers.errors/rate-limit-wait
+              {"anthropic-ratelimit-requests-reset" (instant-str (+ now-ms 30000))
+               "anthropic-ratelimit-requests-remaining" "100"
+               "anthropic-ratelimit-tokens-reset" (instant-str (+ now-ms 60000))
+               "anthropic-ratelimit-tokens-remaining" "0"} now-ms))))
+
+    (testing "RFC 3339 bucket resets: earliest future reset when none exhausted"
+      (is (= {:delay-ms 30000 :resets-at (+ now-ms 30000)}
+             (llm-providers.errors/rate-limit-wait
+              {"anthropic-ratelimit-requests-reset" (instant-str (+ now-ms 30000))
+               "anthropic-ratelimit-tokens-reset" (instant-str (+ now-ms 60000))} now-ms))))
+
+    (testing "openai duration-style bucket resets: exhausted bucket wins"
+      (is (= {:delay-ms 360000 :resets-at (+ now-ms 360000)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset-requests" "6m0s"
+               "x-ratelimit-remaining-requests" "0"
+               "x-ratelimit-reset-tokens" "1s"
+               "x-ratelimit-remaining-tokens" "5000"} now-ms))))
+
+    (testing "openai fractional and millis durations"
+      (is (= {:delay-ms 59903 :resets-at (+ now-ms 59903)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset-tokens" "59.903s"} now-ms)))
+      (is (= {:delay-ms 12 :resets-at (+ now-ms 12)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset-tokens" "12ms"} now-ms))))
+
+    (testing "epoch millis bucket reset (openrouter style)"
+      (is (= {:delay-ms 5000 :resets-at (+ now-ms 5000)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset" (str (+ now-ms 5000))} now-ms))))
+
+    (testing "chatgpt codex exhausted window uses reset-at epoch"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 1800)]
+        (is (= {:delay-ms 1800000 :resets-at (* reset-epoch-s 1000)}
+               (llm-providers.errors/rate-limit-wait
+                {"x-codex-primary-used-percent" "100"
+                 "x-codex-primary-reset-at" (str reset-epoch-s)
+                 "x-codex-secondary-used-percent" "0"} now-ms)))))
+
+    (testing "chatgpt codex exhausted window falls back to reset-after-seconds"
+      (is (= {:delay-ms 3600000 :resets-at (+ now-ms 3600000)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-codex-primary-used-percent" "100"
+               "x-codex-primary-reset-at" ""
+               "x-codex-primary-reset-after-seconds" "3600"} now-ms))))
+
+    (testing "chatgpt codex windows with headroom are not a wait signal"
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 {"x-codex-primary-used-percent" "0"
+                  "x-codex-primary-reset-at" (str (+ (quot now-ms 1000) 604800))
+                  "x-codex-primary-reset-after-seconds" "604800"} now-ms))))
+
+    (testing "past resets, malformed or absent headers return nil"
+      (is (nil? (llm-providers.errors/rate-limit-wait {"retry-after" "0"} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait {"retry-after" "garbage"} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 {"anthropic-ratelimit-requests-reset" "not-a-date"} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 {"anthropic-ratelimit-requests-reset" (instant-str (- now-ms 30000))} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait {} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait nil now-ms))))))

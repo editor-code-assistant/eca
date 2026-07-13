@@ -2,7 +2,9 @@
   "Classifies LLM provider errors into semantic types for structured error handling.
 
    Supports context overflow, rate limiting, authentication, and overload detection
-   across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.).")
+   across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.)."
+  (:require
+   [clojure.string :as string]))
 
 (set! *warn-on-reflection* true)
 
@@ -146,3 +148,121 @@
   ([error-data retry-rules]
    (contains? retryable-error-types
               (:error/type (classify-error error-data retry-rules)))))
+
+(defn ^:private header-str
+  "Header value as trimmed non-blank string, unwrapping multi-value collections."
+  [headers k]
+  (let [v (get headers k)
+        v (if (coll? v) (first v) v)]
+    (when (string? v)
+      (let [v (string/trim v)]
+        (when-not (string/blank? v) v)))))
+
+(defn ^:private parse-long-str [s]
+  (when (and s (re-matches #"\d+" s))
+    (parse-long s)))
+
+(defn ^:private epoch-str->ms
+  "Unix epoch string to millis; values already in millis are kept as-is."
+  [s]
+  (when-let [n (parse-long-str s)]
+    (if (> n 100000000000) n (* n 1000))))
+
+(defn ^:private parse-instant-ms
+  "RFC 3339 / ISO-8601 timestamp to epoch millis, nil if invalid."
+  [s]
+  (when s
+    (or (try (.toEpochMilli (java.time.Instant/parse s))
+             (catch Exception _ nil))
+        (try (.toEpochMilli (.toInstant (java.time.OffsetDateTime/parse s)))
+             (catch Exception _ nil)))))
+
+(defn ^:private retry-after-ms
+  "`retry-after` header (delta seconds or HTTP-date) as absolute epoch millis."
+  [headers now-ms]
+  (when-let [v (header-str headers "retry-after")]
+    (or (some-> (parse-long-str v) (* 1000) (+ now-ms))
+        (try (-> (java.time.ZonedDateTime/parse v java.time.format.DateTimeFormatter/RFC_1123_DATE_TIME)
+                 .toInstant
+                 .toEpochMilli)
+             (catch Exception _ nil)))))
+
+(defn ^:private go-duration->ms
+  "Parses Go-style duration strings used by OpenAI reset headers,
+   e.g. 1s, 6m0s, 12ms, 1h2m3.5s. Returns millis, nil if invalid."
+  [s]
+  (when (and s (re-matches #"(?:[\d.]+(?:h|m|s|ms))+" s))
+    (some->> (re-seq #"([\d.]+)(ms|h|m|s)" s)
+             (map (fn [[_ n unit]]
+                    (* (parse-double n)
+                       (case unit
+                         "h" 3600000
+                         "m" 60000
+                         "s" 1000
+                         "ms" 1))))
+             (reduce +)
+             long)))
+
+(defn ^:private codex-window-reset-ms
+  "ChatGPT Codex quota headers (`x-codex-<window>-*`): latest reset epoch-ms
+   among exhausted windows (used-percent >= 100), nil otherwise. Windows with
+   headroom are ignored on purpose: these headers come on every response with
+   far-future resets, so only a clearly exhausted window is a wait signal."
+  [headers now-ms]
+  (some->> ["primary" "secondary"]
+           (keep (fn [w]
+                   (let [used (some-> (header-str headers (str "x-codex-" w "-used-percent"))
+                                      parse-double)
+                         reset-at (epoch-str->ms (header-str headers (str "x-codex-" w "-reset-at")))
+                         reset-after-s (parse-long-str (header-str headers (str "x-codex-" w "-reset-after-seconds")))]
+                     (when (and used (>= used 100.0))
+                       (or reset-at
+                           (some-> reset-after-s (* 1000) (+ (long now-ms))))))))
+           seq
+           (apply max)))
+
+(defn ^:private bucket-resets
+  "All rate-limit reset headers (`*ratelimit*-reset` like Anthropic's or
+   `*ratelimit*-reset-<bucket>` like OpenAI's) as {:reset-ms .. :remaining ..}
+   entries, accepting RFC 3339 timestamps, Go-style durations or unix epoch values."
+  [headers now-ms]
+  (keep (fn [[k _]]
+          (when (and (string? k)
+                     (string/includes? k "ratelimit")
+                     (or (string/ends-with? k "-reset")
+                         (string/includes? k "-reset-")))
+            (let [v (header-str headers k)]
+              (when-let [reset-ms (or (parse-instant-ms v)
+                                      (some->> (go-duration->ms v) (+ (long now-ms)))
+                                      (epoch-str->ms v))]
+                {:reset-ms reset-ms
+                 :remaining (parse-long-str (header-str headers (string/replace k "-reset" "-remaining")))}))))
+        headers))
+
+(defn rate-limit-wait
+  "Computes when a rate-limited request can be retried, from HTTP response
+   headers (lowercase string keys, as returned by the http client).
+
+   Precedence:
+   1. `retry-after` (delta seconds or HTTP-date)
+   2. `anthropic-ratelimit-unified-reset` (epoch seconds; subscription session limits)
+   3. `x-codex-<window>-reset-at/-reset-after-seconds` (ChatGPT subscription),
+      only for exhausted windows (used-percent >= 100)
+   4. rate-limit reset buckets (Anthropic `*ratelimit*-reset` RFC 3339/epoch,
+      OpenAI `*ratelimit*-reset-<bucket>` Go-style durations): latest exhausted
+      bucket (remaining = 0), else earliest future reset.
+
+   Returns {:delay-ms N :resets-at epoch-ms} or nil when headers give no usable
+   future reset (callers should fall back to exponential backoff)."
+  [headers now-ms]
+  (when (map? headers)
+    (let [resets-at (or (retry-after-ms headers now-ms)
+                        (epoch-str->ms (header-str headers "anthropic-ratelimit-unified-reset"))
+                        (codex-window-reset-ms headers now-ms)
+                        (let [buckets (filter #(> (long (:reset-ms %)) (long now-ms)) (bucket-resets headers now-ms))
+                              exhausted (filter #(some-> (:remaining %) (<= 0)) buckets)]
+                          (or (some->> (seq exhausted) (map :reset-ms) (apply max))
+                              (some->> (seq buckets) (map :reset-ms) (apply min)))))]
+      (when (and resets-at (> (long resets-at) (long now-ms)))
+        {:delay-ms (- (long resets-at) (long now-ms))
+         :resets-at (long resets-at)}))))

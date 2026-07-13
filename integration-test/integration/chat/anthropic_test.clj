@@ -4,6 +4,7 @@
    [integration.eca :as eca]
    [integration.fixture :as fixture]
    [integration.helper :refer [match-content] :as h]
+   [llm-mock.anthropic :as llm-mock.anthropic]
    [llm-mock.mocks :as llm.mocks]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -291,3 +292,34 @@
                       [{:name "eca__directory_tree"}])
               :system (m/pred vector?)}
              (llm.mocks/get-req-body :tool-calling-0)))))))
+
+(deftest rate-limited-retry
+  (eca/start-process!)
+
+  (eca/request! (fixture/initialize-request))
+  (eca/notify! (fixture/initialized-notification))
+  (testing "429 with retry-after header waits for reset then auto-resumes"
+    (llm-mock.anthropic/reset-rate-limited-count!)
+    (llm.mocks/set-case! :rate-limited-0)
+    (let [resp (eca/request! (fixture/chat-prompt-request
+                              {:model "anthropic/claude-sonnet-4-6"
+                               :message "Tell me a joke!"}))
+          chat-id (:chatId resp)]
+
+      (is (match?
+           {:chatId (m/pred string?)
+            :model "anthropic/claude-sonnet-4-6"
+            :status "prompting"}
+           resp))
+
+      (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+      (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+      (match-content chat-id "system" {:type "progress"
+                                       :state "running"
+                                       :text (m/pred #(re-matches #"⏳ Rate limited\. Resuming at \d{2}:\d{2} \(in \d+s, attempt 1/10\)" (str %)))})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
+      (match-content chat-id "assistant" {:type "text" :text "Knock"})
+      (match-content chat-id "assistant" {:type "text" :text " knock!"})
+      (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "progress" :state "finished"}))))

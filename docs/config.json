@@ -694,6 +694,11 @@
             "additionalProperties": false
           }
         },
+        "rateLimitMaxWaitSeconds": {
+          "type": "integer",
+          "description": "Optional cap on how long to wait for a rate limit reset (derived from provider response headers like retry-after). Unset: ECA sleeps until the reset time and auto-resumes, showing the reset time in chat. When set and the reset is further away, ECA gives up retrying and surfaces the reset time in the error.",
+          "markdownDescription": "Optional cap on how long to wait for a rate limit reset (derived from provider response headers like `retry-after`). Unset: ECA sleeps until the reset time and auto-resumes, showing the reset time in chat. When set and the reset is further away, ECA gives up retrying and surfaces the reset time in the error."
+        },
         "models": {
           "type": "object",
           "description": "Available models for this provider. Each key is the model alias.",

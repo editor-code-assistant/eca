@@ -39,6 +39,7 @@
 (def ^:private default-base-delay-ms 2000)
 (def ^:private default-backoff-multiplier 2)
 (def ^:private max-delay-ms 60000)
+(def ^:private rate-limit-wait-buffer-ms 1000)
 (def ^:private cancel-check-interval-ms 100)
 
 (defn ^:private retry-delay-ms
@@ -504,14 +505,25 @@
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
                             max-retries (if (= :premature-stop error-type)
                                           premature-stop-max-retries
-                                          default-max-retries)]
+                                          default-max-retries)
+                            rl-wait (when (= :rate-limited error-type)
+                                      (llm-providers.errors/rate-limit-wait (:headers error-data)
+                                                                            (System/currentTimeMillis)))
+                            max-wait-ms (some-> (:rateLimitMaxWaitSeconds provider-config) long (* 1000))
+                            wait-too-long? (boolean (and rl-wait
+                                                         max-wait-ms
+                                                         (> (long (:delay-ms rl-wait)) (long max-wait-ms))))]
                         (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
                                  (< attempt max-retries)
+                                 (not wait-too-long?)
                                  (not (cancelled?)))
-                          (let [delay-ms (retry-delay-ms attempt)]
+                          (let [delay-ms (if rl-wait
+                                           (+ (long (:delay-ms rl-wait)) rate-limit-wait-buffer-ms)
+                                           (retry-delay-ms attempt))]
                             (logger/info logger-tag
-                                         (format "Retryable error (attempt %d/%d), retrying in %ds"
-                                                 (inc attempt) max-retries (quot delay-ms 1000))
+                                         (format "Retryable error (attempt %d/%d), retrying in %ds%s"
+                                                 (inc attempt) max-retries (quot delay-ms 1000)
+                                                 (if rl-wait " (rate limit reset from headers)" ""))
                                          {:error-type error-type
                                           :status (:status error-data)})
                             (when on-retry
@@ -519,6 +531,7 @@
                                 (on-retry {:attempt (inc attempt)
                                            :max-retries max-retries
                                            :delay-ms delay-ms
+                                           :resets-at (:resets-at rl-wait)
                                            :error-data error-data
                                            :classified classified})
                                 (catch Exception e
@@ -526,7 +539,8 @@
                             (if (sleep-with-cancel delay-ms cancelled?)
                               (retry-prompt-fn (inc attempt))
                               (on-give-up error-data)))
-                          (on-give-up error-data))))
+                          (on-give-up (cond-> error-data
+                                        rl-wait (assoc :rate-limit-resets-at (:resets-at rl-wait)))))))
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
         api-handler (provider->api-handler provider model model-capabilities config)

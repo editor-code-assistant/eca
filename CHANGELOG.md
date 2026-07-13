@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Wait for rate-limit reset from response headers (Anthropic, OpenAI-compatible) on 429, showing reset time in chat; optional provider config `rateLimitMaxWaitSeconds` caps the wait.
+
 ## 0.146.0
 
 - Discover GitHub Copilot model APIs and reasoning variants from its authenticated `/models` endpoint.

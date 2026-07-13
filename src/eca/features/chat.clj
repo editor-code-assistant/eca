@@ -762,6 +762,18 @@
                      (str role ": " truncated)))))
          (string/join "\n\n"))))
 
+(defn ^:private duration-str
+  "Humanizes a millis duration, e.g. 42s, 3m05s, 2h14m."
+  [ms]
+  (let [total-secs (max 0 (quot (long ms) 1000))
+        h (quot total-secs 3600)
+        m (quot (mod total-secs 3600) 60)
+        s (mod total-secs 60)]
+    (cond
+      (pos? h) (format "%dh%02dm" h m)
+      (pos? m) (format "%dm%02ds" m s)
+      :else (format "%ds" s))))
+
 (defn ^:private sanitize-title
   "Clean up a chat title: take first meaningful line, strip control chars,
    markdown header prefixes, collapse whitespace, and truncate to 40 chars.
@@ -986,7 +998,7 @@
                                 (or (identical? :stopping (:status chat))
                                     (:prompt-finished? chat)
                                     (not= prompt-id (:prompt-id chat)))))
-                :on-retry (fn [{:keys [attempt max-retries delay-ms classified]}]
+                :on-retry (fn [{:keys [attempt max-retries delay-ms resets-at classified]}]
                             (let [{error-type :error/type error-label :error/label} classified
                                   reason (or error-label
                                              (case error-type
@@ -997,8 +1009,14 @@
                               (lifecycle/send-content! chat-ctx :system
                                                        {:type :progress
                                                         :state :running
-                                                        :text (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
-                                                                      reason (quot delay-ms 1000) attempt max-retries)})))
+                                                        :text (if resets-at
+                                                                (format "⏳ %s. Resuming at %s (in %s, attempt %d/%d)"
+                                                                        reason
+                                                                        (shared/ms->presentable-date resets-at "HH:mm")
+                                                                        (duration-str delay-ms)
+                                                                        attempt max-retries)
+                                                                (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
+                                                                        reason (quot delay-ms 1000) attempt max-retries))})))
                 :on-history-sanitized (fn [{:keys [dropped-count dropped-apis target-api]}]
                                         (let [from-label (->> dropped-apis
                                                               (remove nil?)
@@ -1336,7 +1354,12 @@
                                                                           (str "\n\nContext window exceeded: this request is larger than the model's context window"
                                                                                " (system prompt, MCP server instructions and messages combined)."
                                                                                " Try a model with a larger context window, or reduce enabled MCP servers/context.")
-                                                                          (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))))}))
+                                                                          (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))
+                                                                               (when-let [resets-at (:rate-limit-resets-at error-data)]
+                                                                                 (let [in-ms (- (long resets-at) (System/currentTimeMillis))]
+                                                                                   (format "\nRate limit resets at %s%s."
+                                                                                           (shared/ms->presentable-date resets-at "HH:mm")
+                                                                                           (if (pos? in-ms) (str " (in " (duration-str in-ms) ")") ""))))))}))
                                       ;; Defensive save: finish-chat-prompt! can short-circuit when
                                       ;; :prompt-finished? was already set or the prompt-id rotated,
                                       ;; which would leave a chat that hit an error without a save.

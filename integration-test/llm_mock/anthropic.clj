@@ -367,29 +367,48 @@
             true)
   (hk/close ch))
 
+(defonce ^:private rate-limited-count* (atom 0))
+
+(defn reset-rate-limited-count! []
+  (reset! rate-limited-count* 0))
+
 (defn handle-anthropic-messages [req]
   (let [body (some-> (slurp (:body req))
-                     (json/parse-string true))]
-    (hk/as-channel
-     req
-     {:on-open (fn [ch]
-                 (hk/send! ch {:status 200
-                               :headers {"Content-Type" "text/event-stream; charset=utf-8"
-                                         "Cache-Control" "no-cache"
-                                         "Connection" "keep-alive"}}
-                           false)
-                 (if (string/includes? (:text (last (:system body))) llm.mocks/chat-title-generator-str)
-                   (chat-title-text-0 ch)
-                   (do
-                     (llm.mocks/set-req-body! llm.mocks/*case* body)
-                     (case llm.mocks/*case*
-                       :simple-text-0 (simple-text-0 ch)
-                       :simple-text-1 (simple-text-1 ch)
-                       :simple-text-2 (simple-text-2 ch)
-                       :reasoning-0 (reasoning-0 ch)
-                       :reasoning-1 (reasoning-1 ch)
-                       :tool-calling-0 (tool-calling-0 ch body)
-                       :mcp-tool-call-0 (mcp-tool-call-0 ch body)
-                                             :mcp-add-tool-0 (mcp-add-tool-0 ch body)
-                                             :bg-shell-0 (bg-shell-0 ch body)
-                                             :compact-0 (compact-0 ch)))))})))
+                     (json/parse-string true))
+        title-req? (string/includes? (:text (last (:system body))) llm.mocks/chat-title-generator-str)]
+    (if (and (= :rate-limited-0 llm.mocks/*case*)
+             (not title-req?)
+             (zero? @rate-limited-count*))
+      (do
+        (swap! rate-limited-count* inc)
+        (llm.mocks/set-req-body! llm.mocks/*case* body)
+        {:status 429
+         :headers {"Content-Type" "application/json"
+                   "retry-after" "1"}
+         :body (json/generate-string {:type "error"
+                                      :error {:type "rate_limit_error"
+                                              :message "Rate limit exceeded"}})})
+      (hk/as-channel
+       req
+       {:on-open (fn [ch]
+                   (hk/send! ch {:status 200
+                                 :headers {"Content-Type" "text/event-stream; charset=utf-8"
+                                           "Cache-Control" "no-cache"
+                                           "Connection" "keep-alive"}}
+                             false)
+                   (if title-req?
+                     (chat-title-text-0 ch)
+                     (do
+                       (llm.mocks/set-req-body! llm.mocks/*case* body)
+                       (case llm.mocks/*case*
+                         :simple-text-0 (simple-text-0 ch)
+                         :simple-text-1 (simple-text-1 ch)
+                         :simple-text-2 (simple-text-2 ch)
+                         :reasoning-0 (reasoning-0 ch)
+                         :reasoning-1 (reasoning-1 ch)
+                         :tool-calling-0 (tool-calling-0 ch body)
+                         :mcp-tool-call-0 (mcp-tool-call-0 ch body)
+                         :mcp-add-tool-0 (mcp-add-tool-0 ch body)
+                         :bg-shell-0 (bg-shell-0 ch body)
+                         :compact-0 (compact-0 ch)
+                         :rate-limited-0 (simple-text-0 ch)))))}))))

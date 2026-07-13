@@ -115,20 +115,21 @@
                      (reset! response* error-data)))]
     (llm-util/log-request logger-tag rid url body headers)
     (try
-      (let [{:keys [status body]} (http/post
-                                   url
-                                   {:headers headers
-                                    :body (json/generate-string body)
-                                    :throw-exceptions? false
-                                    :decompress-body false
-                                    :http-client (client/merge-with-global-http-client http-client)
-                                    :as (if on-stream :stream :json)})]
+      (let [{:keys [status body] resp-headers :headers} (http/post
+                                                         url
+                                                         {:headers headers
+                                                          :body (json/generate-string body)
+                                                          :throw-exceptions? false
+                                                          :decompress-body false
+                                                          :http-client (client/merge-with-global-http-client http-client)
+                                                          :as (if on-stream :stream :json)})]
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
             (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)
                        :status status
-                       :body body-str}))
+                       :body body-str
+                       :headers resp-headers}))
           (if on-stream
             (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
                   (llm-util/start-stream-watchdog! body cancelled?

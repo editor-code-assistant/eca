@@ -36,6 +36,28 @@
           (is (= {:output-text "Hello from Anthropics proxy!"}
                  (select-keys response [:output-text]))))))))
 
+(deftest base-request-error-includes-response-headers-test
+  (testing "non-200 error-data includes response headers for rate-limit handling"
+    (with-client-proxied {}
+      (fn handler [_req]
+        {:status 429
+         :body {:type "error" :error {:type "rate_limit_error" :message "Rate limit exceeded"}}
+         :headers {"retry-after" "7"
+                   "anthropic-ratelimit-unified-reset" "1783958400"}})
+      (let [response (#'llm-providers.anthropic/base-request!
+                      {:rid "r1"
+                       :api-key "fake-key"
+                       :api-url "http://localhost:1"
+                       :body {:model "claude-v1"
+                              :input "hi"
+                              :stream false}
+                       :url-relative-path "/v1/messages"
+                       :auth-type :auth/key})]
+        (is (= 429 (:status response)))
+        (is (match? {"retry-after" "7"
+                     "anthropic-ratelimit-unified-reset" "1783958400"}
+                    (:headers response)))))))
+
 (deftest base-request-resolves-dynamic-extra-headers-test
   (let [seen-body* (atom nil)
         req* (atom nil)]

@@ -131,19 +131,20 @@
                         extra-headers))]
     (llm-util/log-request logger-tag rid url body headers)
     (try
-      (let [{:keys [status body]} (http/post
-                                   url
-                                   {:headers headers
-                                    :body (json/generate-string body)
-                                    :throw-exceptions? false
-                                    :http-client (client/merge-with-global-http-client http-client)
-                                    :as (if on-stream :stream :json)})]
+      (let [{:keys [status body] resp-headers :headers} (http/post
+                                                         url
+                                                         {:headers headers
+                                                          :body (json/generate-string body)
+                                                          :throw-exceptions? false
+                                                          :http-client (client/merge-with-global-http-client http-client)
+                                                          :as (if on-stream :stream :json)})]
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
             (on-error {:message (format "LLM response status: %s body: %s" status body-str)
                        :status status
-                       :body body-str}))
+                       :body body-str
+                       :headers resp-headers}))
           (if on-stream
             (with-open [rdr (io/reader body)]
               (doseq [[event data] (llm-util/event-data-seq rdr)]

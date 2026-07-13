@@ -656,6 +656,109 @@
       (is (= 1 (:attempt (first @retry-events*))))
       (is (false? @on-error-called*)))))
 
+(deftest sync-retry-uses-rate-limit-header-delay-test
+  (testing "429 with retry-after header sleeps until reset and passes resets-at"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          slept* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              {:error {:status 429
+                                                       :body "Rate limit exceeded"
+                                                       :message "LLM response status: 429"
+                                                       :headers {"retry-after" "7"}}}
+                                              {:output-text "success"
+                                               :usage {:input-tokens 1 :output-tokens 1}})))
+                    eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
+                                                    (swap! slept* conj delay-ms)
+                                                    (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error identity
+           :on-message-received identity})))
+      (is (= 2 @attempt*))
+      (is (= [8000] @slept*) "7s from retry-after header + 1s buffer, no exponential backoff")
+      (let [event (first @retry-events*)]
+        (is (= 8000 (:delay-ms event)))
+        (is (number? (:resets-at event)))))))
+
+(deftest sync-rate-limit-waits-until-reset-without-cap-test
+  (testing "without rateLimitMaxWaitSeconds config, waits the full header reset even when long"
+    (let [attempt* (atom 0)
+          slept* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              {:error {:status 429
+                                                       :body "Rate limit exceeded"
+                                                       :message "LLM response status: 429"
+                                                       :headers {"retry-after" "7200"}}}
+                                              {:output-text "success"
+                                               :usage {:input-tokens 1 :output-tokens 1}})))
+                    eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
+                                                    (swap! slept* conj delay-ms)
+                                                    (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error identity
+           :on-message-received identity})))
+      (is (= 2 @attempt*))
+      (is (= [7201000] @slept*) "2h from retry-after + 1s buffer, not capped"))))
+
+(deftest rate-limit-max-wait-config-override-test
+  (testing "provider rateLimitMaxWaitSeconds lower than reset wait disables the retry, exposing resets-at"
+    (let [attempt* (atom 0)
+          error* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (swap! attempt* inc)
+                                          {:error {:status 429
+                                                   :body "Rate limit exceeded"
+                                                   :message "LLM response status: 429"
+                                                   :headers {"retry-after" "60"}}})
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :config {:providers {"anthropic" {:key "test-key"
+                                             :url "http://test"
+                                             :rateLimitMaxWaitSeconds 30
+                                             :models {"claude-sonnet-4-6" {:extraPayload {:stream false}}}}}}
+           :on-error (fn [e] (reset! error* e))
+           :on-message-received identity})))
+      (is (= 1 @attempt*))
+      (is (number? (:rate-limit-resets-at @error*)))))
+
+  (testing "provider rateLimitMaxWaitSeconds higher than reset wait allows the retry"
+    (let [attempt* (atom 0)
+          slept* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              {:error {:status 429
+                                                       :body "Rate limit exceeded"
+                                                       :message "LLM response status: 429"
+                                                       :headers {"retry-after" "60"}}}
+                                              {:output-text "success"
+                                               :usage {:input-tokens 1 :output-tokens 1}})))
+                    eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
+                                                    (swap! slept* conj delay-ms)
+                                                    (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :config {:providers {"anthropic" {:key "test-key"
+                                             :url "http://test"
+                                             :rateLimitMaxWaitSeconds 120
+                                             :models {"claude-sonnet-4-6" {:extraPayload {:stream false}}}}}}
+           :on-error identity
+           :on-message-received identity})))
+      (is (= 2 @attempt*))
+      (is (= [61000] @slept*)))))
+
 (deftest sync-no-retry-on-auth-error-test
   (testing "does not retry on auth errors (401)"
     (let [attempt* (atom 0)
