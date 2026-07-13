@@ -43,6 +43,7 @@
                        {:name "repo-map-show" :arguments []}
                        {:name "rules" :arguments []}
                        {:name "prompt-show" :arguments [{:name "optional-prompt"}]}
+                       {:name "sync-system-prompt" :arguments []}
                        {:name "subagents" :arguments []}
                        {:name "plugins" :arguments []}
                        {:name "plugin-install"
