@@ -2,6 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [hato.client :as http]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -162,6 +163,10 @@
                                            :supported_endpoints ["/v1/messages"]
                                            :capabilities {:supports {:adaptive_thinking true
                                                                      :reasoning_effort ["high"]}}}
+                                          {:id "claude-adaptive-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :max_thinking_budget 10000}}}
                                           {:id "claude-budget"
                                            :supported_endpoints ["/v1/messages"]
                                            :capabilities {:supports {:max_thinking_budget 10000}}}
@@ -186,15 +191,21 @@
           "claude-adaptive" {:discovered-api :anthropic
                              :discovered-reason? true
                              :discovered-variants
-                             {"low" {:thinking {:type "adaptive"}
+                             {"default" {:thinking {:type "adaptive"}}
+                              "low" {:thinking {:type "adaptive"}
                                      :output_config {:effort "low"}}
                               "high" {:thinking {:type "adaptive"}
                                       :output_config {:effort "high"}}}}
           "claude-opus-4-7" {:discovered-api :anthropic
                               :discovered-reason? true
                               :discovered-variants
-                              {"high" {:thinking {:type "adaptive" :display "summarized"}
+                              {"default" {:thinking {:type "adaptive" :display "summarized"}}
+                               "high" {:thinking {:type "adaptive" :display "summarized"}
                                        :output_config {:effort "high"}}}}
+          "claude-adaptive-budget" {:discovered-api :anthropic
+                                    :discovered-reason? true
+                                    :discovered-variants
+                                    (m/equals {"default" {:thinking {:type "adaptive"}}})}
           "claude-budget" {:discovered-api :anthropic
                            :discovered-reason? true
                            :discovered-variants

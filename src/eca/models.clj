@@ -315,32 +315,39 @@
               efforts))
 
       :anthropic
-      (cond
-        (and efforts adaptive?)
-        (into {}
-              (map (fn [effort]
-                     [effort {:thinking (cond-> {:type "adaptive"}
-                                          ;; Opus 4.7 defaults adaptive thinking display to "omitted", which
-                                          ;; produces empty thinking blocks. Request summaries explicitly.
-                                          (re-find #"(?i)opus[-._]4[-._]7(?:$|[-._])" model-id)
-                                          (assoc :display "summarized"))
-                              :output_config {:effort effort}}]))
-              efforts)
+      (let [adaptive-thinking (cond-> {:type "adaptive"}
+                                ;; Opus 4.7 defaults adaptive thinking display to "omitted", which
+                                ;; produces empty thinking blocks. Request summaries explicitly.
+                                (re-find #"(?i)opus[-._]4[-._]7(?:$|[-._])" model-id)
+                                (assoc :display "summarized"))]
+        (cond
+          ;; Adaptive-thinking models (Opus 4.7+/Sonnet 5+) reject thinking.type
+          ;; "enabled", so a "default" variant keeps no-variant requests on
+          ;; adaptive instead of the enabled fallback in the provider (#528).
+          (and efforts adaptive?)
+          (into {"default" {:thinking adaptive-thinking}}
+                (map (fn [effort]
+                       [effort {:thinking adaptive-thinking
+                                :output_config {:effort effort}}]))
+                efforts)
 
-        ;; Some Copilot Messages models (for example Claude Opus/Sonnet 4.6) advertise
-        ;; budget bounds instead of named reasoning efforts. Project that range into
-        ;; the existing variant picker without exposing raw token budgets in the UI.
-        (and (number? max-budget) (pos? max-budget))
-        (let [min-value (max 1024 (long (if (number? min-budget) min-budget 1024)))
-              max-value (dec (long max-budget))
-              high-value (max min-value (quot (long max-budget) 2))]
-          (when (<= min-value max-value)
-            {"high" {:thinking {:type "enabled"
-                                :budget_tokens high-value}}
-             "max" {:thinking {:type "enabled"
-                               :budget_tokens max-value}}}))
+          adaptive?
+          {"default" {:thinking adaptive-thinking}}
 
-        :else nil)
+          ;; Some Copilot Messages models (for example Claude Opus/Sonnet 4.5) advertise
+          ;; budget bounds instead of named reasoning efforts. Project that range into
+          ;; the existing variant picker without exposing raw token budgets in the UI.
+          (and (number? max-budget) (pos? max-budget))
+          (let [min-value (max 1024 (long (if (number? min-budget) min-budget 1024)))
+                max-value (dec (long max-budget))
+                high-value (max min-value (quot (long max-budget) 2))]
+            (when (<= min-value max-value)
+              {"high" {:thinking {:type "enabled"
+                                  :budget_tokens high-value}}
+               "max" {:thinking {:type "enabled"
+                                 :budget_tokens max-value}}}))
+
+          :else nil))
 
       nil)))
 

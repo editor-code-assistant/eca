@@ -354,7 +354,26 @@
         (is (= {:effort "high"} (get-in @captured* [:extra-payload :output_config])))
         (let [headers ((:extra-headers @captured*) {:body {:messages [{:role "user"}]}})]
           (is (= "interleaved-thinking-2025-05-14" (get headers "anthropic-beta")))
-          (is (= "user" (get headers "x-initiator"))))))))
+          (is (= "user" (get headers "x-initiator"))))))
+
+    (testing "Messages models with no selected variant fall back to discovered default (#528)"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.anthropic/chat!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (assoc base-opts
+                  :variant nil
+                  :model "claude-adaptive"
+                  :model-capabilities {:api :anthropic
+                                       :tools true
+                                       :reason? true
+                                       :web-search false
+                                       :model-name "claude-adaptive"
+                                       :variants {"default" {:thinking {:type "adaptive"}}
+                                                  "high" {:thinking {:type "adaptive"}
+                                                          :output_config {:effort "high"}}}})))
+        (is (= {:type "adaptive"} (get-in @captured* [:extra-payload :thinking])))
+        (is (nil? (get-in @captured* [:extra-payload :output_config])))))))
 
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"

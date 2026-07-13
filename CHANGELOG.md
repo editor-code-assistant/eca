@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix 400 on GitHub Copilot Claude adaptive-thinking models (e.g. Opus 4.8) when no variant is selected, by defaulting to adaptive thinking. #528
+
 ## 0.146.1
 
 - Wait for rate-limit reset from response headers (Anthropic, OpenAI-compatible) on 429, showing reset time in chat; optional provider config `rateLimitMaxWaitSeconds` caps the wait.
