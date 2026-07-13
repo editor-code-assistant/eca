@@ -211,6 +211,10 @@
                        :type :native
                        :description "Prompt sent to LLM as system instructions."
                        :arguments [{:name "optional-prompt"}]}
+                      {:name "sync-system-prompt"
+                       :type :native
+                       :description "Re-sync the system prompt (AGENTS.md, rules, skills) on the next message, invalidating the chat prompt cache."
+                       :arguments []}
                       {:name "subagents"
                        :type :native
                        :description "List available subagents and their configuration."
@@ -772,6 +776,12 @@
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "sync-system-prompt" (do
+                             (swap! db* update-in [:chats chat-id] dissoc :prompt-cache)
+                             {:type :chat-messages
+                              :chats {chat-id {:messages [{:role "system"
+                                                           :content [{:type :text
+                                                                      :text "System prompt will be re-synced on the next message (prompt cache invalidated)."}]}]}}})
       "context" (let [messages (get-in db [:chats chat-id :messages] [])
                       usage (shared/usage-sumary chat-id full-model db)
                       context-limit (get-in db [:models full-model :limit :context])

@@ -90,8 +90,8 @@
      :skills (sha (mapv #(select-keys % [:name :description]) skills))
      :tools (sha (sort (map :full-name all-tools)))}))
 
-(defn ^:private changed-instruction-categories
-  "Names of instruction categories that changed vs the cached signature.
+(defn ^:private changed-system-prompt-categories
+  "Names of system prompt categories that changed vs the cached signature.
    Empty when the old signature has an unknown (legacy) shape."
   [prompt-cache static-signature agent full-model]
   (let [old-sig (:static-signature prompt-cache)]
@@ -102,6 +102,16 @@
                                    (when (not= v (get old-sig k))
                                      (name k)))
                                  static-signature)))))
+
+(defn ^:private send-system-prompt-changed-notice!
+  [chat-ctx categories suffix]
+  (lifecycle/send-content!
+   chat-ctx :system
+   {:type :text
+    :text (str "System prompt changed"
+               (when (seq categories)
+                 (str " (" (string/join ", " categories) ")"))
+               suffix)}))
 
 (defn ^:private prune-tool-results!
   "Prunes old tool result content from chat history to reduce context size.
@@ -1493,27 +1503,48 @@
                                                       agent)))))
             repo-map* (delay (f.index/repo-map db config {:as-string? true}))
             prompt-cache (get-in db [:chats chat-id :prompt-cache])
+            auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
             static-signature (static-prompt-cache-signature
                               refined-contexts static-rules path-scoped-rules skills
                               agent config chat-id all-tools db)
-            instructions (if (and prompt-cache
-                                  (= (:agent prompt-cache) agent)
-                                  (= (:model prompt-cache) full-model)
-                                  (= (:static-signature prompt-cache) static-signature))
-                           {:static (:static prompt-cache)
-                            :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)}
+            session-match? (and prompt-cache
+                                (= (:agent prompt-cache) agent)
+                                (= (:model prompt-cache) full-model))
+            signature-match? (= (:static-signature prompt-cache) static-signature)
+            ;; Skills changes (add/remove/rename/description) never re-sync an
+            ;; existing chat: the catalog is routing metadata and skill bodies
+            ;; are read from disk at tool-call time anyway, so invalidating the
+            ;; LLM prompt cache for them is not worth it.
+            skills-only-drift? (let [old-sig (:static-signature prompt-cache)]
+                                 (and (map? old-sig)
+                                      (= (dissoc old-sig :skills)
+                                         (dissoc static-signature :skills))))
+            instructions (if (and session-match?
+                                  ;; When auto-sync is off, the system prompt is pinned for the
+                                  ;; chat's lifetime: signature drift keeps the cached static
+                                  ;; prompt (preserving the LLM prompt cache) and changes apply
+                                  ;; only to new chats or via /sync-system-prompt.
+                                  (or signature-match?
+                                      (not auto-sync-system-prompt?)
+                                      skills-only-drift?))
+                           (do
+                             (when (and (not signature-match?)
+                                        (not= static-signature (:stale-signature prompt-cache)))
+                               (send-system-prompt-changed-notice!
+                                base-chat-ctx
+                                (changed-system-prompt-categories prompt-cache static-signature agent full-model)
+                                ", keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n")
+                               (swap! db* assoc-in [:chats chat-id :prompt-cache :stale-signature] static-signature))
+                             {:static (:static prompt-cache)
+                              :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)})
                            (let [result (f.prompt/build-chat-instructions
                                          refined-contexts static-rules path-scoped-rules skills repo-map*
                                          agent config chat-id all-tools db)]
                              (when prompt-cache
-                               (let [categories (changed-instruction-categories prompt-cache static-signature agent full-model)]
-                                 (lifecycle/send-content!
-                                  base-chat-ctx :system
-                                  {:type :text
-                                   :text (str "Instructions changed"
-                                              (when (seq categories)
-                                                (str " (" (string/join ", " categories) ")"))
-                                              ", prompt cache invalidated.\n")})))
+                               (send-system-prompt-changed-notice!
+                                base-chat-ctx
+                                (changed-system-prompt-categories prompt-cache static-signature agent full-model)
+                                ", prompt cache invalidated.\n"))
                              (swap! db* assoc-in [:chats chat-id :prompt-cache]
                                     {:static (:static result)
                                      :static-signature static-signature

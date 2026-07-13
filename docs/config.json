@@ -349,6 +349,12 @@
           "description": "Whether new chats start in trust mode, auto-accepting all tool calls (never overriding deny). Applies to all editors.",
           "markdownDescription": "Whether new chats start in trust mode, auto-accepting all tool calls (never overriding `deny`). Applies to all editors.",
           "default": false
+        },
+        "autoSyncSystemPrompt": {
+          "type": "boolean",
+          "description": "Whether existing chats pick up system prompt changes (AGENTS.md, rules, prompts) mid-chat, invalidating the LLM prompt cache. When false (default), changes apply only to new chats; use the /sync-system-prompt command to apply to the current chat. Skill catalog changes never auto-sync (skill contents are always read fresh when loaded).",
+          "markdownDescription": "Whether existing chats pick up system prompt changes (`AGENTS.md`, rules, prompts) mid-chat, invalidating the LLM prompt cache. When `false` (default), changes apply only to new chats; use the `/sync-system-prompt` command to apply to the current chat. Skill catalog changes never auto-sync (skill contents are always read fresh when loaded).",
+          "default": false
         }
       }
     },

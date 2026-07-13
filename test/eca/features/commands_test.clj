@@ -253,6 +253,29 @@
                   %)
               commands))))
 
+(deftest handle-sync-system-prompt-command-test
+  (testing "clears the chat prompt cache and confirms"
+    (swap! (h/db*) assoc-in [:chats "chat-1" :prompt-cache] {:static "old"
+                                                             :static-signature {:skills "abc"}
+                                                             :agent "code"
+                                                             :model "openai/gpt-5.2"})
+    (let [result (f.commands/handle-command! "sync-system-prompt"
+                                             []
+                                             {:chat-id "chat-1"
+                                              :db* (h/db*)
+                                              :config (h/config)
+                                              :messenger (h/messenger)
+                                              :full-model "openai/gpt-5.2"
+                                              :agent "code"
+                                              :all-tools []
+                                              :instructions {}
+                                              :user-messages []
+                                              :metrics (h/metrics)})]
+      (is (= :chat-messages (:type result)))
+      (is (not (contains? (get-in @(h/db*) [:chats "chat-1"]) :prompt-cache)))
+      (is (re-find #"System prompt will be re-synced"
+                   (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))))
+
 (deftest handle-model-command-test
   (testing "lists current and available models when no arg is given"
     (swap! (h/db*) assoc :models {"anthropic/claude-sonnet-4-6" {}

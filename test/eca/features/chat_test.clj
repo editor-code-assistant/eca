@@ -10,6 +10,7 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
+   [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -1424,6 +1425,7 @@
 (deftest prompt-cache-stable-context-change-test
   (testing "Static prompt cache is rebuilt when stable context content changes"
     (h/reset-components!)
+    (h/config! {:chat {:autoSyncSystemPrompt true}})
     (let [build-calls* (atom 0)
           real-build f.prompt/build-chat-instructions]
       (with-redefs [f.context/agents-file-contexts (constantly [])
@@ -1449,6 +1451,7 @@
 (deftest prompt-cache-repo-map-content-intentionally-does-not-change-test
   (testing "Changing only repoMap content does not rebuild static instructions because repoMap is an expensive cached snapshot"
     (h/reset-components!)
+    (h/config! {:chat {:autoSyncSystemPrompt true}})
     (let [build-calls* (atom 0)
           repo-map-calls* (atom 0)
           real-build f.prompt/build-chat-instructions]
@@ -1480,7 +1483,8 @@
           prompt-file (fs/create-temp-file {:prefix "eca-prompt" :suffix ".md"})]
       (try
         (spit (str prompt-file) "Prompt v1")
-        (h/config! {:prompts {:chat nil}
+        (h/config! {:chat {:autoSyncSystemPrompt true}
+                    :prompts {:chat nil}
                     :agent {"code" {:prompts {:chat nil}
                                       :systemPromptFile (str prompt-file)}}})
         (with-redefs [f.prompt/build-chat-instructions
@@ -1502,31 +1506,123 @@
         (finally
           (fs/delete-if-exists prompt-file))))))
 
-(deftest instructions-changed-notice-test
-  (testing "System notice is sent when instructions change mid-chat"
+(defn ^:private system-prompt-notices []
+  (->> (h/messages)
+       :chat-content-received
+       (filter #(= :system (:role %)))
+       (keep #(get-in % [:content :text]))
+       (filter #(string/includes? % "System prompt changed"))))
+
+(deftest system-prompt-changed-notice-test
+  (testing "With autoSyncSystemPrompt, a system notice is sent when the system prompt changes mid-chat"
     (h/reset-components!)
-    (let [skills* (atom [])
+    (h/config! {:chat {:autoSyncSystemPrompt true}})
+    (let [rules* (atom [])
           mocks {:all-tools-mock (constantly [])
                  :api-mock (fn [{:keys [on-message-received]}]
-                             (on-message-received {:type :finish}))}
-          notices (fn []
-                    (->> (h/messages)
-                         :chat-content-received
-                         (filter #(= :system (:role %)))
-                         (keep #(get-in % [:content :text]))
-                         (filter #(string/includes? % "Instructions changed"))))]
-      (with-redefs [f.skills/all (fn [& _] @skills*)]
+                             (on-message-received {:type :finish}))}]
+      (with-redefs [f.rules/all-rules (fn [& _] {:static @rules* :path-scoped []})]
         (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
-          (is (empty? (notices)) "No notice on the first prompt")
+          (is (empty? (system-prompt-notices)) "No notice on the first prompt")
           (h/reset-messenger!)
           (prompt! {:message "Again" :chat-id chat-id} mocks)
-          (is (empty? (notices)) "No notice when nothing changed")
+          (is (empty? (system-prompt-notices)) "No notice when nothing changed")
+          (h/reset-messenger!)
+          (reset! rules* [{:id "r1" :name "r1" :scope :project :content "Rule v1"}])
+          (prompt! {:message "Changed" :chat-id chat-id} mocks)
+          (is (= ["System prompt changed (rules), prompt cache invalidated.\n"]
+                 (system-prompt-notices))
+              "Notice names the changed category"))))))
+
+(deftest skills-never-auto-sync-test
+  (testing "Even with autoSyncSystemPrompt, skills changes keep the pinned system prompt"
+    (h/reset-components!)
+    (h/config! {:chat {:autoSyncSystemPrompt true}})
+    (let [skills* (atom [])
+          rules* (atom [])
+          build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions
+          mocks {:all-tools-mock (constantly [])
+                 :api-mock (fn [{:keys [on-message-received]}]
+                             (on-message-received {:type :finish}))}]
+      (with-redefs [f.skills/all (fn [& _] @skills*)
+                    f.rules/all-rules (fn [& _] {:static @rules* :path-scoped []})
+                    f.prompt/build-chat-instructions (fn [& args]
+                                                       (swap! build-calls* inc)
+                                                       (apply real-build args))]
+        (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+          (is (= 1 @build-calls*))
+          (h/reset-messenger!)
+          (reset! skills* [{:name "my-skill" :description "Does things"}])
+          (prompt! {:message "Skill changed" :chat-id chat-id} mocks)
+          (is (= 1 @build-calls*) "Skills-only change must not rebuild the system prompt")
+          (is (= ["System prompt changed (skills), keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n"]
+                 (system-prompt-notices)))
+          (h/reset-messenger!)
+          (prompt! {:message "Again" :chat-id chat-id} mocks)
+          (is (empty? (system-prompt-notices)) "Same drift does not re-notify every turn")
+          (h/reset-messenger!)
+          (reset! rules* [{:id "r1" :name "r1" :scope :project :content "Rule v1"}])
+          (prompt! {:message "Rules changed too" :chat-id chat-id} mocks)
+          (is (= 2 @build-calls*) "A non-skills change still re-syncs, taking skills along")
+          (is (= ["System prompt changed (rules, skills), prompt cache invalidated.\n"]
+                 (system-prompt-notices))))))))
+
+(deftest system-prompt-pinned-by-default-test
+  (testing "Without autoSyncSystemPrompt (default), mid-chat changes keep the pinned system prompt"
+    (h/reset-components!)
+    (let [skills* (atom [])
+          build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions
+          mocks {:all-tools-mock (constantly [])
+                 :api-mock (fn [{:keys [on-message-received]}]
+                             (on-message-received {:type :finish}))}]
+      (with-redefs [f.skills/all (fn [& _] @skills*)
+                    f.prompt/build-chat-instructions (fn [& args]
+                                                       (swap! build-calls* inc)
+                                                       (apply real-build args))]
+        (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+          (is (= 1 @build-calls*))
           (h/reset-messenger!)
           (reset! skills* [{:name "my-skill" :description "Does things"}])
           (prompt! {:message "Changed" :chat-id chat-id} mocks)
-          (is (= ["Instructions changed (skills), prompt cache invalidated.\n"]
-                 (notices))
-              "Notice names the changed category"))))))
+          (is (= 1 @build-calls*) "Changed skills must not rebuild the pinned system prompt")
+          (is (= ["System prompt changed (skills), keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n"]
+                 (system-prompt-notices))
+              "Notice tells changes apply to new chats")
+          (h/reset-messenger!)
+          (prompt! {:message "Again" :chat-id chat-id} mocks)
+          (is (= 1 @build-calls*))
+          (is (empty? (system-prompt-notices)) "Same drift does not re-notify every turn")
+          (h/reset-messenger!)
+          (prompt! {:message "New chat"} mocks)
+          (is (= 2 @build-calls*) "A new chat picks up the changed system prompt"))))))
+
+(deftest sync-system-prompt-command-test
+  (testing "/sync-system-prompt forces the pinned system prompt to be rebuilt on the next message"
+    (h/reset-components!)
+    (let [skills* (atom [])
+          build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions
+          mocks {:all-tools-mock (constantly [])
+                 :api-mock (fn [{:keys [on-message-received]}]
+                             (on-message-received {:type :finish}))}]
+      (with-redefs [f.skills/all (fn [& _] @skills*)
+                    f.prompt/build-chat-instructions (fn [& args]
+                                                       (swap! build-calls* inc)
+                                                       (apply real-build args))]
+        (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+          (is (= 1 @build-calls*))
+          (reset! skills* [{:name "my-skill" :description "Does things"}])
+          (prompt! {:message "Changed" :chat-id chat-id} mocks)
+          (is (= 1 @build-calls*) "Pinned: no rebuild before the sync command")
+          (prompt! {:message "/sync-system-prompt" :chat-id chat-id} mocks)
+          (is (nil? (get-in (h/db) [:chats chat-id :prompt-cache]))
+              "Command clears the prompt cache")
+          (h/reset-messenger!)
+          (prompt! {:message "After sync" :chat-id chat-id} mocks)
+          (is (= 2 @build-calls*) "Next message rebuilds the system prompt")
+          (is (empty? (system-prompt-notices)) "Explicit sync rebuild does not notify"))))))
 
 (deftest prompt-cache-key-includes-agent-test
   (testing "sync-or-async-prompt! receives prompt-cache-key scoped by active agent"
