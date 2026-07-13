@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Granular shell/git approve & remember by command + subcommand (e.g. `git checkout`) instead of whole tool; details carry breakdown, approval keys and remembered state. #153
+
 ## 0.146.2
 
 - Fix 400 on GitHub Copilot Claude adaptive-thinking models (e.g. Opus 4.8) when no variant is selected, by defaulting to adaptive thinking. #528

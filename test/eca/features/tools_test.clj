@@ -212,6 +212,38 @@
       (testing "fallback to manual approval"
         (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))))))
 
+(deftest granular-approval-test
+  (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native
+                    :approval-keys-fn #(f.tools/tool-approval-keys "shell_command" %)}
+        all-tools [shell-tool]
+        remembered-db {:tool-calls {"shell_command" {:remembered-command-keys #{"git status" "rg"}}}}]
+    (testing "tool-approval-keys derives keys from native definitions"
+      (is (= {:keys #{"git status" "rg"} :complete? true}
+             (f.tools/tool-approval-keys "shell_command" {"command" "git status && rg foo"})))
+      (is (= {:keys #{"git status"} :complete? true}
+             (f.tools/tool-approval-keys "git" {"command" "git status"})))
+      (is (= {:keys #{"cd" "git log"} :complete? true}
+             (f.tools/tool-approval-keys "git" {"command" "cd /workspace && git log -1"})))
+      (is (nil? (f.tools/tool-approval-keys "read_file" {"path" "/foo"}))))
+    (testing "all commands remembered approves"
+      (is (= :allow (f.tools/approval all-tools shell-tool {"command" "git status | rg foo"} remembered-db {} nil))))
+    (testing "partially remembered command asks"
+      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status && git push"} remembered-db {} nil))))
+    (testing "dynamic constructs ask even when commands remembered"
+      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status $(evil)"} remembered-db {} nil))))
+    (testing "blanket remember-to-approve? is ignored for granular tools"
+      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls"}
+                                    {:tool-calls {"shell_command" {:remember-to-approve? true}}} {} nil))))
+    (testing "config deny beats remembered commands"
+      (is (= :deny (f.tools/approval all-tools shell-tool {"command" "git status"} remembered-db
+                                     {:toolCall {:approval {:deny {"shell_command" {}}}}} nil))))
+    (testing "config deny beats legacy remember-to-approve?"
+      (is (= :deny (f.tools/approval all-tools {:name "request" :server {:name "web"} :origin :mcp} {}
+                                     {:tool-calls {"request" {:remember-to-approve? true}}}
+                                     {:toolCall {:approval {:deny {"web__request" {}}}}} nil))))
+    (testing "missing command args ask"
+      (is (= :ask (f.tools/approval all-tools shell-tool {} remembered-db {} nil))))))
+
 (deftest approval-trust-test
   (let [request-tool {:name "request" :server {:name "web"} :origin :mcp}
         all-tools [request-tool]]

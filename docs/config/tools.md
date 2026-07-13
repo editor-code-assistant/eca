@@ -355,6 +355,12 @@ Also check the `plan` agent which is safer.
 
 __The `manualApproval` setting was deprecated and replaced by the `approval` one without breaking changes__
 
+### Granular approve & remember for shell commands
+
+When you approve a `eca__shell_command` or `eca__git` tool call choosing "approve and remember", ECA remembers the approved commands for the session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (`&&`, `||`, `;`, `|`) produces a key — command + subcommand for multi-command tools (`git checkout`, `npm install`), the plain command otherwise (`rg`). A future shell call runs automatically only when all its commands were already remembered.
+
+ECA fails closed: commands it cannot safely reason about always ask again, like command/process substitution (`$(...)`, backticks), subshells, heredocs, output redirections to files (except `/dev/null`), and wrapper commands that execute arbitrary code (`sudo`, `bash -c`, `xargs`, `env`, ...).
+
 ### Trust mode by default
 
 Trust mode auto-accepts all tool calls in a chat (it never overrides `deny`). Editors expose a toggle for it, and you can make **new chats start trusted** for every editor via `chat.defaultTrust`:

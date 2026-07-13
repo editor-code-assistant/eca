@@ -146,6 +146,10 @@
    :stopping false
    :models {}
    :mcp-clients {}
+   ;; Approved tool calls remembered for this session (not cached):
+   ;; {tool-name {:remember-to-approve? boolean
+   ;;             :remembered-command-keys #{string}}}
+   :tool-calls {}
 
    ;; cacheable, bump db `version` when changing any below
    :chats {}

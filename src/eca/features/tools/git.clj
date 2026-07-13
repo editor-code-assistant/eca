@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [eca.cache :as cache]
    [eca.features.tools.shell :as shell]
+   [eca.features.tools.shell-parser :as shell-parser]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -13,6 +14,10 @@
 (def ^:private logger-tag "[TOOLS-GIT]")
 
 (def ^:private default-timeout 120000)
+
+(defmethod tools.util/tool-call-details-before-invocation :git
+  [_name arguments _server {:keys [db]}]
+  (shell/shell-command-details "git" (get arguments "command") db))
 
 (defn ^:private git-command [arguments {:keys [db tool-call-id call-state-fn state-transition-fn]}]
   (let [command (get arguments "command")]
@@ -102,6 +107,7 @@
                                          :description "Concise 2-3 word description of what is being done (e.g. \"staged changes\", \"all test files\")."}}
                  :required ["command" "operation"]}
     :handler #'git-command
+    :approval-keys-fn (fn [arguments] (shell-parser/approval-keys (get arguments "command")))
     :summary-fn #'git-command-summary}})
 
 (defmethod tools.util/tool-call-destroy-resource! :eca__git [name resource-kwd resource]

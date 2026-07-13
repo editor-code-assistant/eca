@@ -1788,8 +1788,14 @@
                                   {:reason {:code :user-choice-allow
                                             :text "Tool call allowed by user choice"}})
         (when (= "session" save)
-          (let [tool-call-name (get-in @db* [:chats chat-id :tool-calls tool-call-id :name])]
-            (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true)))))))
+          (let [{tool-call-name :name arguments :arguments} (get-in @db* [:chats chat-id :tool-calls tool-call-id])]
+            (if-let [{keys' :keys} (f.tools/tool-approval-keys tool-call-name arguments)]
+              ;; Granular remember (e.g. shell commands): remember only the
+              ;; derived keys instead of whitelisting the whole tool. #153
+              (when (seq keys')
+                (swap! db* update-in [:tool-calls tool-call-name :remembered-command-keys]
+                       (fnil into #{}) keys'))
+              (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true))))))))
 
 (defn tool-call-reject
   [{:keys [chat-id tool-call-id]} db* messenger config metrics]

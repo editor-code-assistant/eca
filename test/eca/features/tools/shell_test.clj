@@ -195,3 +195,20 @@
              (summary-fn {:args {"command" "\n echo hello \n"}
                           :config config
                           :db db}))))))
+
+(deftest shell-command-details-test
+  (let [db {:tool-calls {"shell_command" {:remembered-command-keys #{"git status"}}}}]
+    (testing "marks remembered and not remembered commands"
+      (is (= {:type :shellCommand
+              :commands [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}
+                         {:command "rg" :args ["foo"] :approvalKey "rg" :remembered false}]}
+             (f.tools.shell/shell-command-details "shell_command" "git status && rg foo" db))))
+    (testing "remembered set is per tool name"
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
+             (:commands (f.tools.shell/shell-command-details "git" "git status" db)))))
+    (testing "commands without approval key have no remembered flag"
+      (is (= {:type :shellCommand
+              :commands [{:command "sudo" :args ["ls"]}]}
+             (f.tools.shell/shell-command-details "shell_command" "sudo ls" db))))
+    (testing "unparseable command returns nil"
+      (is (nil? (f.tools.shell/shell-command-details "shell_command" "echo $(x)" db))))))

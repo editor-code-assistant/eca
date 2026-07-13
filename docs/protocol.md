@@ -1179,7 +1179,7 @@ interface ChatToolCallRejectedContent {
 
 type ToolCallOrigin = 'mcp' | 'native' | 'server' | 'unknown';
 
-type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails | TaskDetails;
+type ToolCallDetails = FileChangeDetails | JsonOutputsDetails | SubagentDetails | TaskDetails | ShellCommandDetails;
 
 interface FileChangeDetails {
     type: 'fileChange';
@@ -1324,6 +1324,53 @@ interface TaskItem {
 }
 
 /**
+ * Breakdown of a shell command tool call.
+ * Present when the server could safely parse the command; clients can use it
+ * to show what an "approve & remember" would remember.
+ */
+interface ShellCommandDetails {
+    type: 'shellCommand';
+
+    /**
+     * The individual commands extracted from the shell invocation.
+     * Chained commands (&&, ||, ;, |) are split into separate entries.
+     */
+    commands: ShellCommandBreakdown[];
+
+    /**
+     * Whether the command runs in background as a job.
+     */
+    background?: boolean;
+}
+
+interface ShellCommandBreakdown {
+    /**
+     * The command being executed, e.g. "ls", "git".
+     */
+    command: string;
+
+    /**
+     * All arguments to the command, including flags.
+     * e.g. ["-la", "*.clj"] for "ls -la *.clj".
+     */
+    args: string[];
+
+    /**
+     * The key that "approve & remember" would remember for this command,
+     * e.g. "git checkout" or "rg". Absent when this command can never be
+     * auto-approved (wrapper commands like sudo/xargs, file output
+     * redirections, dynamic command words).
+     */
+    approvalKey?: string;
+
+    /**
+     * Whether approvalKey is already remembered for this session.
+     * Only present when approvalKey is present.
+     */
+    remembered?: boolean;
+}
+
+/**
  * Extra information about a chat
  */
 interface ChatMetadataContent {
@@ -1375,6 +1422,8 @@ interface ChatToolCallApproveParams {
     
     /**
      * The approach to save this tool call.
+     * For tools with granular approval (eca shell_command and git), 'session' remembers
+     * the specific approved commands (e.g. "git checkout") instead of the whole tool.
      */
     save?: 'session';
 

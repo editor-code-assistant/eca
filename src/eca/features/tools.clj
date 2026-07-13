@@ -60,20 +60,29 @@
   ([all-tools tool args db config agent-name]
    (approval all-tools tool args db config agent-name nil))
   ([all-tools tool args db config agent-name {:keys [trust]}]
-   (let [{:keys [server name require-approval-fn]} tool
-         remember-to-approve? (get-in db [:tool-calls name :remember-to-approve?])
+   (let [{:keys [server name require-approval-fn approval-keys-fn]} tool
+         remembered? (if approval-keys-fn
+                       ;; Granular remember: every derived key (e.g. "git checkout")
+                       ;; must have been remembered, and the command must be fully
+                       ;; understood (:complete?), otherwise still ask.
+                       (let [{keys' :keys complete? :complete?} (approval-keys-fn args)
+                             remembered-keys (get-in db [:tool-calls name :remembered-command-keys] #{})]
+                         (boolean (and complete?
+                                       (seq keys')
+                                       (every? remembered-keys keys'))))
+                       (boolean (get-in db [:tool-calls name :remember-to-approve?])))
          native-tools (filter #(= :native (:origin %)) all-tools)
          {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                      (get-in config [:agent agent-name :toolCall :approval]))
          result (cond
-                  remember-to-approve?
+                  (some #(approval-matches? % (:name server) name args native-tools) deny)
+                  :deny
+
+                  remembered?
                   :allow
 
                   (and require-approval-fn (require-approval-fn args {:db db}))
                   :ask
-
-                  (some #(approval-matches? % (:name server) name args native-tools) deny)
-                  :deny
 
                   (some #(approval-matches? % (:name server) name args native-tools) ask)
                   :ask
@@ -130,6 +139,27 @@
        x))
    m))
 
+(defn ^:private static-native-definitions
+  "Native tool definitions that don't depend on chat/db/config."
+  []
+  (merge {}
+         f.tools.filesystem/definitions
+         f.tools.shell/definitions
+         f.tools.git/definitions
+         f.tools.editor/definitions
+         f.tools.chat/definitions
+         f.tools.skill/definitions
+         f.tools.task/definitions
+         f.tools.background/definitions
+         f.tools.ask-user/definitions))
+
+(defn tool-approval-keys
+  "Returns {:keys #{...} :complete? bool} when the native tool `tool-name`
+   defines granular approval keys for these arguments, else nil."
+  [tool-name arguments]
+  (when-let [approval-keys-fn (get-in (static-native-definitions) [tool-name :approval-keys-fn])]
+    (approval-keys-fn arguments)))
+
 (defn ^:private native-definitions
   [chat-id agent-name db config]
   (into
@@ -142,16 +172,7 @@
                       :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])
                       :fullModel        (get-in db [:chats chat-id :model])
                       :variant          (get-in db [:chats chat-id :variant])}))]))
-   (merge {}
-          f.tools.filesystem/definitions
-          f.tools.shell/definitions
-          f.tools.git/definitions
-          f.tools.editor/definitions
-          f.tools.chat/definitions
-          f.tools.skill/definitions
-          f.tools.task/definitions
-          f.tools.background/definitions
-          f.tools.ask-user/definitions
+   (merge (static-native-definitions)
           (f.tools.agent/definitions config db)
           (f.tools.custom/definitions config)
           (f.tools.fetch-rule/definitions config db chat-id agent-name))))

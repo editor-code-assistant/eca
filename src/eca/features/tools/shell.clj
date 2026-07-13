@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.background-tasks :as bg]
+   [eca.features.tools.shell-parser :as shell-parser]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -17,10 +18,29 @@
 (def ^:private default-timeout 60000)
 (def ^:private max-timeout (* 60000 10))
 
+(defn shell-command-details
+  "Builds the shellCommand tool call details for a command string, marking
+   each command with whether its approval key is already remembered for
+   `tool-name`. Returns nil when the command cannot be parsed."
+  [tool-name command db]
+  (when-let [parsed (shell-parser/parse command)]
+    (let [remembered-keys (get-in db [:tool-calls tool-name :remembered-command-keys] #{})]
+      (-> parsed
+          (update :commands (fn [commands]
+                              (mapv (fn [{:keys [approvalKey] :as cmd}]
+                                      (cond-> cmd
+                                        approvalKey (assoc :remembered (contains? remembered-keys approvalKey))))
+                                    commands)))
+          (assoc :type :shellCommand)))))
+
 (defmethod tools.util/tool-call-details-before-invocation :shell_command
-  [_name arguments _server _ctx]
-  (when (get arguments "background")
-    {:background true}))
+  [_name arguments _server {:keys [db]}]
+  (let [background? (boolean (get arguments "background"))]
+    (if-let [details (shell-command-details "shell_command" (get arguments "command") db)]
+      (cond-> details
+        background? (assoc :background true))
+      (when background?
+        {:background true}))))
 
 (defn start-shell-process!
   "Start a shell process, returning the process object for deref/management.
@@ -262,6 +282,7 @@
                  :required ["command"]}
     :handler #'shell-command
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])
+    :approval-keys-fn (fn [arguments] (shell-parser/approval-keys (get arguments "command")))
     :summary-fn #'shell-command-summary}})
 
 (defmethod tools.util/tool-call-destroy-resource! :eca__shell_command [name resource-kwd resource]
