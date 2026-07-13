@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.146.0
+
 - Discover GitHub Copilot model APIs and reasoning variants from its authenticated `/models` endpoint.
 - New `chat.autoSyncSystemPrompt` config (default `false`): existing chats keep their system prompt and LLM prompt cache stable, changes apply to new chats. New `/sync-system-prompt` command to apply them to the current chat. Skills changes never auto-sync.
 
