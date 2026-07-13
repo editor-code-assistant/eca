@@ -28,11 +28,10 @@
                                     activity)))))
 
 (defn ^:private all-agents
-  [config]
-  (->> (:agent config)
+  [config parent-agent-name]
+  (->> (config/available-subagents config parent-agent-name)
        (keep (fn [[agent-name agent-config]]
-               (when (and (contains? (config/agent-modes agent-config) "subagent")
-                          (:description agent-config))
+               (when (:description agent-config)
                  {:name agent-name
                   :description (:description agent-config)
                   :model (:defaultModel agent-config)
@@ -42,8 +41,8 @@
        vec))
 
 (defn ^:private get-agent
-  [agent-name config]
-  (first (filter #(= agent-name (:name %)) (all-agents config))))
+  [agent-name config parent-agent-name]
+  (first (filter #(= agent-name (:name %)) (all-agents config parent-agent-name))))
 
 (defn ^:private max-steps [subagent]
   (:max-steps subagent))
@@ -125,11 +124,12 @@
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
    Spawns a subagent to perform a focused task and returns the result."
-  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn trust]}]
+  [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn trust agent]}]
   (let [arguments (normalize-arguments arguments)
         agent-name (get arguments "agent")
         task (get arguments "task")
         activity (get arguments "activity")
+        parent-agent-name agent
         db @db*
 
         ;; Check for nesting - prevent subagents from spawning other subagents
@@ -138,11 +138,10 @@
                             {:agent-name agent-name
                              :parent-chat-id chat-id})))
 
-        subagent (get-agent agent-name config)
+        subagent (get-agent agent-name config parent-agent-name)
         _ (when-not subagent
-            (let [available (all-agents config)]
-              (throw (ex-info (format "Agent '%s' not found. Available agents: %s"
-                                      agent-name
+            (let [available (all-agents config parent-agent-name)]
+              (throw (ex-info (format "Agent not found or not available. Available agents: %s"
                                       (if (seq available)
                                         (str/join ", " (map :name available))
                                         "none"))
@@ -269,9 +268,9 @@
 
 (defn ^:private build-description
   "Build tool description with available agents and models listed."
-  [config]
+  [config parent-agent-name]
   (let [base-description (tools.util/read-tool-description "spawn_agent")
-        agents (all-agents config)
+        agents (all-agents config parent-agent-name)
         agents-section (str "\n\nAvailable agents:\n"
                             (->> agents
                                  (map (fn [{:keys [name description]}]
@@ -280,36 +279,39 @@
     (str base-description agents-section)))
 
 (defn definitions
-  [config _db]
-  {"spawn_agent"
-   {:description (build-description config)
-    :parameters  {:type       "object"
-                  :properties {"agent"    {:type        "string"
-                                           :description "Name of the agent to spawn"}
-                               "task"     {:type        "string"
-                                           :description "The detailed instructions for the agent"}
-                               "activity" {:type        "string"
-                                           :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
-                               "model"    {:type        "string"
-                                           :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
-                               "variant"  {:type        "string"
-                                           :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
-                  :required   ["agent" "task"]}
-    :handler     #'spawn-agent
-    :summary-fn  (fn [{:keys [args]}]
-                   (if-let [agent-name (get args "agent")]
-                     (if-let [activity (get (normalize-arguments args) "activity")]
-                       (format "%s: %s" agent-name activity)
-                       agent-name)
-                     "Spawning agent"))}})
+  ([config db]
+   (definitions config db nil))
+  ([config _db parent-agent-name]
+   {"spawn_agent"
+    {:description (build-description config parent-agent-name)
+     :parameters  {:type       "object"
+                   :properties {"agent"    {:type        "string"
+                                            :description "Name of the agent to spawn"}
+                                "task"     {:type        "string"
+                                            :description "The detailed instructions for the agent"}
+                                "activity" {:type        "string"
+                                            :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
+                                "model"    {:type        "string"
+                                            :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
+                                "variant"  {:type        "string"
+                                            :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
+                   :required   ["agent" "task"]}
+     :handler     #'spawn-agent
+     :summary-fn  (fn [{:keys [args]}]
+                    (if-let [agent-name (get args "agent")]
+                      (if-let [activity (get (normalize-arguments args) "activity")]
+                        (format "%s: %s" agent-name activity)
+                        agent-name)
+                      "Spawning agent"))}}))
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]
   (let [agent-name (get arguments "agent")
         user-model (get arguments "model")
         user-variant (get arguments "variant")
+        parent-agent-name (get-in db [:chats chat-id :agent])
         subagent (when agent-name
-                   (get-agent agent-name config))
+                   (get-agent agent-name config parent-agent-name))
         parent-model (get-in db [:chats chat-id :model])
         subagent-model (or user-model (:model subagent) parent-model)
         subagent-chat-id (when tool-call-id

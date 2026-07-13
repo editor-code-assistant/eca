@@ -846,6 +846,25 @@
             }
           ]
         },
+        "spawnableBy": {
+          "description": "Primary agent name or names allowed to discover and spawn this agent as a subagent. Matching uses exact resolved agent IDs. When omitted or empty, every primary agent may spawn it. This does not affect primary-agent selectability.",
+          "markdownDescription": "Primary agent ID or IDs allowed to discover and spawn this agent as a subagent. Matching uses exact resolved agent IDs. When omitted or empty, every primary agent may spawn it. Restricted agents are filtered from `spawn_agent`, `/subagents`, and contextual diagnostics, and direct spawn attempts are enforced server-side. This does not affect whether `mode` includes `primary`. The field participates in normal agent inheritance/merge behavior.",
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          ],
+          "examples": ["duel", ["duel", "another-orchestrator"]]
+        },
         "description": {
           "type": "string",
           "description": "Description of this agent's purpose. Required for subagents — shown to the LLM so it knows when to spawn this agent. Supports dynamic strings like ${file:path} and ${classpath:path}.",

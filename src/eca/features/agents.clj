@@ -60,12 +60,40 @@
     (sequential? tools) {"byDefault" "ask" "allow" (vec tools)}
     :else nil))
 
+(defn ^:private normalize-agent-id
+  [agent-id]
+  (when (string? agent-id)
+    (let [normalized (-> agent-id string/trim string/lower-case)]
+      (when-not (string/blank? normalized)
+        normalized))))
+
+(defn ^:private normalize-spawnable-by
+  [spawnable-by]
+  (cond
+    (nil? spawnable-by) nil
+    (string? spawnable-by) (or (normalize-agent-id spawnable-by)
+                               (do
+                                 (logger/warn logger-tag "Ignoring blank spawnableBy agent id")
+                                 nil))
+    (coll? spawnable-by) (some->> spawnable-by
+                                  (keep (fn [agent-id]
+                                          (or (normalize-agent-id agent-id)
+                                              (logger/warn logger-tag (format "Ignoring malformed spawnableBy agent id: %s" (pr-str agent-id))))))
+                                  distinct
+                                  vec
+                                  not-empty)
+    :else (do
+            (logger/warn logger-tag (format "Ignoring malformed spawnableBy value: %s" (pr-str spawnable-by)))
+            nil)))
+
 (defn ^:private md->agent-config
-  [{:keys [description mode model steps tools body inherit]}]
-  (let [tools-map (normalize-tools tools)]
+  [{:keys [description mode model steps tools body inherit spawnableBy]}]
+  (let [tools-map (normalize-tools tools)
+        spawnable-by (normalize-spawnable-by spawnableBy)]
     (cond-> {}
       inherit (assoc :inherit (str inherit))
       description (assoc :description description)
+      spawnable-by (assoc :spawnableBy spawnable-by)
       mode (assoc :mode (if (sequential? mode)
                           (mapv str mode)
                           (str mode)))
@@ -91,9 +119,7 @@
    trimmed and lowercased. Returns nil otherwise."
   [parsed]
   (when-let [n (:name parsed)]
-    (let [s (-> n str string/trim)]
-      (when-not (string/blank? s)
-        (string/lower-case s)))))
+    (normalize-agent-id (str n))))
 
 (defn ^:private agent-name-from-filename
   "Returns the agent id derived from a markdown filename by stripping all

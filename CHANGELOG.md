@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add agent `spawnableBy` configuration to restrict subagent discovery and spawning to specific primary agents.
+
 ## 0.147.1
 
 - Retry transient OpenAI Responses `response.failed` server errors before output, preserving structured error and request IDs.

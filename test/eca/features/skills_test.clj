@@ -213,4 +213,28 @@
       (is (string/includes? body "## Skills"))
       (is (string/includes? body "## Subagents"))
       (is (string/includes? body "## Credential files"))
-      (is (string/includes? body "test-client 1.0")))))
+      (is (string/includes? body "test-client 1.0"))))
+
+  (testing "eca-info lists only subagents visible to the current primary agent"
+    (let [config {:pureConfig true
+                  :agent {"explorer" {:mode "subagent"
+                                      :description "Unrestricted"}
+                          "duel-worker" {:mode "subagent"
+                                         :description "Private"
+                                         :spawnableBy "duel"}}}
+          skill (->> (f.skills/all config [])
+                     (filter #(= "eca-info" (:name %)))
+                     first)
+          body-for (fn [agent]
+                     ((:handler-fn skill)
+                      {:db {:workspace-folders []
+                            :auth {}
+                            :models {}
+                            :mcp-clients {}}
+                       :config config
+                       :skills [skill]
+                       :agent agent}))]
+      (is (string/includes? (body-for "duel") "duel-worker"))
+      (is (not (string/includes? (body-for "code") "duel-worker")))
+      (is (not (string/includes? (body-for nil) "duel-worker")))
+      (is (string/includes? (body-for "code") "explorer")))))

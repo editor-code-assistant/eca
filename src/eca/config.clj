@@ -336,6 +336,26 @@
       (and (coll? mode) (seq mode)) (set mode)
       :else default-modes)))
 
+(defn subagent-available?
+  "Returns whether an agent config is available as a subagent to parent-agent-name."
+  [agent-config parent-agent-name]
+  (let [spawnable-by (:spawnableBy agent-config)
+        allowed-parents (cond
+                          (string? spawnable-by) #{spawnable-by}
+                          (coll? spawnable-by) (set spawnable-by)
+                          :else #{})]
+    (and (contains? (agent-modes agent-config) "subagent")
+         (or (empty? allowed-parents)
+             (and parent-agent-name
+                  (contains? allowed-parents parent-agent-name))))))
+
+(defn available-subagents
+  "Returns configured subagents visible to parent-agent-name."
+  [config parent-agent-name]
+  (filter (fn [[_ agent-config]]
+            (subagent-available? agent-config parent-agent-name))
+          (:agent config)))
+
 (defn primary-agent-names
   "Returns the names of agents usable as primary (i.e. whose effective
    modes include \"primary\")."
