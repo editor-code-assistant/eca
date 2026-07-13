@@ -1511,7 +1511,8 @@
        :chat-content-received
        (filter #(= :system (:role %)))
        (keep #(get-in % [:content :text]))
-       (filter #(string/includes? % "System prompt changed"))))
+       (filter #(or (string/includes? % "System prompt changed")
+                    (string/includes? % "Tools changed")))))
 
 (deftest system-prompt-changed-notice-test
   (testing "With autoSyncSystemPrompt, a system notice is sent when the system prompt changes mid-chat"
@@ -1597,6 +1598,37 @@
           (h/reset-messenger!)
           (prompt! {:message "New chat"} mocks)
           (is (= 2 @build-calls*) "A new chat picks up the changed system prompt"))))))
+
+(deftest tools-changed-notice-test
+  (testing "Tools drift notice tells changes already apply to the current chat"
+    (h/reset-components!)
+    (let [tools* (atom [])
+          skills* (atom [])
+          build-calls* (atom 0)
+          real-build f.prompt/build-chat-instructions
+          mocks {:all-tools-mock (fn [& _] @tools*)
+                 :api-mock (fn [{:keys [on-message-received]}]
+                             (on-message-received {:type :finish}))}]
+      (with-redefs [f.skills/all (fn [& _] @skills*)
+                    f.prompt/build-chat-instructions (fn [& args]
+                                                       (swap! build-calls* inc)
+                                                       (apply real-build args))]
+        (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+          (is (= 1 @build-calls*))
+          (h/reset-messenger!)
+          (reset! tools* [{:full-name "eca__new_tool"}])
+          (prompt! {:message "Tool appeared" :chat-id chat-id} mocks)
+          (is (= 1 @build-calls*) "Tools drift must not rebuild the pinned system prompt")
+          (is (= ["Tools changed and already apply to this chat, keeping current chat system prompt text.\n"]
+                 (system-prompt-notices))
+              "Tools-only drift explains tools already apply")
+          (h/reset-messenger!)
+          (reset! skills* [{:name "my-skill" :description "Does things"}])
+          (prompt! {:message "Skill too" :chat-id chat-id} mocks)
+          (is (= 1 @build-calls*))
+          (is (= ["System prompt changed (skills, tools), keeping current chat system prompt, changes will apply to new chats (tools already apply). Use /sync-system-prompt to apply now.\n"]
+                 (system-prompt-notices))
+              "Mixed drift keeps the tools clarification"))))))
 
 (deftest sync-system-prompt-command-test
   (testing "/sync-system-prompt forces the pinned system prompt to be rebuilt on the next message"

@@ -113,6 +113,29 @@
                  (str " (" (string/join ", " categories) ")"))
                suffix)}))
 
+(defn ^:private pinned-system-prompt-changed-text
+  "Notice for a pinned chat whose system prompt inputs drifted.
+   Tools are special: the tool schemas sent to the LLM are recomputed every
+   turn, so tool changes (e.g. a MCP server connected/disconnected) already
+   apply to the current chat, only the system prompt text referencing them
+   is kept."
+  [categories]
+  (let [tools-changed? (boolean (some #{"tools"} categories))
+        tools-only? (= ["tools"] categories)]
+    (cond
+      tools-only?
+      "Tools changed and already apply to this chat, keeping current chat system prompt text.\n"
+
+      tools-changed?
+      (str "System prompt changed (" (string/join ", " categories)
+           "), keeping current chat system prompt, changes will apply to new chats (tools already apply). Use /sync-system-prompt to apply now.\n")
+
+      :else
+      (str "System prompt changed"
+           (when (seq categories)
+             (str " (" (string/join ", " categories) ")"))
+           ", keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n"))))
+
 (defn ^:private prune-tool-results!
   "Prunes old tool result content from chat history to reduce context size.
    Walks messages backwards, protecting the most recent tool outputs up to
@@ -1530,10 +1553,11 @@
                            (do
                              (when (and (not signature-match?)
                                         (not= static-signature (:stale-signature prompt-cache)))
-                               (send-system-prompt-changed-notice!
-                                base-chat-ctx
-                                (changed-system-prompt-categories prompt-cache static-signature agent full-model)
-                                ", keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n")
+                               (lifecycle/send-content!
+                                base-chat-ctx :system
+                                {:type :text
+                                 :text (pinned-system-prompt-changed-text
+                                        (changed-system-prompt-categories prompt-cache static-signature agent full-model))})
                                (swap! db* assoc-in [:chats chat-id :prompt-cache :stale-signature] static-signature))
                              {:static (:static prompt-cache)
                               :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)})
