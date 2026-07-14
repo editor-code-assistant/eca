@@ -704,8 +704,32 @@
         (is (= 8000 (:delay-ms event)))
         (is (number? (:resets-at event)))))))
 
-(deftest sync-rate-limit-waits-until-reset-without-cap-test
-  (testing "without rateLimitMaxWaitSeconds config, waits the full header reset even when long"
+(deftest sync-rate-limit-default-max-wait-test
+  (testing "default rateLimitMaxWaitSeconds rejects a long Codex usage-limit reset"
+    (let [attempt* (atom 0)
+          error* (atom nil)
+          slept* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (swap! attempt* inc)
+                                          (let [reset-epoch-s (+ (quot (System/currentTimeMillis) 1000) 7200)]
+                                            {:error {:status 429
+                                                     :body {:error {:type "usage_limit_reached"
+                                                                    :resets_at reset-epoch-s}}
+                                                     :message "OpenAI response status: 429"}}))
+                    eca.llm-api/sleep-with-cancel (fn [delay-ms _]
+                                                    (swap! slept* conj delay-ms)
+                                                    true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error (fn [error] (reset! error* error))
+           :on-message-received identity})))
+      (is (= 1 @attempt*))
+      (is (empty? @slept*))
+      (is (number? (:rate-limit-resets-at @error*))))))
+
+(deftest rate-limit-default-max-wait-buffer-boundary-test
+  (testing "59-second provider reset is allowed because the buffered delay is exactly 60 seconds"
     (let [attempt* (atom 0)
           slept* (atom [])]
       (with-redefs [eca.llm-api/prompt! (fn [_]
@@ -714,7 +738,7 @@
                                               {:error {:status 429
                                                        :body "Rate limit exceeded"
                                                        :message "LLM response status: 429"
-                                                       :headers {"retry-after" "7200"}}}
+                                                       :headers {"retry-after" "59"}}}
                                               {:output-text "success"
                                                :usage {:input-tokens 1 :output-tokens 1}})))
                     eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
@@ -726,7 +750,29 @@
            :on-error identity
            :on-message-received identity})))
       (is (= 2 @attempt*))
-      (is (= [7201000] @slept*) "2h from retry-after + 1s buffer, not capped"))))
+      (is (= [60000] @slept*))))
+
+  (testing "60-second provider reset is rejected because the safety buffer makes 61 seconds"
+    (let [attempt* (atom 0)
+          error* (atom nil)
+          slept* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (swap! attempt* inc)
+                                          {:error {:status 429
+                                                   :body "Rate limit exceeded"
+                                                   :message "LLM response status: 429"
+                                                   :headers {"retry-after" "60"}}})
+                    eca.llm-api/sleep-with-cancel (fn [delay-ms _]
+                                                    (swap! slept* conj delay-ms)
+                                                    true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error (fn [error] (reset! error* error))
+           :on-message-received identity})))
+      (is (= 1 @attempt*))
+      (is (empty? @slept*))
+      (is (number? (:rate-limit-resets-at @error*))))))
 
 (deftest rate-limit-max-wait-config-override-test
   (testing "provider rateLimitMaxWaitSeconds lower than reset wait disables the retry, exposing resets-at"

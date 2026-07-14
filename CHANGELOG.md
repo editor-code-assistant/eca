@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix ChatGPT/Codex OAuth rate-limit retries using the response reset instead of quota snapshot headers; cap waits at 60 seconds by default.
 - Fix prompt cache invalidation warning after clearing the chat and changing model. #530
 - Fix missing line break after "Prompt stopped" message when followed by another system message.
 
