@@ -1885,7 +1885,7 @@
                       :parent-chat-id (db/parent-chat-id @db* chat-id)}]
         (when-not silent?
           (lifecycle/send-content! chat-ctx :system {:type :text
-                                                     :text "\nPrompt stopped"}))
+                                                     :text "\nPrompt stopped\n"}))
 
         ;; Handle each active tool call
         (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
@@ -1925,8 +1925,12 @@
     (swap! db* update-in [:chats chat-id]
            (fn [chat]
              (cond-> chat
+               ;; A cleared chat is a fresh conversation: drop the prompt cache
+               ;; so the next prompt rebuilds the system prompt silently instead
+               ;; of warning about an invalidated cache that no longer exists. #530
                messages (-> (assoc :messages [])
-                            (dissoc :tool-calls :last-api :usage :task)))))
+                            (dissoc :tool-calls :last-api :usage :task
+                                    :prompt-cache :last-editor-state)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/update-workspaces-cache! @db* metrics)))
 

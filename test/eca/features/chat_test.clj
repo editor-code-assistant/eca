@@ -1198,7 +1198,7 @@
                     {:role :assistant :content {:type :toolCalled :id "call-3" :name "ro_tool_3" :arguments {}
                                                 :outputs [{:type :text :text "RO tool call 3 result"}]}}
                     {:role :system :content {:type :progress :state :running :text "Generating"}}
-                    {:role :system :content {:type :text :text "\nPrompt stopped"}}
+                    {:role :system :content {:type :text :text "\nPrompt stopped\n"}}
                     {:role :system :content {:type :progress :state :finished}}
                     {:role :assistant :content {:type :toolCallRejected :id "call-2" :name "ro_tool_2" :arguments {} :reason :user}}
                     {:role :assistant :content {:type :toolCallRejected :id "call-1" :name "ro_tool_1" :arguments {} :reason :user}}]}
@@ -1655,6 +1655,23 @@
           (prompt! {:message "After sync" :chat-id chat-id} mocks)
           (is (= 2 @build-calls*) "Next message rebuilds the system prompt")
           (is (empty? (system-prompt-notices)) "Explicit sync rebuild does not notify"))))))
+
+(deftest clear-chat-resets-prompt-cache-test
+  (testing "Clearing a chat drops the prompt cache so a model switch does not warn (#530)"
+    (h/reset-components!)
+    (let [mocks {:all-tools-mock (constantly [])
+                 :api-mock (fn [{:keys [on-message-received]}]
+                             (on-message-received {:type :finish}))}
+          {:keys [chat-id]} (prompt! {:message "Hi" :model "openai/gpt-5.2"} mocks)]
+      (is (some? (get-in (h/db) [:chats chat-id :prompt-cache])))
+      (f.chat/clear-chat {:chat-id chat-id :messages true} (h/db*) (h/messenger) (h/metrics))
+      (is (nil? (get-in (h/db) [:chats chat-id :prompt-cache]))
+          "Clearing messages drops the prompt cache")
+      (swap! (h/db*) update :models #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+      (h/reset-messenger!)
+      (prompt! {:message "Fresh" :chat-id chat-id :model "anthropic/claude-opus-4"} mocks)
+      (is (empty? (system-prompt-notices))
+          "No prompt cache invalidation notice on an empty chat"))))
 
 (deftest prompt-cache-key-includes-agent-test
   (testing "sync-or-async-prompt! receives prompt-cache-key scoped by active agent"
