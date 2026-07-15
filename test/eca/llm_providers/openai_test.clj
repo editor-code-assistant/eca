@@ -366,6 +366,83 @@
                              :message "OpenAI response status: 401 body: unauthorized"}}
                     result))))))
 
+(deftest create-response-failed-event-test
+  (let [failed-response {:id "resp_123"
+                         :status "failed"
+                         :error {:code "server_error"
+                                 :type "server_error"
+                                 :message "An error occurred while processing your request. You can retry your request."
+                                 :provider-detail "preserved"}}
+        response-headers {"X-Request-ID" ["req_123"]}
+        expected-error {:code "server_error"
+                        :type "server_error"
+                        :message "An error occurred while processing your request. You can retry your request."
+                        :provider-detail "preserved"
+                        :error/source :openai-responses
+                        :response-id "resp_123"
+                        :request-id "req_123"
+                        :headers response-headers}]
+    (testing "streaming failure closes the stream before error handling and ignores trailing events"
+      (let [closed?* (atom false)
+            closed-at-error?* (atom false)
+            errors* (atom [])
+            messages* (atom [])
+            tool-prepares* (atom [])
+            stream-text (str "event: response.failed\n"
+                             "data: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_123\",\"status\":\"failed\",\"error\":{\"code\":\"server_error\",\"type\":\"server_error\",\"message\":\"An error occurred while processing your request. You can retry your request.\",\"provider-detail\":\"preserved\"}}}\n\n"
+                             "event: response.output_text.delta\n"
+                             "data: {\"type\":\"response.output_text.delta\",\"delta\":\"stale\"}\n\n"
+                             "event: response.output_item.added\n"
+                             "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"tool\",\"arguments\":\"{}\"}}\n\n"
+                             "event: response.completed\n"
+                             "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+            stream-body (proxy [java.io.ByteArrayInputStream]
+                                [(.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8)]
+                          (close []
+                            (reset! closed?* true)
+                            (proxy-super close)))]
+        (with-redefs [http/post (fn [_url opts]
+                                  (is (= :stream (:as opts)))
+                                  {:status 200
+                                   :headers response-headers
+                                   :body stream-body})]
+          (llm-providers.openai/create-response!
+           (base-provider-params)
+           (base-callbacks
+            {:on-error (fn [error]
+                         (reset! closed-at-error?* @closed?*)
+                         (swap! errors* conj error))
+             :on-message-received (fn [message] (swap! messages* conj message))
+             :on-prepare-tool-call (fn [tool] (swap! tool-prepares* conj tool))})))
+        (is (= [expected-error] @errors*))
+        (is (true? @closed-at-error?*)
+            "retry/error handling must start only after the failed stream is closed")
+        (is (empty? @messages*)
+            "events after response.failed must not emit text or finish")
+        (is (empty? @tool-prepares*)
+            "events after response.failed must not prepare tool calls")))
+
+    (testing "stream false JSON failure returns the same structured error"
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :json (:as opts)))
+                                {:status 200
+                                 :headers response-headers
+                                 :body failed-response})]
+        (is (= {:error expected-error}
+               (llm-providers.openai/create-response!
+                (assoc (base-provider-params) :extra-payload {:stream false})
+                nil)))))
+
+    (testing "structured request ID takes precedence over response and header IDs"
+      (let [error (#'llm-providers.openai/response-failed->error-data
+                   {:response {:id "resp_123"
+                               :request_id "response_req"
+                               :error {:message "failed"
+                                       :request_id "error_req"}}}
+                   {"x-request-id" "header_req"})]
+        (is (= "error_req" (:request-id error)))
+        (is (= "error_req" (:request_id error)))))))
+
 (deftest normalize-messages-tool-call-output-image-test
   (let [tool-output-with-image
         {:role "tool_call_output"
