@@ -5,6 +5,8 @@
 - Retry transient OpenAI Responses `response.failed` server errors before output, preserving structured error and request IDs.
 - Fix prompt cache invalidation warning after clearing the chat and changing model. #530
 - Fix missing line break after "Prompt stopped" message when followed by another system message.
+- Scope restored model, variant, and trust selections to the opened, resumed, or imported chat instead of changing other chats and session defaults.
+- Return an atomic model, agent, variant, variants, and trust selection snapshot from `chat/open`.
 
 ## 0.147.0
 

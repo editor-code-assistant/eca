@@ -282,8 +282,8 @@
 (defn chat-open
   "Replay a persisted chat over the wire for the client to render.
    Emits chat/cleared, chat/opened and per-message chat/contentReceived
-   notifications for the target chat, plus a config/updated notification
-   to restore the chat's stored model selection. Returns `{:found? bool ...}`."
+   notifications for the target chat, plus scoped config/updated notifications
+   to restore the chat's stored selection. Returns `{:found bool ...}`."
   [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-open
     (f.chat/open-chat! params db* messenger config)))

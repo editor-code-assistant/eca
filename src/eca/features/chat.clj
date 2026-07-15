@@ -2105,15 +2105,16 @@
   "Replay a persisted chat over the wire so a freshly-started client can render
    it. Emits `chat/cleared` (messages) followed by `chat/opened` and streams each
    persisted message via `send-chat-contents!`. Also re-aligns the client's
-   selected model to the resumed chat's stored `:model` via a `config/updated`
-   notification, so an Opus-started chat keeps using Opus on the next prompt
-   (#417). Performs no DB mutation otherwise.
+   selected model to the resumed chat's stored `:model` via a scoped
+   `config/updated` notification and returns the restored model, agent, variant,
+   variants, and trust as an atomic `:selection` snapshot (#417). Performs no
+   DB mutation otherwise.
 
    Optional `:limit`/`:before`/`:after` window the replay (same cursors as
    `chat/history`); when provided, the response includes `:meta` so the client
    can page older via `chat/history`. Without them the full history is replayed.
-   Returns `{:found? false}` when the chat does not exist or is a subagent,
-   otherwise `{:found? true :chat-id ... :title ... :meta? ...}`."
+   Returns `{:found false}` when the chat does not exist or is a subagent,
+   otherwise `{:found true :chat-id ... :title ... :selection ... :meta? ...}`."
   [{:keys [chat-id limit before after] :as params} db* messenger config]
   (let [chat (get-in @db* [:chats chat-id])
         windowed? (some #(contains? params %) [:limit :before :after])
@@ -2122,10 +2123,10 @@
                                         {:limit limit :before before :after after}))]
     (cond
       (or (nil? chat) (:subagent chat))
-      {:found? false}
+      {:found false}
 
       (= :cursor-expired (:error page))
-      {:found? true :chat-id chat-id
+      {:found true :chat-id chat-id
        :error {:code "cursor_expired"
                :message "Cursor no longer points to an existing message; refetch the latest page"}}
 
@@ -2138,15 +2139,29 @@
         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
         (send-chat-contents! messages chat-ctx)
         (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
-        (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat))
-        (config/notify-selected-trust-changed! (:trust chat) db* messenger)
-        (assoc-some {:found? true :chat-id chat-id :title title}
-                    :meta (when windowed?
-                            {:total (:total page)
-                             :returned (:returned page)
-                             :before-cursor (:before-cursor page)
-                             :after-cursor (:after-cursor page)
-                             :compaction-cursor (history/compaction-cursor (:messages chat))}))))))
+        (let [model-selection (config/notify-selected-model-changed!
+                               (:model chat) db* messenger config (:variant chat) chat-id)
+              trust-selection (config/notify-selected-trust-changed!
+                               (:trust chat) db* messenger chat-id)
+              agent-selection (config/validate-agent-name
+                               (or (:agent chat)
+                                   (:defaultAgent (:chat config))
+                                   (:defaultAgent config))
+                               config)
+              selection (merge {:model nil :variant nil :variants []}
+                               model-selection
+                               {:agent agent-selection
+                                :trust trust-selection})]
+          (assoc-some {:found true
+                       :chat-id chat-id
+                       :title title
+                       :selection selection}
+                      :meta (when windowed?
+                              {:total (:total page)
+                               :returned (:returned page)
+                               :before-cursor (:before-cursor page)
+                               :after-cursor (:after-cursor page)
+                               :compaction-cursor (history/compaction-cursor (:messages chat))})))))))
 
 (defn fetch-history
   "Window a chat's persisted messages and return the transformed content items
