@@ -1767,12 +1767,65 @@
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (let [result (f.chat/open-chat! {:chat-id chat-id}
                                       (h/db*) (h/messenger) (h/config))]
-        (is (match? {:found? true :chat-id chat-id :title "My Opus thread"} result))
-        (is (match? {:config-updated [{:chat {:select-model "anthropic/claude-opus-4"
+        (is (match? {:found true
+                     :chat-id chat-id
+                     :title "My Opus thread"
+                     :selection {:model "anthropic/claude-opus-4"
+                                 :agent "code"
+                                 :variant nil
+                                 :variants []
+                                 :trust false}}
+                    result))
+        (is (match? {:config-updated [{:chat-id chat-id
+                                       :chat {:select-model "anthropic/claude-opus-4"
                                               :variants []
                                               :select-variant nil}}
-                                      {:chat {:select-trust false}}]}
-                    (h/messages))))))
+                                      {:chat-id chat-id
+                                       :chat {:select-trust false}}]}
+                    (h/messages)))
+        (is (= {} (:last-config-notified (h/db)))))))
+
+  (testing "Opening a chat returns its persisted agent and valid variant atomically"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:effort "low"}
+                                                              "high" {:effort "high"}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {} "plan" {}}})
+    (let [chat-id "planned"]
+      (swap! (h/db*) assoc
+             :models {"anthropic/claude-sonnet-4-5" {:tools true}}
+             :chats {chat-id {:id chat-id
+                              :model "anthropic/claude-sonnet-4-5"
+                              :agent "plan"
+                              :variant "low"
+                              :trust true
+                              :messages []}})
+      (let [result (f.chat/open-chat! {:chat-id chat-id}
+                                      (h/db*) (h/messenger) (h/config))]
+        (is (= {:model "anthropic/claude-sonnet-4-5"
+                :agent "plan"
+                :variant "low"
+                :variants ["high" "low"]
+                :trust true}
+               (:selection result))))))
+
+  (testing "Opening a chat returns the default agent's valid variant when the persisted one is stale"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:effort "low"}
+                                                              "high" {:effort "high"}}}}}}
+                :agent {"code" {:variant "high"}}})
+    (let [chat-id "stale-variant"]
+      (swap! (h/db*) assoc
+             :models {"anthropic/claude-sonnet-4-5" {:tools true}}
+             :chats {chat-id {:id chat-id
+                              :model "anthropic/claude-sonnet-4-5"
+                              :variant "max"
+                              :messages []}})
+      (let [result (f.chat/open-chat! {:chat-id chat-id}
+                                      (h/db*) (h/messenger) (h/config))]
+        (is (= "high" (get-in result [:selection :variant]))))))
 
   (testing "Opening a chat with no stored :model only emits trust config/updated"
     (h/reset-components!)
@@ -1780,8 +1833,16 @@
       (swap! (h/db*) assoc-in [:chats chat-id]
              {:id chat-id
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+      (let [result (f.chat/open-chat! {:chat-id chat-id}
+                                      (h/db*) (h/messenger) (h/config))]
+        (is (= {:model nil
+                :agent "code"
+                :variant nil
+                :variants []
+                :trust false}
+               (:selection result))))
+      (is (match? {:config-updated [{:chat-id chat-id
+                                     :chat {:select-trust false}}]}
                   (h/messages)))))
 
   (testing "Opening a chat with a stale stored :model only emits trust config/updated"
@@ -1792,8 +1853,13 @@
              {:id chat-id
               :model "anthropic/claude-opus-4"
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+      (let [result (f.chat/open-chat! {:chat-id chat-id}
+                                      (h/db*) (h/messenger) (h/config))]
+        (is (nil? (get-in result [:selection :model])))
+        (is (= [] (get-in result [:selection :variants])))
+        (is (nil? (get-in result [:selection :variant]))))
+      (is (match? {:config-updated [{:chat-id chat-id
+                                     :chat {:select-trust false}}]}
                   (h/messages))))))
 
 (deftest open-chat-marks-editor-open-test
@@ -1817,7 +1883,8 @@
               :trust true
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (match? {:config-updated [{:chat {:select-trust true}}]}
+      (is (match? {:config-updated [{:chat-id chat-id
+                                     :chat {:select-trust true}}]}
                   (h/messages)))))
 
   (testing "Opening a non-trusted chat emits config/updated select-trust false (#426)"
@@ -1830,7 +1897,8 @@
               :trust false
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+      (is (match? {:config-updated [{:chat-id chat-id
+                                     :chat {:select-trust false}}]}
                   (h/messages)))))
 
   (testing "Opening a chat with no :trust key normalizes to false (#426)"
@@ -1841,7 +1909,8 @@
              {:id chat-id
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
-      (is (match? {:config-updated [{:chat {:select-trust false}}]}
+      (is (match? {:config-updated [{:chat-id chat-id
+                                     :chat {:select-trust false}}]}
                   (h/messages))))))
 
 (deftest fetch-history-test
@@ -1911,7 +1980,7 @@
       (swap! (h/db*) assoc-in [:chats "win"]
              {:id "win" :messages [(msg "m0" 1) (msg "m1" 2) (msg "m2" 3)]})
       (let [result (f.chat/open-chat! {:chat-id "win" :limit 2} (h/db*) (h/messenger) (h/config))]
-        (is (match? {:found? true :chat-id "win"
+        (is (match? {:found true :chat-id "win"
                      :meta {:total 3 :returned 2 :after-cursor nil}}
                     result))
         (is (some? (get-in result [:meta :before-cursor])))

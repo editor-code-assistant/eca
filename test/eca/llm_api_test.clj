@@ -943,6 +943,129 @@
       (is (false? @on-error-called*))
       (is (= "hello" @received-text*)))))
 
+(deftest first-response-callback-is-atomic-test
+  (testing "concurrent output callbacks emit first response once"
+    (let [first-response-count* (atom 0)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received]}]
+                                          (let [ready (java.util.concurrent.CountDownLatch. 2)
+                                                go (java.util.concurrent.CountDownLatch. 1)
+                                                workers (mapv (fn [text]
+                                                                (future
+                                                                  (.countDown ready)
+                                                                  (.await go)
+                                                                  (on-message-received {:type :text :text text})))
+                                                              ["one" "two"])]
+                                            (.await ready)
+                                            (.countDown go)
+                                            (doseq [worker workers]
+                                              @worker)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-first-response-received (fn [& _] (swap! first-response-count* inc))
+           :on-message-received identity
+           :on-error identity})))
+      (is (= 1 @first-response-count*)))))
+
+(deftest async-retry-on-structured-server-error-test
+  (testing "retries an OpenAI Responses server_error before output"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          received-text* (atom "")
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error]}]
+                                          (let [attempt (swap! attempt* inc)]
+                                            (if (= 1 attempt)
+                                              (on-error {:code "server_error"
+                                                         :message "Request failed"
+                                                         :error/source :openai-responses
+                                                         :response-id "resp_123"
+                                                         :request-id "req_123"})
+                                              (do
+                                                (on-message-received {:type :text :text "hello"})
+                                                (on-message-received {:type :finish :finish-reason "stop"})))))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received (fn [{:keys [type text]}]
+                                  (when (= :text type)
+                                    (swap! received-text* str text)))})))
+      (is (= 2 @attempt*))
+      (is (= :overloaded (get-in (first @retry-events*) [:classified :error/type])))
+      (is (= "resp_123" (get-in (first @retry-events*) [:error-data :response-id])))
+      (is (= "req_123" (get-in (first @retry-events*) [:error-data :request-id])))
+      (is (false? @on-error-called*))
+      (is (= "hello" @received-text*)))))
+
+(deftest sync-retry-on-structured-server-error-test
+  (testing "retries an OpenAI Responses server_error in sync mode"
+    (let [attempt* (atom 0)
+          retry-events* (atom [])
+          on-error-called* (atom false)]
+      (with-redefs [eca.llm-api/prompt! (fn [_opts]
+                                          (if (= 1 (swap! attempt* inc))
+                                            {:error {:code "server_error"
+                                                     :message "Request failed"
+                                                     :error/source :openai-responses
+                                                     :response-id "resp_sync"
+                                                     :request-id "req_sync"}}
+                                            {:output-text "success"
+                                             :usage {:input-tokens 1 :output-tokens 1}}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [_] (reset! on-error-called* true))
+           :on-message-received identity})))
+      (is (= 2 @attempt*))
+      (is (= :overloaded (get-in (first @retry-events*) [:classified :error/type])))
+      (is (= "resp_sync" (get-in (first @retry-events*) [:error-data :response-id])))
+      (is (= "req_sync" (get-in (first @retry-events*) [:error-data :request-id])))
+      (is (false? @on-error-called*)))))
+
+(deftest async-no-retry-after-visible-output-test
+  (doseq [[label emit-output]
+          [["text output"
+            (fn [{:keys [on-message-received]}]
+              (on-message-received {:type :text :text "partial"}))]
+           ["reasoning output"
+            (fn [{:keys [on-reason]}]
+              (on-reason {:status :thinking :id "reason_1" :text "partial"}))]
+           ["tool-call output"
+            (fn [{:keys [on-prepare-tool-call]}]
+              (on-prepare-tool-call {:id "call_1" :full-name "tool" :arguments-text "{"}))]
+           ["web-search output"
+            (fn [{:keys [on-server-web-search]}]
+              (on-server-web-search {:status :started :id "search_1"}))]
+           ["image-generation output"
+            (fn [{:keys [on-server-image-generation]}]
+              (on-server-image-generation {:status :started :id "image_1"}))]]]
+    (testing (str "does not retry after " label)
+      (let [attempt* (atom 0)
+            sleep-calls* (atom 0)
+            errors* (atom [])]
+        (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-error] :as callbacks}]
+                                            (swap! attempt* inc)
+                                            (emit-output callbacks)
+                                            (on-error {:code "server_error"
+                                                       :message "Request failed"
+                                                       :error/source :openai-responses}))
+                      eca.llm-api/sleep-with-cancel (fn [_ _]
+                                                     (swap! sleep-calls* inc)
+                                                     true)]
+          (llm-api/sync-or-async-prompt!
+           (make-prompt-opts
+            {:on-error (fn [error] (swap! errors* conj error))
+             :on-message-received identity})))
+        (is (= 1 @attempt*))
+        (is (zero? @sleep-calls*))
+        (is (= [{:code "server_error"
+                 :message "Request failed"
+                 :error/source :openai-responses}]
+               @errors*))))))
+
 (deftest async-no-retry-on-context-overflow-test
   (testing "does not retry on context overflow"
     (let [attempt* (atom 0)
