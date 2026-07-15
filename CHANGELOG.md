@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.147.1
+
 - Retry transient OpenAI Responses `response.failed` server errors before output, preserving structured error and request IDs.
 - Fix prompt cache invalidation warning after clearing the chat and changing model. #530
 - Fix missing line break after "Prompt stopped" message when followed by another system message.
