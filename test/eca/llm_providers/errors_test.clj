@@ -94,6 +94,62 @@
              :body "Bad Gateway"
              :message "LLM response status: 502 body: Bad Gateway"})))))
 
+(deftest classify-openai-response-failed-test
+  (let [generic-message (str "An error occurred while processing your request. "
+                             "You can retry your request, or contact support if the error persists.")
+        responses-error {:error/source :openai-responses}]
+    (testing "structured server_error code is overloaded"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "server_error"
+                     :message "Request failed")))))
+
+    (testing "structured server_error type is overloaded"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :type "server_error"
+                     :message "Request failed")))))
+
+    (testing "structured rate_limit_exceeded code is rate limited"
+      (is (= {:error/type :rate-limited}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "rate_limit_exceeded"
+                     :message "Request failed")))))
+
+    (testing "generic transient message is a fallback without structured fields"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error :message generic-message)))))
+
+    (testing "generic transient message is not applied to unmarked errors"
+      (is (= {:error/type :unknown}
+             (llm-providers.errors/classify-error
+              {:message generic-message}))))
+
+    (testing "unknown structured fields are authoritative over retry-looking messages"
+      (doseq [error-data [{:code "invalid_prompt" :message generic-message}
+                          {:code "invalid_prompt" :message "Internal server error"}
+                          {:type "invalid_request_error" :message "Rate limit exceeded"}
+                          {:code "invalid_prompt"
+                           :message "Request failed"
+                           :exception (Exception. "Connection error")}]]
+        (is (= {:error/type :unknown}
+               (llm-providers.errors/classify-error
+                (merge responses-error error-data))))))
+
+    (testing "custom retry rules still take priority over structured fields"
+      (is (= {:error/type :retryable-custom
+              :error/label "Temporary proxy failure"}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "invalid_prompt"
+                     :message generic-message)
+              [{:errorPattern "processing your request"
+                :label "Temporary proxy failure"}]))))))
+
 (deftest classify-error-unknown-test
   (testing "500 is classified as overloaded"
     (is (= {:error/type :overloaded}

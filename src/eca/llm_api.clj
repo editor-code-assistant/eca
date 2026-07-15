@@ -465,8 +465,7 @@
                                            (catch Exception e
                                              (logger/warn logger-tag "on-history-sanitized callback failed" {:exception (ex-message e)})))))
         emit-first-message-fn (fn [& args]
-                                (when-not @first-response-received*
-                                  (reset! first-response-received* true)
+                                (when (compare-and-set! first-response-received* false true)
                                   (apply on-first-response-received args)))
         on-message-received-wrapper (fn [& args]
                                       (apply emit-first-message-fn args)
@@ -516,6 +515,7 @@
                         (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
                                  (< attempt max-retries)
                                  (not wait-too-long?)
+                                 (not @first-response-received*)
                                  (not (cancelled?)))
                           (let [delay-ms (if rl-wait
                                            (+ (long (:delay-ms rl-wait)) rate-limit-wait-buffer-ms)
