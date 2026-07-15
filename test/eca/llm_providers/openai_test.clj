@@ -36,6 +36,27 @@
           (is (= {:output-text "Hello from responses!"}
                  (select-keys response [:output-text]))))))))
 
+(deftest base-responses-req-preserves-decoded-error-body-test
+  (testing "non-streaming 429 keeps the decoded JSON body in structured error data"
+    (let [error-body {:error {:type "usage_limit_reached"
+                              :resets_at 2000000000}}
+          request-opts* (atom nil)]
+      (with-redefs [http/post (fn [_url opts]
+                                (reset! request-opts* opts)
+                                {:status 429
+                                 :headers {"retry-after" "7"}
+                                 :body error-body})]
+        (let [result (#'llm-providers.openai/base-responses-request!
+                      {:rid "r1"
+                       :api-key "fake-key"
+                       :api-url "http://localhost:1"
+                       :body {:model "mymodel" :input "hi" :stream false}
+                       :url-relative-path "/v1/responses"})]
+          (is (= :json (:as @request-opts*)))
+          (is (= 429 (get-in result [:error :status])))
+          (is (= error-body (get-in result [:error :body])))
+          (is (= "7" (get-in result [:error :headers "retry-after"]))))))))
+
 (deftest oauth-authorize-test
   (testing "that OAuth token exchange is routed through the http proxy"
     (let [req* (atom nil)
