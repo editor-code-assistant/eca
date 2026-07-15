@@ -142,8 +142,38 @@
                  ""
                  (:content (last (:output body))))})
 
+(defn ^:private non-blank-str [value]
+  (let [value (if (coll? value) (first value) value)
+        value (some-> value str string/trim)]
+    (when-not (string/blank? value)
+      value)))
+
+(defn ^:private response-header [headers header-name]
+  (some (fn [[k value]]
+          (let [k (if (keyword? k) (name k) (str k))]
+            (when (= header-name (string/lower-case k))
+              (non-blank-str value))))
+        headers))
+
+(defn ^:private response-failed->error-data [data response-headers]
+  (let [response (:response data)
+        error (:error response)
+        request-id (some non-blank-str
+                         [(:request-id error)
+                          (:request_id error)
+                          (:request-id response)
+                          (:request_id response)
+                          (response-header response-headers "x-request-id")])]
+    (assoc-some (or error {})
+                :message (or (:message error) "OpenAI response failed")
+                :error/source :openai-responses
+                :response-id (:id response)
+                :request-id request-id
+                :headers response-headers)))
+
 (defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client extra-headers]}]
   (let [oauth? (= :auth/oauth auth-type)
+        stream? (and on-stream (not= false (:stream body)))
         url (if oauth?
               codex-url
               (join-api-url api-url (or url-relative-path responses-path)))
@@ -174,22 +204,32 @@
                                                           :body (json/generate-string body)
                                                           :throw-exceptions? false
                                                           :http-client (client/merge-with-global-http-client http-client)
-                                                          :as (if on-stream :stream :json)})]
+                                                          :as (if stream? :stream :json)})]
         (if (not= 200 status)
-          (let [body-str (if on-stream (slurp body) body)]
+          (let [body-str (if stream? (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
             (on-error {:message (format "OpenAI response status: %s body: %s" status body-str)
                        :status status
                        :body body-str
                        :headers resp-headers}))
-          (if on-stream
-            (with-open [rdr (io/reader body)]
-              (doseq [[event data] (llm-util/event-data-seq rdr)]
-                (llm-util/log-response logger-tag rid event data)
-                (on-stream event data)))
+          (if stream?
+            (let [stream-error
+                  (with-open [rdr (io/reader body)]
+                    (loop [events (seq (llm-util/event-data-seq rdr))]
+                      (when-let [[event data] (first events)]
+                        (llm-util/log-response logger-tag rid event data)
+                        (if (= "response.failed" event)
+                          (response-failed->error-data data resp-headers)
+                          (do
+                            (on-stream event data resp-headers)
+                            (recur (next events)))))))]
+              (when stream-error
+                (on-error stream-error)))
             (do
               (llm-util/log-response logger-tag rid "response" body)
-              (response-body->result body)))))
+              (if (= "failed" (:status body))
+                (on-error (response-failed->error-data {:response body} resp-headers))
+                (response-body->result body))))))
       (catch Exception e
         (on-error {:exception e
                    :message (if (ex-data e)
@@ -327,7 +367,7 @@
         sync-result* (when-not callbacks (atom nil))
         on-stream-fn
         (if callbacks
-          (fn handle-stream [event data]
+          (fn handle-stream [event data & _]
             (case event
               ;; text
               "response.output_text.delta"
@@ -465,23 +505,15 @@
                         :on-stream handle-stream})))
                   (on-message-received {:type :finish
                                         :finish-reason (-> data :response :status)})))
-
-              "response.failed" (do
-                                  (when-let [error (-> data :response :error)]
-                                    (on-error {:message (:message error)}))
-                                  (on-message-received {:type :finish
-                                                        :finish-reason (-> data :response :status)}))
               nil))
           ;; Sync mode: collect text deltas into result atom
           (let [sb (StringBuilder.)]
-            (fn handle-sync-stream [event data]
+            (fn handle-sync-stream [event data & _]
               (case event
                 "response.output_text.delta"
                 (.append sb ^String (:delta data))
                 "response.completed"
                 (reset! sync-result* {:output-text (.toString sb)})
-                "response.failed"
-                (reset! sync-result* {:error {:message (-> data :response :error :message)}})
                 nil))))
         result (base-responses-request!
                 {:rid (llm-util/gen-rid)
