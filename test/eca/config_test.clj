@@ -852,7 +852,46 @@
                                            (h/db*) (h/messenger) (h/config)
                                            nil)
     (is (match? {:config-updated [{:chat {:select-variant "high"}}]}
-                (h/messages)))))
+                (h/messages))))
+
+  (testing "6-arity: chat-id scopes the model and variant without changing session defaults"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:a 1}
+                                                              "high" {:a 2}}}}}}
+                :defaultAgent "code"
+                :agent {"code" {:variant "high"}}})
+    (swap! (h/db*) assoc
+           :models {"anthropic/claude-sonnet-4-5" {:tools true}}
+           :last-config-notified {:chat {:select-model "openai/gpt-5.2"
+                                         :select-variant "medium"}})
+    (let [session-defaults (:last-config-notified (h/db))
+          selection (config/notify-selected-model-changed!
+                     "anthropic/claude-sonnet-4-5"
+                     (h/db*) (h/messenger) (h/config)
+                     "low" "chat-a")]
+      (is (= {:model "anthropic/claude-sonnet-4-5"
+              :variants ["high" "low"]
+              :variant "low"}
+             selection))
+      (is (match? {:config-updated [{:chat-id "chat-a"
+                                     :chat {:select-model "anthropic/claude-sonnet-4-5"
+                                            :variants ["high" "low"]
+                                            :select-variant "low"}}]}
+                  (h/messages)))
+      (is (= session-defaults (:last-config-notified (h/db)))))))
+
+(deftest notify-selected-trust-changed-test
+  (testing "4-arity: chat-id scopes trust without changing session defaults"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :last-config-notified {:chat {:select-trust false}})
+    (let [session-defaults (:last-config-notified (h/db))
+          selection (config/notify-selected-trust-changed!
+                     true (h/db*) (h/messenger) "chat-a")]
+      (is (true? selection))
+      (is (= [{:chat-id "chat-a" :chat {:select-trust true}}]
+             (:config-updated (h/messages))))
+      (is (= session-defaults (:last-config-notified (h/db)))))))
 
 (deftest agent-modes-test
   (testing "scalar string :mode is honored"

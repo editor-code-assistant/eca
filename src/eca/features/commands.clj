@@ -752,11 +752,11 @@
                      (db/update-workspaces-cache! @db* metrics)
                      ;; Align the client's selected model with the resumed chat
                      ;; so the LLM call keeps using the chat's original model. #417
-                     (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat))
+                     (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat) chat-id)
                      ;; Align the client's trust indicator with the resumed
                      ;; chat's persisted :trust so the icon matches the
                      ;; auto-approval behavior the server will apply. #426
-                     (config/notify-selected-trust-changed! (:trust chat) db* messenger)
+                     (config/notify-selected-trust-changed! (:trust chat) db* messenger chat-id)
                      {:type :chat-messages
                       :clear-before? true
                       :chats {chat-id {:title (:title chat)
@@ -893,8 +893,8 @@
                      (db/update-workspaces-cache! @db* metrics)
                      (messenger/chat-opened messenger {:chat-id imported-id :title (:title imported-chat)})
                      ;; Align the client's model/trust with the imported chat (like /resume).
-                     (config/notify-selected-model-changed! (:model imported-chat) db* messenger config (:variant imported-chat))
-                     (config/notify-selected-trust-changed! (:trust imported-chat) db* messenger)
+                     (config/notify-selected-model-changed! (:model imported-chat) db* messenger config (:variant imported-chat) imported-id)
+                     (config/notify-selected-trust-changed! (:trust imported-chat) db* messenger imported-id)
                      {:type :chat-messages
                       :chats {imported-id {:title (:title imported-chat)
                                            :messages (concat [{:role "system" :content [{:type :text :text summary}]}]

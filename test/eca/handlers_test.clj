@@ -620,9 +620,9 @@
                                                  {:sort-by :created-at})))))))
 
 (deftest chat-open-test
-  (testing "Unknown chat returns {:found? false} and emits no messages"
+  (testing "Unknown chat returns {:found false} and emits no messages"
     (h/reset-components!)
-    (is (match? {:found? false}
+    (is (match? {:found false}
                 (handlers/chat-open (h/components) {:chat-id "missing"})))
     (is (nil? (:chat-opened (h/messages)))))
 
@@ -631,20 +631,29 @@
     (seed-chats!
      {"sub" {:id "sub" :status :idle :subagent true :parent-chat-id "main"
              :messages [] :created-at 1 :updated-at 1}})
-    (is (match? {:found? false}
+    (is (match? {:found false}
                 (handlers/chat-open (h/components) {:chat-id "sub"})))
     (is (nil? (:chat-opened (h/messages)))))
 
   (testing "Known chat emits chat/cleared + chat/opened and returns found? true"
     (h/reset-components!)
+    (h/config! {:defaultAgent "code"
+                :agent {"code" {} "plan" {}}})
+    (swap! (h/db*) assoc :models {"openai/gpt-5.2" {:tools true}})
     (seed-chats!
      {"c1" {:id "c1" :title "Hello world" :status :idle
             :created-at 10 :updated-at 20
+            :model "openai/gpt-5.2" :agent "plan" :trust true
             :messages [{:role "user" :content [{:type :text :text "hi"}]}]}})
     (let [result (handlers/chat-open (h/components) {:chat-id "c1"})]
-      (is (match? {:found? true
+      (is (match? {:found true
                    :chat-id "c1"
-                   :title "Hello world"}
+                   :title "Hello world"
+                   :selection {:model "openai/gpt-5.2"
+                               :agent "plan"
+                               :variant nil
+                               :variants []
+                               :trust true}}
                   result))
       (is (match? {:chat-clear [{:chat-id "c1" :messages true}]
                    :chat-opened [{:chat-id "c1" :title "Hello world"}]}
