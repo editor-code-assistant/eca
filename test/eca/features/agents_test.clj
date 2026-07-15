@@ -62,7 +62,7 @@
                   "description: You sleep one second when asked\n"
                   "mode: subagent\n"
                   "model: my-org-anthropic/sonnet-4.5\n"
-                  "steps: 5\n"
+                  "maxSteps: 5\n"
                   "tools:\n"
                   "  byDefault: ask\n"
                   "  deny:\n"

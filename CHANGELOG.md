@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Respect `maxSteps` in Markdown agent definitions.
 - Fix prompt cache invalidation warning after clearing the chat and changing model. #530
 - Fix missing line break after "Prompt stopped" message when followed by another system message.
 

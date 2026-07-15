@@ -61,8 +61,9 @@
     :else nil))
 
 (defn ^:private md->agent-config
-  [{:keys [description mode model steps tools body inherit]}]
-  (let [tools-map (normalize-tools tools)]
+  [{:keys [description mode model maxSteps steps tools body inherit]}]
+  (let [max-steps (or maxSteps steps)
+        tools-map (normalize-tools tools)]
     (cond-> {}
       inherit (assoc :inherit (str inherit))
       description (assoc :description description)
@@ -70,7 +71,7 @@
                           (mapv str mode)
                           (str mode)))
       model (assoc :defaultModel (str model))
-      steps (assoc :maxSteps (long steps))
+      max-steps (assoc :maxSteps (long max-steps))
       (seq body) (assoc :systemPrompt body)
       tools-map (assoc :toolCall
                        (cond-> {:approval {}}
