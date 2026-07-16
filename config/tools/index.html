@@ -877,6 +877,58 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#how-eca-decides-rule-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      How ECA decides: rule precedence
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-selectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool selectors
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matching-arguments-with-argsmatchers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Matching arguments with argsMatchers
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Matching arguments with argsMatchers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#chained-and-piped-shell-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chained and piped shell commands
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#approve-remember-for-this-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      Approve &amp; remember for this session
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approve &amp; remember for this session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#granular-approve-remember-for-shell-commands" class="md-nav__link">
     <span class="md-ellipsis">
       Granular approve &amp; remember for shell commands
@@ -885,10 +937,33 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#trust-mode-by-default" class="md-nav__link">
     <span class="md-ellipsis">
       Trust mode by default
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-approval-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Default approval rules
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debugging-approval-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Debugging approval rules
     </span>
   </a>
   
@@ -1389,6 +1464,58 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#how-eca-decides-rule-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      How ECA decides: rule precedence
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-selectors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool selectors
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matching-arguments-with-argsmatchers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Matching arguments with argsMatchers
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Matching arguments with argsMatchers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#chained-and-piped-shell-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Chained and piped shell commands
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#approve-remember-for-this-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      Approve &amp; remember for this session
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Approve &amp; remember for this session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#granular-approve-remember-for-shell-commands" class="md-nav__link">
     <span class="md-ellipsis">
       Granular approve &amp; remember for shell commands
@@ -1397,10 +1524,33 @@
   
 </li>
         
+      </ul>
+    </nav>
+  
+</li>
+        
           <li class="md-nav__item">
   <a href="#trust-mode-by-default" class="md-nav__link">
     <span class="md-ellipsis">
       Trust mode by default
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-approval-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Default approval rules
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#debugging-approval-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      Debugging approval rules
     </span>
   </a>
   
@@ -1683,8 +1833,11 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <p><code>disabledTools</code> removes the tool entirely from the LLM — it won't even know it exists. <code>toolCall.approval.deny</code> rules without <code>argsMatchers</code> also remove the tool from the LLM tool list, while rules with <code>argsMatchers</code> keep the tool visible and only block matching calls.</p>
 </div>
 <h2 id="approval-permissions">Approval / permissions<a class="headerlink" href="#approval-permissions" title="Permanent link">#</a></h2>
-<p>By default, ECA asks to call any non read-only tool (default <a href="https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96">here</a>), but that can easily be configured in several ways via the <code>toolCall.approval</code> config.</p>
-<p>You can configure the default approval with <code>byDefault</code> and/or configure a tool in <code>ask</code>, <code>allow</code> or <code>deny</code> configs.</p>
+<p>By default, ECA asks to call any non read-only tool (check the <a href="#default-approval-rules">default rules</a>), but that can easily be configured in several ways via the <code>toolCall.approval</code> config:</p>
+<ul>
+<li><code>byDefault</code>: <code>"ask"</code>, <code>"allow"</code> or <code>"deny"</code>, used when no rule matches. Default: <code>"ask"</code>.</li>
+<li><code>deny</code>, <code>ask</code> and <code>allow</code>: maps of <a href="#tool-selectors">tool selector</a> to an optional <a href="#matching-arguments-with-argsmatchers"><code>argsMatchers</code></a>.</li>
+</ul>
 <p>Check some examples:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="4:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_4" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_4" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_4" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_4" type="radio" /><input id="denying-a-tool" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
 <div class="tabbed-content">
@@ -1704,7 +1857,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;ask&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;eca_editfile&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__edit_file&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
 <span class="w">        </span><span class="s2">&quot;my-mcp__my_tool&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
 <span class="w">      </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
@@ -1759,7 +1912,61 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 </div>
 <p>Also check the <code>plan</code> agent which is safer.</p>
 <p><strong>The <code>manualApproval</code> setting was deprecated and replaced by the <code>approval</code> one without breaking changes</strong></p>
-<h3 id="granular-approve-remember-for-shell-commands">Granular approve &amp; remember for shell commands<a class="headerlink" href="#granular-approve-remember-for-shell-commands" title="Permanent link">#</a></h3>
+<h3 id="how-eca-decides-rule-precedence">How ECA decides: rule precedence<a class="headerlink" href="#how-eca-decides-rule-precedence" title="Permanent link">#</a></h3>
+<p>For each tool call, ECA checks the following in order, and the first match wins:</p>
+<ol>
+<li><strong><code>deny</code> rules</strong>: always win, even over session-remembered approvals and trust mode.</li>
+<li><strong>Session-remembered approvals</strong>: what you approved with "approve and remember for this session" (<a href="#approve-remember-for-this-session">below</a>).</li>
+<li><strong>Tool built-in checks</strong>: some native tools force asking in risky cases regardless of <code>allow</code> rules, e.g. filesystem tools and <code>shell_command</code> when the path or working directory is outside the workspace roots.</li>
+<li><strong><code>ask</code> rules</strong>.</li>
+<li><strong><code>allow</code> rules</strong>.</li>
+<li><strong>Legacy <code>manualApproval</code> config</strong>.</li>
+<li><strong><code>byDefault</code></strong>: <code>ask</code> when not set.</li>
+</ol>
+<p>Trust mode is applied after that: it promotes an <code>ask</code> result to auto-allow but never overrides <code>deny</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Agent rules replace global rules</p>
+<p><code>agent.&lt;name&gt;.toolCall.approval</code> does not deep-merge with the global <code>toolCall.approval</code> at runtime: each key present (<code>allow</code>, <code>ask</code>, <code>deny</code> or <code>byDefault</code>) entirely replaces the global one. Since the builtin <code>plan</code> and <code>explorer</code> agents define their own <code>allow</code> and <code>deny</code> (<a href="#default-approval-rules">default rules</a>), global <code>allow</code> entries you add are ignored while using those agents — configure <code>agent.plan.toolCall.approval.allow</code> too if you need them there.</p>
+</div>
+<h3 id="tool-selectors">Tool selectors<a class="headerlink" href="#tool-selectors" title="Permanent link">#</a></h3>
+<p>The keys of <code>allow</code>, <code>ask</code> and <code>deny</code> are matched by exact name (no regex or glob, unlike <code>disabledTools</code>), in one of 3 forms:</p>
+<table>
+<thead>
+<tr>
+<th>Selector</th>
+<th>Matches</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server__tool</code>: <code>eca__shell_command</code>, <code>my-mcp__my_tool</code></td>
+<td>that specific tool</td>
+</tr>
+<tr>
+<td>builtin tool name: <code>shell_command</code></td>
+<td>the ECA native tool, the <code>eca__</code> prefix is optional for them</td>
+</tr>
+<tr>
+<td>server name: <code>my-mcp</code>, <code>eca</code></td>
+<td>all tools of that server</td>
+</tr>
+</tbody>
+</table>
+<p>For MCP tools the <code>server__</code> prefix is required: a bare MCP tool name like <code>my_tool</code> is treated as a server name and will match nothing — use <code>my-mcp__my_tool</code>.</p>
+<h3 id="matching-arguments-with-argsmatchers">Matching arguments with argsMatchers<a class="headerlink" href="#matching-arguments-with-argsmatchers" title="Permanent link">#</a></h3>
+<p><code>argsMatchers</code> is a map of argument name by list of <a href="https://www.regexplanet.com/advanced/java/index.html">java regexes</a> tested against the argument value:</p>
+<ul>
+<li>Regexes are anchored, they must match the <strong>whole</strong> argument value: <code>"rm"</code> does not match <code>rm -rf foo</code>, use <code>".*\\brm\\b.*"</code>.</li>
+<li>The rule matches when <strong>any</strong> regex of any listed argument matches.</li>
+<li>A rule without <code>argsMatchers</code> matches <strong>every</strong> call of that tool.</li>
+<li>Matchers of an argument absent in the call never match.</li>
+<li>A <code>deny</code> rule without <code>argsMatchers</code> also hides the tool from the LLM entirely; with <code>argsMatchers</code> the tool stays visible and only matching calls are rejected.</li>
+</ul>
+<h4 id="chained-and-piped-shell-commands">Chained and piped shell commands<a class="headerlink" href="#chained-and-piped-shell-commands" title="Permanent link">#</a></h4>
+<p>Config <code>argsMatchers</code> are tested against the <strong>full command string</strong> — there is no per-command splitting: for <code>cat file | grep foo</code>, an <code>allow</code> regex must match that whole string. That's why deny patterns are usually written like <code>".*\\b(rm|mv|cp)\\b.*"</code>. Splitting a chain into individual commands only happens for <a href="#approve-remember-for-this-session">session remember</a>.</p>
+<h3 id="approve-remember-for-this-session">Approve &amp; remember for this session<a class="headerlink" href="#approve-remember-for-this-session" title="Permanent link">#</a></h3>
+<p>When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool by name: future calls of it are auto-approved. Remembered approvals live in memory only — they apply to all chats of the running ECA process, are not written to any config file, and are lost on restart. <code>deny</code> rules still win over them.</p>
+<h4 id="granular-approve-remember-for-shell-commands">Granular approve &amp; remember for shell commands<a class="headerlink" href="#granular-approve-remember-for-shell-commands" title="Permanent link">#</a></h4>
 <p>When you approve a <code>eca__shell_command</code> or <code>eca__git</code> tool call choosing "approve and remember", ECA remembers the approved commands for the session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (<code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>) produces a key — command + subcommand for multi-command tools (<code>git checkout</code>, <code>npm install</code>), the plain command otherwise (<code>rg</code>). A future shell call runs automatically only when all its commands were already remembered.</p>
 <p>ECA fails closed: commands it cannot safely reason about always ask again, like command/process substitution (<code>$(...)</code>, backticks), subshells, heredocs, output redirections to files (except <code>/dev/null</code>), and wrapper commands that execute arbitrary code (<code>sudo</code>, <code>bash -c</code>, <code>xargs</code>, <code>env</code>, ...).</p>
 <h3 id="trust-mode-by-default">Trust mode by default<a class="headerlink" href="#trust-mode-by-default" title="Permanent link">#</a></h3>
@@ -1770,6 +1977,76 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="default-approval-rules">Default approval rules<a class="headerlink" href="#default-approval-rules" title="Permanent link">#</a></h3>
+<p>Globally ECA allows its read-only builtin tools and asks for everything else:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;byDefault&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ask&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;allow&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;eca__compact_chat&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__preview_file_change&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__read_file&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__directory_tree&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__grep&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__editor_diagnostics&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__skill&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__task&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__ask_user&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__fetch_rule&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span>
+<span class="w">        </span><span class="s2">&quot;eca__spawn_agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The builtin <code>plan</code> and <code>explorer</code> agents replace these with stricter rules: <code>allow</code> only covers the read-only builtin tools plus read-only shell commands (<code>pwd</code>, <code>git diff/log/show</code>, <code>find</code>, <code>ls</code>), and <code>deny</code> blocks dangerous shell patterns (file mutations like <code>rm</code>/<code>mv</code>/<code>cp</code>/<code>touch</code>/<code>mkdir</code>, output redirections, pipes to <code>tee</code>/<code>dd</code>/<code>xargs</code>, in-place <code>sed</code>/<code>awk</code>/<code>perl</code>, <code>git add/commit/push</code>, <code>npm install</code>). Check the up-to-date values in <a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/config.clj">config.clj</a>.</p>
+<h3 id="debugging-approval-rules">Debugging approval rules<a class="headerlink" href="#debugging-approval-rules" title="Permanent link">#</a></h3>
+<p>Start the server with <code>--log-level debug</code> (<a href="../../troubleshooting/">how to per editor</a>) and search the logs for <code>Tool call approval decision</code>, logged on every tool call with the decision and which rule caused it:</p>
+<div class="highlight"><pre><span></span><code>[CHAT] Tool call approval decision {:decision :deny, :rule {:source :config-deny, :selector &quot;eca__shell_command&quot;, :args-matcher &quot;.*\\b(rm|mv|cp|touch|mkdir)\\b.*&quot;}, :tool &quot;eca__shell_command&quot;, :agent &quot;plan&quot;}
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th><code>:source</code></th>
+<th>The decision came from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:config-deny</code>, <code>:config-ask</code>, <code>:config-allow</code></td>
+<td>your <code>approval</code> rules; <code>:selector</code> and <code>:args-matcher</code> show the exact rule</td>
+</tr>
+<tr>
+<td><code>:session-remember</code></td>
+<td>an "approve and remember for this session" approval</td>
+</tr>
+<tr>
+<td><code>:tool-built-in-check</code></td>
+<td>the tool itself, e.g. path outside the workspace roots</td>
+</tr>
+<tr>
+<td><code>:legacy-manual-approval</code></td>
+<td>the deprecated <code>manualApproval</code> config</td>
+</tr>
+<tr>
+<td><code>:by-default</code></td>
+<td>the <code>byDefault</code> config</td>
+</tr>
+<tr>
+<td><code>:fallback</code></td>
+<td>nothing matched (likely a config error), falls back to ask</td>
+</tr>
+</tbody>
+</table>
+<p>Common reasons ECA still asks after you added an <code>allow</code> rule:</p>
+<ul>
+<li>The regex must match the whole argument: use <code>"grep(\\s+.*)?"</code> instead of <code>"grep"</code>.</li>
+<li>Allowing <code>eca__grep</code> doesn't cover <code>grep</code> run through <code>eca__shell_command</code> — they are different tools.</li>
+<li>You are on the <code>plan</code>/<code>explorer</code> agent (or a custom one) whose <code>allow</code> replaces the global one.</li>
+<li>The path or working directory is outside the workspace roots (<code>:tool-built-in-check</code>).</li>
+<li>Chained commands: the regex must match the full chained string, e.g. <code>cat file | grep foo</code>.</li>
+</ul>
 
 
 
@@ -1790,7 +2067,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 16, 2026 13:21:20 UTC">July 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 16, 2026 14:16:48 UTC">July 16, 2026</span>
   </span>
 
     
