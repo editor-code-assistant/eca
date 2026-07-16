@@ -4,6 +4,7 @@
 
 - Add agent `spawnableBy` configuration to restrict subagent discovery and spawning to specific primary agents.
 - Support MCP server names and regexes in `disabledTools` entries and add `disabledTools` to agent markdown frontmatter. #534
+- Log at debug level which approval rule caused a tool call allow/ask/deny and document how tool permissions work. #536
 
 ## 0.147.1
 

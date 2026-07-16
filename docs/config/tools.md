@@ -286,9 +286,10 @@ Regexes must match the whole name (anchored). It can be set globally, per agent 
 
 ## Approval / permissions
 
-By default, ECA asks to call any non read-only tool (default [here](https://github.com/editor-code-assistant/eca/blob/5e598439e606727701a69393e55bbd205c9e16d8/src/eca/config.clj#L88-L96)), but that can easily be configured in several ways via the `toolCall.approval` config.
+By default, ECA asks to call any non read-only tool (check the [default rules](#default-approval-rules)), but that can easily be configured in several ways via the `toolCall.approval` config:
 
-You can configure the default approval with `byDefault` and/or configure a tool in `ask`, `allow` or `deny` configs.
+- `byDefault`: `"ask"`, `"allow"` or `"deny"`, used when no rule matches. Default: `"ask"`.
+- `deny`, `ask` and `allow`: maps of [tool selector](#tool-selectors) to an optional [`argsMatchers`](#matching-arguments-with-argsmatchers).
 
 Check some examples:
 
@@ -312,7 +313,7 @@ Check some examples:
         "approval": {
           "byDefault": "allow",
           "ask": {
-            "eca_editfile": {},
+            "eca__edit_file": {},
             "my-mcp__my_tool": {}
           }
         }
@@ -374,7 +375,55 @@ Also check the `plan` agent which is safer.
 
 __The `manualApproval` setting was deprecated and replaced by the `approval` one without breaking changes__
 
-### Granular approve & remember for shell commands
+### How ECA decides: rule precedence
+
+For each tool call, ECA checks the following in order, and the first match wins:
+
+1. __`deny` rules__: always win, even over session-remembered approvals and trust mode.
+2. __Session-remembered approvals__: what you approved with "approve and remember for this session" ([below](#approve-remember-for-this-session)).
+3. __Tool built-in checks__: some native tools force asking in risky cases regardless of `allow` rules, e.g. filesystem tools and `shell_command` when the path or working directory is outside the workspace roots.
+4. __`ask` rules__.
+5. __`allow` rules__.
+6. __Legacy `manualApproval` config__.
+7. __`byDefault`__: `ask` when not set.
+
+Trust mode is applied after that: it promotes an `ask` result to auto-allow but never overrides `deny`.
+
+!!! warning "Agent rules replace global rules"
+
+    `agent.<name>.toolCall.approval` does not deep-merge with the global `toolCall.approval` at runtime: each key present (`allow`, `ask`, `deny` or `byDefault`) entirely replaces the global one. Since the builtin `plan` and `explorer` agents define their own `allow` and `deny` ([default rules](#default-approval-rules)), global `allow` entries you add are ignored while using those agents — configure `agent.plan.toolCall.approval.allow` too if you need them there.
+
+### Tool selectors
+
+The keys of `allow`, `ask` and `deny` are matched by exact name (no regex or glob, unlike `disabledTools`), in one of 3 forms:
+
+| Selector | Matches |
+|----------|---------|
+| `server__tool`: `eca__shell_command`, `my-mcp__my_tool` | that specific tool |
+| builtin tool name: `shell_command` | the ECA native tool, the `eca__` prefix is optional for them |
+| server name: `my-mcp`, `eca` | all tools of that server |
+
+For MCP tools the `server__` prefix is required: a bare MCP tool name like `my_tool` is treated as a server name and will match nothing — use `my-mcp__my_tool`.
+
+### Matching arguments with argsMatchers
+
+`argsMatchers` is a map of argument name by list of [java regexes](https://www.regexplanet.com/advanced/java/index.html) tested against the argument value:
+
+- Regexes are anchored, they must match the __whole__ argument value: `"rm"` does not match `rm -rf foo`, use `".*\\brm\\b.*"`.
+- The rule matches when __any__ regex of any listed argument matches.
+- A rule without `argsMatchers` matches __every__ call of that tool.
+- Matchers of an argument absent in the call never match.
+- A `deny` rule without `argsMatchers` also hides the tool from the LLM entirely; with `argsMatchers` the tool stays visible and only matching calls are rejected.
+
+#### Chained and piped shell commands
+
+Config `argsMatchers` are tested against the __full command string__ — there is no per-command splitting: for `cat file | grep foo`, an `allow` regex must match that whole string. That's why deny patterns are usually written like `".*\\b(rm|mv|cp)\\b.*"`. Splitting a chain into individual commands only happens for [session remember](#approve-remember-for-this-session).
+
+### Approve & remember for this session
+
+When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool by name: future calls of it are auto-approved. Remembered approvals live in memory only — they apply to all chats of the running ECA process, are not written to any config file, and are lost on restart. `deny` rules still win over them.
+
+#### Granular approve & remember for shell commands
 
 When you approve a `eca__shell_command` or `eca__git` tool call choosing "approve and remember", ECA remembers the approved commands for the session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (`&&`, `||`, `;`, `|`) produces a key — command + subcommand for multi-command tools (`git checkout`, `npm install`), the plain command otherwise (`rg`). A future shell call runs automatically only when all its commands were already remembered.
 
@@ -391,3 +440,57 @@ Trust mode auto-accepts all tool calls in a chat (it never overrides `deny`). Ed
   }
 }
 ```
+
+### Default approval rules
+
+Globally ECA allows its read-only builtin tools and asks for everything else:
+
+```javascript
+{
+  "toolCall": {
+    "approval": {
+      "byDefault": "ask",
+      "allow": {
+        "eca__compact_chat": {},
+        "eca__preview_file_change": {},
+        "eca__read_file": {},
+        "eca__directory_tree": {},
+        "eca__grep": {},
+        "eca__editor_diagnostics": {},
+        "eca__skill": {},
+        "eca__task": {},
+        "eca__ask_user": {},
+        "eca__fetch_rule": {},
+        "eca__spawn_agent": {}
+      }
+    }
+  }
+}
+```
+
+The builtin `plan` and `explorer` agents replace these with stricter rules: `allow` only covers the read-only builtin tools plus read-only shell commands (`pwd`, `git diff/log/show`, `find`, `ls`), and `deny` blocks dangerous shell patterns (file mutations like `rm`/`mv`/`cp`/`touch`/`mkdir`, output redirections, pipes to `tee`/`dd`/`xargs`, in-place `sed`/`awk`/`perl`, `git add/commit/push`, `npm install`). Check the up-to-date values in [config.clj](https://github.com/editor-code-assistant/eca/blob/master/src/eca/config.clj).
+
+### Debugging approval rules
+
+Start the server with `--log-level debug` ([how to per editor](../troubleshooting.md)) and search the logs for `Tool call approval decision`, logged on every tool call with the decision and which rule caused it:
+
+```
+[CHAT] Tool call approval decision {:decision :deny, :rule {:source :config-deny, :selector "eca__shell_command", :args-matcher ".*\\b(rm|mv|cp|touch|mkdir)\\b.*"}, :tool "eca__shell_command", :agent "plan"}
+```
+
+| `:source` | The decision came from |
+|-----------|------------------------|
+| `:config-deny`, `:config-ask`, `:config-allow` | your `approval` rules; `:selector` and `:args-matcher` show the exact rule |
+| `:session-remember` | an "approve and remember for this session" approval |
+| `:tool-built-in-check` | the tool itself, e.g. path outside the workspace roots |
+| `:legacy-manual-approval` | the deprecated `manualApproval` config |
+| `:by-default` | the `byDefault` config |
+| `:fallback` | nothing matched (likely a config error), falls back to ask |
+
+Common reasons ECA still asks after you added an `allow` rule:
+
+- The regex must match the whole argument: use `"grep(\\s+.*)?"` instead of `"grep"`.
+- Allowing `eca__grep` doesn't cover `grep` run through `eca__shell_command` — they are different tools.
+- You are on the `plan`/`explorer` agent (or a custom one) whose `allow` replaces the global one.
+- The path or working directory is outside the workspace roots (`:tool-built-in-check`).
+- Chained commands: the regex must match the full chained string, e.g. `cat file | grep foo`.
