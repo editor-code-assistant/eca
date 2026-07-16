@@ -288,9 +288,8 @@
       (when (seq parts)
         (string/join "\n" parts)))))
 
-(defn ^:private subagents-msg [config]
-  (let [subagents (->> (:agent config)
-                       (filter (fn [[_ v]] (contains? (config/agent-modes v) "subagent")))
+(defn ^:private subagents-msg [config parent-agent-name]
+  (let [subagents (->> (config/available-subagents config parent-agent-name)
                        (sort-by first))]
     (if (empty? subagents)
       "No subagents configured, double check your configuration via json or markdown."
@@ -910,7 +909,7 @@
                      :chats {chat-id {:messages [{:role "system"
                                                   :content [{:type :text
                                                              :text (prompt-show-text instructions user-messages)}]}]}}}
-      "subagents" (let [msg (subagents-msg config)]
+      "subagents" (let [msg (subagents-msg config agent)]
                     {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "plugins" (let [plugins-config (:plugins config)

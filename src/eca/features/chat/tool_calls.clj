@@ -681,6 +681,11 @@
 
         ;; 1. Determine approval (trust promotion handled inside f.tools/approval)
         approval (f.tools/approval all-tools tool arguments db config agent-name {:trust trust})
+        ;; Which rule caused the decision, to help debugging approval configs. #536
+        _ (logger/debug logger-tag "Tool call approval decision"
+                        (assoc (f.tools/approval-decision all-tools tool arguments db config agent-name {:trust trust})
+                               :tool full-name
+                               :agent agent-name))
         trusted? (= :trust/allow approval)
         effective-approval (if trusted? :allow approval)
 

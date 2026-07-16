@@ -232,6 +232,17 @@
                        :description "custom plan"}}
            (#'config/resolve-agent-inheritance agents)))))
 
+  (testing "spawnableBy follows normal inheritance and child override behavior"
+    (let [agents {"worker" {:mode "subagent"
+                             :spawnableBy ["duel"]}
+                  "inherited-worker" {:inherit "worker"
+                                      :description "inherits restriction"}
+                  "overridden-worker" {:inherit "worker"
+                                       :spawnableBy ["other"]}}
+          resolved (#'config/resolve-agent-inheritance agents)]
+      (is (= ["duel"] (get-in resolved ["inherited-worker" :spawnableBy])))
+      (is (= ["other"] (get-in resolved ["overridden-worker" :spawnableBy])))))
+
   (testing "child values override parent values"
     (let [agents {"code" {:mode "primary"
                           :disabledTools ["preview_file_change"]
@@ -909,12 +920,31 @@
     (is (= #{"primary" "subagent"} (config/agent-modes {:mode nil})))
     (is (= #{"primary" "subagent"} (config/agent-modes {:mode []})))))
 
+(deftest subagent-availability-test
+  (let [unrestricted {:mode "subagent"}
+        restricted-string {:mode "subagent" :spawnableBy "duel"}
+        restricted-collection {:mode ["primary" "subagent"]
+                               :spawnableBy ["duel" "another"]}
+        primary-only {:mode "primary" :spawnableBy "duel"}]
+    (testing "unrestricted subagents are available to every or no parent"
+      (is (config/subagent-available? unrestricted "code"))
+      (is (config/subagent-available? unrestricted nil)))
+    (testing "restricted subagents require an exact allowed parent id"
+      (is (config/subagent-available? restricted-string "duel"))
+      (is (config/subagent-available? restricted-collection "another"))
+      (is (not (config/subagent-available? restricted-string "Duel")))
+      (is (not (config/subagent-available? restricted-string "code")))
+      (is (not (config/subagent-available? restricted-string nil))))
+    (testing "spawnableBy does not make primary-only agents into subagents"
+      (is (not (config/subagent-available? primary-only "duel"))))))
+
 (deftest primary-agent-names-test
   (testing "includes agents whose effective modes contain 'primary'"
     (let [config {:agent {"a-primary" {:mode "primary"}
                           "a-subagent-only" {:mode "subagent"}
                           "a-list-subagent-only" {:mode ["subagent"]}
-                          "a-list-both" {:mode ["primary" "subagent"]}
+                          "a-list-both" {:mode ["primary" "subagent"]
+                                         :spawnableBy ["orchestrator"]}
                           "a-unspecified" {:description "no mode set"}}}
           names (set (config/primary-agent-names config))]
       (is (contains? names "a-primary"))

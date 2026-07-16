@@ -152,6 +152,48 @@
       (is (= #{"plan_tool"}
              (#'f.tools/get-disabled-tools config "plan"))))))
 
+(deftest disabled-tools-matching-test
+  (let [db {:mcp-clients {"clojureMCP"
+                          {:version "1.0.2"
+                           :tools [{:name "eval" :description "eval code" :parameters {}}
+                                   {:name "sync_deps" :description "sync deps" :parameters {}}]}}}
+        full-names (fn [config] (set (map :full-name (f.tools/all-tools "123" "code" db config))))]
+    (testing "exact builtin tool short name (existing behavior)"
+      (let [names (full-names {:disabledTools ["edit_file"]})]
+        (is (not (contains? names "eca__edit_file")))
+        (is (contains? names "eca__read_file"))))
+    (testing "exact full name (existing behavior)"
+      (let [names (full-names {:disabledTools ["clojureMCP__eval"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (contains? names "clojureMCP__sync_deps"))))
+    (testing "regex against builtin tool short names"
+      (let [names (full-names {:disabledTools [".*_file"]})]
+        (is (not (contains? names "eca__edit_file")))
+        (is (not (contains? names "eca__write_file")))
+        (is (not (contains? names "eca__move_file")))
+        (is (not (contains? names "eca__read_file")))))
+    (testing "server name disables all tools of that server"
+      (let [names (full-names {:disabledTools ["clojureMCP"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (not (contains? names "clojureMCP__sync_deps")))
+        (is (contains? names "eca__read_file"))))
+    (testing "regex against full names"
+      (let [names (full-names {:disabledTools ["clojureMCP.*"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (not (contains? names "clojureMCP__sync_deps")))
+        (is (contains? names "eca__read_file"))))
+    (testing "bare MCP tool name does not match"
+      (let [names (full-names {:disabledTools ["eval"]})]
+        (is (contains? names "clojureMCP__eval"))))
+    (testing "invalid regex is treated literally and does not throw"
+      (let [names (full-names {:disabledTools ["eval(" "clojureMCP__eval"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (contains? names "clojureMCP__sync_deps"))))
+    (testing "server name works per agent"
+      (let [names (full-names {:agent {"code" {:disabledTools ["clojureMCP"]}}})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (contains? names "eca__read_file"))))))
+
 (deftest approval-test
   (let [read-tool {:name "read" :server {:name "eca"} :origin :native}
         write-tool {:name "write" :server {:name "eca"} :origin :native}
@@ -211,6 +253,41 @@
           (is (= :allow (f.tools/approval all-tools request-tool {} {} {:toolCall {:approval {:byDefault "allow"}}} nil)))))
       (testing "fallback to manual approval"
         (is (= :ask (f.tools/approval all-tools request-tool {} {} {} nil)))))))
+
+(deftest approval-decision-test
+  (let [read-tool {:name "read" :server {:name "eca"} :origin :native}
+        shell-tool {:name "shell" :server {:name "eca"} :origin :native :require-approval-fn (constantly true)}
+        request-tool {:name "request" :server {:name "web"} :origin :mcp}
+        all-tools [read-tool shell-tool request-tool]]
+    (testing "config rules return the matched selector"
+      (is (= {:decision :deny :rule {:source :config-deny :selector "web__request"}}
+             (f.tools/approval-decision all-tools request-tool {} {} {:toolCall {:approval {:deny {"web__request" {}}}}} nil)))
+      (is (= {:decision :ask :rule {:source :config-ask :selector "web"}}
+             (f.tools/approval-decision all-tools request-tool {} {} {:toolCall {:approval {:ask {"web" {}}}}} nil)))
+      (is (= {:decision :allow :rule {:source :config-allow :selector "read"}}
+             (f.tools/approval-decision all-tools read-tool {} {} {:toolCall {:approval {:allow {"read" {}}}}} nil))))
+    (testing "config rules with argsMatchers return the matched regex"
+      (is (= {:decision :allow :rule {:source :config-allow :selector "web__request" :args-matcher ".*foo.*"}}
+             (f.tools/approval-decision all-tools request-tool {"url" "http://foo.com"} {}
+                                        {:toolCall {:approval {:allow {"web__request" {:argsMatchers {"url" [".*bar.*" ".*foo.*"]}}}}}} nil))))
+    (testing "session remember"
+      (is (= {:decision :allow :rule {:source :session-remember}}
+             (f.tools/approval-decision all-tools read-tool {} {:tool-calls {"read" {:remember-to-approve? true}}} {} nil))))
+    (testing "tool built-in check"
+      (is (= {:decision :ask :rule {:source :tool-built-in-check}}
+             (f.tools/approval-decision all-tools shell-tool {} {} {} nil))))
+    (testing "legacy manualApproval"
+      (is (= {:decision :ask :rule {:source :legacy-manual-approval}}
+             (f.tools/approval-decision all-tools request-tool {} {} {:toolCall {:manualApproval true}} nil))))
+    (testing "byDefault"
+      (is (= {:decision :allow :rule {:source :by-default}}
+             (f.tools/approval-decision all-tools request-tool {} {} {:toolCall {:approval {:byDefault "allow"}}} nil))))
+    (testing "fallback when no config"
+      (is (= {:decision :ask :rule {:source :fallback}}
+             (f.tools/approval-decision all-tools request-tool {} {} {} nil))))
+    (testing "trust promotion keeps the matched rule"
+      (is (= {:decision :trust/allow :rule {:source :fallback}}
+             (f.tools/approval-decision all-tools request-tool {} {} {} nil {:trust true}))))))
 
 (deftest granular-approval-test
   (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native

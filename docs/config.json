@@ -113,8 +113,8 @@
     },
     "disabledTools": {
       "type": "array",
-      "description": "List of tool names to disable globally.",
-      "markdownDescription": "List of tool names to disable globally.",
+      "description": "Tools to disable globally. Each entry matches a builtin tool name or regex (no eca__ prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name server__tool.",
+      "markdownDescription": "Tools to disable globally. Each entry matches a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name `server__tool`.",
       "items": {
         "type": "string"
       }
@@ -846,6 +846,25 @@
             }
           ]
         },
+        "spawnableBy": {
+          "description": "Primary agent name or names allowed to discover and spawn this agent as a subagent. Matching uses exact resolved agent IDs. When omitted or empty, every primary agent may spawn it. This does not affect primary-agent selectability.",
+          "markdownDescription": "Primary agent ID or IDs allowed to discover and spawn this agent as a subagent. Matching uses exact resolved agent IDs. When omitted or empty, every primary agent may spawn it. Restricted agents are filtered from `spawn_agent`, `/subagents`, and contextual diagnostics, and direct spawn attempts are enforced server-side. This does not affect whether `mode` includes `primary`. The field participates in normal agent inheritance/merge behavior.",
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          ],
+          "examples": ["duel", ["duel", "another-orchestrator"]]
+        },
         "description": {
           "type": "string",
           "description": "Description of this agent's purpose. Required for subagents — shown to the LLM so it knows when to spawn this agent. Supports dynamic strings like ${file:path} and ${classpath:path}.",
@@ -876,8 +895,8 @@
         },
         "disabledTools": {
           "type": "array",
-          "description": "Tools to disable for this agent.",
-          "markdownDescription": "Tools to disable for this agent.",
+          "description": "Tools to disable for this agent. Each entry matches a builtin tool name or regex (no eca__ prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name server__tool.",
+          "markdownDescription": "Tools to disable for this agent. Each entry matches a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name `server__tool`.",
           "items": {
             "type": "string"
           }

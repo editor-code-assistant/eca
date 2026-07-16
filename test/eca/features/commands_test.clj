@@ -24,6 +24,43 @@
    :user-messages []
    :metrics (h/metrics)})
 
+(deftest subagents-msg-parent-visibility-test
+  (let [config {:agent {"explorer" {:mode "subagent"
+                                     :description "Unrestricted explorer"}
+                        "duel-worker" {:mode "subagent"
+                                       :description "Private duel worker"
+                                       :spawnableBy "duel"}
+                        "dual-role" {:mode ["primary" "subagent"]
+                                     :description "Private dual-role agent"
+                                     :spawnableBy ["duel"]}
+                        "primary-only" {:mode "primary"
+                                        :description "Primary only"}}}]
+    (testing "/subagents includes unrestricted and authorized restricted agents"
+      (let [message (#'f.commands/subagents-msg config "duel")]
+        (is (string/includes? message "explorer"))
+        (is (string/includes? message "duel-worker"))
+        (is (string/includes? message "dual-role"))
+        (is (not (string/includes? message "primary-only")))))
+
+    (testing "/subagents hides restricted agents from other or missing parents"
+      (doseq [parent-agent-name ["code" nil]]
+        (let [message (#'f.commands/subagents-msg config parent-agent-name)]
+          (is (string/includes? message "explorer"))
+          (is (not (string/includes? message "duel-worker")))
+          (is (not (string/includes? message "dual-role"))))))
+
+    (testing "/subagents dispatch passes the current primary agent"
+      (let [db* (atom {:workspace-folders []})
+            result (f.commands/handle-command! "subagents" []
+                                               {:chat-id "chat-1"
+                                                :db* db*
+                                                :config (assoc config :pureConfig true)
+                                                :messenger (h/messenger)
+                                                :agent "duel"})
+            message (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
+        (is (string/includes? message "duel-worker"))
+        (is (string/includes? message "dual-role"))))))
+
 (deftest prompt-show-text-test
   (testing "uses compact section headings and omits the /prompt-show command itself"
     (let [result (#'f.commands/prompt-show-text

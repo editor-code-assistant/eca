@@ -108,9 +108,74 @@ Subagents can be configured in config or markdown and support/require these fiel
 - `systemPrompt` or the markdown content (required unless using `inherit`): Instructions for the subagent to what do when receive a task.
 
 - `inherit` (optional): name of another agent to inherit all settings from. The subagent's own fields are merged on top.
+- `spawnableBy` (optional): one primary agent ID or a collection of primary agent IDs allowed to discover and spawn this subagent. When omitted or empty, the subagent remains available to every primary agent.
 - `model` (optional): which full model to use for this subagent, using primary agent model if not specified.
 - `tools` (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.
+- `disabledTools` (optional): tools to hide from this agent entirely. Same matching as the global [`disabledTools`](tools.md#disabled-tools): a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name `server__tool`.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.
+
+### Parent-scoped subagents
+
+Use `spawnableBy` for workflow-specific workers that should only be available to one or more orchestrator agents. It accepts either a single agent ID or a collection:
+
+```yaml
+spawnableBy: duel
+```
+
+```yaml
+spawnableBy:
+  - duel
+  - another-orchestrator
+```
+
+Matching uses exact resolved agent IDs. Markdown agent IDs and Markdown `spawnableBy` values are trimmed and lowercased during loading; JSON configuration values are matched against the configured agent keys exactly.
+
+When `spawnableBy` is omitted or empty, the subagent is unrestricted, preserving the default behavior. When it contains IDs:
+
+- only a listed current primary agent sees the subagent in the `spawn_agent` tool description, `/subagents`, and contextual diagnostics such as the built-in `eca-info` skill;
+- a missing current parent agent cannot discover or spawn the restricted subagent;
+- direct `spawn_agent` calls are checked server-side and rejected with a generic unavailable error, even if the caller supplies the exact hidden agent ID;
+- `spawnableBy` only controls subagent discovery and spawning. An agent whose `mode` also includes `primary` remains selectable as a primary agent;
+- existing subagent nesting restrictions remain unchanged.
+
+`spawnableBy` participates in normal agent inheritance. An inherited value is preserved unless the child overrides it through the usual configuration merge behavior.
+
+The `/config` command intentionally remains an administrative, raw resolved-configuration view and can show all agent configuration, including `spawnableBy`. It is not a discovery or spawning surface.
+
+=== "Example: private orchestrator workers"
+
+    ```yaml title=".eca/agents/duel-plan-adversary.md"
+    ---
+    mode: subagent
+    description: Challenge the orchestrator's implementation plan
+    spawnableBy: duel
+    ---
+
+    Review the proposed plan adversarially and return concrete risks.
+    ```
+
+    ```yaml title=".eca/agents/duel-implementer.md"
+    ---
+    mode: subagent
+    description: Implement the plan approved by the duel orchestrator
+    spawnableBy:
+      - duel
+    ---
+
+    Implement only the approved plan and report the changes made.
+    ```
+
+    ```yaml title=".eca/agents/duel-code-reviewer.md"
+    ---
+    mode: subagent
+    description: Review the duel implementer's changes
+    spawnableBy: duel
+    ---
+
+    Review the implementation for correctness, regressions, and missing tests.
+    ```
+
+    With a primary agent named `duel`, these workers appear in its `spawn_agent` tool and `/subagents` output. Other primary agents cannot discover or spawn them.
 
 === "Markdown"
 

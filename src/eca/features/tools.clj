@@ -24,7 +24,8 @@
    [eca.metrics :as metrics]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
-   [java.util Map]))
+   [java.util Map]
+   [java.util.regex PatternSyntaxException]))
 
 (set! *warn-on-reflection* true)
 
@@ -36,29 +37,43 @@
       (some #(= tool-name (str %)) manual-approval?)
       manual-approval?)))
 
-(defn ^:private approval-matches? [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
-  (let [args-matchers (:argsMatchers config)]
-    (cond
-      (not (tools.util/tool-selector-matches? server-or-full-tool-name tool-call-server tool-call-name native-tools))
-      false
+(defn ^:private approval-match
+  "When the approval rule entry matches this tool call, returns what matched:
+   {:selector <config selector> :args-matcher <regex str>} (:args-matcher only
+   when the rule has argsMatchers). Returns nil when the rule doesn't match."
+  [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
+  (when (tools.util/tool-selector-matches? server-or-full-tool-name tool-call-server tool-call-name native-tools)
+    (let [args-matchers (:argsMatchers config)]
+      (if (map? args-matchers)
+        (when-let [matcher (some (fn [[arg-name matchers]]
+                                   (when-let [arg (get args arg-name)]
+                                     (some #(when (re-matches (re-pattern (str %)) (str arg))
+                                              (str %))
+                                           matchers)))
+                                 args-matchers)]
+          {:selector server-or-full-tool-name
+           :args-matcher matcher})
+        {:selector server-or-full-tool-name}))))
 
-      (map? args-matchers)
-      (some (fn [[arg-name matchers]]
-              (when-let [arg (get args arg-name)]
-                (some #(re-matches (re-pattern (str %)) (str arg))
-                      matchers)))
-            args-matchers)
-
-      :else
-      true)))
-
-(defn approval
-  "Return the approval keyword for the specific tool call: :ask, :allow or :deny.
+(defn approval-decision
+  "Full approval decision for the specific tool call:
+   {:decision (:ask, :allow, :deny or :trust/allow)
+    :rule     <map with the :source of the decision and, for config rules,
+               the matched :selector and :args-matcher>}.
+   Sources are checked in precedence order:
+   1. :config-deny             - config `deny` rules
+   2. :session-remember        - session 'approve and remember' approvals
+   3. :tool-built-in-check     - the tool's own check (e.g. path outside workspace)
+   4. :config-ask              - config `ask` rules
+   5. :config-allow            - config `allow` rules
+   6. :legacy-manual-approval  - deprecated `toolCall.manualApproval`
+   7. :by-default              - config `byDefault`
+   8. :fallback                - probably a config error, default to ask
    Agent-name parameter is required - pass nil for global-only approval rules.
    Optional opts map supports :trust - when true, promotes :ask to :trust/allow
    (never overrides :deny). Callers should normalize :trust/allow to :allow."
   ([all-tools tool args db config agent-name]
-   (approval all-tools tool args db config agent-name nil))
+   (approval-decision all-tools tool args db config agent-name nil))
   ([all-tools tool args db config agent-name {:keys [trust]}]
    (let [{:keys [server name require-approval-fn approval-keys-fn]} tool
          remembered? (if approval-keys-fn
@@ -74,40 +89,48 @@
          native-tools (filter #(= :native (:origin %)) all-tools)
          {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                      (get-in config [:agent agent-name :toolCall :approval]))
-         result (cond
-                  (some #(approval-matches? % (:name server) name args native-tools) deny)
-                  :deny
+         match-rule (fn [rules source]
+                      (when-let [match (some #(approval-match % (:name server) name args native-tools) rules)]
+                        (assoc match :source source)))
+         {:keys [decision rule]}
+         (or (when-let [rule (match-rule deny :config-deny)]
+               {:decision :deny :rule rule})
 
-                  remembered?
-                  :allow
+             (when remembered?
+               {:decision :allow :rule {:source :session-remember}})
 
-                  (and require-approval-fn (require-approval-fn args {:db db}))
-                  :ask
+             (when (and require-approval-fn (require-approval-fn args {:db db}))
+               {:decision :ask :rule {:source :tool-built-in-check}})
 
-                  (some #(approval-matches? % (:name server) name args native-tools) ask)
-                  :ask
+             (when-let [rule (match-rule ask :config-ask)]
+               {:decision :ask :rule rule})
 
-                  (some #(approval-matches? % (:name server) name args native-tools) allow)
-                  :allow
+             (when-let [rule (match-rule allow :config-allow)]
+               {:decision :allow :rule rule})
 
-                  (legacy-manual-approval? config name)
-                  :ask
+             (when (legacy-manual-approval? config name)
+               {:decision :ask :rule {:source :legacy-manual-approval}})
 
-                  (= "ask" byDefault)
-                  :ask
+             (case byDefault
+               "ask" {:decision :ask :rule {:source :by-default}}
+               "allow" {:decision :allow :rule {:source :by-default}}
+               "deny" {:decision :deny :rule {:source :by-default}}
+               nil)
 
-                  (= "allow" byDefault)
-                  :allow
+             ;; Probably a config error, default to ask
+             {:decision :ask :rule {:source :fallback}})]
+     (if (and trust (= decision :ask))
+       {:decision :trust/allow :rule rule}
+       {:decision decision :rule rule}))))
 
-                  (= "deny" byDefault)
-                  :deny
-
-                  ;; Probably a config error, default to ask
-                  :else
-                  :ask)]
-     (if (and trust (= result :ask))
-       :trust/allow
-       result))))
+(defn approval
+  "Return the approval keyword for the specific tool call: :ask, :allow or :deny.
+   See `approval-decision` for the full decision including which rule matched,
+   the precedence order and the supported opts."
+  ([all-tools tool args db config agent-name]
+   (approval all-tools tool args db config agent-name nil))
+  ([all-tools tool args db config agent-name opts]
+   (:decision (approval-decision all-tools tool args db config agent-name opts))))
 
 (defn ^:private get-disabled-tools
   "Returns a set of disabled tools, merging global and agent-specific."
@@ -117,9 +140,30 @@
                  (get-in config [:agent agent-name :disabledTools] [])
                  []))))
 
+(defn ^:private disabled-entry-matches?
+  "Matches a `disabledTools` entry against a tool, checking in order:
+   1. Entry as anchored regex against a eca builtin tool name (no `eca__` prefix needed).
+   2. Entry as exact server name, disabling all tools of that server.
+   3. Entry as anchored regex against the tool full name `server__tool`.
+   Invalid regexes fall back to literal equality."
+  [entry tool]
+  (let [server-name (:name (:server tool))
+        tool-name (:name tool)
+        full-name (str server-name "__" tool-name)
+        pattern (try (re-pattern entry)
+                     (catch PatternSyntaxException _ nil))]
+    (boolean
+     (or (and (= "eca" server-name)
+              (if pattern
+                (re-matches pattern tool-name)
+                (= entry tool-name)))
+         (= entry server-name)
+         (if pattern
+           (re-matches pattern full-name)
+           (= entry full-name))))))
+
 (defn ^:private tool-disabled? [tool disabled-tools]
-  (or (contains? disabled-tools (str (:name (:server tool)) "__" (:name tool)))
-      (contains? disabled-tools (:name tool))))
+  (boolean (some #(disabled-entry-matches? % tool) disabled-tools)))
 
 (defn make-tool-status-fn
   "Returns a function that marks tools as disabled based on config and agent.
@@ -173,7 +217,7 @@
                       :fullModel        (get-in db [:chats chat-id :model])
                       :variant          (get-in db [:chats chat-id :variant])}))]))
    (merge (static-native-definitions)
-          (f.tools.agent/definitions config db)
+          (f.tools.agent/definitions config db agent-name)
           (f.tools.custom/definitions config)
           (f.tools.fetch-rule/definitions config db chat-id agent-name))))
 

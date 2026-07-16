@@ -84,6 +84,11 @@
                                          :deny {"foo" {}}}}}
                   config))))
 
+  (testing "maxSteps takes precedence over the legacy steps alias"
+    (is (= 7
+           (:maxSteps (#'agents/md->agent-config {:maxSteps 7
+                                                  :steps 3})))))
+
   (testing "tool entries with regex patterns"
     (let [parsed {:tools {"byDefault" "ask"
                           "allow" ["eca__shell_command(npm run .*)"
@@ -141,6 +146,66 @@
           parsed (shared/parse-md md)
           config (#'agents/md->agent-config parsed)]
       (is (= ["primary" "subagent"] (:mode config)))))
+
+  (testing "spawnableBy string is normalized to one agent id"
+    (let [parsed (shared/parse-md (str "---\n"
+                                       "description: Private worker\n"
+                                       "spawnableBy: '  Duel  '\n"
+                                       "---\n\n"
+                                       "Body."))
+          config (#'agents/md->agent-config parsed)]
+      (is (= "duel" (:spawnableBy config)))))
+
+  (testing "spawnableBy collection is normalized to distinct agent ids"
+    (let [parsed (shared/parse-md (str "---\n"
+                                       "description: Private worker\n"
+                                       "spawnableBy:\n"
+                                       "  - Duel\n"
+                                       "  - another-Orchestrator\n"
+                                       "  - duel\n"
+                                       "---\n\n"
+                                       "Body."))
+          config (#'agents/md->agent-config parsed)]
+      (is (= ["duel" "another-orchestrator"] (:spawnableBy config)))))
+
+  (testing "omitted or empty spawnableBy preserves unrestricted configuration"
+    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"}))))
+    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"
+                                                        :spawnableBy []})))))
+
+  (testing "malformed spawnableBy is ignored"
+    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"
+                                                        :spawnableBy 42}))))
+    (is (= ["duel"]
+           (:spawnableBy (#'agents/md->agent-config {:description "partially valid"
+                                                     :spawnableBy ["duel" 42 nil]})))))
+
+  (testing "disabledTools list is normalized to a vector of strings"
+    (let [md (str "---\n"
+                  "description: K8s agent\n"
+                  "disabledTools:\n"
+                  "  - clojure-mcp\n"
+                  "  - eca__shell_command\n"
+                  "  - \".*_file\"\n"
+                  "---\n\n"
+                  "Body.")
+          parsed (shared/parse-md md)
+          config (#'agents/md->agent-config parsed)]
+      (is (= ["clojure-mcp" "eca__shell_command" ".*_file"]
+             (:disabledTools config)))))
+
+  (testing "disabledTools single string becomes a vector"
+    (is (= ["clojure-mcp"]
+           (:disabledTools (#'agents/md->agent-config {:description "a"
+                                                       :disabledTools "clojure-mcp"})))))
+
+  (testing "omitted, empty or malformed disabledTools is ignored"
+    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a"}))))
+    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a" :disabledTools []}))))
+    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a" :disabledTools 42}))))
+    (is (= ["ok"]
+           (:disabledTools (#'agents/md->agent-config {:description "a"
+                                                       :disabledTools ["ok" "" nil]})))))
 
   (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
     (let [md (str "---\n"

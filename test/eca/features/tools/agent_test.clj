@@ -1,5 +1,6 @@
 (ns eca.features.tools.agent-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
@@ -21,7 +22,13 @@
            "code" {:mode "primary"
                    :description "Code agent"}
            "swiss-knife" {:mode ["primary" "subagent"]
-                          :description "Works as primary or subagent"}}
+                          :description "Works as primary or subagent"}
+           "duel-worker" {:mode "subagent"
+                          :description "Private duel worker"
+                          :spawnableBy "duel"}
+           "duel-reviewer" {:mode "subagent"
+                            :description "Private duel reviewer"
+                            :spawnableBy ["duel" "another-orchestrator"]}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]"
                      {:variants {"low" {:thinking {:type "adaptive"}}
                                  "medium" {:thinking {:type "adaptive"}}
@@ -43,6 +50,37 @@
 
 (defn ^:private spawn-summary [args]
   ((get-in (f.tools.agent/definitions test-config test-db) ["spawn_agent" :summary-fn]) {:args args}))
+
+(defn ^:private spawn-description [parent-agent-name]
+  (get-in (f.tools.agent/definitions test-config test-db parent-agent-name)
+          ["spawn_agent" :description]))
+
+(deftest spawn-agent-parent-visibility-test
+  (testing "unrestricted subagents are visible to every primary agent and without a parent"
+    (doseq [parent-agent-name [nil "code" "duel"]]
+      (let [description (spawn-description parent-agent-name)]
+        (is (string/includes? description "explorer: Explores codebases"))
+        (is (string/includes? description "general: General purpose agent")))))
+
+  (testing "restricted subagents are visible only to allowed parents"
+    (is (string/includes? (spawn-description "duel") "duel-worker: Private duel worker"))
+    (is (string/includes? (spawn-description "duel") "duel-reviewer: Private duel reviewer"))
+    (is (string/includes? (spawn-description "another-orchestrator") "duel-reviewer: Private duel reviewer"))
+    (is (not (string/includes? (spawn-description "another-orchestrator") "duel-worker")))
+    (is (not (string/includes? (spawn-description "code") "duel-worker")))
+    (is (not (string/includes? (spawn-description nil) "duel-worker"))))
+
+  (testing "native tool generation propagates the current primary agent"
+    (let [duel-description (->> (f.tools/native-tools "chat-1" "duel" test-db test-config)
+                                (filter #(= "spawn_agent" (:name %)))
+                                first
+                                :description)
+          code-description (->> (f.tools/native-tools "chat-1" "code" test-db test-config)
+                                (filter #(= "spawn_agent" (:name %)))
+                                first
+                                :description)]
+      (is (string/includes? duel-description "duel-worker"))
+      (is (not (string/includes? code-description "duel-worker"))))))
 
 (deftest spawn-agent-activity-summary-test
   (testing "normal activity label is unchanged"
@@ -103,6 +141,78 @@
                   result))
       (is (match? {:agent-name "nonexistent"}
                   (:ex-data result))))))
+
+(deftest spawn-agent-parent-authorization-test
+  (testing "an allowed parent can spawn a restricted subagent"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-private"
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (deliver chat-prompt-called* params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Private work complete."}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "duel-worker" "task" "implement"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :agent "duel"
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-private"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false
+                       :contents [{:text #"Private work complete"}]}
+                      result))
+          (is (= "duel-worker" (:agent @chat-prompt-called*)))))))
+
+  (testing "an unauthorized parent cannot spawn a restricted subagent or discover it in the error"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          result (try
+                   ((spawn-handler)
+                    {"agent" "duel-worker" "task" "implement"}
+                    {:db* db*
+                     :config test-config
+                     :messenger (h/messenger)
+                     :metrics (h/metrics)
+                     :agent "code"
+                     :chat-id "chat-1"
+                     :tool-call-id "tc-denied"
+                     :call-state-fn (constantly {:status :executing})})
+                   (catch Exception e
+                     {:message (ex-message e)
+                      :data (ex-data e)}))]
+      (is (string/includes? (:message result) "not found or not available"))
+      (is (not (string/includes? (:message result) "duel-worker")))
+      (is (not (string/includes? (:message result) "Private duel worker")))
+      (is (not (some #{"duel-worker"} (:available (:data result)))))
+      (is (nil? (get-in @db* [:chats "subagent-tc-denied"])))))
+
+  (testing "a missing parent cannot spawn a restricted subagent"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          result (try
+                   ((spawn-handler)
+                    {"agent" "duel-worker" "task" "implement"}
+                    {:db* db*
+                     :config test-config
+                     :messenger (h/messenger)
+                     :metrics (h/metrics)
+                     :chat-id "chat-1"
+                     :tool-call-id "tc-no-parent"
+                     :call-state-fn (constantly {:status :executing})})
+                   (catch Exception e
+                     {:message (ex-message e)
+                      :data (ex-data e)}))]
+      (is (string/includes? (:message result) "not found or not available"))
+      (is (not (some #{"duel-worker"} (:available (:data result)))))
+      (is (nil? (get-in @db* [:chats "subagent-tc-no-parent"]))))))
 
 (deftest spawn-agent-nesting-prevention-test
   (testing "throws when subagent tries to spawn another subagent"
