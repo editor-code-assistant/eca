@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Truncate oversized failed tool output, preserving full logs on disk instead of overflowing the model context.
+
 ## 0.147.3
 
 - Fix remote server silently falling back to HTTP when the TLS private key is in SEC1 EC format; validate keys before caching and log HTTP fallback. #521

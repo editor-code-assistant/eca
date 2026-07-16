@@ -66,12 +66,18 @@
       (is (string/includes? output-text "[OUTPUT TRUNCATED]"))
       (is (false? (:error truncated))))))
 
-(deftest maybe-truncate-output-skips-error-results-test
-  (testing "does not truncate error results"
+(deftest maybe-truncate-output-truncates-error-results-test
+  (testing "truncates error results and preserves the failure status"
     (let [long-text (string/join "\n" (repeat 5000 "error line"))
           result {:error true :contents [{:type :text :text long-text}]}
-          config (config-with-truncation 100 1)]
-      (is (= result (tools.util/maybe-truncate-output result config "call-err"))))))
+          config (config-with-truncation 100 1)
+          truncated (tools.util/maybe-truncate-output result config "call-err")
+          output-text (-> truncated :contents first :text)]
+      (is (true? (:error truncated)))
+      (is (string/includes? output-text "[OUTPUT TRUNCATED]"))
+      (is (string/includes? output-text "The tool call failed"))
+      (is (string/includes? output-text "Full output saved to:"))
+      (is (not (string/includes? output-text (string/join "\n" (repeat 5000 "error line"))))))))
 
 (deftest maybe-truncate-output-nil-config-test
   (testing "returns result unchanged when truncation config is nil"
