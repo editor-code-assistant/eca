@@ -4,6 +4,7 @@
    Supports context overflow, rate limiting, authentication, and overload detection
    across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.)."
   (:require
+   [cheshire.core :as json]
    [clojure.string :as string]))
 
 (set! *warn-on-reflection* true)
@@ -36,6 +37,9 @@
    #"(?i)connection refused"
    #"(?i)UnresolvedAddressException"])
 
+(def ^:private openai-transient-message-pattern
+  #"(?i)an error occurred while processing your request\.\s+you can retry your request\b")
+
 (defn ^:private matches-any-pattern? [^String text patterns]
   (when text
     (some #(re-find % text) patterns)))
@@ -64,6 +68,25 @@
     {:error/type :overloaded}
 
     :else nil))
+
+(defn ^:private classify-openai-responses-error
+  [{:keys [code type message] source :error/source}]
+  (when (= :openai-responses source)
+    (cond
+      (some #{"server_error"} [code type])
+      {:error/type :overloaded}
+
+      (some #{"rate_limit_exceeded"} [code type])
+      {:error/type :rate-limited}
+
+      (or (some? code) (some? type))
+      {:error/type :unknown}
+
+      (and (string? message)
+           (re-find openai-transient-message-pattern message))
+      {:error/type :overloaded}
+
+      :else nil)))
 
 (defn ^:private classify-by-message
   "Fallback classification from unstructured error message strings
@@ -112,7 +135,8 @@
 (defn classify-error
   "Classifies an error map into a semantic error type.
 
-   Accepts the standard on-error map shape: {:message :status :body :exception}.
+   Accepts the standard on-error map shape: {:message :status :body :exception},
+   plus optional structured provider fields such as :code, :type, and :error/source.
    Optional `retry-rules` seq of user-configured rules checked before built-in classification.
    Returns a map with :error/type — one of:
      :retryable-custom  — matched a user-configured retry rule (with optional :error/label)
@@ -126,6 +150,7 @@
    (or (when-let [pre-type (:error/type error-data)]
          {:error/type pre-type})
        (classify-by-custom-rules error-data retry-rules)
+       (classify-openai-responses-error error-data)
        (when status
          (classify-by-status-and-body error-data))
        (classify-by-message error-data)
@@ -203,23 +228,30 @@
              (reduce +)
              long)))
 
-(defn ^:private codex-window-reset-ms
-  "ChatGPT Codex quota headers (`x-codex-<window>-*`): latest reset epoch-ms
-   among exhausted windows (used-percent >= 100), nil otherwise. Windows with
-   headroom are ignored on purpose: these headers come on every response with
-   far-future resets, so only a clearly exhausted window is a wait signal."
-  [headers now-ms]
-  (some->> ["primary" "secondary"]
-           (keep (fn [w]
-                   (let [used (some-> (header-str headers (str "x-codex-" w "-used-percent"))
-                                      parse-double)
-                         reset-at (epoch-str->ms (header-str headers (str "x-codex-" w "-reset-at")))
-                         reset-after-s (parse-long-str (header-str headers (str "x-codex-" w "-reset-after-seconds")))]
-                     (when (and used (>= used 100.0))
-                       (or reset-at
-                           (some-> reset-after-s (* 1000) (+ (long now-ms))))))))
-           seq
-           (apply max)))
+(defn ^:private response-field [m field]
+  (when (map? m)
+    (or (get m field)
+        (get m (keyword field)))))
+
+(defn ^:private codex-usage-limit-reset-ms
+  "ChatGPT Codex OAuth usage-limit reset from the 429 JSON response body."
+  [body]
+  (let [body (cond
+               (map? body) body
+               (string? body) (try
+                                (json/parse-string body)
+                                (catch Exception _ nil))
+               :else nil)
+        error (response-field body "error")
+        error-type (response-field error "type")
+        reset-at (response-field error "resets_at")]
+    (when (and (= "usage_limit_reached" error-type)
+               (integer? reset-at))
+      (* (long reset-at) 1000))))
+
+(defn ^:private future-reset-ms [reset-ms now-ms]
+  (when (and reset-ms (> (long reset-ms) (long now-ms)))
+    (long reset-ms)))
 
 (defn ^:private bucket-resets
   "All rate-limit reset headers (`*ratelimit*-reset` like Anthropic's or
@@ -240,29 +272,36 @@
         headers))
 
 (defn rate-limit-wait
-  "Computes when a rate-limited request can be retried, from HTTP response
-   headers (lowercase string keys, as returned by the http client).
+  "Computes when a rate-limited request can be retried.
+
+   The two-argument arity reads HTTP response headers. The three-argument arity
+   additionally reads the response body used by ChatGPT Codex OAuth errors.
 
    Precedence:
    1. `retry-after` (delta seconds or HTTP-date)
-   2. `anthropic-ratelimit-unified-reset` (epoch seconds; subscription session limits)
-   3. `x-codex-<window>-reset-at/-reset-after-seconds` (ChatGPT subscription),
-      only for exhausted windows (used-percent >= 100)
+   2. ChatGPT Codex `usage_limit_reached` body `error.resets_at` (epoch seconds)
+   3. `anthropic-ratelimit-unified-reset` (epoch seconds; subscription session limits)
    4. rate-limit reset buckets (Anthropic `*ratelimit*-reset` RFC 3339/epoch,
       OpenAI `*ratelimit*-reset-<bucket>` Go-style durations): latest exhausted
       bucket (remaining = 0), else earliest future reset.
 
-   Returns {:delay-ms N :resets-at epoch-ms} or nil when headers give no usable
-   future reset (callers should fall back to exponential backoff)."
-  [headers now-ms]
-  (when (map? headers)
-    (let [resets-at (or (retry-after-ms headers now-ms)
-                        (epoch-str->ms (header-str headers "anthropic-ratelimit-unified-reset"))
-                        (codex-window-reset-ms headers now-ms)
-                        (let [buckets (filter #(> (long (:reset-ms %)) (long now-ms)) (bucket-resets headers now-ms))
-                              exhausted (filter #(some-> (:remaining %) (<= 0)) buckets)]
-                          (or (some->> (seq exhausted) (map :reset-ms) (apply max))
-                              (some->> (seq buckets) (map :reset-ms) (apply min)))))]
-      (when (and resets-at (> (long resets-at) (long now-ms)))
-        {:delay-ms (- (long resets-at) (long now-ms))
-         :resets-at (long resets-at)}))))
+   Codex quota-window headers are status snapshots, not retry instructions.
+
+   Returns {:delay-ms N :resets-at epoch-ms} or nil when no usable future reset
+   is present (callers should fall back to exponential backoff)."
+  ([headers now-ms]
+   (rate-limit-wait headers nil now-ms))
+  ([headers body now-ms]
+   (let [headers (if (map? headers) headers {})
+         buckets (filter #(> (long (:reset-ms %)) (long now-ms)) (bucket-resets headers now-ms))
+         exhausted (filter #(some-> (:remaining %) (<= 0)) buckets)
+         bucket-reset (or (some->> (seq exhausted) (map :reset-ms) (apply max))
+                          (some->> (seq buckets) (map :reset-ms) (apply min)))
+         resets-at (some #(future-reset-ms % now-ms)
+                         [(retry-after-ms headers now-ms)
+                          (codex-usage-limit-reset-ms body)
+                          (epoch-str->ms (header-str headers "anthropic-ratelimit-unified-reset"))
+                          bucket-reset])]
+     (when resets-at
+       {:delay-ms (- resets-at (long now-ms))
+        :resets-at resets-at}))))

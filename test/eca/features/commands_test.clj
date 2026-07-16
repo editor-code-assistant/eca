@@ -3,12 +3,26 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.db :as db]
+   [eca.features.chat.export :as f.chat.export]
    [eca.features.commands :as f.commands]
    [eca.features.rules :as f.rules]
    [eca.shared :as shared]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
+
+(defn ^:private command-context [chat-id]
+  {:chat-id chat-id
+   :db* (h/db*)
+   :config (h/config)
+   :messenger (h/messenger)
+   :full-model "openai/gpt-5.2"
+   :agent "code"
+   :all-tools []
+   :instructions {}
+   :user-messages []
+   :metrics (h/metrics)})
 
 (deftest prompt-show-text-test
   (testing "uses compact section headings and omits the /prompt-show command itself"
@@ -344,6 +358,74 @@
                                               :metrics (h/metrics)})]
       (is (re-find #"Unknown model: `bad/model`"
                    (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))))
+
+(deftest restore-command-selection-scoping-test
+  (testing "/resume scopes restored selection to the current chat"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:effort "low"}
+                                                              "high" {:effort "high"}}}}}}})
+    (swap! (h/db*) assoc
+           :models {"anthropic/claude-sonnet-4-5" {:tools true}}
+           :last-config-notified {:chat {:select-model "openai/gpt-5.2"
+                                         :select-variant "medium"
+                                         :select-trust false}}
+           :chats {"chat-a" {:id "chat-a"
+                              :created-at 1
+                              :model "anthropic/claude-sonnet-4-5"
+                              :variant "low"
+                              :trust true
+                              :messages []}
+                   "chat-b" {:id "chat-b"
+                              :created-at 2
+                              :model "openai/gpt-5.2"
+                              :messages []}})
+    (let [session-defaults (:last-config-notified (h/db))]
+      (with-redefs [db/update-workspaces-cache! (fn [& _])]
+        (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
+      (is (= [{:chat-id "chat-b"
+               :chat {:select-model "anthropic/claude-sonnet-4-5"
+                      :variants ["high" "low"]
+                      :select-variant "low"}}
+              {:chat-id "chat-b"
+               :chat {:select-trust true}}]
+             (:config-updated (h/messages))))
+      (is (= {:model "anthropic/claude-sonnet-4-5"
+              :variant "low"
+              :trust true}
+             (select-keys (get-in (h/db) [:chats "chat-b"])
+                          [:model :variant :trust])))
+      (is (= session-defaults (:last-config-notified (h/db))))))
+
+  (testing "/import scopes restored selection to the imported chat"
+    (h/reset-components!)
+    (h/config! {:providers {"anthropic" {:models {"claude-sonnet-4-5"
+                                                  {:variants {"low" {:effort "low"}
+                                                              "high" {:effort "high"}}}}}}})
+    (swap! (h/db*) assoc
+           :models {"anthropic/claude-sonnet-4-5" {:tools true}}
+           :last-config-notified {:chat {:select-model "openai/gpt-5.2"
+                                         :select-variant "medium"
+                                         :select-trust false}}
+           :chats {"chat-b" {:id "chat-b" :messages []}})
+    (let [session-defaults (:last-config-notified (h/db))
+          imported-chat {:id "chat-a"
+                         :title "Imported"
+                         :model "anthropic/claude-sonnet-4-5"
+                         :variant "low"
+                         :trust true
+                         :messages []}]
+      (with-redefs [db/update-workspaces-cache! (fn [& _])
+                    f.chat.export/import-chat! (fn [_] {:chat imported-chat})]
+        (f.commands/handle-command! "import" ["/tmp/chat.edn"] (command-context "chat-b")))
+      (is (= [{:chat-id "chat-a"
+               :chat {:select-model "anthropic/claude-sonnet-4-5"
+                      :variants ["high" "low"]
+                      :select-variant "low"}}
+              {:chat-id "chat-a"
+               :chat {:select-trust true}}]
+             (:config-updated (h/messages))))
+      (is (= session-defaults (:last-config-notified (h/db)))))))
 
 (deftest rules-command-test
   (testing "/rules shows static and path-scoped rules separately with filter metadata"

@@ -2084,13 +2084,17 @@ A client request to hydrate a previously-persisted chat so it can be rendered
 in the UI. The server replays the chat by emitting `chat/cleared` (messages),
 `chat/opened`, and a sequence of `chat/contentReceived` notifications matching
 the persisted messages. When the persisted chat has a stored model the server
-additionally emits a `config/updated` notification to realign the client's
-selected model (and available variants) with the resumed chat, so the next
-prompt keeps using the chat's original provider/model. The same notification
-also carries `selectTrust` reflecting the resumed chat's trust toggle, so the
-client indicator stays in sync with the auto-approval behavior the server will
-apply. Typically used after `chat/list` when the user selects a chat that has
-not been opened in the current client session.
+additionally emits a `config/updated` notification scoped with the opened
+`chatId` to realign that chat's selected model (and available variants), so the
+next prompt keeps using the chat's original provider/model without changing
+other chats or session defaults. A second scoped update carries `selectTrust`
+reflecting the resumed chat's trust toggle, so the client indicator stays in
+sync with the auto-approval behavior the server will apply. The response also
+returns these values together with the effective agent in one atomic
+`selection` snapshot; clients should prefer it when available and may retain
+the scoped notifications as backward-compatible updates. Typically used after
+`chat/list` when the user selects a chat that has not been opened in the current
+client session.
 
 By default the full history is replayed. A client may instead pass the optional
 `limit`/`before`/`after` window parameters (same cursors as `chat/history`) to
@@ -2139,6 +2143,18 @@ interface ChatOpenResponse {
 
     /** The chat title at the time of replay, when available. */
     title?: string;
+
+    /**
+     * Atomic effective selection for the opened chat. A missing or unavailable
+     * persisted model is represented as null with no variants selected.
+     */
+    selection?: {
+        model: string | null;
+        agent: string;
+        variant: string | null;
+        variants: string[];
+        trust: boolean;
+    };
 
     /** Pagination metadata, present only when window params were supplied. */
     meta?: ChatHistoryMeta;
@@ -2695,9 +2711,9 @@ interface ConfigUpdatedParams {
          * should forcefully update the chat trust indicator (and any
          * derived UI like a shield/flame icon) to match this value.
          *
-         * Server returns this on chat resume (`chat/open`, `/resume`) so the
-         * client's indicator matches the auto-approval behavior the server
-         * will apply for subsequent tool calls in the resumed chat.
+         * Server returns this in a chat-scoped update on chat restore
+         * (`chat/open`, `/resume`, `/import`) so the client's indicator matches
+         * the auto-approval behavior for that chat without changing others.
          */
         selectTrust?: boolean;
 

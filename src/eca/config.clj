@@ -809,18 +809,24 @@
    the client-side selected model to `full-model`, re-computing the available
    variants and the suggested selected variant. Emits via
    `notify-fields-changed-only!`, so it is a no-op when nothing changed.
-   Returns nil when `full-model` is missing or no longer in `(:models @db*)`,
-   so a stale persisted model does not bubble to the UI. Used by chat resume
-   flows (`chat/open`, `/resume`) to restore the model each chat was using.
+   Returns the effective `{:model :variant :variants}` selection, or nil when
+   `full-model` is missing or no longer in `(:models @db*)`, so a stale
+   persisted model does not bubble to the UI. Used by chat resume flows
+   (`chat/open`, `/resume`) to restore the model each chat was using.
 
    When `chat-variant` is provided (the chat's persisted `:variant`) and is
    still supported by `full-model`, the broadcast keeps it; otherwise it
    falls back to the default agent's configured variant when valid, else
    nil. This lets resume preserve the variant the user last saw on the
-   chat instead of resetting to the default agent's variant."
+   chat instead of resetting to the default agent's variant.
+
+   When `chat-id` is provided, the broadcast is scoped to that chat and does
+   not update the session-level config mirror."
   ([full-model db* messenger config]
-   (notify-selected-model-changed! full-model db* messenger config nil))
+   (notify-selected-model-changed! full-model db* messenger config nil nil))
   ([full-model db* messenger config chat-variant]
+   (notify-selected-model-changed! full-model db* messenger config chat-variant nil))
+  ([full-model db* messenger config chat-variant chat-id]
    (when (and full-model (contains? (:models @db*) full-model))
      (let [default-agent-name (validate-agent-name
                                (or (:defaultAgent (:chat config))
@@ -839,13 +845,17 @@
            select-variant (cond
                             (valid? chat-variant) chat-variant
                             (valid? agent-variant) agent-variant
-                            :else nil)]
-       (notify-fields-changed-only!
-        {:chat {:select-model full-model
-                :variants (or variants [])
-                :select-variant select-variant}}
-        messenger
-        db*)))))
+                            :else nil)
+           selection {:model full-model
+                      :variants (or variants [])
+                      :variant select-variant}
+           payload {:chat {:select-model (:model selection)
+                           :variants (:variants selection)
+                           :select-variant (:variant selection)}}]
+       (if chat-id
+         (notify-fields-changed-only! payload messenger db* chat-id)
+         (notify-fields-changed-only! payload messenger db*))
+       selection))))
 
 (defn notify-selected-trust-changed!
   "Server-initiated equivalent of a client-side trust toggle: aligns the
@@ -853,12 +863,20 @@
    Emits via `notify-fields-changed-only!`, so it is a no-op when nothing
    changed. Used by chat resume flows (`chat/open`, `/resume`) so the icon
    the client shows matches the auto-approval behavior the server is about
-   to apply (#426)."
-  [trust db* messenger]
-  (notify-fields-changed-only!
-   {:chat {:select-trust (boolean trust)}}
-   messenger
-   db*))
+   to apply (#426).
+
+   When `chat-id` is provided, the broadcast is scoped to that chat and does
+   not update the session-level config mirror. Returns the normalized boolean
+   trust selection."
+  ([trust db* messenger]
+   (notify-selected-trust-changed! trust db* messenger nil))
+  ([trust db* messenger chat-id]
+   (let [selection (boolean trust)
+         payload {:chat {:select-trust selection}}]
+     (if chat-id
+       (notify-fields-changed-only! payload messenger db* chat-id)
+       (notify-fields-changed-only! payload messenger db*))
+     selection)))
 
 (def ^:private config-schema-url "https://eca.dev/config.json")
 

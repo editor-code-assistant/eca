@@ -57,7 +57,14 @@
         (let [open-resp (eca/request! [:chat/open {:chat-id chat-id}])
               cleared (eca/client-awaits-server-notification :chat/cleared)
               opened (eca/client-awaits-server-notification :chat/opened)]
-          (is (match? {:found true :chatId chat-id} open-resp))
+          (is (match? {:found true
+                       :chatId chat-id
+                       :selection {:model "openai/gpt-4.1"
+                                   :agent "code"
+                                   :variant nil
+                                   :variants []
+                                   :trust false}}
+                      open-resp))
           (is (match? {:chatId chat-id :messages true} cleared))
           (is (match? {:chatId chat-id} opened))
           ;; At least one content-received notification must follow

@@ -696,8 +696,10 @@
         },
         "rateLimitMaxWaitSeconds": {
           "type": "integer",
-          "description": "Optional cap on how long to wait for a rate limit reset (derived from provider response headers like retry-after). Unset: ECA sleeps until the reset time and auto-resumes, showing the reset time in chat. When set and the reset is further away, ECA gives up retrying and surfaces the reset time in the error.",
-          "markdownDescription": "Optional cap on how long to wait for a rate limit reset (derived from provider response headers like `retry-after`). Unset: ECA sleeps until the reset time and auto-resumes, showing the reset time in chat. When set and the reset is further away, ECA gives up retrying and surfaces the reset time in the error."
+          "minimum": 0,
+          "default": 60,
+          "description": "Maximum total delay before retrying a provider rate limit, including ECA's one-second safety buffer. The delay is derived from retry-after or provider-specific reset data and defaults to a 60-second cap. When the total delay exceeds the cap, ECA gives up retrying and surfaces the reset time in the error.",
+          "markdownDescription": "Maximum total delay before retrying a provider rate limit, including ECA's one-second safety buffer. The delay is derived from `retry-after` or provider-specific reset data and defaults to a 60-second cap. When the total delay exceeds the cap, ECA gives up retrying and surfaces the reset time in the error."
         },
         "models": {
           "type": "object",

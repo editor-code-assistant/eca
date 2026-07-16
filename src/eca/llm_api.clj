@@ -39,6 +39,7 @@
 (def ^:private default-base-delay-ms 2000)
 (def ^:private default-backoff-multiplier 2)
 (def ^:private max-delay-ms 60000)
+(def ^:private default-rate-limit-max-wait-seconds 60)
 (def ^:private rate-limit-wait-buffer-ms 1000)
 (def ^:private cancel-check-interval-ms 100)
 
@@ -465,8 +466,7 @@
                                            (catch Exception e
                                              (logger/warn logger-tag "on-history-sanitized callback failed" {:exception (ex-message e)})))))
         emit-first-message-fn (fn [& args]
-                                (when-not @first-response-received*
-                                  (reset! first-response-received* true)
+                                (when (compare-and-set! first-response-received* false true)
                                   (apply on-first-response-received args)))
         on-message-received-wrapper (fn [& args]
                                       (apply emit-first-message-fn args)
@@ -508,22 +508,28 @@
                                           default-max-retries)
                             rl-wait (when (= :rate-limited error-type)
                                       (llm-providers.errors/rate-limit-wait (:headers error-data)
+                                                                            (:body error-data)
                                                                             (System/currentTimeMillis)))
-                            max-wait-ms (some-> (:rateLimitMaxWaitSeconds provider-config) long (* 1000))
-                            wait-too-long? (boolean (and rl-wait
-                                                         max-wait-ms
-                                                         (> (long (:delay-ms rl-wait)) (long max-wait-ms))))]
+                            rate-limit-delay-ms (some-> rl-wait
+                                                        :delay-ms
+                                                        long
+                                                        (+ rate-limit-wait-buffer-ms))
+                            max-wait-ms (* 1000
+                                           (long (or (:rateLimitMaxWaitSeconds provider-config)
+                                                     default-rate-limit-max-wait-seconds)))
+                            wait-too-long? (boolean (and rate-limit-delay-ms
+                                                         (> rate-limit-delay-ms max-wait-ms)))]
                         (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
                                  (< attempt max-retries)
                                  (not wait-too-long?)
+                                 (not @first-response-received*)
                                  (not (cancelled?)))
-                          (let [delay-ms (if rl-wait
-                                           (+ (long (:delay-ms rl-wait)) rate-limit-wait-buffer-ms)
-                                           (retry-delay-ms attempt))]
+                          (let [delay-ms (or rate-limit-delay-ms
+                                             (retry-delay-ms attempt))]
                             (logger/info logger-tag
                                          (format "Retryable error (attempt %d/%d), retrying in %ds%s"
                                                  (inc attempt) max-retries (quot delay-ms 1000)
-                                                 (if rl-wait " (rate limit reset from headers)" ""))
+                                                 (if rl-wait " (rate limit reset from provider response)" ""))
                                          {:error-type error-type
                                           :status (:status error-data)})
                             (when on-retry
