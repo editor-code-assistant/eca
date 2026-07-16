@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add agent `spawnableBy` configuration to restrict subagent discovery and spawning to specific primary agents.
+- Support MCP server names and regexes in `disabledTools` entries and add `disabledTools` to agent markdown frontmatter. #534
 
 ## 0.147.1
 

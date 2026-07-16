@@ -237,9 +237,13 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
 
 ## Disabled tools
 
-You can completely disable tools so they are never available to the LLM. This is configured via the `disabledTools` config, which accepts a list of tool name strings.
+You can completely disable tools so they are never available to the LLM. This is configured via the `disabledTools` config, which accepts a list of strings matched against each tool, in this order:
 
-It can be set globally or per agent.
+1. A builtin ECA tool name or regex, no `eca__` prefix needed: `edit_file`, `.*_file`.
+2. An exact MCP server name, disabling all tools of that server: `clojure-mcp`.
+3. A regex matched against the tool full name `server__tool`: `clojure-mcp__eval.*`, `my-mcp__dangerous_tool`.
+
+Regexes must match the whole name (anchored). It can be set globally, per agent or in the [agent markdown frontmatter](agents.md).
 
 === "Global"
 
@@ -261,9 +265,24 @@ It can be set globally or per agent.
     }
     ```
 
+=== "Whole MCP server per agent"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "clojure-mcp": {"command": "..."}
+      },
+      "agent": {
+        "plan": {
+          "disabledTools": ["clojure-mcp"]
+        }
+      }
+    }
+    ```
+
 !!! tip "Disabled vs Denied"
 
-    `disabledTools` removes the tool entirely from the LLM — it won't even know it exists. This is different from `toolCall.approval.deny` which lets the LLM see the tool but blocks execution.
+    `disabledTools` removes the tool entirely from the LLM — it won't even know it exists. `toolCall.approval.deny` rules without `argsMatchers` also remove the tool from the LLM tool list, while rules with `argsMatchers` keep the tool visible and only block matching calls.
 
 ## Approval / permissions
 

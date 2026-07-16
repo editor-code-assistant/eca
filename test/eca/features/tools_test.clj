@@ -152,6 +152,48 @@
       (is (= #{"plan_tool"}
              (#'f.tools/get-disabled-tools config "plan"))))))
 
+(deftest disabled-tools-matching-test
+  (let [db {:mcp-clients {"clojureMCP"
+                          {:version "1.0.2"
+                           :tools [{:name "eval" :description "eval code" :parameters {}}
+                                   {:name "sync_deps" :description "sync deps" :parameters {}}]}}}
+        full-names (fn [config] (set (map :full-name (f.tools/all-tools "123" "code" db config))))]
+    (testing "exact builtin tool short name (existing behavior)"
+      (let [names (full-names {:disabledTools ["edit_file"]})]
+        (is (not (contains? names "eca__edit_file")))
+        (is (contains? names "eca__read_file"))))
+    (testing "exact full name (existing behavior)"
+      (let [names (full-names {:disabledTools ["clojureMCP__eval"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (contains? names "clojureMCP__sync_deps"))))
+    (testing "regex against builtin tool short names"
+      (let [names (full-names {:disabledTools [".*_file"]})]
+        (is (not (contains? names "eca__edit_file")))
+        (is (not (contains? names "eca__write_file")))
+        (is (not (contains? names "eca__move_file")))
+        (is (not (contains? names "eca__read_file")))))
+    (testing "server name disables all tools of that server"
+      (let [names (full-names {:disabledTools ["clojureMCP"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (not (contains? names "clojureMCP__sync_deps")))
+        (is (contains? names "eca__read_file"))))
+    (testing "regex against full names"
+      (let [names (full-names {:disabledTools ["clojureMCP.*"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (not (contains? names "clojureMCP__sync_deps")))
+        (is (contains? names "eca__read_file"))))
+    (testing "bare MCP tool name does not match"
+      (let [names (full-names {:disabledTools ["eval"]})]
+        (is (contains? names "clojureMCP__eval"))))
+    (testing "invalid regex is treated literally and does not throw"
+      (let [names (full-names {:disabledTools ["eval(" "clojureMCP__eval"]})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (contains? names "clojureMCP__sync_deps"))))
+    (testing "server name works per agent"
+      (let [names (full-names {:agent {"code" {:disabledTools ["clojureMCP"]}}})]
+        (is (not (contains? names "clojureMCP__eval")))
+        (is (contains? names "eca__read_file"))))))
+
 (deftest approval-test
   (let [read-tool {:name "read" :server {:name "eca"} :origin :native}
         write-tool {:name "write" :server {:name "eca"} :origin :native}

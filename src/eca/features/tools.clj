@@ -24,7 +24,8 @@
    [eca.metrics :as metrics]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
-   [java.util Map]))
+   [java.util Map]
+   [java.util.regex PatternSyntaxException]))
 
 (set! *warn-on-reflection* true)
 
@@ -117,9 +118,30 @@
                  (get-in config [:agent agent-name :disabledTools] [])
                  []))))
 
+(defn ^:private disabled-entry-matches?
+  "Matches a `disabledTools` entry against a tool, checking in order:
+   1. Entry as anchored regex against a eca builtin tool name (no `eca__` prefix needed).
+   2. Entry as exact server name, disabling all tools of that server.
+   3. Entry as anchored regex against the tool full name `server__tool`.
+   Invalid regexes fall back to literal equality."
+  [entry tool]
+  (let [server-name (:name (:server tool))
+        tool-name (:name tool)
+        full-name (str server-name "__" tool-name)
+        pattern (try (re-pattern entry)
+                     (catch PatternSyntaxException _ nil))]
+    (boolean
+     (or (and (= "eca" server-name)
+              (if pattern
+                (re-matches pattern tool-name)
+                (= entry tool-name)))
+         (= entry server-name)
+         (if pattern
+           (re-matches pattern full-name)
+           (= entry full-name))))))
+
 (defn ^:private tool-disabled? [tool disabled-tools]
-  (or (contains? disabled-tools (str (:name (:server tool)) "__" (:name tool)))
-      (contains? disabled-tools (:name tool))))
+  (boolean (some #(disabled-entry-matches? % tool) disabled-tools)))
 
 (defn make-tool-status-fn
   "Returns a function that marks tools as disabled based on config and agent.

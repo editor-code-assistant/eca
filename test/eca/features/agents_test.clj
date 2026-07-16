@@ -175,6 +175,33 @@
            (:spawnableBy (#'agents/md->agent-config {:description "partially valid"
                                                      :spawnableBy ["duel" 42 nil]})))))
 
+  (testing "disabledTools list is normalized to a vector of strings"
+    (let [md (str "---\n"
+                  "description: K8s agent\n"
+                  "disabledTools:\n"
+                  "  - clojure-mcp\n"
+                  "  - eca__shell_command\n"
+                  "  - \".*_file\"\n"
+                  "---\n\n"
+                  "Body.")
+          parsed (shared/parse-md md)
+          config (#'agents/md->agent-config parsed)]
+      (is (= ["clojure-mcp" "eca__shell_command" ".*_file"]
+             (:disabledTools config)))))
+
+  (testing "disabledTools single string becomes a vector"
+    (is (= ["clojure-mcp"]
+           (:disabledTools (#'agents/md->agent-config {:description "a"
+                                                       :disabledTools "clojure-mcp"})))))
+
+  (testing "omitted, empty or malformed disabledTools is ignored"
+    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a"}))))
+    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a" :disabledTools []}))))
+    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a" :disabledTools 42}))))
+    (is (= ["ok"]
+           (:disabledTools (#'agents/md->agent-config {:description "a"
+                                                       :disabledTools ["ok" "" nil]})))))
+
   (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
     (let [md (str "---\n"
                   "description: Reviewer\n"

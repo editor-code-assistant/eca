@@ -86,14 +86,34 @@
             (logger/warn logger-tag (format "Ignoring malformed spawnableBy value: %s" (pr-str spawnable-by)))
             nil)))
 
+(defn ^:private normalize-disabled-tools
+  "Coerces the YAML `disabledTools:` value into a vector of strings.
+   Accepts a single string or a list of strings; other shapes are ignored."
+  [disabled-tools]
+  (cond
+    (nil? disabled-tools) nil
+    (string? disabled-tools) (when-not (string/blank? disabled-tools)
+                               [disabled-tools])
+    (sequential? disabled-tools) (some->> disabled-tools
+                                          (keep (fn [entry]
+                                                  (let [s (str entry)]
+                                                    (when-not (string/blank? s) s))))
+                                          vec
+                                          not-empty)
+    :else (do
+            (logger/warn logger-tag (format "Ignoring malformed disabledTools value: %s" (pr-str disabled-tools)))
+            nil)))
+
 (defn ^:private md->agent-config
-  [{:keys [description mode model steps tools body inherit spawnableBy]}]
+  [{:keys [description mode model steps tools body inherit spawnableBy disabledTools]}]
   (let [tools-map (normalize-tools tools)
-        spawnable-by (normalize-spawnable-by spawnableBy)]
+        spawnable-by (normalize-spawnable-by spawnableBy)
+        disabled-tools (normalize-disabled-tools disabledTools)]
     (cond-> {}
       inherit (assoc :inherit (str inherit))
       description (assoc :description description)
       spawnable-by (assoc :spawnableBy spawnable-by)
+      disabled-tools (assoc :disabledTools disabled-tools)
       mode (assoc :mode (if (sequential? mode)
                           (mapv str mode)
                           (str mode)))

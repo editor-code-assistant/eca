@@ -111,6 +111,7 @@ Subagents can be configured in config or markdown and support/require these fiel
 - `spawnableBy` (optional): one primary agent ID or a collection of primary agent IDs allowed to discover and spawn this subagent. When omitted or empty, the subagent remains available to every primary agent.
 - `model` (optional): which full model to use for this subagent, using primary agent model if not specified.
 - `tools` (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.
+- `disabledTools` (optional): tools to hide from this agent entirely. Same matching as the global [`disabledTools`](tools.md#disabled-tools): a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name `server__tool`.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.
 
 ### Parent-scoped subagents
