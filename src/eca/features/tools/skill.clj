@@ -7,7 +7,7 @@
 (set! *warn-on-reflection* true)
 
 (defn ^:private skill
-  [arguments {:keys [db config]}]
+  [arguments {:keys [db config agent]}]
   (let [skill-name (get arguments "name")
         all-skills (f.skills/all config (:workspace-folders db))
         skill (first (filter
@@ -15,7 +15,7 @@
                       all-skills))]
     (if skill
       (let [body (if-let [handler (:handler-fn skill)]
-                   (handler {:db db :config config :skills all-skills})
+                   (handler {:db db :config config :skills all-skills :agent agent})
                    (:body skill))]
         {:error false
          :contents [{:type :text

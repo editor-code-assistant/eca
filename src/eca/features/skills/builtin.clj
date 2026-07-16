@@ -120,9 +120,8 @@
           (string/join "\n"))
      "- (none)")))
 
-(defn ^:private subagents-section [config]
-  (let [subagents (->> (:agent config)
-                       (filter (fn [[_ v]] (= "subagent" (:mode v))))
+(defn ^:private subagents-section [config parent-agent-name]
+  (let [subagents (->> (config/available-subagents config parent-agent-name)
                        (sort-by first))]
     (multi-str
      (str "## Subagents (" (count subagents) ")")
@@ -183,7 +182,7 @@
             (string/join "\n"))
        "- (none found)"))))
 
-(defn ^:private eca-info-body [{:keys [db config skills]}]
+(defn ^:private eca-info-body [{:keys [db config skills agent]}]
   (multi-str "# ECA Self-Debug Report"
              ""
              (versions-section db)
@@ -200,7 +199,7 @@
              ""
              (skills-section skills)
              ""
-             (subagents-section config)
+             (subagents-section config agent)
              ""
              (env-vars-section)
              ""
@@ -210,7 +209,7 @@
   "Returns the list of built-in skills.
 
   Each skill has :name, :description and :handler-fn (a function of
-  {:keys [db config skills]} returning the markdown body).
+  {:keys [db config skills agent]} returning the markdown body).
   Built-in skills compute their body lazily; they have no :body or :dir."
   []
   [{:name "eca-info"

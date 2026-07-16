@@ -173,7 +173,7 @@
                       :fullModel        (get-in db [:chats chat-id :model])
                       :variant          (get-in db [:chats chat-id :variant])}))]))
    (merge (static-native-definitions)
-          (f.tools.agent/definitions config db)
+          (f.tools.agent/definitions config db agent-name)
           (f.tools.custom/definitions config)
           (f.tools.fetch-rule/definitions config db chat-id agent-name))))
 

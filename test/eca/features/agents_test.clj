@@ -142,6 +142,39 @@
           config (#'agents/md->agent-config parsed)]
       (is (= ["primary" "subagent"] (:mode config)))))
 
+  (testing "spawnableBy string is normalized to one agent id"
+    (let [parsed (shared/parse-md (str "---\n"
+                                       "description: Private worker\n"
+                                       "spawnableBy: '  Duel  '\n"
+                                       "---\n\n"
+                                       "Body."))
+          config (#'agents/md->agent-config parsed)]
+      (is (= "duel" (:spawnableBy config)))))
+
+  (testing "spawnableBy collection is normalized to distinct agent ids"
+    (let [parsed (shared/parse-md (str "---\n"
+                                       "description: Private worker\n"
+                                       "spawnableBy:\n"
+                                       "  - Duel\n"
+                                       "  - another-Orchestrator\n"
+                                       "  - duel\n"
+                                       "---\n\n"
+                                       "Body."))
+          config (#'agents/md->agent-config parsed)]
+      (is (= ["duel" "another-orchestrator"] (:spawnableBy config)))))
+
+  (testing "omitted or empty spawnableBy preserves unrestricted configuration"
+    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"}))))
+    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"
+                                                        :spawnableBy []})))))
+
+  (testing "malformed spawnableBy is ignored"
+    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"
+                                                        :spawnableBy 42}))))
+    (is (= ["duel"]
+           (:spawnableBy (#'agents/md->agent-config {:description "partially valid"
+                                                     :spawnableBy ["duel" 42 nil]})))))
+
   (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
     (let [md (str "---\n"
                   "description: Reviewer\n"
