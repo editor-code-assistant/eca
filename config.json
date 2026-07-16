@@ -113,8 +113,8 @@
     },
     "disabledTools": {
       "type": "array",
-      "description": "List of tool names to disable globally.",
-      "markdownDescription": "List of tool names to disable globally.",
+      "description": "Tools to disable globally. Each entry matches a builtin tool name or regex (no eca__ prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name server__tool.",
+      "markdownDescription": "Tools to disable globally. Each entry matches a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name `server__tool`.",
       "items": {
         "type": "string"
       }
@@ -895,8 +895,8 @@
         },
         "disabledTools": {
           "type": "array",
-          "description": "Tools to disable for this agent.",
-          "markdownDescription": "Tools to disable for this agent.",
+          "description": "Tools to disable for this agent. Each entry matches a builtin tool name or regex (no eca__ prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name server__tool.",
+          "markdownDescription": "Tools to disable for this agent. Each entry matches a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (disables all its tools), or a regex against the tool full name `server__tool`.",
           "items": {
             "type": "string"
           }
