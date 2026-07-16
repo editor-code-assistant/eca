@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix remote server silently falling back to HTTP when the TLS private key is in SEC1 EC format; validate keys before caching and log HTTP fallback. #521
+
 ## 0.147.2
 
 - Add agent `spawnableBy` configuration to restrict subagent discovery and spawning to specific primary agents.

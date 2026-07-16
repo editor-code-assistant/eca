@@ -2,10 +2,12 @@
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
    [eca.remote.tls :as tls])
   (:import
+   [java.security.interfaces ECPrivateKey]
    [javax.net.ssl SSLContext]))
 
 (defn ^:private res
@@ -35,6 +37,12 @@
   (let [pk (#'tls/parse-private-key (res "valid-privkey.pem"))]
     (is (some? pk))
     (is (= "EC" (.getAlgorithm pk))))
+  (testing "SEC1 EC key parses and matches its PKCS#8 twin"
+    (let [^ECPrivateKey sec1-pk (#'tls/parse-private-key (res "valid-privkey-sec1.pem"))
+          ^ECPrivateKey pkcs8-pk (#'tls/parse-private-key (res "valid-privkey.pem"))]
+      (is (some? sec1-pk))
+      (is (= "EC" (.getAlgorithm sec1-pk)))
+      (is (= (.getS pkcs8-pk) (.getS sec1-pk)))))
   (is (nil? (#'tls/parse-private-key "garbage"))))
 
 (deftest leaf-valid?-test
@@ -50,7 +58,12 @@
 (deftest valid-material-test
   (testing "valid material gets a :not-after"
     (is (some? (:not-after (#'tls/valid-material {:cert (res "valid-fullchain.pem")
-                                                 :key (res "valid-privkey.pem")})))))
+                                                 :key (res "valid-privkey.pem")}))))
+    (is (some? (:not-after (#'tls/valid-material {:cert (res "valid-fullchain.pem")
+                                                  :key (res "valid-privkey-sec1.pem")})))))
+  (testing "valid cert but unparseable key is rejected"
+    (is (nil? (#'tls/valid-material {:cert (res "valid-fullchain.pem")
+                                     :key "garbage"}))))
   (testing "expired / wrong-domain / nil are rejected"
     (is (nil? (#'tls/valid-material {:cert (res "expired-fullchain.pem")
                                      :key (res "expired-privkey.pem")})))
@@ -61,6 +74,8 @@
 (deftest build-ssl-context-test
   (is (instance? SSLContext (#'tls/build-ssl-context (res "valid-fullchain.pem")
                                                      (res "valid-privkey.pem"))))
+  (is (instance? SSLContext (#'tls/build-ssl-context (res "valid-fullchain.pem")
+                                                     (res "valid-privkey-sec1.pem"))))
   (is (nil? (#'tls/build-ssl-context "bad" "bad"))))
 
 (deftest fresher?-test
@@ -111,3 +126,41 @@
       (fn [_]
         (with-redefs [tls/fetch-pem (fn [_] nil)]
           (is (nil? (tls/ssl-context {}))))))))
+
+(deftest ssl-context-cold-fetch-sec1-test
+  (testing "cold start with a SEC1 EC key builds a context and caches it"
+    (with-temp-cache
+      (fn [dir]
+        (with-redefs [tls/fetch-pem (fn [url]
+                                      (if (re-find #"fullchain" url)
+                                        (res "valid-fullchain.pem")
+                                        (res "valid-privkey-sec1.pem")))]
+          (is (instance? SSLContext (tls/ssl-context {})))
+          (is (.exists (io/file dir "tls" "local-eca-dev-privkey.pem"))))))))
+
+(deftest ssl-context-invalid-key-not-cached-test
+  (testing "material with an unparseable key is rejected and never cached"
+    (with-temp-cache
+      (fn [dir]
+        (with-redefs [tls/fetch-pem (fn [url]
+                                      (if (re-find #"fullchain" url)
+                                        (res "valid-fullchain.pem")
+                                        "garbage"))]
+          (is (nil? (tls/ssl-context {})))
+          (is (not (.exists (io/file dir "tls" "local-eca-dev-fullchain.pem")))))))))
+
+(deftest ssl-context-poisoned-cache-recovers-test
+  (testing "a cached unparseable key is rejected and replaced by a fresh fetch"
+    (with-temp-cache
+      (fn [dir]
+        (let [tls-dir (io/file dir "tls")]
+          (io/make-parents (io/file tls-dir "x"))
+          (spit (io/file tls-dir "local-eca-dev-fullchain.pem") (res "valid-fullchain.pem"))
+          (spit (io/file tls-dir "local-eca-dev-privkey.pem") "garbage")
+          (with-redefs [tls/fetch-pem (fn [url]
+                                        (if (re-find #"fullchain" url)
+                                          (res "valid-fullchain.pem")
+                                          (res "valid-privkey.pem")))]
+            (is (instance? SSLContext (tls/ssl-context {})))
+            (is (string/starts-with? (slurp (io/file tls-dir "local-eca-dev-privkey.pem"))
+                                     "-----BEGIN PRIVATE KEY-----"))))))))
