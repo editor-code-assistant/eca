@@ -523,7 +523,7 @@
    and message normalization. Supports both single and parallel tool execution.
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
-           past-messages tools extra-payload extra-headers supports-image?
+           max-output-tokens past-messages tools extra-payload extra-headers supports-image?
            think-tag-start think-tag-end reasoning-history http-client]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
@@ -541,7 +541,7 @@
                {:model model
                 :messages messages
                 :stream stream?
-                :max_completion_tokens 32000}
+                :max_completion_tokens (or max-output-tokens 32000)}
                :temperature temperature
                :tools (when (seq tools) (->tools tools))
                ;; Required by the OpenAI streaming spec to receive a final

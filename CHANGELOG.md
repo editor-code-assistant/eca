@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Truncate oversized failed tool output, preserving full logs on disk instead of overflowing the model context.
+- Honor model output limits in OpenAI-compatible Chat Completions and Ollama requests while preserving `extraPayload` overrides.
 
 ## 0.147.3
 
