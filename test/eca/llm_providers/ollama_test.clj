@@ -80,6 +80,28 @@
 
           (is (= {:output-text "Hello world"} result)))))))
 
+(deftest chat-request-enforces-max-output-tokens-test
+  (let [requests* (atom [])]
+    (with-client-proxied {}
+      (fn handler [req]
+        (swap! requests* conj req)
+        {:status 200
+         :body {:message {:content "ok"}}})
+      (let [base-opts {:model "test-model"
+                       :instructions "System prompt"
+                       :user-messages [{:role "user" :content "hello"}]
+                       :past-messages []
+                       :tools nil
+                       :api-url "http://localhost:1"
+                       :max-output-tokens 512}]
+        (llm-providers.ollama/chat! base-opts nil)
+        (llm-providers.ollama/chat!
+         (assoc base-opts :extra-payload {:options {:num_predict 99}}) nil)))
+    (let [bodies (mapv #(json/parse-string (:body %) true) @requests*)]
+      (is (= 512 (get-in bodies [0 :options :num_predict])))
+      (is (= 99 (get-in bodies [1 :options :num_predict]))
+          "Configured extraPayload must remain the final override"))))
+
 (deftest ->normalize-messages-test
   (testing "no previous history"
     (is (match?
