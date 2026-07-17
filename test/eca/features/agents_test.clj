@@ -62,6 +62,7 @@
                   "description: You sleep one second when asked\n"
                   "mode: subagent\n"
                   "model: my-org-anthropic/sonnet-4.5\n"
+                  "variant: High\n"
                   "steps: 5\n"
                   "tools:\n"
                   "  byDefault: ask\n"
@@ -77,12 +78,21 @@
       (is (match? {:description "You sleep one second when asked"
                    :mode "subagent"
                    :defaultModel "my-org-anthropic/sonnet-4.5"
+                   :variant "High"
                    :maxSteps 5
                    :systemPrompt "You should run sleep 1 and return \"I sleeped 1 second\""
                    :toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command" {}}
                                          :deny {"foo" {}}}}}
                   config))))
+
+  (testing "variant is trimmed without changing case"
+    (is (= "XHigh"
+           (:variant (#'agents/md->agent-config {:variant "  XHigh  "})))))
+
+  (testing "blank or malformed variant is ignored"
+    (doseq [variant [nil "" "  " 42 [] {}]]
+      (is (nil? (:variant (#'agents/md->agent-config {:variant variant}))))))
 
   (testing "tool entries with regex patterns"
     (let [parsed {:tools {"byDefault" "ask"
@@ -259,6 +269,7 @@
                  "description: Reviews code changes\n"
                  "mode: subagent\n"
                  "model: anthropic/sonnet-4.5\n"
+                 "variant: high\n"
                  "steps: 10\n"
                  "---\n\n"
                  "You are a code reviewer."))
@@ -276,6 +287,7 @@
         (is (match? ["reviewer" {:description "Reviews code changes"
                                  :mode "subagent"
                                  :defaultModel "anthropic/sonnet-4.5"
+                                 :variant "high"
                                  :maxSteps 10
                                  :systemPrompt "You are a code reviewer."}]
                     reviewer))
@@ -318,6 +330,7 @@
             (str "---\n"
                  "description: From markdown\n"
                  "mode: subagent\n"
+                 "variant: medium\n"
                  "---\n\n"
                  "I am from markdown."))
       ;; Agent defined in JSON config should take precedence over MD agent
@@ -325,6 +338,7 @@
             (str "---\n"
                  "description: MD version\n"
                  "mode: subagent\n"
+                 "variant: low\n"
                  "---\n\n"
                  "MD prompt."))
 
@@ -332,16 +346,19 @@
               {:pureConfig false
                :agent {"json-override" {:mode "subagent"
                                         :description "JSON version"
+                                        :variant "high"
                                         :systemPrompt "JSON prompt."}}})
       (let [db {:workspace-folders [{:uri (shared/filename->uri (str tmp-dir))}]}
             result (#'config/all* db)]
         (testing "markdown agent is present in config"
           (is (match? {:description "From markdown"
                        :mode "subagent"
+                       :variant "medium"
                        :systemPrompt "I am from markdown."}
                       (get-in result [:agent "md-agent"]))))
         (testing "JSON config agent takes precedence over same-named MD agent"
           (is (= "JSON version" (get-in result [:agent "json-override" :description])))
+          (is (= "high" (get-in result [:agent "json-override" :variant])))
           (is (= "JSON prompt." (get-in result [:agent "json-override" :systemPrompt])))))
       (finally
         (fs/delete-tree tmp-dir)))))

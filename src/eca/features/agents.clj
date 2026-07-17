@@ -67,6 +67,11 @@
       (when-not (string/blank? normalized)
         normalized))))
 
+(defn ^:private normalize-agent-variant
+  [variant]
+  (when (string? variant)
+    (not-empty (string/trim variant))))
+
 (defn ^:private normalize-spawnable-by
   [spawnable-by]
   (cond
@@ -105,8 +110,9 @@
             nil)))
 
 (defn ^:private md->agent-config
-  [{:keys [description mode model steps tools body inherit spawnableBy disabledTools]}]
-  (let [tools-map (normalize-tools tools)
+  [{:keys [description mode model variant steps tools body inherit spawnableBy disabledTools]}]
+  (let [agent-variant (normalize-agent-variant variant)
+        tools-map (normalize-tools tools)
         spawnable-by (normalize-spawnable-by spawnableBy)
         disabled-tools (normalize-disabled-tools disabledTools)]
     (cond-> {}
@@ -118,6 +124,7 @@
                           (mapv str mode)
                           (str mode)))
       model (assoc :defaultModel (str model))
+      agent-variant (assoc :variant agent-variant)
       steps (assoc :maxSteps (long steps))
       (seq body) (assoc :systemPrompt body)
       tools-map (assoc :toolCall

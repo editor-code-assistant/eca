@@ -243,6 +243,16 @@
       (is (= ["duel"] (get-in resolved ["inherited-worker" :spawnableBy])))
       (is (= ["other"] (get-in resolved ["overridden-worker" :spawnableBy])))))
 
+  (testing "variant follows normal inheritance and child override behavior"
+    (let [agents {"worker" {:mode "subagent"
+                             :variant "medium"}
+                  "inherited-worker" {:inherit "worker"}
+                  "overridden-worker" {:inherit "worker"
+                                       :variant "high"}}
+          resolved (#'config/resolve-agent-inheritance agents)]
+      (is (= "medium" (get-in resolved ["inherited-worker" :variant])))
+      (is (= "high" (get-in resolved ["overridden-worker" :variant])))))
+
   (testing "child values override parent values"
     (let [agents {"code" {:mode "primary"
                           :disabledTools ["preview_file_change"]

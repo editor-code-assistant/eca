@@ -110,6 +110,7 @@ Subagents can be configured in config or markdown and support/require these fiel
 - `inherit` (optional): name of another agent to inherit all settings from. The subagent's own fields are merged on top.
 - `spawnableBy` (optional): one primary agent ID or a collection of primary agent IDs allowed to discover and spawn this subagent. When omitted or empty, the subagent remains available to every primary agent.
 - `model` (optional): which full model to use for this subagent, using primary agent model if not specified.
+- `variant` (optional): default model variant; ignored when unavailable for the selected model. See [Variants](variants.md#agent-default-variant).
 - `tools` (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.
 - `disabledTools` (optional): tools to hide from this agent entirely. Same matching as the global [`disabledTools`](tools.md#disabled-tools): a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name `server__tool`.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.
@@ -186,6 +187,7 @@ The `/config` command intentionally remains an administrative, raw resolved-conf
     mode: subagent
     description: You sleep one second when asked
     model: ${env:MY_MODEL:anthropic/sonnet-4.5}
+    variant: high
     tools:
       byDefault: ask
       deny: 
@@ -241,6 +243,7 @@ The `/config` command intentionally remains an administrative, raw resolved-conf
           "description": "You sleep one second when asked",
           "systemPrompt": "You should run sleep 1 and return \"I slept 1 second\"",
           "defaultModel": "anthropic/sonnet-4.5",
+          "variant": "high",
           "toolCall": {...},
           "maxSteps": 25 // Optional: to limit turns in subagent
         }
