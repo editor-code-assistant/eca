@@ -111,13 +111,14 @@
       (on-error (.getMessage e)))))
 
 (defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
-  (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
-    ;; Renew 60s before expiration to avoid race between check and request
-    (when (<= (long expires-at) (+ 60 (quot (System/currentTimeMillis) 1000)))
-      (when on-renewing
-        (on-renewing))
-      (renew-auth! provider ctx
-                   {:on-error on-error}))))
+  (when-not (f.providers/key-auth-override-warning provider (:config ctx))
+    (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
+      ;; Renew 60s before expiration to avoid race between check and request
+      (when (<= (long expires-at) (+ 60 (quot (System/currentTimeMillis) 1000)))
+        (when on-renewing
+          (on-renewing))
+        (renew-auth! provider ctx
+                     {:on-error on-error})))))
 
 (defn renew-expiring-auth-tokens!
   "Best-effort proactive renewal of any provider auth tokens that are at/near
