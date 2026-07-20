@@ -1594,7 +1594,10 @@
 <span class="p">}</span>
 </code></pre></div>
 <h2 id="agent-default-variant">Agent Default Variant<a class="headerlink" href="#agent-default-variant" title="Permanent link">#</a></h2>
-<p>You can set a default variant for an agent so it starts with that variant pre-selected:</p>
+<p>Set a default variant for an agent:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="json" name="__tabbed_3" type="radio" /><input id="markdown" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="json">JSON</label><label for="markdown">Markdown</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
@@ -1603,7 +1606,21 @@
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>If the configured variant doesn't exist for the current model, it will be ignored.</p>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">~/.config/eca/agents/reviewer.md</span><pre><span></span><code>---
+mode: subagent
+description: Review code changes
+model: openai/gpt-5.4
+<span class="gu">variant: high</span>
+<span class="gu">---</span>
+
+Review the changes for correctness and regressions.
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>Unavailable variants are ignored. An explicit chat or <code>spawn_agent</code> variant overrides the agent default. See <a href="../agents/">Agents</a> for the complete agent specification.</p>
 
 
 
@@ -1624,7 +1641,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 15:14:35 UTC">July 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 20, 2026 15:23:40 UTC">July 20, 2026</span>
   </span>
 
     
