@@ -124,19 +124,27 @@
       (eca/request!
        (fixture/initialize-request
         {:initializationOptions
-         (hooks-init-options
-          {"session-start" {:type "sessionStart"
-                            :actions [{:type "shell"
-                                       :shell "echo sessionStart >> .eca/hooks-log.txt"}]}
-           "chat-start" {:type "chatStart"
-                         :actions [{:type "shell"
-                                    :shell "printf 'chatStart:%s\\n' \"$(jq -r '.resumed')\" >> .eca/hooks-log.txt"}]}
-           "chat-end" {:type "chatEnd"
-                       :actions [{:type "shell"
-                                  :shell "echo chatEnd >> .eca/hooks-log.txt"}]}
-           "session-end" {:type "sessionEnd"
+          (hooks-init-options
+           {"session-start" {:type "sessionStart"
+                             :actions [{:type "shell"
+                                        :shell (if win?
+                                                 "Add-Content -Encoding ascii -Path .eca/hooks-log.txt -Value 'sessionStart'"
+                                                 "echo sessionStart >> .eca/hooks-log.txt")}]}
+            "chat-start" {:type "chatStart"
                           :actions [{:type "shell"
-                                     :shell "echo sessionEnd >> .eca/hooks-log.txt"}]}})}))
+                                     :shell (if win?
+                                              "$hookInput = $Input | Out-String | ConvertFrom-Json; Add-Content -Encoding ascii -Path .eca/hooks-log.txt -Value ('chatStart:' + $hookInput.resumed.ToString().ToLowerInvariant())"
+                                              "printf 'chatStart:%s\\n' \"$(jq -r '.resumed')\" >> .eca/hooks-log.txt")}]}
+            "chat-end" {:type "chatEnd"
+                        :actions [{:type "shell"
+                                  :shell (if win?
+                                           "Add-Content -Encoding ascii -Path .eca/hooks-log.txt -Value 'chatEnd'"
+                                           "echo chatEnd >> .eca/hooks-log.txt")}]}
+            "session-end" {:type "sessionEnd"
+                           :actions [{:type "shell"
+                                     :shell (if win?
+                                              "Add-Content -Encoding ascii -Path .eca/hooks-log.txt -Value 'sessionEnd'"
+                                              "echo sessionEnd >> .eca/hooks-log.txt")}]}})}))
 
       (eca/notify! (fixture/initialized-notification))
 
@@ -170,11 +178,8 @@
         ;; - chatStart:false (new chat, not resumed)
         ;; - chatEnd
         ;; - sessionEnd
-        (if win? (is (= 5 (count lines))) ;; The used command results in bad encoding in Windows etc...
-            (is (= (if win?
-                     ["??sessionStart\r" "chatStart:false\r" "chatEnd\r" "sessionEnd\r" ""]
-                     ["sessionStart" "chatStart:false" "chatEnd" "sessionEnd"])
-                   lines)))))))
+        (is (= ["sessionStart" "chatStart:false" "chatEnd" "sessionEnd"]
+               lines))))))
 
 (deftest posttoolcall-receives-tool-response-test
   (testing "postToolCall hook receives tool_response and tool_input after tool execution"
