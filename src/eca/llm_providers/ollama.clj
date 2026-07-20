@@ -138,7 +138,8 @@
                      }))))
         messages))
 
-(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools extra-headers extra-payload]}
+(defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools max-output-tokens
+                     extra-headers extra-payload]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
                      on-reason] :as callbacks}]
   (let [messages (concat
@@ -146,11 +147,13 @@
                   (normalize-messages user-messages))
         stream? (boolean callbacks)
         body (deep-merge
-              {:model model
-               :messages messages
-               :think reason?
-               :tools (->tools tools)
-               :stream stream?}
+              (cond-> {:model model
+                       :messages messages
+                       :think reason?
+                       :tools (->tools tools)
+                       :stream stream?}
+                max-output-tokens
+                (assoc :options {:num_predict max-output-tokens}))
               extra-payload)
         url (join-api-url api-url chat-path)
         tool-calls* (atom {})
