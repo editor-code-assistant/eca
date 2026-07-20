@@ -242,13 +242,14 @@
   [result config tool-call-id]
   (let [max-lines (get-in config [:toolCall :outputTruncation :lines])
         max-size-kb (get-in config [:toolCall :outputTruncation :sizeKb])]
-    (if (or (nil? max-lines) (nil? max-size-kb) (:error result))
+    (if (or (nil? max-lines) (nil? max-size-kb))
       result
       (let [full-text (contents->text (:contents result))]
         (if (exceeds-truncation-limits? full-text max-lines max-size-kb)
           (let [saved-path (cache/save-tool-call-output! tool-call-id full-text)
                 truncated (truncate-text full-text max-lines max-size-kb)
-                notice (str "\n\n[OUTPUT TRUNCATED] The tool call succeeded but the output was truncated. "
+                outcome (if (:error result) "failed" "succeeded")
+                notice (str "\n\n[OUTPUT TRUNCATED] The tool call " outcome " and the output was truncated. "
                             "Full output saved to: " saved-path "\n"
                             "Use `eca__grep` or `eca__read_file` with offset/limit to view specific sections. Do not full read the file.")]
             (assoc result :contents [{:type :text

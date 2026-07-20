@@ -110,8 +110,9 @@
             nil)))
 
 (defn ^:private md->agent-config
-  [{:keys [description mode model variant steps tools body inherit spawnableBy disabledTools]}]
+  [{:keys [description mode model variant maxSteps steps tools body inherit spawnableBy disabledTools]}]
   (let [agent-variant (normalize-agent-variant variant)
+        max-steps (or maxSteps steps)
         tools-map (normalize-tools tools)
         spawnable-by (normalize-spawnable-by spawnableBy)
         disabled-tools (normalize-disabled-tools disabledTools)]
@@ -125,7 +126,7 @@
                           (str mode)))
       model (assoc :defaultModel (str model))
       agent-variant (assoc :variant agent-variant)
-      steps (assoc :maxSteps (long steps))
+      max-steps (assoc :maxSteps (long max-steps))
       (seq body) (assoc :systemPrompt body)
       tools-map (assoc :toolCall
                        (cond-> {:approval {}}

@@ -51,6 +51,28 @@
           (is (= {:output-text "Hello there!"}
                  (select-keys response [:output-text]))))))))
 
+(deftest chat-request-enforces-max-output-tokens-test
+  (let [requests* (atom [])]
+    (with-client-proxied {}
+      (fn handler [req]
+        (swap! requests* conj req)
+        {:status 200
+         :body {:choices [{:message {:content "ok"}}]}})
+      (let [base-opts {:model "test-model"
+                       :instructions "System prompt"
+                       :user-messages [{:role "user" :content "hello"}]
+                       :past-messages []
+                       :tools nil
+                       :api-key "fake-key"
+                       :api-url "http://localhost:1"
+                       :max-output-tokens 512}]
+        (llm-providers.openai-chat/chat-completion! base-opts nil)
+        (llm-providers.openai-chat/chat-completion!
+         (assoc base-opts :extra-payload {:max_completion_tokens 99}) nil)))
+    (is (= 512 (get-in @requests* [0 :body :max_completion_tokens])))
+    (is (= 99 (get-in @requests* [1 :body :max_completion_tokens]))
+        "Configured extraPayload must remain the final override")))
+
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"
     (is (match?

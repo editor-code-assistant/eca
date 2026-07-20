@@ -197,3 +197,21 @@
             (is (= "rotated-session" (get-in @db* [:auth "github-copilot" :api-key])))
             (is (= "fresh-session" (get-in @db* [:auth "anthropic" :api-key]))))
           (finally (fs/delete-tree tmpdir)))))))
+
+(deftest maybe-renew-auth-token!-skips-when-configured-key-overrides-oauth-test
+  (testing "an expired saved OAuth token does not block a provider configured with a static key"
+    (let [db* (atom {:auth {"anthropic" {:type :auth/oauth
+                                           :api-key "expired-access"
+                                           :refresh-token "expired-refresh"
+                                           :expires-at 0}}})
+          renew-calls* (atom 0)
+          renewing-calls* (atom 0)]
+      (with-redefs-fn {#'login/renew-auth! (fn [& _]
+                                              (swap! renew-calls* inc))}
+        #(login/maybe-renew-auth-token!
+          {:provider "anthropic"
+           :on-renewing (fn [] (swap! renewing-calls* inc))}
+          {:db* db*
+           :config {:providers {"anthropic" {:key "local-proxy-key"}}}}))
+      (is (zero? @renew-calls*))
+      (is (zero? @renewing-calls*)))))

@@ -397,6 +397,7 @@
           :user-messages user-messages
           :past-messages past-messages
           :tools tools
+          :max-output-tokens max-output-tokens
           :extra-payload extra-payload
           :extra-headers extra-headers}
          callbacks)

@@ -63,7 +63,7 @@
                   "mode: subagent\n"
                   "model: my-org-anthropic/sonnet-4.5\n"
                   "variant: High\n"
-                  "steps: 5\n"
+                  "maxSteps: 5\n"
                   "tools:\n"
                   "  byDefault: ask\n"
                   "  deny:\n"
@@ -93,6 +93,11 @@
   (testing "blank or malformed variant is ignored"
     (doseq [variant [nil "" "  " 42 [] {}]]
       (is (nil? (:variant (#'agents/md->agent-config {:variant variant}))))))
+
+  (testing "maxSteps takes precedence over the legacy steps alias"
+    (is (= 7
+           (:maxSteps (#'agents/md->agent-config {:maxSteps 7
+                                                  :steps 3})))))
 
   (testing "tool entries with regex patterns"
     (let [parsed {:tools {"byDefault" "ask"

@@ -5,6 +5,7 @@
    [eca.config :as config]
    [eca.llm-api :as llm-api]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [eca.secrets :as secrets]
@@ -219,6 +220,25 @@
              (:api (llm-api/provider->api-handler "github-copilot" "gpt-5" config))))
       (is (= :openai-chat
              (:api (llm-api/provider->api-handler "github-copilot" "unknown-model" config)))))))
+
+(deftest prompt-forwards-max-output-tokens-to-ollama-test
+  (let [captured* (atom nil)]
+    (with-redefs [llm-providers.ollama/chat!
+                  (fn [opts _callbacks]
+                    (reset! captured* opts)
+                    {:output-text "ok"})]
+      (#'eca.llm-api/prompt!
+       {:provider "ollama"
+        :model "test-model"
+        :model-capabilities {:tools false
+                             :reason? false
+                             :model-name "test-model"
+                             :max-output-tokens 512}
+        :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+        :past-messages []
+        :config {:providers {"ollama" {:url "http://localhost:11434"}}}
+        :sync? true}))
+    (is (= 512 (:max-output-tokens @captured*)))))
 
 (deftest prompt-test
   (testing "Custom OpenAI provider behavior and proper passing of httpClient options to the Hato client"
