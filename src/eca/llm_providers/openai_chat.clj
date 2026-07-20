@@ -667,7 +667,10 @@
                                     ;; Flush any leftover buffered content before finishing
                                     (flush-content-buffer)
                                     (doseq [tool-call (:tool_calls delta)]
-                                      (let [{:keys [index id function extra_content]} tool-call
+                                      (let [{:keys [index function extra_content]} tool-call
+                                            ;; Normalize empty-string id to nil: some providers (e.g. DashScope/Qwen Cloud)
+                                            ;; send `id: ""` in subsequent chunks instead of omitting the field.
+                                            id (not-empty (:id tool-call))
                                             {name :name args :arguments} function
                                             ;; Extract Google Gemini thought signature if present
                                             thought-signature (get-in extra_content [:google :thought_signature])

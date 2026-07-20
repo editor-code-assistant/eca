@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix streaming tool calls dropped when provider sends empty-string `id` in subsequent chunks (e.g. DashScope/Qwen Cloud).
 - Truncate oversized failed tool output, preserving full logs on disk instead of overflowing the model context.
 - Honor model output limits in OpenAI-compatible Chat Completions and Ollama requests while preserving `extraPayload` overrides.
 
