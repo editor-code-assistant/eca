@@ -137,17 +137,32 @@ To disable a specific built-in variant, set it to `{}`:
 
 ## Agent Default Variant
 
-You can set a default variant for an agent so it starts with that variant pre-selected:
+Set a default variant for an agent:
 
-```javascript title="~/.config/eca/config.json"
-{
-  "agent": {
-    "code": {
-      "variant": "medium"
+=== "JSON"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "agent": {
+        "code": {
+          "variant": "medium"
+        }
+      }
     }
-  }
-}
-```
+    ```
 
-If the configured variant doesn't exist for the current model, it will be ignored.
+=== "Markdown"
+
+    ```markdown title="~/.config/eca/agents/reviewer.md"
+    ---
+    mode: subagent
+    description: Review code changes
+    model: openai/gpt-5.4
+    variant: high
+    ---
+
+    Review the changes for correctness and regressions.
+    ```
+
+Unavailable variants are ignored. An explicit chat or `spawn_agent` variant overrides the agent default. See [Agents](agents.md) for the complete agent specification.
 
