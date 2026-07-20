@@ -62,7 +62,7 @@
                   "description: You sleep one second when asked\n"
                   "mode: subagent\n"
                   "model: my-org-anthropic/sonnet-4.5\n"
-                  "steps: 5\n"
+                  "maxSteps: 5\n"
                   "tools:\n"
                   "  byDefault: ask\n"
                   "  deny:\n"
@@ -83,6 +83,11 @@
                                          :allow {"eca__shell_command" {}}
                                          :deny {"foo" {}}}}}
                   config))))
+
+  (testing "maxSteps takes precedence over the legacy steps alias"
+    (is (= 7
+           (:maxSteps (#'agents/md->agent-config {:maxSteps 7
+                                                  :steps 3})))))
 
   (testing "tool entries with regex patterns"
     (let [parsed {:tools {"byDefault" "ask"
