@@ -33,6 +33,9 @@
   [#"(?i)remote host terminated the handshake"
    #"(?i)host is unreachable"
    #"(?i)connection error"
+   #"(?i)connection closed"
+   #"(?i)connection reset"
+   #"(?i)eof reached"
    #"(?i)internal server error"
    #"(?i)connection refused"
    #"(?i)UnresolvedAddressException"])

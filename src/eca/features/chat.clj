@@ -34,6 +34,11 @@
 
 (def ^:private logger-tag "[CHAT]")
 
+(def ^:private max-auto-continues
+  "Max times a single prompt chain is auto-continued after interrupted or
+   truncated responses (e.g. proxies dropping long streaming connections #547)."
+  3)
+
 (defn ^:private tool-output-text [msg]
   (let [contents (get-in msg [:content :output :contents])]
     (reduce (fn [^String acc {:keys [text]}]
@@ -1081,7 +1086,7 @@
                                                             (not (string/blank? response-text))
                                                             (or (:premature? msg)
                                                                 (truncated-response? response-text))
-                                                            (not (:auto-continued? chat-ctx))
+                                                            (< (:auto-continue-count chat-ctx 0) max-auto-continues)
                                                             (not (or (:on-finished-side-effect chat-ctx)
                                                                      (:on-after-finish! chat-ctx))))
                                                      (do
@@ -1105,7 +1110,7 @@
                                                                     :content [{:type :text
                                                                                :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
                                                                   :auto-continue
-                                                                  (assoc chat-ctx :auto-continued? true))))))
+                                                                  (update chat-ctx :auto-continue-count (fnil inc 0)))))))
                                                      (lifecycle/finish-chat-prompt!
                                                       :idle
                                                       (assoc-some chat-ctx :response (some-> response-text string/trim not-empty)))))))
@@ -1317,7 +1322,7 @@
                                       can-auto-continue? (and (not stopping?)
                                                               (or transient-error?
                                                                   (string/includes? (or message "") "idle timeout"))
-                                                              (not (:auto-continued? chat-ctx))
+                                                              (< (:auto-continue-count chat-ctx 0) max-auto-continues)
                                                               (not (or (:on-finished-side-effect chat-ctx)
                                                                        (:on-after-finish! chat-ctx)))
                                                               (not compacting?))]
@@ -1345,7 +1350,7 @@
                                                                                  :content [{:type :text
                                                                                             :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
                                                                                :auto-continue
-                                                                               (assoc chat-ctx :auto-continued? true))))))
+                                                                               (update chat-ctx :auto-continue-count (fnil inc 0)))))))
                                     (do
                                       (when-not stopping?
                                         (lifecycle/send-content! chat-ctx :system

@@ -74,6 +74,16 @@
       proxy-creds
       (assoc :authenticator proxy-creds))))
 
+(defn ^:private enable-stale-connection-retry!
+  "Lets the JDK HttpClient resend any request (not only idempotent GET/HEAD)
+  on a new connection when a pooled keep-alive connection turns out to have
+  been closed by the peer — common behind corporate proxies that drop idle
+  connections. The JDK only retries when no response bytes were received, so
+  resending is safe. Respects a value already set by the user. #547"
+  []
+  (when-not (System/getProperty "jdk.httpclient.enableAllMethodRetry")
+    (System/setProperty "jdk.httpclient.enableAllMethodRetry" "true")))
+
 (def ^:private shared-executor*
   (delay (Executors/newCachedThreadPool)))
 
@@ -108,6 +118,7 @@
   When a custom SSL context has been set up via `eca.network/setup!`,
   it is included so that custom CA certificates and mTLS are honoured."
   [hato-opts]
+  (enable-stale-connection-retry!)
   (let [{:keys [http https] :as _env-proxies} (network/env-proxy-urls-parse)
         ssl-ctx network/*ssl-context*
         opts (cond-> (assoc hato-opts :executor ^java.util.concurrent.ExecutorService @shared-executor*)

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Improve resilience to connections dropped by proxies/networks: retry stale pooled connections, classify the error clearly, auto-continue up to 3 times per prompt. #547
 - Fix streaming tool calls dropped when provider sends empty-string `id` in subsequent chunks (e.g. DashScope/Qwen Cloud).
 - Truncate oversized failed tool output, preserving full logs on disk instead of overflowing the model context.
 - Honor model output limits in OpenAI-compatible Chat Completions and Ollama requests while preserving `extraPayload` overrides.

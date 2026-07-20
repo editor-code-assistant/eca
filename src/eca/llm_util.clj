@@ -8,7 +8,7 @@
    [eca.secrets :as secrets]
    [eca.shared :as shared])
   (:import
-   [java.io BufferedReader Closeable]
+   [java.io BufferedReader Closeable EOFException]
    [java.net ConnectException SocketTimeoutException UnknownHostException]
    [java.net.http HttpConnectTimeoutException]
    [javax.net.ssl SSLException]))
@@ -197,12 +197,13 @@
    into a user-friendly map: {:kind <keyword> :message <string>}.
 
    Recognized kinds:
-   - :tls-untrusted   - PKIX path building failed (private/corporate CA not trusted)
-   - :tls-other       - other TLS/SSL handshake errors
-   - :dns             - UnknownHostException
-   - :connect-refused - ConnectException (connection refused, etc.)
-   - :timeout         - connection/socket timeouts
-   - :unknown         - fallback; keeps the historical 'Connection error: ...' format"
+   - :tls-untrusted     - PKIX path building failed (private/corporate CA not trusted)
+   - :connection-closed - connection dropped mid-request (EOF, reset, closed)
+   - :tls-other         - other TLS/SSL handshake errors
+   - :dns               - UnknownHostException
+   - :connect-refused   - ConnectException (connection refused, etc.)
+   - :timeout           - connection/socket timeouts
+   - :unknown           - fallback; keeps the historical 'Connection error: ...' format"
   [^Throwable e]
   (let [msg (root-message e)
         causes (cause-chain e)
@@ -210,6 +211,13 @@
                       (some-> (ex-message c)
                               (string/includes? "PKIX path building failed")))
                     causes)
+        closed? (some (fn [^Throwable c]
+                        (or (instance? EOFException c)
+                            (when-let [m (some-> (ex-message c) string/lower-case)]
+                              (or (string/includes? m "eof reached")
+                                  (string/includes? m "connection reset")
+                                  (= m "closed")))))
+                      causes)
         ssl?  (some #(instance? SSLException %) causes)
         dns?  (some #(instance? UnknownHostException %) causes)
         connect-refused? (some #(instance? ConnectException %) causes)
@@ -225,6 +233,12 @@
                      "Fix: set `network.caCertFile` in your ECA config or the `SSL_CERT_FILE` "
                      "env var to a PEM bundle containing the missing CA. "
                      "See docs/config/network.md for details. Original error: " msg)}
+
+      closed?
+      {:kind :connection-closed
+       :message (str "Connection closed unexpectedly: " msg
+                     ". The server, a proxy or the network dropped the connection mid-request"
+                     " (common behind corporate proxies/VPNs with idle or streaming timeouts).")}
 
       ssl?
       {:kind :tls-other

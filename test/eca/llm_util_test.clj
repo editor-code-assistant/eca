@@ -7,8 +7,8 @@
    [eca.secrets :as secrets]
    [matcher-combinators.test :refer [match?]])
   (:import
-   [java.io ByteArrayInputStream]
-   [java.net ConnectException SocketTimeoutException UnknownHostException]
+   [java.io ByteArrayInputStream EOFException IOException]
+   [java.net ConnectException SocketException SocketTimeoutException UnknownHostException]
    [javax.net.ssl SSLException SSLHandshakeException]))
 
 (deftest event-data-seq-test
@@ -231,6 +231,24 @@
           {:keys [kind message]} (llm-util/classify-connection-exception e)]
       (is (= :timeout kind))
       (is (re-find #"Connection timed out" message))))
+
+  (testing "IOException 'closed' caused by EOFException (proxy dropping stream, #547) -> :connection-closed"
+    (let [e (IOException. "closed" (EOFException. "EOF reached while reading"))
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :connection-closed kind))
+      (is (re-find #"Connection closed unexpectedly" message))
+      (is (re-find #"proxy" message))))
+
+  (testing "SocketException Connection reset -> :connection-closed"
+    (let [e (SocketException. "Connection reset")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :connection-closed kind))
+      (is (re-find #"Connection closed unexpectedly" message))))
+
+  (testing "SSLException wrapping a connection reset -> :connection-closed (not :tls-other)"
+    (let [e (SSLException. "Connection reset" (SocketException. "Connection reset"))
+          {:keys [kind]} (llm-util/classify-connection-exception e)]
+      (is (= :connection-closed kind))))
 
   (testing "Unknown exception falls back to legacy 'Connection error:' format"
     (let [e (Exception. "boom")

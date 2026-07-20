@@ -196,4 +196,23 @@
 
             (finally
               (alter-var-root #'client/*hato-http-client* (constantly nil)))))))))
+
+(deftest stale-connection-retry-property-test
+  (let [prop "jdk.httpclient.enableAllMethodRetry"
+        original (System/getProperty prop)]
+    (try
+      (testing "global setup enables JDK all-method retry when unset"
+        (System/clearProperty prop)
+        (client/hato-client-global-setup! {})
+        (is (= "true" (System/getProperty prop))))
+
+      (testing "respects a value already set by the user"
+        (System/setProperty prop "false")
+        (client/hato-client-global-setup! {})
+        (is (= "false" (System/getProperty prop))))
+      (finally
+        (if original
+          (System/setProperty prop original)
+          (System/clearProperty prop))
+        (alter-var-root #'client/*hato-http-client* (constantly nil))))))
 #_(hato-client-global-setup-tests)

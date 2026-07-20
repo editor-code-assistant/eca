@@ -166,6 +166,11 @@
   (testing "exception-only with no matching message"
     (is (= {:error/type :unknown}
            (llm-providers.errors/classify-error
+            {:exception (Exception. "boom")}))))
+
+  (testing "exception with connection reset message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
             {:exception (Exception. "Connection reset")}))))
 
   (testing "exception with context overflow message"
@@ -195,7 +200,18 @@
 
   (testing "connection error is retryable"
     (is (true? (llm-providers.errors/retryable?
-                {:message "Connection error: java.nio.channels.UnresolvedAddressException"})))))
+                {:message "Connection error: java.nio.channels.UnresolvedAddressException"}))))
+
+  (testing "dropped connection message (#547) is overloaded and retryable"
+    (let [error-data {:message "Connection closed unexpectedly: closed. The server, a proxy or the network dropped the connection mid-request (common behind corporate proxies/VPNs with idle or streaming timeouts)."}]
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error error-data)))
+      (is (true? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "EOF reached message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "EOF reached while reading"})))))
 
 (deftest context-overflow?-test
   (testing "returns true for overflow errors"
