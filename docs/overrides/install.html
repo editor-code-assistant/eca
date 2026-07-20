@@ -853,34 +853,11 @@
     color: var(--eca-brand);
   }
 
-  /* Coming soon (Windows) */
-  .eca-install-coming-soon {
-    text-align: center;
-    padding: 2rem 1rem 2.25rem;
-    border-radius: 10px;
-    border: 1.5px dashed var(--eca-border);
-    background: var(--eca-bg-secondary);
-  }
-
-  .eca-install-coming-soon__emoji {
-    font-size: 2rem;
-    line-height: 1;
-    margin-bottom: 0.5rem;
-  }
-
-  .eca-install-coming-soon__title {
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--eca-text);
-    margin: 0 0 0.35rem;
-  }
-
-  .eca-install-coming-soon__desc {
-    font-size: 0.88rem;
-    color: var(--eca-text-secondary);
-    line-height: 1.55;
-    max-width: 26rem;
-    margin: 0 auto 1rem;
+  .eca-install-windows-download {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
   }
 
   .eca-install-panel__footer-note {
@@ -1195,7 +1172,8 @@
               A standalone desktop app for ECA, built with Electron. Download the latest
               release for your platform directly from
               <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest" target="_blank" rel="noopener">GitHub Releases</a>
-              &mdash; the ECA server is bundled, and supported formats auto-update in place.
+              &mdash; the ECA server is downloaded and managed automatically, and supported
+              formats auto-update in place.
             </p>
 
             <div class="eca-install-os" id="eca-desktop-os">
@@ -1325,23 +1303,24 @@
                   </p>
                 </div>
 
-                <!-- Windows -->
+                <!-- Windows: x64 NSIS installer -->
                 <div class="eca-install-os__panel eca-install-os__panel--windows">
-                  <div class="eca-install-coming-soon">
-                    <div class="eca-install-coming-soon__emoji">🔮</div>
-                    <h4 class="eca-install-coming-soon__title">Windows builds are planned</h4>
-                    <p class="eca-install-coming-soon__desc">
-                      Native Windows installers aren't shipping yet. In the meantime, you can
-                      run ECA through the VS Code or IntelliJ plugin on Windows, or build
-                      from source.
-                    </p>
-                    <a href="https://github.com/editor-code-assistant/eca-desktop"
-                       class="eca-install-btn eca-install-btn--primary"
+                  <div class="eca-install-windows-download">
+                    <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest"
+                       class="eca-install-download__link eca-install-download__link--primary"
                        target="_blank" rel="noopener">
-                      Watch eca-desktop on GitHub
-                      {{ icon_external()|safe }}
+                      {{ icon_download()|safe }} Open the latest Windows release
+                      <span class="eca-install-download__tag">x64 / .exe</span>
                     </a>
                   </div>
+                  <p class="eca-install-note">
+                    Download the <code>eca-windows-x64-&lt;version&gt;-setup.exe</code> asset.
+                    The assisted NSIS installer supports per-user and per-machine installation
+                    and updates in place. It is currently <strong>unsigned</strong>, so Windows
+                    SmartScreen may show <em>Unknown publisher</em>; verify the download against
+                    <code>SHA256SUMS-windows.txt</code>, then choose <strong>More info &gt; Run anyway</strong>.
+                    Windows arm64 is not supported.
+                  </p>
                 </div>
               </div>
             </div>
