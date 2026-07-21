@@ -1086,6 +1086,23 @@
                  :error/source :openai-responses}]
                @errors*))))))
 
+(deftest async-duplicate-errors-delivered-once-test
+  (testing "only the first terminal error reaches on-error when stacked requests fail together (#547)"
+    (let [errors* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-error on-message-received]}]
+                                          ;; visible output disables retry, like a long agentic turn
+                                          (on-message-received {:type :text :text "partial"})
+                                          ;; dead shared connection: the nested request errors first,
+                                          ;; then each unwinding parent frame fires the same failure
+                                          (on-error {:message "Connection closed unexpectedly: closed."})
+                                          (on-error {:message "Connection closed unexpectedly: closed."}))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-error (fn [error] (swap! errors* conj error))
+           :on-message-received identity})))
+      (is (= 1 (count @errors*))
+          "duplicate errors after the first delivery must be dropped"))))
+
 (deftest async-no-retry-on-context-overflow-test
   (testing "does not retry on context overflow"
     (let [attempt* (atom 0)

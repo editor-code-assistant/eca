@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Extend `deepseek-v4` thinking variants (`none`, `high`, `max`) to also match `deepseek-v4-flash` models.
+- Fix duplicate errors when a dead connection fails several stacked requests at once, which broke the auto-continue recovery and leaked state into the next prompt. #547
 
 ## 0.148.0
 

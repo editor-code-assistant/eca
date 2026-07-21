@@ -484,10 +484,18 @@
         on-server-image-generation-wrapper (fn [& args]
                                              (apply emit-first-message-fn args)
                                              (apply on-server-image-generation args))
+        ;; Deliver at most one terminal error per prompt: when a shared
+        ;; connection dies, every stacked tool-continuation request unwinds
+        ;; and fires its own on-error for the same failure. #547
+        error-delivered?* (atom false)
         on-error-wrapper (fn [{:keys [exception] :as args}]
                            (when-not (:silent? (ex-data exception))
-                             (logger/error args)
-                             (on-error args)))
+                             (if (compare-and-set! error-delivered?* false true)
+                               (do
+                                 (logger/error args)
+                                 (on-error args))
+                               (logger/debug logger-tag "Skipping duplicate error, prompt already errored"
+                                             {:message (:message args)}))))
         provider-config (get-in config [:providers provider])
         retry-rules (:retryRules provider-config)
         ;; Renew before each prompt! call — token can expire during long tool calls or retries.

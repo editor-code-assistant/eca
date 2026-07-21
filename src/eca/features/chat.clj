@@ -1296,6 +1296,12 @@
                 :on-error (fn [{:keys [message exception] :as error-data}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
+                                  ;; A dead shared connection makes every stacked tool-continuation
+                                  ;; request fail: only the first error belongs to this prompt, later
+                                  ;; ones arrive after it finished or was superseded by an
+                                  ;; auto-continue and must not mutate state or reach the user. #547
+                                  stale? (or (get-in db [:chats chat-id :prompt-finished?])
+                                             (not= prompt-id (get-in db [:chats chat-id :prompt-id])))
                                   compacting? (or (get-in db [:chats chat-id :compacting?])
                                                   (get-in db [:chats chat-id :auto-compacting?]))
                                   ;; Only auto-compact when there's conversation to compact. Compaction
@@ -1304,10 +1310,15 @@
                                   ;; under a new prompt-id and the error would never surface to the user. (#491)
                                   compactable? (boolean (seq (shared/messages-after-last-compact-marker
                                                               (get-in db [:chats chat-id :messages] []))))]
-                              (if (and (= :context-overflow error-type)
-                                       (not compacting?)
-                                       (not (:auto-compacted? chat-ctx))
-                                       compactable?)
+                              (cond
+                                stale?
+                                (logger/info logger-tag "Ignoring error for finished or superseded prompt"
+                                             {:chat-id chat-id :message message})
+
+                                (and (= :context-overflow error-type)
+                                     (not compacting?)
+                                     (not (:auto-compacted? chat-ctx))
+                                     compactable?)
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
                                                {:chat-id chat-id})
@@ -1316,6 +1327,8 @@
                                                             :text "Context window exceeded. Auto-compacting conversation..."})
                                   (prune-tool-results! db* chat-id {})
                                   (trigger-auto-compact! chat-ctx all-tools user-messages))
+
+                                :else
                                 (let [partial-text @received-msgs*
                                       transient-error? (contains? #{:overloaded :premature-stop} error-type)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
