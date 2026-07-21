@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Extend `deepseek-v4` thinking variants (`none`, `high`, `max`) to also match `deepseek-v4-flash` models.
+
 ## 0.148.0
 
 - Improve resilience to connections dropped by proxies/networks: retry stale pooled connections, classify the error clearly, auto-continue up to 3 times per prompt. #547
