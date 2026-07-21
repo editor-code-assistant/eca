@@ -67,7 +67,7 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
 
 === "DeepSeek"
 
-    Applies to models matching `deepseek-v4-pro`. Only for providers using the `openai-chat` API.
+    Applies to models matching `deepseek-v4-pro` and `deepseek-v4-flash`. Only for providers using the `openai-chat` API.
 
     | Variant    | Payload |
     | ---------- | ------- |

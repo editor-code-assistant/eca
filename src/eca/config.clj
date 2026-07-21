@@ -220,15 +220,15 @@
               :shellCommand {:summaryMaxLength 35}
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants
-                                                                  :api ["anthropic" "bedrock"]}
+                                                                 :api ["anthropic" "bedrock"]}
                      ".*opus[-._]4[-._][78]|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants
                                                                                           :api ["anthropic" "bedrock"]}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants
-                                                  :excludeProviders ["github-copilot"]}
-                     ".*deepseek[-._]v4[-._]pro" {:variants deepseek-variants
-                                                  :api "openai-chat"}
+                                                 :excludeProviders ["github-copilot"]}
+                     ".*deepseek[-._]v4[-._](?:pro|flash)" {:variants deepseek-variants
+                                                            :api "openai-chat"}
                      "(?i).*glm[-._]5[-._]2" {:variants glm-variants}}
    :mcpTimeoutSeconds 60
    :mcpKeepAliveSeconds 30
