@@ -94,6 +94,16 @@
   [n]
   (when (and (number? n) (pos? n)) n))
 
+(defn ^:private sane-output-limit
+  "Return `output` unless it is >= `context`. Catalogs sometimes report a
+   model's max output tokens as a copy of its context window (e.g. models.dev
+   `openrouter/x-ai/grok-4.5` with 500k/500k); requesting that many output
+   tokens can never succeed since providers validate
+   input + max-output <= context, so treat such output limits as unknown."
+  [context output]
+  (when-not (and context output (>= output context))
+    output))
+
 (def ^:private models-with-image-generation-support
   "Mainline OpenAI chat models that support the built-in `image_generation`
    tool on the Responses API. Sourced from OpenAI's image-generation tool
@@ -178,23 +188,25 @@
      (merge m
             (reduce
              (fn [p [model model-config]]
-               (assoc p (str provider "/" model)
-                      (assoc-some
-                       {:reason? (get model-config "reasoning")
-                        :image-input? (contains? (set (get-in model-config ["modalities" "input"])) "image")
-                        ;; TODO how to check for web-search mode dynamically,
-                        ;; maybe fixed after web-search toolcall is implemented
-                        :web-search (contains? models-with-web-search-support (str provider "/" model))
-                        :mid-conversation-system? (contains? models-with-mid-conversation-system-support (str provider "/" model))
-                        :image-generation? (contains? models-with-image-generation-support (str provider "/" model))
-                        :tools (get model-config "tool_call")
-                        :max-output-tokens (pos-num (get-in model-config ["limit" "output"]))}
-                       :limit {:context (pos-num (get-in model-config ["limit" "context"]))
-                               :output (pos-num (get-in model-config ["limit" "output"]))}
-                       :input-token-cost (some-> (get-in model-config ["cost" "input"]) float (/ one-million))
-                       :output-token-cost (some-> (get-in model-config ["cost" "output"]) float (/ one-million))
-                       :input-cache-creation-token-cost (some-> (get-in model-config ["cost" "cache_write"]) float (/ one-million))
-                       :input-cache-read-token-cost (some-> (get-in model-config ["cost" "cache_read"]) float (/ one-million)))))
+               (let [context (pos-num (get-in model-config ["limit" "context"]))
+                     output (sane-output-limit context (pos-num (get-in model-config ["limit" "output"])))]
+                 (assoc p (str provider "/" model)
+                        (assoc-some
+                         {:reason? (get model-config "reasoning")
+                          :image-input? (contains? (set (get-in model-config ["modalities" "input"])) "image")
+                          ;; TODO how to check for web-search mode dynamically,
+                          ;; maybe fixed after web-search toolcall is implemented
+                          :web-search (contains? models-with-web-search-support (str provider "/" model))
+                          :mid-conversation-system? (contains? models-with-mid-conversation-system-support (str provider "/" model))
+                          :image-generation? (contains? models-with-image-generation-support (str provider "/" model))
+                          :tools (get model-config "tool_call")
+                          :max-output-tokens output}
+                         :limit {:context context
+                                 :output output}
+                         :input-token-cost (some-> (get-in model-config ["cost" "input"]) float (/ one-million))
+                         :output-token-cost (some-> (get-in model-config ["cost" "output"]) float (/ one-million))
+                         :input-cache-creation-token-cost (some-> (get-in model-config ["cost" "cache_write"]) float (/ one-million))
+                         :input-cache-read-token-cost (some-> (get-in model-config ["cost" "cache_read"]) float (/ one-million))))))
              {}
              (get provider-config "models"))))
    {}
@@ -365,6 +377,22 @@
                       :discovered-reason? (when reason? true)
                       :discovered-variants (not-empty variants))])))
 
+(defn ^:private parse-native-model-entry
+  "Parses a generic /models entry. OpenRouter-shaped entries expose
+   `context_length` and `top_provider.max_completion_tokens`; keep them as
+   discovered limits so provider-reported data wins over models.dev catalogs.
+   Entries without that metadata (e.g. plain OpenAI/Anthropic) keep an empty
+   config, preserving the previous id-only behavior."
+  [{:keys [id context_length top_provider]}]
+  (when (and (string? id) (not (string/blank? id)))
+    (let [context (pos-num context_length)
+          output (sane-output-limit context (pos-num (:max_completion_tokens top_provider)))]
+      [id (assoc-some {}
+                      :discovered-limit (not-empty
+                                         (assoc-some {}
+                                                     :context context
+                                                     :output output)))])))
+
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> discovered model config on success, nil on failure."
@@ -399,7 +427,7 @@
                   (not-empty
                    (if (= "github-copilot" provider)
                      (into {} (keep parse-copilot-model-entry) models-data)
-                     (zipmap (keep :id models-data) (repeat {})))))))))
+                     (into {} (keep parse-native-model-entry) models-data))))))))
         (catch Exception e
           (logger/warn logger-tag
                        (format "Provider '%s': Failed to fetch models from %s: %s"
@@ -493,20 +521,24 @@
 (defn ^:private config-overrides->capabilities
   "Translate per-model config and discovered provider metadata into internal
    capability keys. User limits, costs, and image support override catalog
-   values; provider discovery contributes API routing and reasoning variants."
+   values; provider discovery contributes API routing, reasoning variants, and
+   token limits (user config > provider-discovered > models.dev catalog)."
   [model-config]
   (let [limit (:limit model-config)
         cost (:cost model-config)
+        discovered-limit (:discovered-limit model-config)
+        context-override (or (pos-num (:context limit)) (:context discovered-limit))
+        output-override (or (pos-num (:output limit)) (:output discovered-limit))
         limit-overrides (assoc-some {}
-                                    :context (pos-num (:context limit))
-                                    :output (pos-num (:output limit)))]
+                                    :context context-override
+                                    :output output-override)]
     (assoc-some {}
                 :reason? (:discovered-reason? model-config)
                 :api (:discovered-api model-config)
                 :variants (:discovered-variants model-config)
                 :image-input? (:imageInput model-config)
                 :limit (not-empty limit-overrides)
-                :max-output-tokens (pos-num (:output limit))
+                :max-output-tokens output-override
                 :input-token-cost (cost-per-1m->per-token (:input cost))
                 :output-token-cost (cost-per-1m->per-token (:output cost))
                 :input-cache-creation-token-cost (cost-per-1m->per-token (:cacheWrite cost))

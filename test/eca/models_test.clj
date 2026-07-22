@@ -225,6 +225,34 @@
            :api-key "tok"
            :api-type "openai-chat"})))))
 
+(deftest fetch-provider-native-openrouter-models-limits-test
+  (testing "OpenRouter-shaped entries keep context_length and top_provider max_completion_tokens as discovered limits"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data [{:id "x-ai/grok-4.5"
+                                             :context_length 500000
+                                             :top_provider {:max_completion_tokens nil}}
+                                            {:id "qwen/qwen3-coder"
+                                             :context_length 262144
+                                             :top_provider {:max_completion_tokens 32768}}
+                                            {:id "weird/model"
+                                             :context_length 100000
+                                             :top_provider {:max_completion_tokens 100000}}
+                                            {:id "plain-model"}]}})]
+      (is (match?
+           (m/equals
+            {"x-ai/grok-4.5" (m/equals {:discovered-limit {:context 500000}})
+             "qwen/qwen3-coder" (m/equals {:discovered-limit {:context 262144 :output 32768}})
+             ;; max_completion_tokens >= context_length is as impossible as in catalogs
+             "weird/model" (m/equals {:discovered-limit {:context 100000}})
+             "plain-model" (m/equals {})})
+           (#'models/fetch-provider-native-models
+            {:provider "openrouter"
+             :api-url "https://openrouter.ai/api/v1"
+             :auth-type nil
+             :api-key "k"
+             :api-type "openai-chat"}))))))
+
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
     (let [dynamic {"gpt-4" {}
@@ -799,6 +827,61 @@
         (let [supported (build-supported-models config {} models-dev-data)]
           (is (= "https://api.openai.com/v1/models" (first @request*)))
           (is (= 1050000 (get-in supported ["openai/gpt-5.5" :limit :context]))))))))
+
+(deftest sane-output-limit-test
+  (testing "keeps output below context"
+    (is (= 8192 (#'models/sane-output-limit 200000 8192))))
+  (testing "drops output >= context (request can never fit any input)"
+    (is (nil? (#'models/sane-output-limit 500000 500000)))
+    (is (nil? (#'models/sane-output-limit 500000 600000))))
+  (testing "keeps output when context is unknown"
+    (is (= 8192 (#'models/sane-output-limit nil 8192))))
+  (testing "nil output stays nil"
+    (is (nil? (#'models/sane-output-limit 200000 nil)))))
+
+(deftest all-sanitizes-catalog-output-limit-test
+  (let [models-dev-data {"openrouter" {"api" "https://openrouter.ai/api/v1"
+                                       "models" {"x-ai/grok-4.5" {"limit" {"context" 500000 "output" 500000}}
+                                                 "sane/model" {"limit" {"context" 200000 "output" 32000}}
+                                                 "no-context/model" {"limit" {"output" 8192}}}}}
+        known (#'models/all models-dev-data)]
+    (testing "catalog output == context is treated as unknown"
+      (is (nil? (get-in known ["openrouter/x-ai/grok-4.5" :limit :output])))
+      (is (= 500000 (get-in known ["openrouter/x-ai/grok-4.5" :limit :context])))
+      (is (nil? (get-in known ["openrouter/x-ai/grok-4.5" :max-output-tokens]))))
+    (testing "output < context is kept"
+      (is (= {:context 200000 :output 32000} (get-in known ["openrouter/sane/model" :limit])))
+      (is (= 32000 (get-in known ["openrouter/sane/model" :max-output-tokens]))))
+    (testing "output without context is kept"
+      (is (= 8192 (get-in known ["openrouter/no-context/model" :limit :output])))
+      (is (= 8192 (get-in known ["openrouter/no-context/model" :max-output-tokens]))))))
+
+(deftest openrouter-native-limits-precedence-test
+  (testing "user config limit > provider-discovered limit > models.dev catalog"
+    (let [models-dev-data {"openrouter" {"api" "https://openrouter.ai/api/v1"
+                                         "models" {"x-ai/grok-4.5" {"limit" {"context" 500000 "output" 500000}}}}}
+          config {:providers {"openrouter" {:api "openai-chat"
+                                            :url "https://openrouter.ai/api/v1"
+                                            :key "k"
+                                            :models {"x-ai/grok-4.5" {}
+                                                     "user/tuned" {:limit {:context 90000 :output 9000}}}}}}]
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200
+                                :body {:data [{:id "x-ai/grok-4.5"
+                                               :context_length 500000
+                                               :top_provider {:max_completion_tokens nil}}
+                                              {:id "user/tuned"
+                                               :context_length 400000
+                                               :top_provider {:max_completion_tokens 65536}}]}})]
+        (let [supported (build-supported-models config {} models-dev-data)]
+          ;; bogus models.dev 500k/500k output sanitized away, discovered context kept,
+          ;; leaving max-output-tokens unset so providers use their own fallback
+          (is (= 500000 (get-in supported ["openrouter/x-ai/grok-4.5" :limit :context])))
+          (is (nil? (get-in supported ["openrouter/x-ai/grok-4.5" :limit :output])))
+          (is (nil? (get-in supported ["openrouter/x-ai/grok-4.5" :max-output-tokens])))
+          ;; user config beats the discovered 400000/65536
+          (is (= {:context 90000 :output 9000} (get-in supported ["openrouter/user/tuned" :limit])))
+          (is (= 9000 (get-in supported ["openrouter/user/tuned" :max-output-tokens]))))))))
 
 (deftest full-model-for-test
   (let [db {:models {"github-copilot/explorer-small" {}

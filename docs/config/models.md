@@ -495,6 +495,8 @@ Examples:
     For providers with `api` configured, ECA loads models from `models.dev` by default.
     Matching is done by provider `url` (against `models.dev` `api` field). If a models.dev provider has no `api` field (for example `anthropic`), ECA falls back to provider id key.
 
+    Providers whose `/models` endpoint reports token limits (e.g. OpenRouter's `context_length` and `top_provider.max_completion_tokens`) have those limits discovered and preferred over models.dev; your config `limit` overrides both.
+
     Set `fetchModels: false` to disable dynamic loading and use only models from your config:
 
     ```javascript title="~/.config/eca/config.json"
