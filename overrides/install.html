@@ -1249,6 +1249,10 @@
                            class="eca-install-download__link" target="_blank" rel="noopener">
                           {{ icon_download()|safe }} .deb
                         </a>
+                        <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-x86_64.flatpak"
+                           class="eca-install-download__link" target="_blank" rel="noopener">
+                          {{ icon_download()|safe }} Flatpak
+                        </a>
                       </div>
                       <div class="eca-install-arch__download eca-install-arch__download--linux-arm64">
                         <a href="https://github.com/editor-code-assistant/eca-desktop/releases/latest/download/eca-linux-arm64.AppImage"
@@ -1268,7 +1272,11 @@
                     <strong>AppImage</strong> is the recommended format &mdash; it auto-updates
                     in place via <code>electron-updater</code>. <strong>.deb</strong> does
                     <em>not</em> auto-update; upgrade by downloading a fresh <code>.deb</code>
-                    when a new release ships.
+                    when a new release ships. <strong>Flatpak</strong> (x86_64) runs the app
+                    sandboxed &mdash; install with
+                    <code>flatpak install --user eca-linux-x86_64.flatpak</code>, upgrade by
+                    installing a fresh bundle. In every format the managed <code>eca</code>
+                    server keeps auto-updating on its own.
                   </p>
                 </div>
 
