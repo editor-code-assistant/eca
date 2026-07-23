@@ -185,11 +185,6 @@
     (when (seq raw-contexts)
       (raw-contexts->refined raw-contexts db))))
 
-(def ^:private ttl-all-files-ms 5000)
-
-(defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
-(def ^:private all-files-from (memoize/ttl all-files-from* :ttl/threshold ttl-all-files-ms))
-
 (defn ^:private match-sort-key
   "Sort key ranking basename matches first, then earlier and shorter matches."
   [lower-query path]
@@ -200,35 +195,42 @@
      (or (string/index-of path-str lower-query) Integer/MAX_VALUE)
      (count path-str)]))
 
-(defn ^:private matching-dirs-of
-  "Directories under `root-filename` matching `lower-query`, derived from
-   the matched `files` since the workspace glob results are usually
-   filtered to git-tracked files only, which excludes directories."
-  [root-filename lower-query files]
+(defn ^:private dirs-of-files*
+  "Directories under `root-filename` derived from `files` paths, since the
+   workspace file enumeration returns only files, which excludes directories."
+  [root-filename files]
   (let [root-str (str root-filename)]
-    (->> files
-         (mapcat (fn [file]
-                   (->> (iterate fs/parent (fs/parent file))
-                        (take-while (fn [dir]
-                                      (and dir
-                                           (not= (str dir) root-str)
-                                           (string/starts-with? (str dir) root-str)))))))
-         (distinct)
-         (filter #(string/includes? (string/lower-case (str %)) lower-query)))))
+    (into []
+          (comp
+           (mapcat (fn [file]
+                     (->> (iterate fs/parent (fs/parent file))
+                          (take-while (fn [dir]
+                                        (and dir
+                                             (not= (str dir) root-str)
+                                             (string/starts-with? (str dir) root-str))))
+                          (map str))))
+           (distinct))
+          files)))
+
+(def ^:private dirs-of-files
+  "Content-cached `dirs-of-files*`, recomputed only when the enumerated
+   workspace files change."
+  (memoize/lu dirs-of-files* :lu/threshold 32))
 
 (defn ^:private contexts-for [root-filename query config]
-  (let [all-paths (all-files-from root-filename)]
+  (let [all-paths (f.index/allowed-files root-filename config)]
     (if (string/blank? query)
-      (f.index/filter-allowed all-paths root-filename config)
+      all-paths
       (let [lower-query (string/lower-case query)
-            filtered (filter (fn [p]
-                               (string/includes? (-> (str p) string/lower-case)
-                                                 lower-query))
-                             all-paths)
-            allowed-files (f.index/filter-allowed filtered root-filename config)
-            dirs (matching-dirs-of root-filename lower-query allowed-files)]
-        (sort-by (partial match-sort-key lower-query)
-                 (concat dirs allowed-files))))))
+            matches? (fn [p] (string/includes? (string/lower-case (str p)) lower-query))
+            matched-files (filterv matches? all-paths)
+            matched-dirs (filterv matches? (dirs-of-files root-filename all-paths))]
+        (->> (concat matched-dirs matched-files)
+             ;; pre-compute the sort key once per path, sort-by would
+             ;; recompute it on every comparison.
+             (mapv (fn [path] [(match-sort-key lower-query path) path]))
+             (sort-by first)
+             (mapv peek))))))
 
 (defn ^:private file->context [file-or-dir]
   (let [path (str (fs/canonicalize file-or-dir))]
@@ -301,17 +303,15 @@
                                  (mapcat #(contexts-for % query config))
                                  (take 100) ;; for performance, user can always make query specific for better results.
                                  (map file->context))
-                                roots))
-        root-dirs (mapv (fn [root] {:type "directory" :path root}) roots)
-        mcp-resources (mapv #(assoc % :type "mcpResource") (f.mcp/all-resources @db*))]
+                                roots))]
     (if files-only?
       (concat relative-files
               workspace-listed-files
               workspace-files)
       (concat [{:type "repoMap"}
                {:type "cursor"}]
-              root-dirs
+              (mapv (fn [root] {:type "directory" :path root}) roots)
               relative-files
               workspace-listed-files
               workspace-files
-              mcp-resources))))
+              (mapv #(assoc % :type "mcpResource") (f.mcp/all-resources @db*))))))

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve `@`/`#` completion performance: enumerate files via `git ls-files` instead of walking the whole tree, cache dir candidates and avoid re-computing sort keys.
+
 ## 0.149.1
 
 - Add `text` chat context type: inline client-supplied text (e.g. editor buffers, terminal output) with a `label` and `content`, delivered with the user message like images. Allows clients to send content that has no filesystem path.
