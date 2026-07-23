@@ -113,7 +113,7 @@
   (lifecycle/send-content!
    chat-ctx :system
    {:type :text
-    :text (str "System prompt changed"
+    :text (str "\nSystem prompt changed"
                (when (seq categories)
                  (str " (" (string/join ", " categories) ")"))
                suffix)}))

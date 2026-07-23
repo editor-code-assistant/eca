@@ -1703,7 +1703,7 @@
           (h/reset-messenger!)
           (reset! rules* [{:id "r1" :name "r1" :scope :project :content "Rule v1"}])
           (prompt! {:message "Changed" :chat-id chat-id} mocks)
-          (is (= ["System prompt changed (rules), prompt cache invalidated.\n"]
+          (is (= ["\nSystem prompt changed (rules), prompt cache invalidated.\n"]
                  (system-prompt-notices))
               "Notice names the changed category"))))))
 
@@ -1738,7 +1738,7 @@
           (reset! rules* [{:id "r1" :name "r1" :scope :project :content "Rule v1"}])
           (prompt! {:message "Rules changed too" :chat-id chat-id} mocks)
           (is (= 2 @build-calls*) "A non-skills change still re-syncs, taking skills along")
-          (is (= ["System prompt changed (rules, skills), prompt cache invalidated.\n"]
+          (is (= ["\nSystem prompt changed (rules, skills), prompt cache invalidated.\n"]
                  (system-prompt-notices))))))))
 
 (deftest system-prompt-pinned-by-default-test
