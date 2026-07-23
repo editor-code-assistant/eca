@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.149.1
+
 - Add `text` chat context type: inline client-supplied text (e.g. editor buffers, terminal output) with a `label` and `content`, delivered with the user message like images. Allows clients to send content that has no filesystem path.
 
 ## 0.149.0
