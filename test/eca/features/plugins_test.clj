@@ -231,6 +231,100 @@
       (finally
         (fs/delete-tree tmp-dir)))))
 
+(deftest resolve-all!-dependencies-test
+  (let [tmp-dir (fs/create-temp-dir)
+        src-a (fs/file tmp-dir "src-a")
+        src-b (fs/file tmp-dir "src-b")]
+    (try
+      (fs/create-dirs (fs/file src-a ".eca-plugin"))
+      (spit (fs/file src-a ".eca-plugin" "marketplace.json")
+            (json/generate-string
+             {:plugins [{:name "meta" :description "Meta" :source "./plugins/meta"
+                         :dependencies ["dep-entry"]}
+                        {:name "dep-entry" :description "Dep" :source "./plugins/dep-entry"}
+                        {:name "manifest-meta" :description "Manifest meta" :source "./plugins/manifest-meta"}
+                        {:name "cycle-a" :description "A" :source "./plugins/cycle-a"
+                         :dependencies ["cycle-b"]}
+                        {:name "cycle-b" :description "B" :source "./plugins/cycle-b"
+                         :dependencies ["cycle-a"]}]}))
+      ;; meta: pure meta-plugin (no components besides a config override)
+      (fs/create-dirs (fs/file src-a "plugins" "meta"))
+      (spit (fs/file src-a "plugins" "meta" "eca.json")
+            (json/generate-string {:whoWins "meta"}))
+      ;; dep-entry: provides a command and a conflicting config override
+      (fs/create-dirs (fs/file src-a "plugins" "dep-entry" "commands"))
+      (spit (fs/file src-a "plugins" "dep-entry" "commands" "dep-cmd.md")
+            "---\ndescription: Dep command\n---\nDep body")
+      (spit (fs/file src-a "plugins" "dep-entry" "eca.json")
+            (json/generate-string {:whoWins "dep-entry"}))
+      ;; manifest-meta: dependencies declared in .eca-plugin/plugin.json
+      (fs/create-dirs (fs/file src-a "plugins" "manifest-meta" ".eca-plugin"))
+      (spit (fs/file src-a "plugins" "manifest-meta" ".eca-plugin" "plugin.json")
+            (json/generate-string {:name "manifest-meta"
+                                   :dependencies ["dep-entry"
+                                                  "remote-dep@src-b"
+                                                  "ghost@nowhere"
+                                                  "ghost"]}))
+      ;; cycle plugins depending on each other
+      (fs/create-dirs (fs/file src-a "plugins" "cycle-a" "commands"))
+      (spit (fs/file src-a "plugins" "cycle-a" "commands" "cycle-a-cmd.md")
+            "---\ndescription: Cycle A\n---\nA body")
+      (fs/create-dirs (fs/file src-a "plugins" "cycle-b" "commands"))
+      (spit (fs/file src-a "plugins" "cycle-b" "commands" "cycle-b-cmd.md")
+            "---\ndescription: Cycle B\n---\nB body")
+      ;; second source
+      (fs/create-dirs (fs/file src-b ".eca-plugin"))
+      (spit (fs/file src-b ".eca-plugin" "marketplace.json")
+            (json/generate-string
+             {:plugins [{:name "remote-dep" :description "Remote" :source "./plugins/remote-dep"}]}))
+      (fs/create-dirs (fs/file src-b "plugins" "remote-dep" "agents"))
+      (spit (fs/file src-b "plugins" "remote-dep" "agents" "remote-helper.md")
+            "---\nname: remote-helper\ndescription: Remote helper\n---\nRemote prompt")
+
+      (testing "dependencies from the marketplace entry are loaded"
+        (let [result (plugins/resolve-all!
+                      {"src-a" {:source (str src-a)}
+                       "install" ["meta"]})]
+          (is (match? (m/embeds [{:plugin "dep-entry" :path string?}])
+                      (:commands result)))
+          (testing "directly installed plugin wins config conflicts over its dependencies"
+            (is (= "meta" (get-in result [:config-fragment :whoWins]))))))
+
+      (testing "dependencies from .eca-plugin/plugin.json load, cross-marketplace refs work, unknown deps are skipped"
+        (let [result (plugins/resolve-all!
+                      {"src-a" {:source (str src-a)}
+                       "src-b" {:source (str src-b)}
+                       "install" ["manifest-meta"]})]
+          (is (match? (m/embeds [{:plugin "dep-entry" :path string?}])
+                      (:commands result)))
+          (is (match? {"remote-helper" {:description "Remote helper"}}
+                      (:agents result)))))
+
+      (testing "dependency cycles terminate, loading each plugin once"
+        (let [result (plugins/resolve-all!
+                      {"src-a" {:source (str src-a)}
+                       "install" ["cycle-a"]})]
+          (is (match? (m/in-any-order [{:plugin "cycle-a" :path string?}
+                                       {:plugin "cycle-b" :path string?}])
+                      (:commands result)))))
+
+      (testing "shared dependencies are loaded once"
+        (let [result (plugins/resolve-all!
+                      {"src-a" {:source (str src-a)}
+                       "src-b" {:source (str src-b)}
+                       "install" ["meta" "manifest-meta"]})]
+          (is (= 1 (count (filter #(= "dep-entry" (:plugin %)) (:commands result)))))))
+
+      (testing "dependency already explicitly installed is not loaded twice"
+        (let [result (plugins/resolve-all!
+                      {"src-a" {:source (str src-a)}
+                       "install" ["dep-entry" "meta"]})]
+          (is (= 1 (count (filter #(= "dep-entry" (:plugin %)) (:commands result)))))
+          (testing "later explicit install wins config conflicts per install order"
+            (is (= "meta" (get-in result [:config-fragment :whoWins]))))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
 (deftest plugin-root-interpolation-test
   (let [tmp-dir (fs/create-temp-dir)]
     (try

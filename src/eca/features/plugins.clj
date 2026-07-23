@@ -3,6 +3,8 @@
 
    Each source must contain .eca-plugin/marketplace.json listing available plugins.
    Installed plugins are discovered for skills, agents, commands, rules, hooks, and MCP servers.
+   Plugins may declare dependencies (in the marketplace entry or the plugin's
+   .eca-plugin/plugin.json) which are resolved transitively at load time.
    All components are returned as a config-ready data structure that config.clj merges
    into the waterfall without requiring changes to individual feature modules."
   (:require
@@ -186,10 +188,31 @@
       (do (logger/warn logger-tag "No .eca-plugin/marketplace.json found in:" (str source-dir))
           nil))))
 
+(defn ^:private read-plugin-manifest
+  "Reads and parses the optional .eca-plugin/plugin.json from a plugin directory.
+   May declare `dependencies`. Returns the parsed map or nil."
+  [^java.io.File plugin-dir]
+  (let [manifest-file (io/file plugin-dir ".eca-plugin" "plugin.json")]
+    (when (fs/exists? manifest-file)
+      (try
+        (json/parse-string (slurp manifest-file) true)
+        (catch Exception e
+          (logger/warn logger-tag "Failed to parse plugin.json:" (str manifest-file)
+                       (.getMessage e))
+          nil)))))
+
 (defn ^:private find-plugin-entry
   "Finds a plugin entry by name in a marketplace plugin list."
   [^String plugin-name plugins]
   (first (filter #(= plugin-name (:name %)) plugins)))
+
+(defn ^:private parse-plugin-arg
+  "Parses a plugin ref. Supports 'plugin-name' or 'plugin-name@marketplace'.
+   Returns {:plugin-name ... :marketplace ...} where :marketplace may be nil."
+  [^String arg]
+  (let [parts (string/split arg #"@" 2)]
+    {:plugin-name (first parts)
+     :marketplace (when (= 2 (count parts)) (second parts))}))
 
 (defn ^:private resolve-plugin-dir
   "Resolves the absolute path to a plugin directory given a source dir and marketplace entry.
@@ -366,39 +389,104 @@
 (def ^:private empty-result
   {:config-fragment {} :agents {} :commands [] :rules []})
 
+(defn ^:private plugin-dependencies
+  "Returns the plugin refs a plugin depends on: the union of the marketplace
+   entry's `dependencies` and the plugin's .eca-plugin/plugin.json `dependencies`."
+  [entry ^java.io.File plugin-dir]
+  (->> (concat (:dependencies entry)
+               (:dependencies (read-plugin-manifest plugin-dir)))
+       (filter string?)
+       (distinct)
+       (vec)))
+
+(defn ^:private resolve-ref
+  "Resolves a plugin ref ('name' or 'name@marketplace') against resolved sources.
+   Plain names match every source providing the plugin; '@marketplace' restricts
+   the match to the source registered with that name. Returns a seq of
+   {:plugin-name :source-name :source-dir :plugin-dir :entry} (plugin-dir may be nil)."
+  [resolved-sources ^String plugin-ref]
+  (let [{:keys [plugin-name marketplace]} (parse-plugin-arg plugin-ref)]
+    (for [{:keys [source-name source-dir marketplace-plugins]} resolved-sources
+          :when (or (nil? marketplace) (= marketplace source-name))
+          :let [entry (find-plugin-entry plugin-name marketplace-plugins)]
+          :when entry]
+      {:plugin-name plugin-name
+       :source-name source-name
+       :source-dir source-dir
+       :plugin-dir (resolve-plugin-dir source-dir entry)
+       :entry entry})))
+
+(defn ^:private expand-install-list
+  "Expands install plugin refs with their transitive dependencies (breadth-first).
+   Dedupes by [plugin source] so shared dependencies and cycles resolve once.
+   Returns plugins ordered so dependencies merge before their dependents and
+   directly installed plugins merge last, winning config conflicts. Each item:
+   {:plugin-name :source-name :plugin-dir :entry :auto? :required-by}."
+  [resolved-sources install]
+  (loop [queue (mapv (fn [plugin-ref] {:ref plugin-ref}) install)
+         visited #{}
+         direct []
+         auto []]
+    (if-let [{plugin-ref :ref :keys [auto? required-by]} (first queue)]
+      (let [rest-queue (subvec queue 1)
+            matches (resolve-ref resolved-sources plugin-ref)]
+        (if (empty? matches)
+          (do (if auto?
+                (logger/warn logger-tag "Plugin dependency not found in any configured marketplace:"
+                             plugin-ref (str "(dependency of " required-by ")"))
+                (logger/debug logger-tag "Plugin not found in any source:" plugin-ref))
+              (recur rest-queue visited direct auto))
+          (let [new-matches (remove #(contains? visited [(:plugin-name %) (:source-name %)]) matches)
+                valid (filterv :plugin-dir new-matches)
+                dep-items (vec (for [{:keys [plugin-name entry plugin-dir]} valid
+                                     dep-ref (plugin-dependencies entry plugin-dir)]
+                                 {:ref dep-ref :auto? true :required-by plugin-name}))
+                emitted (mapv #(assoc % :auto? (boolean auto?) :required-by required-by) valid)]
+            (doseq [{:keys [plugin-name source-dir]} (remove :plugin-dir new-matches)]
+              (logger/warn logger-tag "Plugin directory not found:" plugin-name "in" (str source-dir)))
+            (recur (into rest-queue dep-items)
+                   (into visited (map (fn [{:keys [plugin-name source-name]}] [plugin-name source-name])) new-matches)
+                   (if auto? direct (into direct emitted))
+                   (if auto? (into auto emitted) auto)))))
+      (into (vec (rseq auto)) direct))))
+
+(defn ^:private resolve-sources!
+  "Resolves configured sources to local dirs (cloning/pulling git sources) and
+   reads their marketplaces. Returns [{:source-name :source-dir :marketplace-plugins}]."
+  [sources]
+  (->> sources
+       (keep (fn [[source-name source-url]]
+               (logger/info logger-tag "Resolving plugin source:" source-name source-url)
+               (when-let [source-dir (resolve-source! source-url)]
+                 (when-let [marketplace-plugins (read-marketplace source-dir)]
+                   {:source-name source-name
+                    :source-dir source-dir
+                    :marketplace-plugins marketplace-plugins}))))
+       (vec)))
+
 (defn resolve-all!
   "Main entry point: resolves all plugin sources, reads marketplaces,
-   discovers components from installed plugins.
+   expands the install list with transitive plugin dependencies and
+   discovers components from all resolved plugins.
    Returns a merged result with :config-fragment, :agents, :commands, :rules."
   [plugins-config]
   (if (or (nil? plugins-config) (empty? plugins-config))
     empty-result
-    (let [auto-install (get plugins-config "install" [])
+    (let [install (get plugins-config "install" [])
           sources (parse-sources plugins-config)]
-      (if (empty? auto-install)
+      (if (empty? install)
         (do (logger/debug logger-tag "No plugins in install, skipping")
             empty-result)
-        (let [components
-              (doall
-               (for [[source-name source-url] sources
-                     :let [_ (logger/info logger-tag "Resolving plugin source:" source-name source-url)
-                           source-dir (resolve-source! source-url)]
-                     :when source-dir
-                     :let [marketplace (read-marketplace source-dir)]
-                     :when marketplace
-                     plugin-name auto-install
-                     :let [entry (find-plugin-entry plugin-name marketplace)]
-                     :when (do (when-not entry
-                                 (logger/debug logger-tag "Plugin not found in source" source-name ":" plugin-name))
-                               entry)
-                     :let [plugin-dir (resolve-plugin-dir source-dir entry)]
-                     :when (do (when-not plugin-dir
-                                 (logger/warn logger-tag "Plugin directory not found:" plugin-name
-                                              "in" (str source-dir)))
-                               plugin-dir)]
-                 (do (logger/info logger-tag "Loading plugin:" plugin-name "from" source-name)
-                     (interpolation/register-plugin-dir! (str plugin-dir))
-                     (discover-components plugin-dir plugin-name))))]
+        (let [resolved-sources (resolve-sources! sources)
+              expanded (expand-install-list resolved-sources install)
+              components (doall
+                          (for [{:keys [plugin-name source-name plugin-dir required-by]} expanded]
+                            (do (if required-by
+                                  (logger/info logger-tag "Loading plugin:" plugin-name "from" source-name
+                                               (str "(dependency of " required-by ")"))
+                                  (logger/info logger-tag "Loading plugin:" plugin-name "from" source-name))
+                                (interpolation/register-plugin-dir! (str plugin-dir))
+                                (discover-components plugin-dir plugin-name))))]
           (merge-components components))))))
 
 (defn list-marketplace-plugins
@@ -420,14 +508,6 @@
           :source-name source-name
           :source-url source-url
           :installed? (contains? installed-set (:name plugin))})))))
-
-(defn ^:private parse-plugin-arg
-  "Parses a plugin install argument. Supports 'plugin-name' or 'plugin-name@marketplace'.
-   Returns {:plugin-name ... :marketplace ...} where :marketplace may be nil."
-  [^String arg]
-  (let [parts (string/split arg #"@" 2)]
-    {:plugin-name (first parts)
-     :marketplace (when (= 2 (count parts)) (second parts))}))
 
 (defn ^:private find-plugin-in-marketplaces
   "Finds a plugin by name across all resolved marketplaces, optionally filtered by source name.

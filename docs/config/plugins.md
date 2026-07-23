@@ -38,7 +38,7 @@ flowchart TD
 1. You register one or more **sources** (git URL or local path) and list plugin names in **`install`**.
 2. ECA resolves each source — cloning git repos to a local cache or using the local path directly.  This is done on startup and (currently) each hour thereafter.
 3. Each source provides a **marketplace** (`.eca-plugin/marketplace.json`) listing its available plugins.
-4. ECA matches `install` names against the marketplace, then **discovers components** from each matched plugin directory.
+4. ECA matches `install` names against the marketplace, expands their declared [**dependencies**](#plugin-dependencies) transitively, then **discovers components** from each resolved plugin directory.
 5. All components are **merged** into the config waterfall, in the order specified by the `install` key (later plugins override earlier plugins) — user config always takes precedence on conflicts.
 
 ## Commands
@@ -61,6 +61,8 @@ Installs a plugin by adding it to the `install` list in your global config.
 ```
 
 Use `<plugin-name@marketplace>` to disambiguate when multiple sources provide a plugin with the same name. After installing, restart ECA for the plugin to take effect.
+
+If the plugin declares [dependencies](#plugin-dependencies), they are resolved and loaded automatically on startup — no need to install each one individually.
 
 ## Pointing to a plugin source / marketplace
 
@@ -142,6 +144,12 @@ A plugin source is a directory (typically a git repo) with a `.eca-plugin/market
       "name": "security-scanner",
       "description": "Security-focused rules and hooks",
       "source": "plugins/security-scanner"
+    },
+    {
+      "name": "team-kit",
+      "description": "Meta-plugin bundling the team's baseline plugins",
+      "source": "plugins/team-kit",
+      "dependencies": ["code-review", "security-scanner"]
     }
   ]
 }
@@ -154,6 +162,23 @@ Each plugin entry has:
 | `name` | Unique plugin name (used in `install`) |
 | `description` | Human-readable description |
 | `source` | Relative path from the repo root to the plugin directory |
+| `dependencies` | *(optional)* Plugin refs to load automatically with this plugin: `"name"` or `"name@marketplace"` |
+
+### Plugin dependencies
+
+A plugin can declare other plugins as **dependencies**, so installing it pulls the whole set along — useful for **meta-plugins** that bundle a curated plugin list behind a single install. Dependencies can be declared in the marketplace entry (as above) or in an optional `.eca-plugin/plugin.json` inside the plugin directory:
+
+```json title="plugins/team-kit/.eca-plugin/plugin.json"
+{
+  "name": "team-kit",
+  "dependencies": ["code-review", "security-scanner@community"]
+}
+```
+
+- Each ref is `"name"` (searched in all configured sources) or `"name@marketplace"` (only the source registered with that name in your config).
+- Dependencies are resolved **transitively at startup** and are **not persisted** to your `install` list: uninstalling the plugin stops its dependencies from loading too.
+- Shared dependencies and cycles are resolved once; unknown dependencies or marketplaces log a warning without blocking the remaining plugins.
+- Merge order: dependencies are merged before the plugins that depend on them, and directly installed plugins are merged last — explicit installs win config conflicts.
 
 ### Plugin directory structure
 
@@ -185,6 +210,7 @@ plugins/code-review/
 | `hooks/hooks.json` | Hooks | [ECA hook format](hooks.md) |
 | `.mcp.json` | MCP server definitions | Standard `{"mcpServers": {...}}` format |
 | `eca.json` | Config overrides | Arbitrary ECA config keys deep-merged into config |
+| `.eca-plugin/plugin.json` | Plugin manifest | Optional; may declare [`dependencies`](#plugin-dependencies) |
 
 All paths are optional — include only what your plugin needs.
 

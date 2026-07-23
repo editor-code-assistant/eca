@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Resolve plugin `dependencies` transitively: marketplace entries and `.eca-plugin/plugin.json` can declare plugins auto-loaded with the install. #552
+
 ## 0.148.2
 
 - Recover when the provider rejects an image in the request (e.g. xAI's 512px minimum on MCP tool images): retry without images instead of failing every subsequent prompt.
