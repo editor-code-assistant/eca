@@ -59,6 +59,39 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
     }
     ```
 
+=== "Cerebras"
+
+    [Cerebras](https://www.cerebras.ai/inference) provides an OpenAI-compatible Chat Completions API.
+
+    Export your API key:
+
+    ```bash
+    export CEREBRAS_API_KEY="csk-..."
+    ```
+
+    Configure Cerebras as a custom `openai-chat` provider:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "cerebras": {
+          "api": "openai-chat",
+          "url": "https://api.cerebras.ai/v1",
+          "key": "${env:CEREBRAS_API_KEY}",
+          "models": {
+            "gemma-4-31b": {"imageInput": true},
+            "gpt-oss-120b": {},
+            "zai-glm-4.7": {}
+          }
+        }
+      }
+    }
+    ```
+
+    The `imageInput` setting enables vision for Gemma. The other listed models accept text only.
+
+    Change the model list to match the models available to your account.
+
 === "Codex / Openai"
 
     1. Login to Openai via the chat command `/login`.
@@ -374,6 +407,7 @@ Schema:
 | `models <model> extraHeaders`     | map     | Extra headers sent to LLM request                                                                            | No       |
 | `models <model> modelName`        | string  | Override model name, useful to have multiple models with different configs and names that use same LLM model | No       |
 | `models <model> reasoningHistory` | string  | Controls reasoning in conversation history: `"all"` (default), `"turn"`, or `"off"`                          | No       |
+| `models <model> imageInput`       | boolean | Override whether the model accepts image input (vision); useful when models.dev does not know the model       | No       |
 | `models <model> limit`            | map     | Override token limits `{ context, output }` (overrides models.dev); useful for local models or to cap a known model's context window | No       |
 | `models <model> cost`             | map     | Override pricing `{ input, output, cacheRead, cacheWrite }`, per 1M tokens (overrides models.dev)            | No       |
 | `cacheRetention`                  | string  | Prompt cache retention for Anthropic: `"short"` (5-min, default) or `"long"` (1-hour, higher write cost). Only applies to direct Anthropic API. | No       |
