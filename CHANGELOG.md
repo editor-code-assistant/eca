@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.149.0
+
 - Resolve plugin `dependencies` transitively: marketplace entries and `.eca-plugin/plugin.json` can declare plugins auto-loaded with the install. #552
 
 ## 0.148.2
