@@ -607,3 +607,26 @@
            (f.context/raw-contexts->refined
             [{:type "image" :base64 "CCC"}]
             (h/db))))))
+
+(deftest raw-contexts->refined-text-test
+  (testing "Inline text context is refined into the canonical {:type :text ...} shape"
+    (h/reset-components!)
+    (is (match?
+         [{:type :text
+           :label "*compilation*"
+           :content "make: all ok"}]
+         (f.context/raw-contexts->refined
+          [{:type "text" :label "*compilation*" :content "make: all ok"}]
+          (h/db)))))
+  (testing "Drops text context that is missing content"
+    (h/reset-components!)
+    (is (= []
+           (f.context/raw-contexts->refined
+            [{:type "text" :label "*compilation*"}]
+            (h/db)))))
+  (testing "Drops text context that is missing label"
+    (h/reset-components!)
+    (is (= []
+           (f.context/raw-contexts->refined
+            [{:type "text" :content "some output"}]
+            (h/db))))))

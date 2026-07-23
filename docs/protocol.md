@@ -428,7 +428,7 @@ interface ChatPromptParams {
  */
 type Model = string;
 
-type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext | McpResourceContext | ImageContext;
+type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext | McpResourceContext | ImageContext | TextContext;
 
 /**
  * Context related to a file in the workspace
@@ -493,6 +493,29 @@ interface ImageContext {
      * Raw base64-encoded image bytes (no `data:` URL prefix).
      */
     base64: string;
+}
+
+/**
+ * Inline text context supplied by the client.
+ *
+ * Use this when the content has no filesystem path the server can read,
+ * e.g. editor buffers (compile/terminal output), untitled documents or
+ * pasted text. The server delivers it with the user message (like images),
+ * not the system prompt, so clients should send fresh content on each
+ * prompt.
+ */
+interface TextContext {
+    type: 'text';
+
+    /**
+     * Display name for this content (e.g. a buffer/terminal name).
+     */
+    label: string;
+
+    /**
+     * The raw text content.
+     */
+    content: string;
 }
 
 /**

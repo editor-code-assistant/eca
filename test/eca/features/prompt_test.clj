@@ -223,6 +223,17 @@
     (is (nil? (prompt/build-editor-state-context [{:type :file :path "foo.clj" :content "(ns foo)"}])))
     (is (nil? (prompt/build-editor-state-context [{:type :mcpResource :uri "custom://x" :content "c"}])))))
 
+(deftest build-text-contexts-test
+  (testing "renders text contexts wrapped in the contexts block"
+    (let [result (prompt/build-text-contexts
+                  [{:type :text :label "*compilation*" :content "make: ok"}])]
+      (is (string? result))
+      (is (string/includes? result "<contexts"))
+      (is (string/includes? result "<text label=\"*compilation*\">make: ok</text>"))))
+  (testing "ignores non-text contexts and returns nil when none"
+    (is (nil? (prompt/build-text-contexts [])))
+    (is (nil? (prompt/build-text-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}])))))
+
 (deftest instructions->str-test
   (testing "flattens map with both parts to joined string separated by a blank line"
     (is (= "static\n\ndynamic" (prompt/instructions->str {:static "static" :dynamic "dynamic"}))))

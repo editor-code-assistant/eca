@@ -1703,6 +1703,8 @@
                              result))
             image-contents (->> refined-contexts
                                 (filter #(= :image (:type %))))
+            text-contents (when-let [texts-str (f.prompt/build-text-contexts refined-contexts)]
+                            [{:type :text :text texts-str}])
             expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)
                                                                      seq
                                                                      (f.prompt/contexts-str repo-map* nil))]
@@ -1725,6 +1727,7 @@
                                     [{:type :text :text editor-state-context}])
             user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                                expanded-prompt-contexts
+                                                               text-contents
                                                                editor-state-contents
                                                                image-contents))}]
             [provider model] (when full-model (shared/full-model->provider+model full-model))
