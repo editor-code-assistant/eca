@@ -37,6 +37,45 @@
            (llm-providers.errors/classify-error
             {:message "Anthropic error response: prompt is too long: 273112 tokens > 200000 maximum"})))))
 
+(deftest classify-error-invalid-image-test
+  (testing "OpenRouter/xAI image below minimum pixels"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\"code\\\":\\\"invalid-argument\\\",\\\"error\\\":\\\"Image has 100 total pixels (10x10), which is below the minimum of 512 pixels.\\\"}\",\"provider_name\":\"xAI\"}}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "Anthropic image exceeds maximum size"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1.content.0.image.source.base64.data: image exceeds 5 MB maximum: 6291456 bytes > 5242880 bytes\"}}"
+             :message "Anthropic response status: 400 body: ..."}))))
+
+  (testing "unsupported image format"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"Unsupported image format\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "message-only fallback for SSE stream errors"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:message "Anthropic error response: image exceeds 5 MB maximum"}))))
+
+  (testing "generic 400 stays unknown"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"Invalid request\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "not retryable (recovery happens via history sanitization instead)"
+    (is (not (llm-providers.errors/retryable?
+              {:status 400
+               :body "Image has 100 total pixels (10x10), which is below the minimum of 512 pixels."})))))
+
 (deftest classify-error-rate-limited-test
   (testing "429 status"
     (is (= {:error/type :rate-limited}

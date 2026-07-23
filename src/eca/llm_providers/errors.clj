@@ -21,6 +21,17 @@
    #"(?i)input is too long"
    #"(?i)exceeds? the? ?(?:max(?:imum)?|model).{0,20}(?:token|context)"])
 
+(def ^:private invalid-image-patterns
+  "Regex patterns matching provider-side rejections of image content in the
+   request (e.g. xAI rejects images below 512 total pixels). These requests
+   fail deterministically until the offending image is removed from history."
+  [#"(?i)image.{0,80}below the minimum"
+   #"(?i)image (?:is )?too (?:small|large)"
+   #"(?i)invalid (?:base64 )?image"
+   #"(?i)unsupported image"
+   #"(?i)(?:could not|failed to|unable to) (?:decode|process)(?: the| input)? image"
+   #"(?i)image exceeds"])
+
 (def ^:private rate-limited-patterns
   "Regex patterns matching rate limit errors across providers."
   [#"(?i)rate.*?limit"
@@ -53,6 +64,10 @@
     (and (= 400 status)
          (matches-any-pattern? body context-overflow-patterns))
     {:error/type :context-overflow}
+
+    (and (= 400 status)
+         (matches-any-pattern? body invalid-image-patterns))
+    {:error/type :invalid-image}
 
     (= 413 status)
     {:error/type :context-overflow}
@@ -100,6 +115,9 @@
       (matches-any-pattern? message context-overflow-patterns)
       {:error/type :context-overflow}
 
+      (matches-any-pattern? message invalid-image-patterns)
+      {:error/type :invalid-image}
+
       (matches-any-pattern? message rate-limited-patterns)
       {:error/type :rate-limited}
 
@@ -144,6 +162,7 @@
    Returns a map with :error/type — one of:
      :retryable-custom  — matched a user-configured retry rule (with optional :error/label)
      :context-overflow  — prompt exceeds model context window
+     :invalid-image     — provider rejected an image in the request (e.g. too small)
      :rate-limited      — 429 or rate limit pattern in body/message
      :overloaded        — provider overloaded (503, 529, etc.)
      :auth              — authentication/authorization failure (401, 403)

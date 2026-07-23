@@ -187,6 +187,49 @@
       (swap! db* assoc-in [:chats chat-id :messages] pruned-messages))
     freed-tokens))
 
+(def ^:private removed-image-placeholder
+  {:type :text :text "[image removed: rejected by the LLM provider]"})
+
+(defn ^:private strip-messages-images
+  "Replaces :image content entries (user attachments and MCP tool result
+   images) with a text placeholder in the given messages. Returns
+   {:messages messages :stripped n} where n is the number of images replaced."
+  [messages]
+  (let [stripped* (volatile! 0)
+        strip-contents (fn [contents]
+                         (if (sequential? contents)
+                           (mapv (fn [content]
+                                   (if (and (map? content) (= :image (:type content)))
+                                     (do (vswap! stripped* inc)
+                                         removed-image-placeholder)
+                                     content))
+                                 contents)
+                           contents))
+        messages (mapv (fn [{:keys [role] :as msg}]
+                         (case role
+                           "user" (update msg :content strip-contents)
+                           "tool_call_output" (if (sequential? (get-in msg [:content :output :contents]))
+                                                (update-in msg [:content :output :contents] strip-contents)
+                                                msg)
+                           msg))
+                       messages)]
+    {:messages messages
+     :stripped @stripped*}))
+
+(defn ^:private messages-to-send
+  "History slice sent to the LLM. When this chat's current model previously
+   rejected an image (`:images-rejected-by-model`, e.g. below xAI's minimum
+   pixels), image contents are stripped at send time so images (including new
+   tool results) cannot poison every subsequent request. History itself is
+   left untouched: clients keep displaying images and switching to an
+   image-capable model replays them again."
+  [db chat-id full-model]
+  (let [messages (shared/messages-after-last-compact-marker
+                  (get-in db [:chats chat-id :messages] []))]
+    (if (= full-model (get-in db [:chats chat-id :images-rejected-by-model]))
+      (:messages (strip-messages-images messages))
+      messages)))
+
 (defn ^:private message-content->chat-content [role message-content content-id]
   (case role
     ("user"
@@ -985,8 +1028,7 @@
                 :model-capabilities model-capabilities
                 :user-messages user-messages
                 :instructions  instructions
-                :past-messages (shared/messages-after-last-compact-marker
-                                (get-in @db* [:chats chat-id :messages] []))
+                :past-messages (messages-to-send @db* chat-id full-model)
                 :config  config
                 :tools all-tools
                 :provider-auth provider-auth
@@ -1147,8 +1189,7 @@
                                                  (consume-steer-message! chat-id db* chat-ctx add-to-history!)
                                                  (consume-pending-job-notifications! chat-id db* add-to-history!)
                                                  {:tools tc-all-tools
-                                                  :new-messages (shared/messages-after-last-compact-marker
-                                                                 (get-in @db* [:chats chat-id :messages]))})))))
+                                                  :new-messages (messages-to-send @db* chat-id full-model)})))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
@@ -1327,6 +1368,50 @@
                                                             :text "Context window exceeded. Auto-compacting conversation..."})
                                   (prune-tool-results! db* chat-id {})
                                   (trigger-auto-compact! chat-ctx all-tools user-messages))
+
+                                ;; Provider rejected an image in the request (e.g. an MCP tool
+                                ;; returned an image below xAI's 512 total-pixels minimum).
+                                ;; Such requests fail deterministically on every replay, which
+                                ;; would otherwise poison the chat forever. Replace images with
+                                ;; text placeholders and retry once.
+                                (and (= :invalid-image error-type)
+                                     (not compacting?)
+                                     (not (:image-retried? chat-ctx)))
+                                (let [;; When the failure happened before the first response,
+                                      ;; user-messages were never added to history and must be
+                                      ;; re-sent (image-stripped) on retry; otherwise just nudge
+                                      ;; the model to continue from the sanitized history.
+                                      user-msgs-in-history? (boolean (when-let [user-content-id (:user-content-id chat-ctx)]
+                                                                       (some #(= user-content-id (:content-id %))
+                                                                             (get-in @db* [:chats chat-id :messages]))))
+                                      {stripped-user-messages :messages user-stripped :stripped} (strip-messages-images user-messages)
+                                      retry-messages (if user-msgs-in-history?
+                                                       [{:role "user"
+                                                         :content [{:type :text
+                                                                    :text "An image in the conversation was rejected by the LLM provider and was replaced with a placeholder. Continue the task with the remaining content, do not redo completed steps."}]}]
+                                                       stripped-user-messages)]
+                                  (logger/warn logger-tag "Provider rejected an image, omitting images for this model and retrying"
+                                               {:chat-id chat-id
+                                                :full-model full-model
+                                                :user-messages-stripped user-stripped})
+                                  ;; Makes messages-to-send strip images from every
+                                  ;; subsequent request while this model is selected, so
+                                  ;; new tool-result images cannot re-poison the chat.
+                                  (swap! db* assoc-in [:chats chat-id :images-rejected-by-model] full-model)
+                                  (lifecycle/send-content! chat-ctx :system
+                                                           {:type :text
+                                                            :text "The LLM provider rejected an image in the conversation. Retrying without images (omitted while this model is selected)..."})
+                                  (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                  (lifecycle/finish-chat-prompt! :idle
+                                                                 (assoc chat-ctx
+                                                                        :on-finished-side-effect
+                                                                        (fn []
+                                                                          (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                        :on-after-finish!
+                                                                        (fn []
+                                                                          (prompt-messages! retry-messages
+                                                                                            :invalid-image-retry
+                                                                                            (assoc chat-ctx :image-retried? true))))))
 
                                 :else
                                 (let [partial-text @received-msgs*

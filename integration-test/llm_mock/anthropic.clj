@@ -339,6 +339,64 @@
         (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch)))))
 
+(def invalid-image-error-body
+  "Anthropic-shaped 400 mimicking a provider rejecting an image (e.g. xAI's
+   512 total-pixels minimum relayed through OpenRouter)."
+  (json/generate-string
+   {:type "error"
+    :error {:type "invalid_request_error"
+            :message "messages.2.content.1.image: Image has 100 total pixels (10x10), which is below the minimum of 512 pixels."}}))
+
+(defn ^:private message-with-image?
+  "True when any message content block (including nested tool_result content)
+   is an image block."
+  [messages]
+  (some #(and (map? %) (= "image" (:type %)))
+        (tree-seq coll? seq messages)))
+
+(defn ^:private invalid-image-0 [ch body]
+  (let [second-stage? (some (fn [{:keys [content]}]
+                              (some #(= "tool_result" (:type %)) content))
+                            (:messages body))]
+    (if-not second-stage?
+      (do
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 0
+                    :delta {:type "text_delta" :text "Calling the image tool"}})
+        (sse-send! ch "content_block_start"
+                   {:type "content_block_start"
+                    :index 1
+                    :content_block {:type "tool_use"
+                                    :id "img-tool-1"
+                                    :name "testMcp__tiny-image"}})
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 1
+                    :delta {:type "input_json_delta"
+                            :partial_json "{}"}})
+        (sse-send! ch "message_delta"
+                   {:type "message_delta"
+                    :delta {:stop_reason "tool_use"}
+                    :usage {:input_tokens 10
+                            :output_tokens 20}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
+        (hk/close ch))
+      ;; Second stage only reached when the retry no longer carries the image
+      ;; (requests with images get a 400 before the SSE channel opens).
+      (do
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 0
+                    :delta {:type "text_delta" :text "Recovered without the image"}})
+        (sse-send! ch "message_delta"
+                   {:type "message_delta"
+                    :delta {:stop_reason "end_turn"}
+                    :usage {:input_tokens 15
+                            :output_tokens 10}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
+        (hk/close ch)))))
+
 (defn ^:private compact-0 [ch]
   ;; LLM calls eca__compact_chat with a summary — no text or reasoning
   (sse-send! ch "content_block_start"
@@ -376,9 +434,10 @@
   (let [body (some-> (slurp (:body req))
                      (json/parse-string true))
         title-req? (string/includes? (:text (last (:system body))) llm.mocks/chat-title-generator-str)]
-    (if (and (= :rate-limited-0 llm.mocks/*case*)
-             (not title-req?)
-             (zero? @rate-limited-count*))
+    (cond
+      (and (= :rate-limited-0 llm.mocks/*case*)
+           (not title-req?)
+           (zero? @rate-limited-count*))
       (do
         (swap! rate-limited-count* inc)
         (llm.mocks/set-req-body! llm.mocks/*case* body)
@@ -388,6 +447,18 @@
          :body (json/generate-string {:type "error"
                                       :error {:type "rate_limit_error"
                                               :message "Rate limit exceeded"}})})
+
+      ;; Mimic a provider rejecting any request carrying an image.
+      (and (= :invalid-image-0 llm.mocks/*case*)
+           (not title-req?)
+           (message-with-image? (:messages body)))
+      (do
+        (llm.mocks/set-req-body! llm.mocks/*case* body)
+        {:status 400
+         :headers {"Content-Type" "application/json"}
+         :body invalid-image-error-body})
+
+      :else
       (hk/as-channel
        req
        {:on-open (fn [ch]
@@ -411,4 +482,5 @@
                          :mcp-add-tool-0 (mcp-add-tool-0 ch body)
                          :bg-shell-0 (bg-shell-0 ch body)
                          :compact-0 (compact-0 ch)
+                         :invalid-image-0 (invalid-image-0 ch body)
                          :rate-limited-0 (simple-text-0 ch)))))}))))

@@ -20,6 +20,7 @@
     integration.chat.hooks-test
     integration.chat.commands-test
     integration.chat.mcp-remote-test
+    integration.chat.invalid-image-test
     integration.chat.background-jobs-test
     integration.chat.subagent-test
     integration.chat.list-test

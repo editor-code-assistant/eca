@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recover when the provider rejects an image in the request (e.g. xAI's 512px minimum on MCP tool images): retry without images instead of failing every subsequent prompt.
+
 ## 0.148.1
 
 - Fix OpenRouter models failing every prompt with a context-window error: ignore catalog output limits >= context window and use limits from the provider's `/models` endpoint.

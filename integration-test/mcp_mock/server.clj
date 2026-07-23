@@ -39,7 +39,15 @@
     :description "Dynamically registers a new tool on this server"
     :inputSchema {:type "object"
                   :properties {:name {:type "string" :description "Name of the tool to add"}}
-                  :required ["name"]}}])
+                  :required ["name"]}}
+   {:name "tiny-image"
+    :description "Returns the evaluation result rendered as a tiny PNG image"
+    :inputSchema {:type "object"
+                  :properties {}}}])
+
+(def tiny-png-base64
+  "10x10 8-bit RGBA PNG (100 total pixels), below xAI's minimum of 512."
+  "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC")
 
 (def ^:private default-instructions
   "This is a test MCP server for integration testing.")
@@ -134,6 +142,10 @@
       {:content [{:type "text" :text (str "Unknown tool template: " tool-name)}]
        :isError true})))
 
+(defn ^:private call-tiny-image [_arguments]
+  {:content [{:type "text" :text "Evaluation result rendered as image:"}
+             {:type "image" :data tiny-png-base64 :mimeType "image/png"}]})
+
 (defn ^:private handle-tool-call [body]
   (let [tool-name (get-in body [:params :name])
         arguments (get-in body [:params :arguments])
@@ -141,6 +153,7 @@
                  "echo" (call-echo arguments)
                  "add" (call-add arguments)
                  "add-tool" (call-add-tool arguments)
+                 "tiny-image" (call-tiny-image arguments)
                  {:content [{:type "text" :text (str "Unknown tool: " tool-name)}]
                   :isError true})]
     {:status 200

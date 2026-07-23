@@ -634,6 +634,178 @@
             (is (= :idle (get-in (h/db) [:chats chat-id :status]))
                 "Chat should finish in idle state")))))))
 
+(def ^:private xai-invalid-image-body
+  "Real OpenRouter/xAI 400 body for an image below the minimum pixels."
+  "{\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\"code\\\":\\\"invalid-argument\\\",\\\"error\\\":\\\"Image has 100 total pixels (10x10), which is below the minimum of 512 pixels.\\\"}\",\"provider_name\":\"xAI\"}}}")
+
+(deftest invalid-image-recovery-test
+  (testing "provider rejecting a tool-result image strips images from history and retries once"
+    (h/reset-components!)
+    (let [chat-id "invalid-image-chat"
+          api-call-count* (atom 0)
+          second-call-args* (atom nil)]
+      ;; Seed a poisoned history: an MCP tool returned a tiny image (e.g.
+      ;; Backseat Driver's eval-to-image) that xAI rejects on every replay.
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "evaluate this"}]}
+                         {:role "tool_call" :content {:id "tc-1" :name "eval_to_image" :arguments {}}}
+                         {:role "tool_call_output" :content {:id "tc-1"
+                                                             :name "eval_to_image"
+                                                             :output {:error false
+                                                                      :contents [{:type :text :text "rendered:"}
+                                                                                 {:type :image
+                                                                                  :media-type "image/png"
+                                                                                  :base64 "abc123"}]}}}]})
+      (let [_ (prompt!
+               {:message "continue please" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock
+                (fn [{:keys [on-error on-first-response-received on-message-received
+                             past-messages user-messages]}]
+                  (case (swap! api-call-count* inc)
+                    1 (do (on-first-response-received)
+                          (on-error {:status 400
+                                     :body xai-invalid-image-body
+                                     :message (str "LLM response status: 400 body: " xai-invalid-image-body)}))
+                    2 (do (reset! second-call-args* {:past-messages past-messages
+                                                     :user-messages user-messages})
+                          (on-first-response-received)
+                          (on-message-received {:type :text :text "Recovered!"})
+                          (on-message-received {:type :finish}))))})]
+        (is (= 2 @api-call-count*)
+            "LLM should be called exactly twice: failing request and image-stripped retry")
+        (let [{:keys [past-messages user-messages]} @second-call-args*]
+          (is (not (string/includes? (pr-str past-messages) ":type :image"))
+              "retry request must not replay any image content")
+          (is (string/includes? (pr-str past-messages) "[image removed: rejected by the LLM provider]")
+              "rejected image is replaced with a placeholder at send time")
+          (is (match?
+               [{:role "user"
+                 :content [{:type :text
+                            :text #(string/includes? % "rejected by the LLM provider")}]}]
+               user-messages)
+              "retry nudges the model to continue since the original user message is already in history"))
+        (is (= (get-in (h/db) [:chats chat-id :model])
+               (get-in (h/db) [:chats chat-id :images-rejected-by-model]))
+            "chat is flagged so subsequent requests to this model omit images")
+        (is (match?
+             {chat-id {:messages (m/embeds [{:role "tool_call_output"
+                                             :content {:output {:contents [{:type :text :text "rendered:"}
+                                                                           {:type :image
+                                                                            :media-type "image/png"
+                                                                            :base64 "abc123"}]}}}
+                                            {:role "assistant"
+                                             :content [{:type :text :text "Recovered!"}]}])}}
+             (:chats (h/db)))
+            "history keeps the original image (only outgoing requests are stripped) plus the recovered answer")
+        (is (match?
+             {:chat-content-received
+              (m/embeds [{:role :system
+                          :content {:type :text
+                                    :text "The LLM provider rejected an image in the conversation. Retrying without images (omitted while this model is selected)..."}}])}
+             (h/messages)))
+        (is (= :idle (get-in (h/db) [:chats chat-id :status])))))))
+
+(deftest invalid-image-flag-strips-new-images-test
+  (testing "once flagged, later prompts strip images (e.g. fresh tool results) at send time without errors"
+    (h/reset-components!)
+    (let [chat-id "invalid-image-flagged-chat"
+          request-args* (atom nil)]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :images-rejected-by-model "openai/gpt-5.2"
+              :messages [{:role "user" :content [{:type :text :text "evaluate this"}]}
+                         {:role "tool_call_output" :content {:id "tc-1"
+                                                             :output {:error false
+                                                                      :contents [{:type :image
+                                                                                  :media-type "image/png"
+                                                                                  :base64 "abc123"}]}}}]})
+      (prompt!
+       {:message "continue please" :chat-id chat-id :model "openai/gpt-5.2"}
+       {:all-tools-mock (constantly [])
+        :api-mock
+        (fn [{:keys [on-first-response-received on-message-received past-messages]}]
+          (reset! request-args* {:past-messages past-messages})
+          (on-first-response-received)
+          (on-message-received {:type :text :text "Done"})
+          (on-message-received {:type :finish}))})
+      (is (not (string/includes? (pr-str (:past-messages @request-args*)) ":type :image"))
+          "no image content is sent while the flag matches the selected model")
+      (is (match?
+           {chat-id {:messages (m/embeds [{:role "tool_call_output"
+                                           :content {:output {:contents [{:type :image
+                                                                          :media-type "image/png"
+                                                                          :base64 "abc123"}]}}}])}}
+           (:chats (h/db)))
+          "history itself keeps the image"))))
+
+(deftest invalid-image-retry-does-not-loop-test
+  (testing "when the image-stripped retry still fails, the error surfaces instead of looping"
+    (h/reset-components!)
+    (let [chat-id "invalid-image-loop-chat"
+          api-call-count* (atom 0)]
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :messages [{:role "user" :content [{:type :text :text "evaluate this"}]}
+                         {:role "tool_call_output" :content {:id "tc-1"
+                                                             :output {:error false
+                                                                      :contents [{:type :image
+                                                                                  :media-type "image/png"
+                                                                                  :base64 "abc123"}]}}}]})
+      (let [_ (prompt!
+               {:message "continue please" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock
+                (fn [{:keys [on-error]}]
+                  (swap! api-call-count* inc)
+                  (on-error {:status 400
+                             :body xai-invalid-image-body
+                             :message (str "LLM response status: 400 body: " xai-invalid-image-body)}))})]
+        (is (= 2 @api-call-count*)
+            "LLM should be called exactly twice: initial request and single retry")
+        (is (match?
+             {:chat-content-received
+              (m/embeds [{:role :system
+                          :content {:type :text
+                                    :text #(string/includes? % "below the minimum of 512 pixels")}}])}
+             (h/messages))
+            "the provider error surfaces after the failed retry")
+        (is (= :idle (get-in (h/db) [:chats chat-id :status])))))))
+
+(deftest strip-messages-images-test
+  (let [strip-messages-images #'f.chat/strip-messages-images]
+    (testing "replaces user-attached and tool-result images with placeholders"
+      (is (= {:stripped 2
+              :messages [{:role "user"
+                          :content [{:type :text :text "look at this"}
+                                    {:type :text :text "[image removed: rejected by the LLM provider]"}]}
+                         {:role "tool_call"
+                          :content {:id "t1"}}
+                         {:role "tool_call_output"
+                          :content {:id "t1"
+                                    :output {:contents [{:type :text :text "result:"}
+                                                        {:type :text :text "[image removed: rejected by the LLM provider]"}]}}}]}
+             (strip-messages-images
+              [{:role "user"
+                :content [{:type :text :text "look at this"}
+                          {:type :image :media-type "image/png" :base64 "abc"}]}
+               {:role "tool_call"
+                :content {:id "t1"}}
+               {:role "tool_call_output"
+                :content {:id "t1"
+                          :output {:contents [{:type :text :text "result:"}
+                                              {:type :image :media-type "image/png" :base64 "abc"}]}}}]))))
+    (testing "no-op for messages without images"
+      (is (= {:stripped 0
+              :messages [{:role "user" :content "string content"}
+                         {:role "assistant" :content [{:type :text :text "hi"}]}
+                         {:role "tool_call_output" :content {:id "t2" :output {:error true}}}]}
+             (strip-messages-images
+              [{:role "user" :content "string content"}
+               {:role "assistant" :content [{:type :text :text "hi"}]}
+               {:role "tool_call_output" :content {:id "t2" :output {:error true}}}]))))))
+
 (deftest limit-reached-clears-compact-flags-test
   (testing ":limit-reached handler clears stale compacting?/auto-compacting? flags so /compact can be retried"
     (h/reset-components!)
