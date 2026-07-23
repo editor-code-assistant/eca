@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix plugin-provided agents missing from the editor's agent list when model sync finishes before plugin resolution (common with providers using `fetchModels: false`): re-emit the chat config after plugins resolve.
+
 ## 0.149.0
 
 - Resolve plugin `dependencies` transitively: marketplace entries and `.eca-plugin/plugin.json` can declare plugins auto-loaded with the install. #552

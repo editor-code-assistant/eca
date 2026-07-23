@@ -48,6 +48,48 @@
   (or (:welcomeMessage (:chat config)) ;;legacy
       (:welcomeMessage config)))
 
+(defn ^:private notify-chat-config-state!
+  "Emits a `config/updated` chat payload (models, agents, defaults, variants)
+   built from the current db and freshly-read config.
+
+   Safe to call multiple times: `notify-fields-changed-only!` diffs against the
+   session-level mirror and only emits fields that actually changed. This lets
+   it run both when model sync finishes and after plugin resolution completes,
+   so plugin-provided agents reach the editor even when model sync wins the
+   startup race (e.g. providers with `fetchModels: false`)."
+  [db* messenger]
+  (let [db @db*
+        fresh-config (config/all db)
+        default-model (f.chat/default-model db fresh-config)
+        default-agent-name (config/validate-agent-name
+                            (or (:defaultAgent (:chat fresh-config))
+                                (:defaultAgent fresh-config))
+                            fresh-config)
+        default-agent-config (get-in fresh-config [:agent default-agent-name])
+        variants (model-variants fresh-config db default-model)]
+    (config/notify-fields-changed-only!
+     {:chat
+      ;; Advertise the default trust only when enabled, so clients
+      ;; keep their own defaults (e.g. emacs eca-chat-trust-enable).
+      (cond-> {:models (sort (keys (:models db)))
+               :agents (config/primary-agent-names fresh-config)
+               :select-model default-model
+               :select-agent default-agent-name
+               :variants (or variants [])
+               :select-variant (select-variant default-agent-config variants)
+               :welcome-message (welcome-message fresh-config)
+          ;; Deprecated, remove after changing emacs, vscode and intellij.
+               :default-model default-model
+               :default-agent default-agent-name
+       ;; Legacy: backward compat for clients using old key names
+               :behaviors (distinct (keys (:agent fresh-config)))
+               :select-behavior default-agent-name
+               :default-behavior default-agent-name}
+        (-> fresh-config :chat :defaultTrust)
+        (assoc :select-trust true))}
+     messenger
+     db*)))
+
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
@@ -81,40 +123,10 @@
                 ;; short-lived token (e.g. Copilot) and 401.
                 (f.login/renew-expiring-auth-tokens!
                  {:db* db* :messenger messenger :config config :metrics metrics})
-                (models/sync-models! db* config (fn [models]
-                                                  (let [db @db*
-                                                        ;; Plugin resolution can finish while model sync is running;
-                                                        ;; re-read config so agent notifications don't use stale data.
-                                                        fresh-config (config/all db)
-                                                        default-model (f.chat/default-model db fresh-config)
-                                                        default-agent-name (config/validate-agent-name
-                                                                            (or (:defaultAgent (:chat fresh-config))
-                                                                                (:defaultAgent fresh-config))
-                                                                            fresh-config)
-                                                        default-agent-config (get-in fresh-config [:agent default-agent-name])
-                                                        variants (model-variants fresh-config db default-model)]
-                                                    (config/notify-fields-changed-only!
-                                                     {:chat
-                                                      ;; Advertise the default trust only when enabled, so clients
-                                                      ;; keep their own defaults (e.g. emacs eca-chat-trust-enable).
-                                                      (cond-> {:models (sort (keys models))
-                                                               :agents (config/primary-agent-names fresh-config)
-                                                               :select-model default-model
-                                                               :select-agent default-agent-name
-                                                               :variants (or variants [])
-                                                               :select-variant (select-variant default-agent-config variants)
-                                                               :welcome-message (welcome-message fresh-config)
-                                                          ;; Deprecated, remove after changing emacs, vscode and intellij.
-                                                               :default-model default-model
-                                                               :default-agent default-agent-name
-                                                       ;; Legacy: backward compat for clients using old key names
-                                                               :behaviors (distinct (keys (:agent fresh-config)))
-                                                               :select-behavior default-agent-name
-                                                               :default-behavior default-agent-name}
-                                                        (-> fresh-config :chat :defaultTrust)
-                                                        (assoc :select-trust true))}
-                                                     messenger
-                                                     db*)))))))]
+                ;; The callback re-reads config, so plugin agents are included
+                ;; when plugin resolution finishes before model sync.
+                (models/sync-models! db* config (fn [_models]
+                                                  (notify-chat-config-state! db* messenger))))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models]
              (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
       (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
@@ -166,6 +178,10 @@
                                      @db*
                                      config)
         (config/deliver-plugins-resolved!)
+        ;; Re-emit the chat config now that plugin agents are resolved, so the
+        ;; editor's agent list reflects them even when model sync already
+        ;; notified with the pre-plugin agent list (startup race).
+        (notify-chat-config-state! db* messenger)
         (send-progress! db* messenger {:type "start" :taskId "mcp-servers" :title "Initializing MCP servers"})
         (f.tools/init-servers! db* messenger config metrics)
         (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
