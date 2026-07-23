@@ -88,7 +88,7 @@
                  (format " %s=%s" (name k) (attr-value-str v)))))
        string/join))
 
-(defn ^:private render-context [{:keys [type path position content lines-range uri]} repo-map*]
+(defn ^:private render-context [{:keys [type path position content lines-range uri label]} repo-map*]
   (case type
     :file (if lines-range
             (format "<file%s>%s</file>"
@@ -112,6 +112,7 @@
                                :start (str (:line (:start position)) ":" (:character (:start position)))
                                :end (str (:line (:end position)) ":" (:character (:end position)))}))
     :mcpResource (format "<resource%s>%s</resource>" (attr-str {:uri uri}) content)
+    :text (format "<text%s>%s</text>" (attr-str {:label label}) content)
     nil))
 
 (defn contexts-str
@@ -341,6 +342,14 @@
       (contexts-str editor-state-contexts nil nil
                     {:tag "editor-state"
                      :description "Editor state reference; not a user request. Use only when relevant."}))))
+
+(defn build-text-contexts
+  "Renders client-supplied text contexts (e.g. editor buffers) for the
+   user message. Returns nil when none."
+  [refined-contexts]
+  (let [text-contexts (filter #(= :text (:type %)) refined-contexts)]
+    (when (seq text-contexts)
+      (contexts-str text-contexts nil nil))))
 
 (defn build-chat-instructions
   "Returns {:static :dynamic} system instructions."

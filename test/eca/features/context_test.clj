@@ -24,13 +24,8 @@
                       (h/file-path (str root "/dir/nested.txt"))
                       (h/file-path (str root "/bar.txt"))]]
       (swap! (h/db*) assoc :workspace-folders [{:uri (h/file-uri "file:///fake/repo")}])
-      (with-redefs [f.context/all-files-from #'f.context/all-files-from*
-                    fs/glob (fn [_root-filename pattern]
-                              ;; Very simple glob: filter by substring present in pattern ("**<q>**")
-                              (let [q (string/replace pattern #"\*" "")]
-                                (filter #(string/includes? (str %) q) fake-paths)))
+      (with-redefs [f.index/allowed-files (fn [_root _config] fake-paths)
                     fs/directory? (fn [p] (string/ends-with? (str p) "/dir"))
-                    f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_db] [{:uri "mcp://r1"}])]
         (is (match?
              [{:type "repoMap"}
@@ -49,13 +44,9 @@
           fake-paths [(str root "/foo.txt")
                       (str root "/bar.txt")]]
       (swap! (h/db*) assoc :workspace-folders [{:uri (h/file-uri "file:///fake/repo")}])
-      (with-redefs [f.context/all-files-from #'f.context/all-files-from*
-                    fs/glob (fn [_root-filename pattern]
-                              (let [q (string/replace pattern #"\*" "")]
-                                (filter #(string/includes? (str %) q) fake-paths)))
+      (with-redefs [f.index/allowed-files (fn [_root _config] fake-paths)
                     fs/directory? (constantly false)
                     fs/canonicalize identity
-                    f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_db] [])]
         (let [result (f.context/all-contexts "foo" false (h/db*) {})]
           ;; Should include foo.txt but not bar.txt
@@ -68,22 +59,17 @@
           root2 (h/file-path "/fake/repo2")]
       (swap! (h/db*) assoc :workspace-folders [{:uri (h/file-uri "file:///fake/repo1")}
                                                {:uri (h/file-uri "file:///fake/repo2")}])
-      (with-redefs [f.context/all-files-from #'f.context/all-files-from*
-                    fs/glob (fn [root-filename pattern]
-                              (let [q (string/replace pattern #"\*" "")]
-                                (cond
-                                  (string/includes? (str root-filename) (h/file-path "/fake/repo1"))
-                                  (filter #(string/includes? (str %) q)
-                                          [(str root1 "/a.clj")])
+      (with-redefs [f.index/allowed-files (fn [root-filename _config]
+                                            (cond
+                                              (string/includes? (str root-filename) (h/file-path "/fake/repo1"))
+                                              [(str root1 "/a.clj")]
 
-                                  (string/includes? (str root-filename) (h/file-path "/fake/repo2"))
-                                  (filter #(string/includes? (str %) q)
-                                          [(str root2 "/b.clj")])
+                                              (string/includes? (str root-filename) (h/file-path "/fake/repo2"))
+                                              [(str root2 "/b.clj")]
 
-                                  :else [])))
+                                              :else []))
                     fs/directory? (constantly false)
                     fs/canonicalize identity
-                    f.index/filter-allowed (fn [file-paths _root _config] file-paths)
                     f.mcp/all-resources (fn [_db] [])]
         (let [result (f.context/all-contexts nil false (h/db*) {})]
           ;; Root directories present
@@ -91,20 +77,29 @@
           (is (some #(= {:type "directory" :path root2} %) result))
           ;; Files from both roots present
           (is (some #(= {:type "file" :path (str root1 "/a.clj")} %) result))
-          (is (some #(= {:type "file" :path (str root2 "/b.clj")} %) result)))))))
+          (is (some #(= {:type "file" :path (str root2 "/b.clj")} %) result))))))
+
+  (testing "files-only skips repoMap, cursor, root dirs and mcp resources"
+    (h/reset-components!)
+    (let [root (h/file-path "/fake/repo")
+          fake-paths [(h/file-path (str root "/foo.txt"))]]
+      (swap! (h/db*) assoc :workspace-folders [{:uri (h/file-uri "file:///fake/repo")}])
+      (with-redefs [f.index/allowed-files (fn [_root _config] fake-paths)
+                    fs/directory? (constantly false)
+                    fs/canonicalize identity
+                    f.mcp/all-resources (fn [_db] (throw (ex-info "all-resources should not be called for files-only" {})))]
+        (is (match?
+             (m/equals
+              [{:type "file" :path (h/file-path (str root "/foo.txt"))}])
+             (f.context/all-contexts nil true (h/db*) (h/config))))))))
 
 (deftest case-insensitive-query-test
   (testing "Should find README.md when searching for 'readme' (case-insensitive)"
     (let [readme (h/file-path "/fake/repo/README.md")
           core (h/file-path "/fake/repo/src/core.clj")]
-      (with-redefs [fs/glob (fn [_root-filename pattern]
-                              (cond
-                                (= pattern "**") [readme core]
-                                (= pattern "**readme**") []
-                                :else []))
+      (with-redefs [f.index/allowed-files (fn [_root _config] [readme core])
                     fs/directory? (constantly false)
-                    fs/canonicalize identity
-                    f.index/filter-allowed (fn [files _root _config] files)]
+                    fs/canonicalize identity]
         (let [db* (atom {:workspace-folders [{:uri (h/file-uri "file:///fake/repo")}]})
               config {}
               results (f.context/all-contexts "readme" false db* config)
@@ -165,14 +160,13 @@
           f-xchat (str root "/src/xchat.clj")
           f-xyz (str root "/chatter/xyz.clj")
           db* (atom {:workspace-folders [{:uri (h/file-uri "file:///fake/repo")}]})]
-      (with-redefs [f.context/all-files-from #'f.context/all-files-from*
-                    fs/glob (fn [_ _] [f-xyz f-xchat f-chat])
+      (with-redefs [f.context/dirs-of-files #'f.context/dirs-of-files*
+                    f.index/allowed-files (fn [_root _config] [f-xyz f-xchat f-chat])
                     fs/parent (fn [p] (let [s (str p)
                                             i (string/last-index-of s "/")]
                                         (when (and i (pos? i)) (subs s 0 i))))
                     fs/directory? (fn [p] (= (str root "/chatter") (str p)))
                     fs/canonicalize identity
-                    f.index/filter-allowed (fn [files _root _config] files)
                     f.mcp/all-resources (fn [_] [])]
         (is (match?
              [{:type "repoMap"}
@@ -606,4 +600,27 @@
     (is (= []
            (f.context/raw-contexts->refined
             [{:type "image" :base64 "CCC"}]
+            (h/db))))))
+
+(deftest raw-contexts->refined-text-test
+  (testing "Inline text context is refined into the canonical {:type :text ...} shape"
+    (h/reset-components!)
+    (is (match?
+         [{:type :text
+           :label "*compilation*"
+           :content "make: all ok"}]
+         (f.context/raw-contexts->refined
+          [{:type "text" :label "*compilation*" :content "make: all ok"}]
+          (h/db)))))
+  (testing "Drops text context that is missing content"
+    (h/reset-components!)
+    (is (= []
+           (f.context/raw-contexts->refined
+            [{:type "text" :label "*compilation*"}]
+            (h/db)))))
+  (testing "Drops text context that is missing label"
+    (h/reset-components!)
+    (is (= []
+           (f.context/raw-contexts->refined
+            [{:type "text" :content "some output"}]
             (h/db))))))
