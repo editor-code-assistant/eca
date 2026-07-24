@@ -174,6 +174,23 @@
          (finally
            (.abort ^DefaultHttpProxyServer (:px prx#)))))))
 
+(defn blocking-input-stream
+  "An InputStream whose reads block until `close` is called (10s max),
+  then throw IOException. Simulates a hung streaming connection (e.g.
+  waiting for the first LLM token) for stream-watchdog tests."
+  []
+  (let [closed* (promise)
+        block-then-throw! (fn []
+                            (deref closed* 10000 nil)
+                            (throw (java.io.IOException. "Stream closed")))]
+    (proxy [java.io.InputStream] []
+      (read
+        ([] (block-then-throw!))
+        ([_b] (block-then-throw!))
+        ([_b _off _len] (block-then-throw!)))
+      (close []
+        (deliver closed* true)))))
+
 (def ^:dynamic *http-client-captures*
   "A record of all `eca.client-http/merge-with-global-http-client` merge
   requests results done during the call to `with-client-proxied`

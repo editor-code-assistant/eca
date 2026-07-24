@@ -55,7 +55,7 @@
       (logger/warn logger-tag "Error getting model:" (ex-message e))
       [])))
 
-(defn ^:private base-chat-request! [{:keys [rid url body on-error on-stream extra-headers]}]
+(defn ^:private base-chat-request! [{:keys [rid url body on-error on-stream extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [reason-id (str (random-uuid))
         reasoning?* (atom false)
         response* (atom nil)
@@ -81,10 +81,33 @@
                        :status status
                        :body body-str}))
           (if on-stream
-            (with-open [rdr (io/reader body)]
-              (doseq [[event data] (llm-util/event-data-seq rdr)]
-                (llm-util/log-response logger-tag rid event data)
-                (on-stream rid event data reasoning?* reason-id)))
+            (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))]
+              (try
+                (with-open [rdr (io/reader body)]
+                  (doseq [[event data] (llm-util/event-data-seq rdr)]
+                    (set-reading-fn false)
+                    (touch-fn)
+                    (llm-util/log-response logger-tag rid event data)
+                    (on-stream rid event data reasoning?* reason-id)
+                    (set-reading-fn true)))
+                (catch java.io.IOException e
+                  (let [reason @reason*]
+                    (cond
+                      (= :cancelled reason)
+                      (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                      (= :idle-timeout reason)
+                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
+                                                  (or stream-idle-timeout-seconds 120))
+                                 :exception e})
+
+                      :else
+                      (throw e))))
+                (finally
+                  (stop-fn))))
             (do
               (llm-util/log-response logger-tag rid "response" body)
               (reset! response*
@@ -139,7 +162,7 @@
         messages))
 
 (defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools max-output-tokens
-                     extra-headers extra-payload]}
+                     extra-headers extra-payload cancelled? stream-idle-timeout-seconds]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
                      on-reason] :as callbacks}]
   (let [messages (concat
@@ -182,6 +205,8 @@
                                      :body (assoc body :messages (normalize-messages new-messages)
                                                   :tools (->tools tools))
                                      :extra-headers extra-headers
+                                     :cancelled? cancelled?
+                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds
                                      :on-error on-error
                                      :on-stream handle-stream})))
                                (on-message-received {:type :finish
@@ -209,5 +234,7 @@
       :url url
       :body body
       :extra-headers extra-headers
+      :cancelled? cancelled?
+      :stream-idle-timeout-seconds stream-idle-timeout-seconds
       :on-error on-error
       :on-stream on-stream-fn})))

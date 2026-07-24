@@ -2,7 +2,7 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.client-test-helpers :refer [with-client-proxied]]
+   [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.llm-providers.openai :as llm-providers.openai]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
@@ -463,6 +463,26 @@
                    {"x-request-id" "header_req"})]
         (is (= "error_req" (:request-id error)))
         (is (= "error_req" (:request_id error)))))))
+
+(deftest create-response-stream-cancelled-test
+  (testing "watchdog aborts a hung stream when cancelled, surfacing a silent error"
+    (let [errors* (atom [])
+          messages* (atom [])
+          stream-body (blocking-input-stream)]
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :stream (:as opts)))
+                                {:status 200
+                                 :headers {}
+                                 :body stream-body})]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params) :cancelled? (constantly true))
+         (base-callbacks
+          {:on-error (fn [error] (swap! errors* conj error))
+           :on-message-received (fn [message] (swap! messages* conj message))})))
+      (is (= 1 (count @errors*)))
+      (is (= "Stream cancelled" (ex-message (:exception (first @errors*)))))
+      (is (true? (:silent? (ex-data (:exception (first @errors*))))))
+      (is (empty? @messages*)))))
 
 (deftest normalize-messages-tool-call-output-image-test
   (let [tool-output-with-image

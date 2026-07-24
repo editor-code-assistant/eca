@@ -2,8 +2,9 @@
   (:require
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
-   [eca.client-test-helpers :refer [with-client-proxied]]
+   [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.llm-providers.ollama :as llm-providers.ollama]
+   [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
 (deftest list-models-test
@@ -134,3 +135,30 @@
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
            {:role "assistant" :content "I see /foo/bar"}])))))
+
+(deftest chat-stream-cancelled-test
+  (testing "watchdog aborts a hung stream when cancelled, surfacing a silent error"
+    (let [errors* (atom [])
+          messages* (atom [])
+          stream-body (blocking-input-stream)]
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :stream (:as opts)))
+                                {:status 200
+                                 :body stream-body})]
+        (llm-providers.ollama/chat!
+         {:model "test-model"
+          :instructions "System prompt"
+          :user-messages [{:role "user" :content "hello"}]
+          :past-messages []
+          :tools []
+          :api-url "http://localhost:1"
+          :cancelled? (constantly true)}
+         {:on-message-received (fn [msg] (swap! messages* conj msg))
+          :on-error (fn [err] (swap! errors* conj err))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_] {:new-messages [] :tools []})
+          :on-reason (fn [_])}))
+      (is (= 1 (count @errors*)))
+      (is (= "Stream cancelled" (ex-message (:exception (first @errors*)))))
+      (is (true? (:silent? (ex-data (:exception (first @errors*))))))
+      (is (empty? @messages*)))))

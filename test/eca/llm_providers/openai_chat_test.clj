@@ -1,9 +1,10 @@
 (ns eca.llm-providers.openai-chat-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.client-test-helpers :refer [with-client-proxied]]
+   [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.features.tools.util :as tools.util]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
+   [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
 (def thinking-start-tag "<think>")
@@ -72,6 +73,34 @@
     (is (= 512 (get-in @requests* [0 :body :max_completion_tokens])))
     (is (= 99 (get-in @requests* [1 :body :max_completion_tokens]))
         "Configured extraPayload must remain the final override")))
+
+(deftest chat-completion-stream-cancelled-test
+  (testing "watchdog aborts a hung stream when cancelled, surfacing a silent error"
+    (let [errors* (atom [])
+          messages* (atom [])
+          stream-body (blocking-input-stream)]
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :stream (:as opts)))
+                                {:status 200
+                                 :body stream-body})]
+        (llm-providers.openai-chat/chat-completion!
+         {:model "test-model"
+          :instructions "System prompt"
+          :user-messages [{:role "user" :content "hello"}]
+          :past-messages []
+          :api-key "fake-key"
+          :api-url "http://localhost:1"
+          :cancelled? (constantly true)}
+         {:on-message-received (fn [msg] (swap! messages* conj msg))
+          :on-error (fn [err] (swap! errors* conj err))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_] {:new-messages [] :tools []})
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])}))
+      (is (= 1 (count @errors*)))
+      (is (= "Stream cancelled" (ex-message (:exception (first @errors*)))))
+      (is (true? (:silent? (ex-data (:exception (first @errors*))))))
+      (is (empty? @messages*)))))
 
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"

@@ -303,7 +303,9 @@
           :api-key api-key
           :auth-type auth-type
           :account-id (:account-id provider-auth)
-          :prompt-cache-key prompt-cache-key}
+          :prompt-cache-key prompt-cache-key
+          :cancelled? cancelled?
+          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
 
         (= "anthropic" provider)
@@ -338,7 +340,9 @@
                          :reasoning-history reasoning-history
                          :api-url api-url
                          :api-key api-key
-                         :prompt-cache-key prompt-cache-key}]
+                         :prompt-cache-key prompt-cache-key
+                         :cancelled? cancelled?
+                         :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}]
           (case (:api api-handler)
             :openai-responses
             (handler
@@ -384,7 +388,9 @@
                                 extra-payload)
           :extra-headers extra-headers
           :api-url api-url
-          :api-key api-key}
+          :api-key api-key
+          :cancelled? cancelled?
+          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
 
         (= "ollama" provider)
@@ -399,7 +405,9 @@
           :tools tools
           :max-output-tokens max-output-tokens
           :extra-payload extra-payload
-          :extra-headers extra-headers}
+          :extra-headers extra-headers
+          :cancelled? cancelled?
+          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
 
         (and (or model-config

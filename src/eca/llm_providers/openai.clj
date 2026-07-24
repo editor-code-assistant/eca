@@ -171,7 +171,7 @@
                 :request-id request-id
                 :headers response-headers)))
 
-(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client extra-headers]}]
+(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [oauth? (= :auth/oauth auth-type)
         stream? (and on-stream (not= false (:stream body)))
         url (if oauth?
@@ -213,18 +213,41 @@
                        :body body-str
                        :headers resp-headers}))
           (if stream?
-            (let [stream-error
-                  (with-open [rdr (io/reader body)]
-                    (loop [events (seq (llm-util/event-data-seq rdr))]
-                      (when-let [[event data] (first events)]
-                        (llm-util/log-response logger-tag rid event data)
-                        (if (= "response.failed" event)
-                          (response-failed->error-data data resp-headers)
-                          (do
-                            (on-stream event data resp-headers)
-                            (recur (next events)))))))]
-              (when stream-error
-                (on-error stream-error)))
+            (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))]
+              (try
+                (let [stream-error
+                      (with-open [rdr (io/reader body)]
+                        (loop [events (seq (llm-util/event-data-seq rdr))]
+                          (when-let [[event data] (first events)]
+                            (set-reading-fn false)
+                            (touch-fn)
+                            (llm-util/log-response logger-tag rid event data)
+                            (if (= "response.failed" event)
+                              (response-failed->error-data data resp-headers)
+                              (do
+                                (on-stream event data resp-headers)
+                                (set-reading-fn true)
+                                (recur (next events)))))))]
+                  (when stream-error
+                    (on-error stream-error)))
+                (catch java.io.IOException e
+                  (let [reason @reason*]
+                    (cond
+                      (= :cancelled reason)
+                      (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                      (= :idle-timeout reason)
+                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
+                                                  (or stream-idle-timeout-seconds 120))
+                                 :exception e})
+
+                      :else
+                      (throw e))))
+                (finally
+                  (stop-fn))))
             (do
               (llm-util/log-response logger-tag rid "response" body)
               (if (= "failed" (:status body))
@@ -335,7 +358,7 @@
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search image-generation extra-payload extra-headers
-                                auth-type account-id http-client prompt-cache-key]}
+                                auth-type account-id http-client prompt-cache-key cancelled? stream-idle-timeout-seconds]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
                                 on-server-web-search on-server-image-generation] :as callbacks}]
   (let [oauth? (= :auth/oauth auth-type)
@@ -501,6 +524,8 @@
                         :http-client http-client
                         :extra-headers extra-headers
                         :auth-type auth-type
+                        :cancelled? cancelled?
+                        :stream-idle-timeout-seconds stream-idle-timeout-seconds
                         :on-error on-error
                         :on-stream handle-stream})))
                   (on-message-received {:type :finish
@@ -525,6 +550,8 @@
                  :http-client http-client
                  :extra-headers extra-headers
                  :auth-type auth-type
+                 :cancelled? cancelled?
+                 :stream-idle-timeout-seconds stream-idle-timeout-seconds
                  :on-error on-error
                  :on-stream on-stream-fn})]
     (if callbacks

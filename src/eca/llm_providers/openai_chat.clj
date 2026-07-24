@@ -115,7 +115,7 @@
 
 (defn ^:private base-chat-request!
   [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream
-           on-tools-called-wrapper http-client]}]
+           on-tools-called-wrapper http-client cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path chat-completions-path))
         extra-headers (if (fn? extra-headers)
                         (extra-headers {:body body})
@@ -146,11 +146,35 @@
                        :body body-str
                        :headers resp-headers}))
           (if on-stream
-            (with-open [rdr (io/reader body)]
-              (doseq [[event data] (llm-util/event-data-seq rdr)]
-                (llm-util/log-response logger-tag rid event data)
-                (on-stream event data))
-              (on-stream "stream-end" {}))
+            (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))]
+              (try
+                (with-open [rdr (io/reader body)]
+                  (doseq [[event data] (llm-util/event-data-seq rdr)]
+                    (set-reading-fn false)
+                    (touch-fn)
+                    (llm-util/log-response logger-tag rid event data)
+                    (on-stream event data)
+                    (set-reading-fn true))
+                  (set-reading-fn false)
+                  (on-stream "stream-end" {}))
+                (catch java.io.IOException e
+                  (let [reason @reason*]
+                    (cond
+                      (= :cancelled reason)
+                      (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                      (= :idle-timeout reason)
+                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
+                                                  (or stream-idle-timeout-seconds 120))
+                                 :exception e})
+
+                      :else
+                      (throw e))))
+                (finally
+                  (stop-fn))))
             (do
               (llm-util/log-response logger-tag rid "full-response" body)
               (response-body->result body on-tools-called-wrapper)))))
@@ -524,7 +548,7 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end reasoning-history http-client]}
+           think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
@@ -613,6 +637,8 @@
                                         :api-url api-url
                                         :api-key (or fresh-api-key api-key)
                                         :url-relative-path url-relative-path
+                                        :cancelled? cancelled?
+                                        :stream-idle-timeout-seconds stream-idle-timeout-seconds
                                         :on-error wrapped-on-error
                                         :on-stream (when stream? (fn [event data] (handle-response event data tool-calls*)))}))))
 
@@ -734,6 +760,8 @@
       :url-relative-path url-relative-path
       :tool-calls* tool-calls*
       :on-tools-called-wrapper on-tools-called-wrapper
+      :cancelled? cancelled?
+      :stream-idle-timeout-seconds stream-idle-timeout-seconds
       :on-error wrapped-on-error
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls*)))})))
