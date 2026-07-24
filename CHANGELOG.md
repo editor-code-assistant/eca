@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.150.0
+
 - Abort in-flight LLM streaming requests promptly on prompt stop for OpenAI, GitHub Copilot, Google, Ollama and custom OpenAI-compatible providers (previously only Anthropic/Bedrock), including while waiting for the first token. #554
 
 - Don't reset a chat's model when changing the agent of an already started chat; the agent's `defaultModel` now only applies to chats without an established model. editor-code-assistant/eca-emacs#282
