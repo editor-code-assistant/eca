@@ -485,7 +485,8 @@
      (h/components)
      {:chat-id "c1" :agent "plan"})
     (is (= "plan" (get-in (h/db) [:chats "c1" :agent])))
-    (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "c1" :model])))
+    (is (= "anthropic/claude-sonnet-4-5" (get-in (h/db) [:chats "c1" :model]))
+        "established model is kept when switching agent")
     (is (= "code" (get-in (h/db) [:chats "c2" :agent])))
     (is (= "anthropic/claude-sonnet-4-5" (get-in (h/db) [:chats "c2" :model]))))
 
@@ -548,6 +549,44 @@
     (is (match? {:config-updated [{:chat-id "c1"
                                    :chat {:variants ["high" "low"]
                                           :select-variant nil}}]}
+                (h/messages)))))
+
+(deftest chat-selected-agent-changed-keeps-established-model-test
+  (testing "Chat with an established :model keeps it when switching agent;
+            variants are computed for the kept model and the agent's variant
+            applies when valid for it"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :agent {"plan" {:defaultModel "anthropic/claude-sonnet-4-5" :variant "high"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :agent "code" :model "openai/gpt-4.1" :variant "low"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (= "plan" (get-in (h/db) [:chats "c1" :agent])))
+    (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "c1" :model]))
+        "started chat's model is not reset to the agent's defaultModel")
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-model "openai/gpt-4.1"
+                                          :variants ["high" "low"]
+                                          :select-variant "high"}}]}
+                (h/messages))))
+
+  (testing "Agent variant invalid for the kept model → chat's variant is preserved"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1"
+                                               {:variants {"low" {:a 1} "high" {:a 2}}}}}}
+                :agent {"plan" {:defaultModel "anthropic/claude-sonnet-4-5" :variant "max"}}})
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1" :model "openai/gpt-4.1" :variant "low"}})
+    (handlers/chat-selected-agent-changed
+     (h/components)
+     {:chat-id "c1" :agent "plan"})
+    (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "c1" :model])))
+    (is (= "low" (get-in (h/db) [:chats "c1" :variant])))
+    (is (match? {:config-updated [{:chat-id "c1"
+                                   :chat {:select-model "openai/gpt-4.1"
+                                          :variants ["high" "low"]
+                                          :select-variant "low"}}]}
                 (h/messages)))))
 
 (defn ^:private seed-chats!

@@ -423,15 +423,21 @@
   "Updates the selected model and variants based on agent configuration.
    When `chat-id` is provided AND that chat exists in the db, the change
    is persisted on that chat record and the broadcast is scoped via
-   `:chat-id`. When `chat-id` is unknown or absent, falls back to the
+   `:chat-id`. A chat with an already established `:model` (set by a
+   prompt, the /model command or chat/selectedModelChanged) keeps it:
+   switching agent never resets a started chat's model; the agent/global
+   default only applies to chats without a model yet.
+   When `chat-id` is unknown or absent, falls back to the
    session-wide path so we never broadcast per-chat state for a chat the
    server does not recognize."
   ([agent-config config messenger db*]
    (update-agent-model-and-variants! agent-config config messenger db* nil))
   ([agent-config config messenger db* chat-id]
-   (when-let [model (or (:defaultModel agent-config)
-                        (:defaultModel config))]
-     (let [variants (model-variants config @db* model)
+   (when-let [default-model (or (:defaultModel agent-config)
+                                (:defaultModel config))]
+     (let [chat-model (when chat-id (get-in @db* [:chats chat-id :model]))
+           model (or chat-model default-model)
+           variants (model-variants config @db* model)
            agent-variant (select-variant agent-config variants)
            ;; CAS: only mutate the chat record if it still exists at swap
            ;; time, avoiding TOCTOU resurrection when chat/delete races us.
@@ -447,7 +453,7 @@
            chat-existed? (and chat-id (some? (get-in old-db [:chats chat-id])))]
        (if chat-existed?
          ;; Per-chat path: prefer the new agent's configured variant when
-         ;; valid for the new model; otherwise fall back to the chat's
+         ;; valid for the kept/new model; otherwise fall back to the chat's
          ;; previously selected variant if still valid. This way switching
          ;; to an agent without a configured variant does not blow away
          ;; the user's explicit pick on that chat.
@@ -459,7 +465,12 @@
                                :variants (or variants [])
                                :select-variant selected-variant}}]
            (config/notify-fields-changed-only! payload messenger db* chat-id))
-         (let [payload {:chat {:select-model model
+         ;; Session-wide path: recompute against the default model so a
+         ;; chat deleted between the read above and the swap can't leak
+         ;; its model session-wide.
+         (let [variants (model-variants config @db* default-model)
+               agent-variant (select-variant agent-config variants)
+               payload {:chat {:select-model default-model
                                :variants (or variants [])
                                :select-variant agent-variant}}]
            (config/notify-fields-changed-only! payload messenger db*)))))))
