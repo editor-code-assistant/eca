@@ -118,6 +118,7 @@
                                      "claude-opus-4-6" {}
                                      "claude-opus-4-7" {}
                                      "claude-opus-4-8" {}
+                                     "claude-opus-5" {}
                                      "claude-fable-5" {}
                                      "claude-mythos-5" {}}}
                "github-copilot" {:api "openai-chat"
@@ -221,8 +222,8 @@
               :outputTruncation {:lines 2000 :sizeKb 50}}
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants
                                                                  :api ["anthropic" "bedrock"]}
-                     ".*opus[-._]4[-._][78]|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants
-                                                                                          :api ["anthropic" "bedrock"]}
+                     ".*opus[-._]4[-._][78]|.*opus[-._]5|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants
+                                                                                                       :api ["anthropic" "bedrock"]}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants

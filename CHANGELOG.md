@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Claude Opus 5 support.
+
 ## 0.150.0
 
 - Abort in-flight LLM streaming requests promptly on prompt stop for OpenAI, GitHub Copilot, Google, Ollama and custom OpenAI-compatible providers (previously only Anthropic/Bedrock), including while waiting for the first token. #554
