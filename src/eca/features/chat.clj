@@ -1119,6 +1119,19 @@
                                                                          (json/generate-string (:tokens msg)))})
                                                             (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
                                                             (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
+                                         :refusal (do (lifecycle/send-content!
+                                                       chat-ctx
+                                                       :system
+                                                       {:type :text
+                                                        :text (str "The model declined to generate this response (safety classifier refusal"
+                                                                   (when-let [category (:category msg)]
+                                                                     (str ", category: " category))
+                                                                   ")."
+                                                                   (when-let [explanation (:explanation msg)]
+                                                                     (str " " explanation))
+                                                                   " Try rephrasing or switching to a different model.")})
+                                                      (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+                                                      (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
                                          :finish (let [response-text @received-msgs*
                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
                                                    (when-not (string/blank? response-text)

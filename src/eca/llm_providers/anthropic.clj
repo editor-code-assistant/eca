@@ -570,6 +570,11 @@
                                                                                requested-max-tokens)})
                                                    (on-message-received {:type :limit-reached
                                                                          :tokens usage})))
+                                  "refusal" (let [stop-details (-> data :delta :stop_details)]
+                                              (reset! content-block* {})
+                                              (on-message-received {:type :refusal
+                                                                    :category (:category stop-details)
+                                                                    :explanation (:explanation stop-details)}))
                                   nil))
               "message_stop" (when-not @has-stop-reason?*
                                (if @has-content?*

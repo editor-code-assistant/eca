@@ -1,9 +1,11 @@
 (ns eca.llm-providers.anthropic-test
   (:require
+   [cheshire.core :as json]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
 (deftest base-request-test
@@ -604,3 +606,53 @@
             "dynamic appended as the trailing system message")
         (is (= "user" (:role (last (butlast (:messages body)))))
             "trailing system message follows a user turn")))))
+
+(deftest chat!-stream-refusal-test
+  (let [run-stream! (fn [message-delta-data]
+                      (let [messages* (atom [])
+                            errors* (atom [])
+                            sse (fn [event data]
+                                  (str "event: " event "\n"
+                                       "data: " (json/generate-string data) "\n\n"))
+                            stream-text (str (sse "message_start" {:type "message_start"
+                                                                   :message {:usage {:input_tokens 10}}})
+                                             (sse "message_delta" message-delta-data)
+                                             (sse "message_stop" {:type "message_stop"}))]
+                        (with-redefs [http/post (fn [_url opts]
+                                                  (is (= :stream (:as opts)))
+                                                  {:status 200
+                                                   :body (java.io.ByteArrayInputStream.
+                                                          (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
+                          (llm-providers.anthropic/chat!
+                           {:model "claude-fable-5"
+                            :api-url "http://localhost:1"
+                            :api-key "fake-key"
+                            :auth-type :auth/key
+                            :instructions {:static "STATIC" :dynamic nil}
+                            :user-messages [{:role "user" :content "hello"}]
+                            :past-messages []
+                            :cancelled? (constantly false)}
+                           {:on-message-received (fn [msg] (swap! messages* conj msg))
+                            :on-error (fn [err] (swap! errors* conj err))
+                            :on-usage-updated identity}))
+                        {:messages @messages*
+                         :errors @errors*}))]
+    (testing "refusal stop_reason emits :refusal with Anthropic's stop_details"
+      (is (match? {:messages [{:type :refusal
+                               :category "bio"
+                               :explanation "This request was declined because of safety policies."}]
+                   :errors empty?}
+                  (run-stream! {:type "message_delta"
+                                :delta {:stop_reason "refusal"
+                                        :stop_details {:type "refusal"
+                                                       :category "bio"
+                                                       :explanation "This request was declined because of safety policies."}}
+                                :usage {:output_tokens 1}}))))
+    (testing "refusal without stop_details emits :refusal with nil details"
+      (is (match? {:messages [{:type :refusal
+                               :category nil
+                               :explanation nil}]
+                   :errors empty?}
+                  (run-stream! {:type "message_delta"
+                                :delta {:stop_reason "refusal"}
+                                :usage {:output_tokens 1}}))))))

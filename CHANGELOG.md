@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix plugin-provided agents missing from the editor's agent list when model sync finishes before plugin resolution (common with providers using `fetchModels: false`): re-emit the chat config after plugins resolve.
+- Surface Anthropic `refusal` stop reason (e.g. Fable safety classifiers) as a clear chat message with Anthropic's category/explanation instead of silently ending the prompt.
 - Improve `@`/`#` completion performance: enumerate files via `git ls-files` instead of walking the whole tree, cache dir candidates and avoid re-computing sort keys.
 
 ## 0.149.1
