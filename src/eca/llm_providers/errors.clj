@@ -51,6 +51,10 @@
    #"(?i)connection refused"
    #"(?i)UnresolvedAddressException"])
 
+(def ^:private premature-stop-patterns
+  [#"(?i)stream disconnected before completion"
+   #"(?i)stream closed before response\.completed"])
+
 (def ^:private openai-transient-message-pattern
   #"(?i)an error occurred while processing your request\.\s+you can retry your request\b")
 
@@ -91,7 +95,7 @@
   [{:keys [code type message] source :error/source}]
   (when (= :openai-responses source)
     (cond
-      (some #{"server_error"} [code type])
+      (some #{"server_error" "server_is_overloaded"} [code type])
       {:error/type :overloaded}
 
       (some #{"rate_limit_exceeded"} [code type])
@@ -120,6 +124,9 @@
 
       (matches-any-pattern? message rate-limited-patterns)
       {:error/type :rate-limited}
+
+      (matches-any-pattern? message premature-stop-patterns)
+      {:error/type :premature-stop}
 
       (matches-any-pattern? message overloaded-patterns)
       {:error/type :overloaded}

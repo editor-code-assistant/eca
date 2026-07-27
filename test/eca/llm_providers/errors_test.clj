@@ -151,6 +151,13 @@
                      :type "server_error"
                      :message "Request failed")))))
 
+    (testing "structured server_is_overloaded code is overloaded"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "server_is_overloaded"
+                     :message "Our servers are currently overloaded. Please try again later.")))))
+
     (testing "structured rate_limit_exceeded code is rate limited"
       (is (= {:error/type :rate-limited}
              (llm-providers.errors/classify-error
@@ -162,6 +169,12 @@
       (is (= {:error/type :overloaded}
              (llm-providers.errors/classify-error
               (assoc responses-error :message generic-message)))))
+
+    (testing "stream closed before completion is a premature stop"
+      (is (= {:error/type :premature-stop}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :message "stream disconnected before completion: stream closed before response.completed")))))
 
     (testing "generic transient message is not applied to unmarked errors"
       (is (= {:error/type :unknown}
