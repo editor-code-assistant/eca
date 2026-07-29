@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Return exhausted provider errors and partial output from sub-agents instead of reporting successful empty results.
 - Fix OpenAI Responses SSE errors, incomplete responses, and premature stream closes so chats retry or finish instead of staying active.
 - Return task status to LLM when changing. #556
 

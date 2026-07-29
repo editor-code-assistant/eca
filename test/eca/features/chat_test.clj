@@ -165,6 +165,26 @@
               :role :system}]}
            (h/messages))))))
 
+(deftest terminal-prompt-error-test
+  (testing "records a terminal provider error after chat recovery is exhausted"
+    (h/reset-components!)
+    (let [attempts* (atom 0)
+          {:keys [chat-id]}
+          (prompt!
+           {:message "Investigate the failure"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-error]}]
+              (swap! attempts* inc)
+              (on-error {:status 503
+                         :body "{\"error\":{\"message\":\"auth_unavailable: no auth available\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+                         :message "OpenAI response status: 503 body: auth_unavailable"}))})]
+      (is (= 4 @attempts*) "one initial request plus three chat-level recovery attempts")
+      (is (match? {:message "OpenAI response status: 503 body: auth_unavailable"
+                   :error-type :overloaded
+                   :status 503}
+                  (get-in (h/db) [:chats chat-id :prompt-error]))))))
+
 (deftest prompt-multiple-text-interaction-test
   (testing "Chat history"
     (h/reset-components!)

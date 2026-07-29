@@ -47,20 +47,43 @@
 (defn ^:private max-steps [subagent]
   (:max-steps subagent))
 
+(defn ^:private extract-final-assistant-text
+  "Extracts text from the final assistant message, or nil when none exists."
+  [messages]
+  (some->> messages
+           (filter #(= "assistant" (:role %)))
+           (map :content)
+           (filter seq)
+           last
+           (filter #(= :text (:type %)))
+           (map :text)
+           (str/join "\n")
+           not-empty))
+
 (defn ^:private extract-final-summary
   "Extract the final assistant message as summary from chat messages."
   [messages]
-  (let [assistant-messages (->> messages
-                                (filter #(= "assistant" (:role %)))
-                                (map :content)
-                                (filter seq))]
-    (if (seq assistant-messages)
-      (let [last-content (last assistant-messages)]
-        (->> last-content
-             (filter #(= :text (:type %)))
-             (map :text)
-             (str/join "\n")))
-      "Agent completed without producing output.")))
+  (or (extract-final-assistant-text messages)
+      "Agent completed without producing output."))
+
+(defn ^:private failed-agent-result [agent-name prompt-error partial-output]
+  (let [{:keys [message error-type status code request-id response-id]} prompt-error]
+    {:error true
+     :contents [{:type :text
+                 :text (str "## Agent '" agent-name "' Failed\n\n"
+                            (or message "The sub-agent prompt failed.")
+                            (when error-type
+                              (str "\n\nError type: " (name error-type)))
+                            (when status
+                              (str "\nStatus: " status))
+                            (when code
+                              (str "\nCode: " code))
+                            (when request-id
+                              (str "\nRequest ID: " request-id))
+                            (when response-id
+                              (str "\nResponse ID: " response-id))
+                            (when partial-output
+                              (str "\n\n## Partial result\n\n" partial-output)))}]}))
 
 (defn ^:private ->subagent-chat-id
   "Generate a deterministic subagent chat id from the tool-call-id."
@@ -242,16 +265,32 @@
                   (#{:idle :error} status)
                   (let [messages (get-in db [:chats subagent-chat-id :messages] [])
                         summary (extract-final-summary messages)
+                        partial-output (extract-final-assistant-text messages)
+                        prompt-error (get-in db [:chats subagent-chat-id :prompt-error])
+                        failed? (boolean (or (= :error status) prompt-error))
                         max-steps-reached? (get-in db [:chats subagent-chat-id :max-steps-reached?])]
-                    (if max-steps-reached?
+                    (cond
+                      max-steps-reached?
                       (logger/info logger-tag (format "Agent '%s' halted after reaching max steps (%d)" agent-name max-steps-limit))
+
+                      failed?
+                      (logger/warn logger-tag (format "Agent '%s' failed after %d steps: %s"
+                                                      agent-name current-step (:message prompt-error)))
+
+                      :else
                       (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
                     (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
-                    (if max-steps-reached?
+                    (cond
+                      max-steps-reached?
                       {:error true
                        :contents [{:type :text
                                    :text (format "## Agent '%s' Halted\n\nAgent was halted because it reached the maximum number of steps (%d). The result below may be incomplete.\n\n%s"
                                                  agent-name max-steps-limit summary)}]}
+
+                      failed?
+                      (failed-agent-result agent-name prompt-error partial-output)
+
+                      :else
                       {:error false
                        :contents [{:type :text
                                    :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]}))

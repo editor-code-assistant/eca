@@ -39,6 +39,19 @@
    truncated responses (e.g. proxies dropping long streaming connections #547)."
   3)
 
+(defn ^:private prompt-error-data
+  "Returns serializable terminal prompt error details for chat state."
+  [{:keys [message exception status code request-id response-id rate-limit-resets-at]} error-type]
+  (assoc-some {:message (or (shared/not-blank message)
+                            (some-> exception ex-message shared/not-blank)
+                            "Unknown provider error")
+               :error-type error-type}
+              :status status
+              :code code
+              :request-id request-id
+              :response-id response-id
+              :rate-limit-resets-at rate-limit-resets-at))
+
 (defn ^:private tool-output-text [msg]
   (let [contents (get-in msg [:content :output :contents])]
     (reduce (fn [^String acc {:keys [text]}]
@@ -902,7 +915,7 @@
         (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
-      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
+      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)
@@ -1464,6 +1477,8 @@
                                                                                (update chat-ctx :auto-continue-count (fnil inc 0)))))))
                                     (do
                                       (when-not stopping?
+                                        (swap! db* assoc-in [:chats chat-id :prompt-error]
+                                               (prompt-error-data error-data error-type))
                                         (lifecycle/send-content! chat-ctx :system
                                                                  {:type :text
                                                                   :text (if (= :context-overflow error-type)
@@ -1485,6 +1500,8 @@
               (catch Exception e
                 (when-not (:silent? (ex-data e))
                   (logger/error e)
+                  (swap! db* assoc-in [:chats chat-id :prompt-error]
+                         (prompt-error-data {:exception e} :unknown))
                   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
                   (when-not (string/blank? @received-msgs*)
                     (add-to-history! {:role "assistant"
