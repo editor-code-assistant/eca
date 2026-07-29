@@ -19,7 +19,21 @@
   [_name arguments _server {:keys [db]}]
   (shell/shell-command-details "git" (get arguments "command") db))
 
-(defn ^:private git-command [arguments {:keys [db tool-call-id call-state-fn state-transition-fn]}]
+(defn ^:private heredoc-in-substitution-hint
+  "Some shells (e.g. macOS bash 3.2) fail to parse heredocs inside $(...) when
+   the body contains an unbalanced quote (it's, don't). Returns a hint telling
+   the LLM to pass the text via stdin instead."
+  [command err]
+  (when (and err
+             (string/includes? err "unexpected EOF while looking for matching")
+             (string/includes? command "$(")
+             (string/includes? command "<<"))
+    (str "Hint: this shell cannot parse heredocs inside $(...) whose body contains quotes. "
+         "Pass the text via stdin instead:\n"
+         "git commit -F - <<'EOF'\n<message>\nEOF\n"
+         "gh pr create --body-file - <<'EOF'\n<body>\nEOF")))
+
+(defn ^:private git-command [arguments {:keys [db config tool-call-id call-state-fn state-transition-fn]}]
   (let [command (get arguments "command")]
     (or (tools.util/invalid-arguments
          arguments
@@ -40,11 +54,14 @@
                                    :uri
                                    shared/uri->filename)
                            (cache/user-home))
+              {shell-path :path shell-args :args} (get-in config [:toolCall :shellCommand])
               _ (logger/debug logger-tag "Running command:" command)
               result (try
                        (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                       (shell/start-shell-process! {:cwd work-dir
-                                                                    :script command}))]
+                                       (shell/start-shell-process! (cond-> {:cwd work-dir
+                                                                            :script command}
+                                                                     shell-path (assoc :shell-path shell-path)
+                                                                     shell-args (assoc :shell-args shell-args))))]
                          (do
                            (state-transition-fn :resources-created {:resources {:process proc}})
                            (try (deref proc default-timeout ::timeout)
@@ -82,7 +99,10 @@
                                              :text (str "Stderr:\n" (string/trim (:err result)))}])
                                          (when-not (string/blank? (:out result))
                                            [{:type :text
-                                             :text (str "Stdout:\n" (string/trim (:out result)))}])))}))))))
+                                             :text (str "Stdout:\n" (string/trim (:out result)))}])
+                                         (when-let [hint (heredoc-in-substitution-hint command (:err result))]
+                                           [{:type :text
+                                             :text hint}])))}))))))
 
 (defn ^:private git-command-summary [{:keys [args]}]
   (let [operation (get args "operation")

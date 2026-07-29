@@ -1167,16 +1167,16 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Custom shell executable path. Overrides the default platform shell (bash on Linux/macOS, powershell on Windows).",
-              "markdownDescription": "Custom shell executable path. Overrides the default platform shell (`bash` on Linux/macOS, `powershell` on Windows)."
+              "description": "Custom shell executable path. Overrides the default platform shell (bash on Linux/macOS, powershell on Windows). Applies to the shell_command and git tools.",
+              "markdownDescription": "Custom shell executable path. Overrides the default platform shell (`bash` on Linux/macOS, `powershell` on Windows). Applies to the `shell_command` and `git` tools."
             },
             "args": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "Arguments passed to the shell before the script argument. E.g. [\"-l\", \"-c\"] for bash.",
-              "markdownDescription": "Arguments passed to the shell before the script argument. E.g. `[\"-l\", \"-c\"]` for bash."
+              "description": "Arguments passed to the shell before the script argument. E.g. [\"-l\", \"-c\"] for bash. Applies to the shell_command and git tools.",
+              "markdownDescription": "Arguments passed to the shell before the script argument. E.g. `[\"-l\", \"-c\"]` for bash. Applies to the `shell_command` and `git` tools."
             },
             "summaryMaxLength": {
               "type": "integer",

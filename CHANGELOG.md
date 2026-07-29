@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix git tool heredoc failures for messages with apostrophes on old shells (e.g. macOS bash 3.2); git tool now honors `toolCall.shellCommand` path/args config. #562
+
 ## 0.151.0
 
 - Return exhausted provider errors and partial output from sub-agents instead of reporting successful empty results.
