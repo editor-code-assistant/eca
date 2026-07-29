@@ -694,6 +694,56 @@
             "additionalProperties": false
           }
         },
+        "retry": {
+          "type": "object",
+          "description": "Retry count and exponential backoff policy for transient provider errors. Applies to normal chats and sub-agents.",
+          "markdownDescription": "Retry count and exponential backoff policy for transient provider errors. Applies to normal chats and sub-agents.",
+          "properties": {
+            "maxRetries": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 10,
+              "description": "Maximum retries for rate limits, overloaded providers, and custom retry rules. The initial request is not counted.",
+              "markdownDescription": "Maximum retries for rate limits, overloaded providers, and custom retry rules. The initial request is not counted."
+            },
+            "prematureStopMaxRetries": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 3,
+              "description": "Maximum retries when a stream ends before a terminal completion event. The initial request is not counted.",
+              "markdownDescription": "Maximum retries when a stream ends before a terminal completion event. The initial request is not counted."
+            },
+            "maxAutoContinues": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 3,
+              "description": "Maximum chat-level recovery prompts after partial output or after request-level retries are exhausted. Applies to normal chats and sub-agents.",
+              "markdownDescription": "Maximum chat-level recovery prompts after partial output or after request-level retries are exhausted. Applies to normal chats and sub-agents."
+            },
+            "baseDelayMs": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 2000,
+              "description": "Initial exponential backoff delay in milliseconds. ECA applies jitter from 50% up to 150% of the capped delay.",
+              "markdownDescription": "Initial exponential backoff delay in milliseconds. ECA applies jitter from 50% up to 150% of the capped delay."
+            },
+            "backoffMultiplier": {
+              "type": "number",
+              "minimum": 1,
+              "default": 2,
+              "description": "Multiplier applied to the backoff delay after each retry.",
+              "markdownDescription": "Multiplier applied to the backoff delay after each retry."
+            },
+            "maxDelayMs": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 60000,
+              "description": "Maximum exponential backoff delay before jitter, in milliseconds. Provider-supplied rate-limit reset delays use rateLimitMaxWaitSeconds instead.",
+              "markdownDescription": "Maximum exponential backoff delay before jitter, in milliseconds. Provider-supplied rate-limit reset delays use `rateLimitMaxWaitSeconds` instead."
+            }
+          },
+          "additionalProperties": false
+        },
         "rateLimitMaxWaitSeconds": {
           "type": "integer",
           "minimum": 0,

@@ -869,9 +869,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#retry-rules" class="md-nav__link">
+  <a href="#retry-policy-and-rules" class="md-nav__link">
     <span class="md-ellipsis">
-      Retry Rules
+      Retry Policy and Rules
     </span>
   </a>
   
@@ -1410,9 +1410,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#retry-rules" class="md-nav__link">
+  <a href="#retry-policy-and-rules" class="md-nav__link">
     <span class="md-ellipsis">
-      Retry Rules
+      Retry Policy and Rules
     </span>
   </a>
   
@@ -1835,7 +1835,19 @@ Copilot Pro and Pro+: <code>api.individual.githubcopilot.com</code></p>
 <tr>
 <td><code>retryRules</code></td>
 <td>array</td>
-<td>Custom retry rules that match by HTTP status and/or error pattern (see <a href="#retry-rules">Retry Rules</a>)</td>
+<td>Custom retry rules that match by HTTP status and/or error pattern (see <a href="#retry-policy-and-rules">Retry Policy and Rules</a>)</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>retry</code></td>
+<td>map</td>
+<td>Retry count and exponential backoff policy for transient errors; applies to normal chats and sub-agents</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>rateLimitMaxWaitSeconds</code></td>
+<td>integer</td>
+<td>Maximum provider-supplied rate-limit reset wait, including ECA's one-second safety buffer (default: <code>60</code>)</td>
 <td>No</td>
 </tr>
 <tr>
@@ -2067,8 +2079,51 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
 <p>Notes:
 - Authentication priority: a configured <code>key</code> (with dynamic string parse support, including <code>${env:OPENAI_API_KEY}</code>-style defaults that resolve from environment variables) takes precedence over <code>/login</code> (OAuth/subscription) auth, which in turn takes precedence over a bare <code>&lt;PROVIDER&gt;_API_KEY</code> env var. A configured/env key can therefore incur paid API usage even when you are logged in.
 - All providers with API key auth can use credential files.</p>
-<h3 id="retry-rules">Retry Rules<a class="headerlink" href="#retry-rules" title="Permanent link">#</a></h3>
-<p>ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using <code>retryRules</code> to handle additional status codes or error patterns.</p>
+<h3 id="retry-policy-and-rules">Retry Policy and Rules<a class="headerlink" href="#retry-policy-and-rules" title="Permanent link">#</a></h3>
+<p>ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529), provider overload errors, and premature stream termination. The provider-level <code>retry</code> object controls the retry budget and exponential backoff for both normal chats and sub-agents:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>maxRetries</code></td>
+<td><code>10</code></td>
+<td>Retries for rate limits, overloaded providers, and custom retry rules; excludes the initial request</td>
+</tr>
+<tr>
+<td><code>prematureStopMaxRetries</code></td>
+<td><code>3</code></td>
+<td>Retries when a stream ends before a terminal completion event; excludes the initial request</td>
+</tr>
+<tr>
+<td><code>maxAutoContinues</code></td>
+<td><code>3</code></td>
+<td>Chat-level recovery prompts after partial output or exhausted request retries; applies to normal chats and sub-agents</td>
+</tr>
+<tr>
+<td><code>baseDelayMs</code></td>
+<td><code>2000</code></td>
+<td>Initial backoff delay; ECA applies jitter from 50% to 150%</td>
+</tr>
+<tr>
+<td><code>backoffMultiplier</code></td>
+<td><code>2</code></td>
+<td>Multiplier applied after each retry</td>
+</tr>
+<tr>
+<td><code>maxDelayMs</code></td>
+<td><code>60000</code></td>
+<td>Backoff cap before jitter; provider reset waits are controlled separately by <code>rateLimitMaxWaitSeconds</code></td>
+</tr>
+</tbody>
+</table>
+<p>A value of <code>0</code> for either retry count disables request retries in that category; <code>maxAutoContinues: 0</code> disables chat-level recovery prompts. If a provider supplies an explicit rate-limit reset time, that delay takes precedence over exponential backoff and is accepted only when it does not exceed <code>rateLimitMaxWaitSeconds</code>.</p>
+<p>You can define custom retry rules per provider using <code>retryRules</code> to handle additional status codes or error patterns.</p>
 <p>Each rule can match by:</p>
 <ul>
 <li><strong><code>status</code></strong> (integer): HTTP status code to match</li>
@@ -2082,6 +2137,14 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
 <span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:MY_COMPANY_API_URL}&quot;</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:MY_COMPANY_API_KEY}&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;retry&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;maxRetries&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">15</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;prematureStopMaxRetries&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">5</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;maxAutoContinues&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">5</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;baseDelayMs&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">2000</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;backoffMultiplier&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">2</span><span class="p">,</span>
+<span class="w">        </span><span class="s2">&quot;maxDelayMs&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">60000</span>
+<span class="w">      </span><span class="p">},</span>
 <span class="w">      </span><span class="s2">&quot;retryRules&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span><span class="s2">&quot;status&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">418</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Corporate proxy throttle&quot;</span><span class="p">},</span>
 <span class="w">        </span><span class="p">{</span><span class="s2">&quot;errorPattern&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;capacity.*exceeded&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;label&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Capacity exceeded&quot;</span><span class="p">},</span>
@@ -2119,7 +2182,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 29, 2026 00:47:26 UTC">July 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 29, 2026 19:14:13 UTC">July 29, 2026</span>
   </span>
 
     
