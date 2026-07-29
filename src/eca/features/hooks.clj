@@ -236,8 +236,16 @@
                     (run-and-parse-output! {:cwd cwd :input input :script shell :timeout (:timeout action)}))
 
                 file
-                (do (logger/debug logger-tag (format "Running hook '%s' file '%s' with input '%s'" name file input))
-                    (run-and-parse-output! {:cwd cwd :input input :file (str (fs/expand-home file)) :timeout (:timeout action)}))))
+                (let [expanded (str (fs/expand-home file))
+                      resolved (if (fs/absolute? expanded)
+                                 (fs/file expanded)
+                                 (fs/file cwd expanded))]
+                  (if (fs/exists? resolved)
+                    (do (logger/debug logger-tag (format "Running hook '%s' file '%s' with input '%s'" name file input))
+                        (run-and-parse-output! {:cwd cwd :input input :file expanded :timeout (:timeout action)}))
+                    (let [msg (format "Hook file not found: '%s' (relative paths resolve against the first workspace root)" (str resolved))]
+                      (logger/warn logger-tag (format "Hook '%s': %s" name msg))
+                      {:exit 1 :raw-output nil :raw-error msg :parsed nil})))))
 
     (logger/warn logger-tag (format "Unknown hook action type '%s' for %s" (:type action) name))))
 

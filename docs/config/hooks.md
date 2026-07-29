@@ -68,7 +68,7 @@ Hooks are defined under the `hooks` key. Each hook has a `type` (the event), one
       "matcher": "eca__shell_command",
       "visible": false,
       "description": "Block dangerous shell commands",
-      "actions": [{"type": "shell", "file": "hooks/check.sh"}]
+      "actions": [{"type": "shell", "file": "~/.config/eca/hooks/check.sh"}]
     }
   }
 }
@@ -77,7 +77,7 @@ Hooks are defined under the `hooks` key. Each hook has a `type` (the event), one
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | yes | The event that triggers the hook (see [Hook index](#hook-index)). |
-| `actions` | array | yes | Actions to run. Each is `{"type": "shell", "shell": "<inline>"}` **or** `{"type": "shell", "file": "<path>"}` (exactly one of `shell`/`file`), plus optional `timeout`. |
+| `actions` | array | yes | Actions to run. Each is `{"type": "shell", "shell": "<inline>"}` **or** `{"type": "shell", "file": "<path>"}` (exactly one of `shell`/`file`), plus optional `timeout`. Relative `file` paths resolve against the **first workspace root**, not the config file's directory — use absolute paths (`~` supported) for hooks defined in the global config. |
 | `matcher` | string \| object | no | Filters when `*ToolCall`/`*Compact` hooks run (see below). |
 | `visible` | boolean | no (default `true`) | Show the hook execution block in chat. |
 | `description` | string | no | Shown by `/hooks`. |

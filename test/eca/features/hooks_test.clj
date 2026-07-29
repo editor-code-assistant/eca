@@ -225,6 +225,45 @@
       (is (nil? (:parsed @result*)))
       (is (= "plain" (:raw-output @result*))))))
 
+;;; File action resolution tests
+
+(deftest hook-file-resolution-test
+  (testing "missing hook file fails fast with resolved path, without spawning a process"
+    (h/reset-components!)
+    (h/config! {:hooks {"test" {:type "preRequest"
+                                :actions [{:type "shell" :file "hooks/definitely-not-here.sh"}]}}})
+    (let [result* (atom nil)
+          called* (atom false)]
+      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! called* true) {:exit 0 :out nil :err nil})]
+        (f.hooks/trigger-if-matches! :preRequest {:foo "1"}
+                                     {:on-after-action (set-action-payload result*)}
+                                     (h/db) (h/config)))
+      (is (false? @called*))
+      (is (match? {:exit 1
+                   :raw-error #(and (string/includes? % "Hook file not found")
+                                    (string/includes? % "definitely-not-here.sh"))}
+                  @result*))))
+
+  (testing "relative hook file resolves against first workspace root"
+    (h/reset-components!)
+    (h/config! {:hooks {"test" {:type "preRequest"
+                                :actions [{:type "shell" :file "deps.edn"}]}}})
+    (let [opts* (atom nil)]
+      (with-redefs [f.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
+        (f.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
+      (is (match? {:file "deps.edn"} @opts*))))
+
+  (testing "absolute hook file runs when it exists"
+    (h/reset-components!)
+    (fs/with-temp-dir [dir {}]
+      (let [hook-file (str (fs/create-file (fs/file dir "hook.sh")))]
+        (h/config! {:hooks {"test" {:type "preRequest"
+                                    :actions [{:type "shell" :file hook-file}]}}})
+        (let [opts* (atom nil)]
+          (with-redefs [f.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
+            (f.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
+          (is (match? {:file hook-file} @opts*)))))))
+
 ;;; New features tests
 
 (deftest tool-input-and-tool-response-test
