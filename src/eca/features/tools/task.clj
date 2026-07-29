@@ -213,9 +213,6 @@
                 true (conj (str "  description: " description))
                 (seq blocked-by) (conj (str "  blocked_by: " (str/join ", " (sort blocked-by))))))))
 
-(defn ^:private read-task-line-short [{:keys [id subject status]}]
-  (format "- #%d [%s] %s" id (name status) subject))
-
 (defn ^:private read-text [state]
   (let [tasks (:tasks state)]
     (str (when-let [summary (:active-summary state)]
@@ -247,10 +244,11 @@
       active-summary (assoc :active-summary active-summary))))
 
 (defn ^:private success [state text]
-  (assoc (tools.util/single-text-content text) :details (task-details state)))
-
-(defn ^:private format-tasks-list [tasks]
-  (str/join "\n" (map read-task-line-short tasks)))
+  (let [list-text (read-text state)
+        full-text (if (str/blank? text)
+                    list-text
+                    (str text "\n\n" list-text))]
+    (assoc (tools.util/single-text-content full-text) :details (task-details state))))
 
 (defmethod tools.util/tool-call-details-after-invocation :task
   [_name _arguments before-details result _ctx]
@@ -282,7 +280,7 @@
 
 (defn ^:private op-read [_arguments {:keys [db chat-id]}]
   (let [state (get-task db chat-id)]
-    (success state (read-text state))))
+    (success state nil)))
 
 (defn ^:private op-plan [{:strs [tasks]} {:keys [db* chat-id]}]
   (or (when-not (and (sequential? tasks) (seq tasks))
@@ -381,11 +379,8 @@
                                                          {:state (assoc state :tasks new-tasks) :task-id id})))))))))))]
     (if (:error result)
       result
-      (let [state (:state result)
-            task (find-task state (:task-id result))]
-        (success state (format "Task %d updated:\n%s"
-                               (:task-id result)
-                               (format-tasks-list [task])))))))
+      (let [state (:state result)]
+        (success state (format "Task %d updated" (:task-id result)))))))
 
 (defn ^:private set-status
   "Set status on tasks by IDs."
@@ -415,12 +410,9 @@
                                           :ids ids}))))]
         (if (:error result)
           result
-          (let [state (:state result)
-                started (filter #(contains? (set (:ids result)) (:id %)) (:tasks state))]
-            (success state
-                     (format "Started %d task(s):\n%s"
-                             (count started)
-                             (format-tasks-list started))))))))
+          (success (:state result)
+                   (format "Started task(s): %s"
+                           (str/join ", " (:ids result))))))))
 
 (defn ^:private clean-summary-if-no-in-progress [state]
   (if (empty? (filter #(= :in-progress (:status %)) (:tasks state)))
@@ -456,12 +448,9 @@
                                          (some ids (:blocked-by t))
                                          (not (active-blockers tasks-by-id (:id t))))
                                 (:id t)))
-                            (:tasks state))
-            completed (filter #(contains? ids (:id %)) (:tasks state))]
+                            (:tasks state))]
         (success state
-                 (str (format "Completed %d task(s):\n%s"
-                              (count completed)
-                              (format-tasks-list completed))
+                 (str (format "Completed task(s): %s" (str/join ", " (sort ids)))
                       (when (seq unblocked)
                         (format "\nUnblocked: %s" (str/join ", " unblocked)))))))))
 
@@ -482,9 +471,7 @@
     (if (:error result)
       result
       (success (:state result)
-               (format "Deleted %d task(s):\n%s"
-                       (count (:deleted result))
-                       (format-tasks-list (:deleted result)))))))
+               (format "Deleted task(s): %s" (str/join ", " (:ids result)))))))
 
 (defn ^:private op-clear [_arguments {:keys [db* chat-id]}]
   (let [result (mutate-task! db* chat-id (fn [_] {:state empty-task}))]
