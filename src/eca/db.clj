@@ -10,8 +10,8 @@
   (:import
    [java.io OutputStream RandomAccessFile]
    [java.nio.channels FileChannel FileLock]
-   [java.nio.file AtomicMoveNotSupportedException CopyOption Files StandardCopyOption]
-   [java.nio.file.attribute FileAttribute]
+   [java.nio.file AtomicMoveNotSupportedException CopyOption Files LinkOption StandardCopyOption]
+   [java.nio.file.attribute BasicFileAttributes FileAttribute]
    [java.util.concurrent ConcurrentHashMap]))
 
 (set! *warn-on-reflection* true)
@@ -31,6 +31,9 @@
    :providers-config-hash :string
    :last-config-notified ::any-map
    :stopping :boolean
+   ;; chat ids deleted in this session; excluded from workspace cache writes so
+   ;; the merge-on-write never resurrects them from a shared cache file.
+   :deleted-chat-ids #{:string}
    :models {"<model-name>" {:web-search :boolean
                             :tools :boolean
                             :reason? :boolean
@@ -150,6 +153,8 @@
    ;; {tool-name {:remember-to-approve? boolean
    ;;             :remembered-command-keys #{string}}}
    :tool-calls {}
+   ;; Chat ids deleted in this session (not cached), see _db-spec.
+   :deleted-chat-ids #{}
 
    ;; cacheable, bump db `version` when changing any below
    :chats {}
@@ -305,25 +310,91 @@
           {}
           chat-maps))
 
+(defn ^:private with-os-file-lock-fn
+  "Run `f` while holding both a JVM monitor for `lock-file` and an OS advisory
+   exclusive lock on it. The JVM monitor avoids `OverlappingFileLockException`
+   when two threads in the same ECA server race; the file lock serializes
+   across `eca server` processes that share the same cache dir. Blocks until
+   both are acquired."
+  [^java.io.File lock-file f]
+  ;; `file-lock` interns the lock object in `file-locks`, so it is
+  ;; not actually local to this scope; suppress the false positive.
+  #_{:clj-kondo/ignore [:locking-suspicious-lock]}
+  (locking (file-lock lock-file)
+    (io/make-parents lock-file)
+    (let [^RandomAccessFile raf (RandomAccessFile. lock-file "rw")
+          ^FileChannel channel (.getChannel raf)
+          lock-ref (volatile! nil)]
+      (try
+        (vreset! lock-ref ^FileLock (.lock channel))
+        (f)
+        (finally
+          (when-let [^FileLock lock @lock-ref]
+            (try (.release lock)
+                 (catch Throwable e
+                   (logger/warn logger-tag "Could not release cache lock" e))))
+          (try (.close channel) (catch Throwable _))
+          (try (.close raf) (catch Throwable _)))))))
+
+(defn ^:private workspace-cache-lock-file ^java.io.File [^java.io.File cache-file]
+  (io/file (str (.getPath cache-file) ".lock")))
+
+(defonce ^:private ^ConcurrentHashMap last-workspace-write-attrs (ConcurrentHashMap.))
+
+(defn ^:private cache-file-attrs
+  "Returns [last-modified-time size] for `f`, or nil when it does not exist."
+  [^java.io.File f]
+  (try
+    (when (.exists f)
+      (let [^BasicFileAttributes attrs (Files/readAttributes
+                                        (.toPath f)
+                                        BasicFileAttributes
+                                        ^"[Ljava.nio.file.LinkOption;" (into-array LinkOption []))]
+        [(.lastModifiedTime attrs) (.size attrs)]))
+    (catch Throwable _ nil)))
+
+(defn ^:private record-workspace-write-attrs!
+  "Remembers the on-disk attributes of `f` right after this process wrote it,
+   so the next write can cheaply detect whether another process wrote in
+   between (see `workspace-cache-changed-on-disk?`)."
+  [^java.io.File f]
+  (if-let [attrs (cache-file-attrs f)]
+    (.put last-workspace-write-attrs (.getAbsolutePath f) attrs)
+    (.remove last-workspace-write-attrs (.getAbsolutePath f))))
+
+(defn ^:private workspace-cache-changed-on-disk?
+  "True when `f` exists with different attributes than the last write this
+   process made to it - i.e. another process wrote it (or this process never
+   wrote it yet), so its content must be merged instead of overwritten."
+  [^java.io.File f]
+  (let [attrs (cache-file-attrs f)]
+    (boolean (and attrs (not= attrs (.get last-workspace-write-attrs (.getAbsolutePath f)))))))
+
 (defn consolidate-workspace-cache!
   "Heals chat caches that fragmented across multiple directories for the same
-   workspace set (legacy hash-only dirs, or dirs prefixed from a different folder
-   order). Merges every matching cache into the canonical dir (newest chat wins)
-   and removes the redundant dirs. Best-effort and idempotent."
+   workspace set (legacy hash-only dirs, dirs prefixed from a different folder
+   order, or per-worktree dirs from before worktree canonicalization). Merges
+   every matching cache into the canonical dir (newest chat wins) and removes
+   the redundant dirs. Best-effort and idempotent; runs under the workspace
+   cache file lock so it cannot race writes from another live server."
   [workspaces metrics]
   (try
     (let [redundant (cache/redundant-workspace-cache-files workspaces "db.transit.json" shared/uri->filename)]
       (when (seq redundant)
-        (let [canonical (transit-global-by-workspaces-db-file workspaces)
-              caches (keep #(read-cache % metrics) (cons canonical redundant))
-              merged (merge-chats (map :chats caches))]
-          (logger/info logger-tag (str "Consolidating " (count redundant) " redundant workspace cache dir(s) into " canonical))
-          (upsert-cache! {:chats merged :version version} canonical metrics)
-          (doseq [^java.io.File f redundant]
-            (try
-              (fs/delete-tree (.getParentFile f))
-              (catch Throwable e
-                (logger/warn logger-tag (str "Could not remove redundant cache dir " (.getParentFile f)) e)))))))
+        (let [canonical (transit-global-by-workspaces-db-file workspaces)]
+          (with-os-file-lock-fn
+            (workspace-cache-lock-file canonical)
+            (fn []
+              (let [caches (keep #(read-cache % metrics) (cons canonical redundant))
+                    merged (merge-chats (map :chats caches))]
+                (logger/info logger-tag (str "Consolidating " (count redundant) " redundant workspace cache dir(s) into " canonical))
+                (upsert-cache! {:chats merged :version version} canonical metrics)
+                (record-workspace-write-attrs! canonical)
+                (doseq [^java.io.File f redundant]
+                  (try
+                    (fs/delete-tree (.getParentFile f))
+                    (catch Throwable e
+                      (logger/warn logger-tag (str "Could not remove redundant cache dir " (.getParentFile f)) e))))))))))
     (catch Throwable e
       (logger/warn logger-tag "Could not consolidate workspace cache" e))))
 
@@ -363,18 +434,41 @@
 (defn ^:private normalize-db-for-global-write [db]
   (select-keys db [:auth :mcp-auth]))
 
-(defn update-workspaces-cache! [db metrics]
-  (-> (normalize-db-for-workspace-write db)
-      (assoc :version version)
-      (upsert-cache! (transit-global-by-workspaces-db-file (or (:initial-workspace-folders db)
-                                                               (:workspace-folders db))) metrics)))
+(defn update-workspaces-cache!
+  "Persists the workspace-scoped db slice (chats) to the workspace cache file.
+
+   Safe across processes: multiple ECA servers can share one cache file (e.g. a
+   repo and its worktrees, #558), so when the file changed on disk since this
+   process last wrote it, the on-disk chats are merged in (newest wins, ties
+   keep the in-memory copy) instead of blindly overwritten. Chats deleted in
+   this session (`:deleted-chat-ids`) are never resurrected by the merge. Runs
+   under a cross-process file lock; if locking fails it falls back to a plain
+   overwrite (previous behavior)."
+  [db metrics]
+  (let [dest (transit-global-by-workspaces-db-file (or (:initial-workspace-folders db)
+                                                       (:workspace-folders db)))
+        payload (-> (normalize-db-for-workspace-write db)
+                    (assoc :version version))
+        deleted-ids (not-empty (:deleted-chat-ids db))]
+    (try
+      (with-os-file-lock-fn
+        (workspace-cache-lock-file dest)
+        (fn []
+          (let [disk-chats (when (workspace-cache-changed-on-disk? dest)
+                             (:chats (read-cache dest metrics)))
+                chats (cond-> (:chats payload)
+                        (seq disk-chats) (as-> $ (merge-chats [$ disk-chats]))
+                        deleted-ids (as-> $ (apply dissoc $ deleted-ids)))]
+            (upsert-cache! (assoc payload :chats chats) dest metrics)
+            (record-workspace-write-attrs! dest))))
+      (catch Throwable e
+        (logger/warn logger-tag (str "Workspace cache lock failed, writing without merge: " (ex-message e)))
+        (upsert-cache! payload dest metrics)))))
 
 (defn update-global-cache! [db metrics]
   (-> (normalize-db-for-global-write db)
       (assoc :version version)
       (upsert-cache! (transit-global-db-file) metrics)))
-
-(def ^:private global-cache-lock-sentinel (Object.))
 
 (defn ^:private global-cache-lock-file []
   (io/file (cache/global-dir) "db.transit.json.lock"))
@@ -386,22 +480,7 @@
    race a renew; the file lock serializes across `eca server` processes
    that share `~/.cache/eca/`. Blocks until both are acquired."
   [f]
-  (locking global-cache-lock-sentinel
-    (let [^java.io.File lock-file (global-cache-lock-file)
-          _ (io/make-parents lock-file)
-          ^RandomAccessFile raf (RandomAccessFile. lock-file "rw")
-          ^FileChannel channel (.getChannel raf)
-          lock-ref (volatile! nil)]
-      (try
-        (vreset! lock-ref ^FileLock (.lock channel))
-        (f)
-        (finally
-          (when-let [^FileLock lock @lock-ref]
-            (try (.release lock)
-                 (catch Throwable e
-                   (logger/warn logger-tag "Could not release global cache lock" e))))
-          (try (.close channel) (catch Throwable _))
-          (try (.close raf) (catch Throwable _)))))))
+  (with-os-file-lock-fn (global-cache-lock-file) f))
 
 (defmacro with-global-cache-lock
   "See `with-global-cache-lock-fn`. Runs `body` while holding the lock."
@@ -438,16 +517,19 @@
   (when (pos? retention-days)
     (let [retention-ms (* retention-days 24 60 60 1000)
           cutoff (- (System/currentTimeMillis) retention-ms)
-          removed (atom 0)]
+          removed-ids* (atom #{})]
       (swap! db* update :chats
              (fn [chats]
                (into {}
-                     (filter (fn [[_id chat]]
+                     (filter (fn [[id chat]]
                                (let [created-at (:created-at chat)]
                                  (if (and created-at (< created-at cutoff))
-                                   (do (swap! removed inc) false)
+                                   (do (swap! removed-ids* conj id) false)
                                    true))))
                      chats)))
-      (when (pos? @removed)
-        (logger/info logger-tag (str "Cleaned up " @removed " chat(s) older than " retention-days " days"))
+      (when-let [removed-ids (not-empty @removed-ids*)]
+        ;; Tombstone the ids so the merge-on-write in update-workspaces-cache!
+        ;; does not resurrect them from a cache file shared with another server.
+        (swap! db* update :deleted-chat-ids (fnil into #{}) removed-ids)
+        (logger/info logger-tag (str "Cleaned up " (count removed-ids) " chat(s) older than " retention-days " days"))
         (update-workspaces-cache! @db* metrics)))))

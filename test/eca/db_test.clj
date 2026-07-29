@@ -33,7 +33,9 @@
       (is (some? (get-in @db* [:chats "recent-chat"]))
           "Chat newer than 14 days should be kept")
       (is (some? (get-in @db* [:chats "no-timestamp"]))
-          "Chat without created-at should be kept"))))
+          "Chat without created-at should be kept")
+      (is (= #{"old-chat"} (:deleted-chat-ids @db*))
+          "Removed chat ids are tombstoned so cache merges cannot resurrect them"))))
 
 (deftest cleanup-old-chats-no-op-test
   (let [now (System/currentTimeMillis)
@@ -299,4 +301,79 @@
               (is (= #{"a" "b"} (set (keys merged))) "all chats end up in the canonical dir")
               (is (= "new-a" (get-in merged ["a" :title])) "newest :updated-at wins on conflict")
               (is (not (fs/exists? hash-only-dir)) "redundant dir is removed")))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest update-workspaces-cache!-merges-peer-writes-test
+  (testing "a write over a file another process changed merges chats instead of clobbering"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [workspaces [{:uri "file:///home/user/merge-peer"}]
+                dest (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)
+                upsert! @#'db/upsert-cache!
+                db-a {:workspace-folders workspaces
+                      :chats {"a" {:id "a" :updated-at 100 :title "mem-a"
+                                   :messages [{:role "user" :content "hi"}]}}}]
+            ;; this process saves, then a peer process writes a newer "a" and a new "b"
+            (db/update-workspaces-cache! db-a nil)
+            (upsert! {:version db/version
+                      :chats {"a" {:id "a" :updated-at 200 :title "peer-a"}
+                              "b" {:id "b" :updated-at 150 :title "peer-b"}}}
+                     dest nil)
+            (db/update-workspaces-cache! db-a nil)
+            (let [chats (:chats (read-transit-file dest))]
+              (is (= #{"a" "b"} (set (keys chats))) "peer's chat is not clobbered")
+              (is (= "peer-a" (get-in chats ["a" :title])) "peer's strictly newer copy wins")))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest update-workspaces-cache!-tie-keeps-memory-test
+  (testing "on equal recency the in-memory copy wins, so mid-prompt mutations are never dropped"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [workspaces [{:uri "file:///home/user/merge-tie"}]
+                dest (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)
+                upsert! @#'db/upsert-cache!
+                db-a {:workspace-folders workspaces
+                      :chats {"a" {:id "a" :updated-at 100 :title "mem-a"}}}]
+            (db/update-workspaces-cache! db-a nil)
+            (upsert! {:version db/version
+                      :chats {"a" {:id "a" :updated-at 100 :title "stale-peer-a"}}}
+                     dest nil)
+            (db/update-workspaces-cache! db-a nil)
+            (is (= "mem-a" (get-in (read-transit-file dest) [:chats "a" :title]))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest update-workspaces-cache!-first-save-merges-existing-file-test
+  (testing "the first save of a session merges chats a peer wrote since this process loaded"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [workspaces [{:uri "file:///home/user/merge-first-save"}]
+                dest (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)
+                upsert! @#'db/upsert-cache!]
+            (upsert! {:version db/version :chats {"b" {:id "b" :updated-at 50 :title "peer-b"}}} dest nil)
+            (db/update-workspaces-cache! {:workspace-folders workspaces
+                                          :chats {"a" {:id "a" :updated-at 100 :title "mem-a"}}}
+                                         nil)
+            (is (= #{"a" "b"} (set (keys (:chats (read-transit-file dest)))))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest update-workspaces-cache!-does-not-resurrect-deleted-chats-test
+  (testing "chats deleted in this session are excluded from the merge with the on-disk copy"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [workspaces [{:uri "file:///home/user/merge-tombstone"}]
+                dest (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)
+                upsert! @#'db/upsert-cache!]
+            (upsert! {:version db/version :chats {"a" {:id "a" :updated-at 100 :title "deleted-elsewhere"}
+                                                  "b" {:id "b" :updated-at 50 :title "b"}}}
+                     dest nil)
+            (db/update-workspaces-cache! {:workspace-folders workspaces
+                                          :chats {"b" {:id "b" :updated-at 50 :title "b"}}
+                                          :deleted-chat-ids #{"a"}}
+                                         nil)
+            (is (= #{"b"} (set (keys (:chats (read-transit-file dest)))))
+                "the deleted chat is not resurrected from disk"))
           (finally (fs/delete-tree tmpdir)))))))

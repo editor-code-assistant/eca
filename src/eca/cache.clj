@@ -40,25 +40,85 @@
                        (io/file (user-home) ".cache"))]
     (io/file cache-home "eca")))
 
-(defn ^:private sorted-workspace-paths
-  "Absolute workspace paths, de-duplicated and sorted, so the result is stable
-   regardless of the order the editor reports its workspace folders."
+(defn ^:private linked-worktree-root*
+  "When `path` is the root of a *linked* git worktree, returns the repository's
+   main worktree root as a string; otherwise nil.
+
+   Resolved from the filesystem alone (no `git` subprocess, no PATH dependency
+   in the native image): a linked worktree has a `.git` *file* containing a
+   `gitdir:` pointer to `<main>/.git/worktrees/<name>`, whose `commondir` file
+   points back to the shared `.git` directory; the main worktree root is that
+   directory's parent. Anything else (normal clone, bare repo, submodule
+   `.git` file, broken layout) yields nil."
+  [^String path]
+  (try
+    (let [dot-git (fs/file path ".git")]
+      (when (fs/regular-file? dot-git)
+        (when-let [gitdir-str (some #(second (re-find #"^gitdir:\s*(.+?)\s*$" %))
+                                    (fs/read-all-lines dot-git))]
+          (let [gitdir (fs/normalize (if (fs/relative? (fs/path gitdir-str))
+                                       (fs/absolutize (fs/path path gitdir-str))
+                                       (fs/path gitdir-str)))
+                commondir-file (fs/file (str gitdir) "commondir")]
+            (when (fs/regular-file? commondir-file)
+              (when-let [common-str (some->> (fs/read-all-lines commondir-file)
+                                             (remove string/blank?)
+                                             (first)
+                                             (string/trim))]
+                (let [common (fs/normalize (if (fs/relative? (fs/path common-str))
+                                             (fs/absolutize (fs/path gitdir common-str))
+                                             (fs/path common-str)))]
+                  (when (and (= ".git" (fs/file-name common))
+                             (fs/directory? common))
+                    (some-> (fs/parent common) str)))))))))
+    (catch Throwable _ nil)))
+
+(def ^:private linked-worktree-root
+  "Memoized `linked-worktree-root*`: resolved on nearly every chat mutation via
+   `eca.db/update-workspaces-cache!`, and a worktree's gitdir pointer does not
+   change during a server's lifetime."
+  (memoize linked-worktree-root*))
+
+(defn ^:private canonicalize-workspace-path
+  "Canonical identity path for a workspace folder: linked git worktrees map to
+   their repository's main worktree root so chat history is shared across all
+   worktrees of a repo (#558). Anything else returns unchanged, keeping
+   existing cache keys byte-identical."
+  [path]
+  (or (linked-worktree-root path) path))
+
+(defn ^:private raw-workspace-paths
+  "Absolute workspace paths as reported by the editor, without worktree
+   canonicalization."
   [workspaces uri->filename-fn]
-  (->> workspaces
-       (map #(str (fs/absolutize (fs/file (uri->filename-fn (:uri %))))))
+  (map #(str (fs/absolutize (fs/file (uri->filename-fn (:uri %))))) workspaces))
+
+(defn ^:private sorted-workspace-paths
+  "Absolute canonical workspace paths, de-duplicated and sorted, so the result
+   is stable regardless of the order the editor reports its workspace folders."
+  [workspaces uri->filename-fn]
+  (->> (raw-workspace-paths workspaces uri->filename-fn)
+       (map canonicalize-workspace-path)
        (distinct)
        (sort)))
 
-(defn workspaces-hash
-  "Returns an 8-char base64 (URL-safe, no padding) hash key for the given workspace set.
-   Order-independent: the same set of folders always yields the same hash."
-  [workspaces uri->filename-fn]
-  (let [joined (string/join ":" (sorted-workspace-paths workspaces uri->filename-fn))
+(defn ^:private paths-hash
+  "8-char base64 (URL-safe, no padding) hash key for a seq of paths."
+  [paths]
+  (let [joined (string/join ":" paths)
         digest-bytes (digest/sha-256-bytes joined)
         encoder (-> (java.util.Base64/getUrlEncoder)
                     (.withoutPadding))
         key (.encodeToString encoder digest-bytes)]
     (subs key 0 (min 8 (count key)))))
+
+(defn workspaces-hash
+  "Returns an 8-char base64 (URL-safe, no padding) hash key for the given workspace set.
+   Order-independent: the same set of folders always yields the same hash.
+   Linked git worktrees are canonicalized to their main worktree root, so every
+   worktree of a repository shares the same hash as the repository itself."
+  [workspaces uri->filename-fn]
+  (paths-hash (sorted-workspace-paths workspaces uri->filename-fn)))
 
 (def ^:private logger-tag "[CACHE]")
 
@@ -93,18 +153,24 @@
 (defn redundant-workspace-cache-files
   "Returns the cache files named `filename` that live in directories belonging to
    the same workspace set as the canonical dir but under a different name - i.e.
-   legacy hash-only dirs, or dirs prefixed from a different folder order. The
-   canonical dir is excluded. Used to heal fragmented chat caches."
+   legacy hash-only dirs, dirs prefixed from a different folder order, or dirs
+   keyed by the pre-worktree-canonicalization hash (chats saved when a linked
+   worktree was its own history bucket). The canonical dir is excluded. Used to
+   heal fragmented chat caches."
   [workspaces filename uri->filename-fn]
-  (let [hash (workspaces-hash workspaces uri->filename-fn)
+  (let [canonical-hash (workspaces-hash workspaces uri->filename-fn)
+        raw-hash (paths-hash (sort (distinct (raw-workspace-paths workspaces uri->filename-fn))))
+        hashes (cond-> #{canonical-hash}
+                 (not= raw-hash canonical-hash) (conj raw-hash))
         canonical-dir-name (workspace-dir-name workspaces uri->filename-fn)
         base (global-dir)]
     (if (fs/exists? base)
       (->> (fs/list-dir base)
            (filter fs/directory?)
            (map #(str (fs/file-name %)))
-           (filter (fn [n] (or (= n hash)
-                               (string/ends-with? n (str "_" hash)))))
+           (filter (fn [n] (some (fn [h] (or (= n h)
+                                             (string/ends-with? n (str "_" h))))
+                                 hashes)))
            (remove #(= % canonical-dir-name))
            (map #(io/file base % filename))
            (filter fs/exists?)

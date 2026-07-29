@@ -2069,8 +2069,12 @@
                                        {}
                                        db
                                        config)))
-      ;; Delete chat from memory
-      (swap! db* update :chats dissoc chat-id)
+      ;; Delete chat from memory; tombstone the id so the cache merge-on-write
+      ;; never resurrects it from a cache file shared with another live server.
+      (swap! db* (fn [db]
+                   (-> db
+                       (update :chats dissoc chat-id)
+                       (update :deleted-chat-ids (fnil conj #{}) chat-id))))
       (messenger/chat-deleted messenger {:chat-id chat-id})
       ;; Save updated cache (without this chat)
       (db/update-workspaces-cache! @db* metrics))))

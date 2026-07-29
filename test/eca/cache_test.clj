@@ -97,6 +97,71 @@
       (is (= (cache/workspaces-hash [a b] identity)
              (cache/workspaces-hash [b a] identity))))))
 
+(defn ^:private setup-worktree!
+  "Creates `<base>/repo` as a main checkout and a linked worktree at `wt-path`
+   whose `.git` file contains `gitdir: <gitdir-str>`. Returns the repo path."
+  [base wt-name gitdir-str commondir-str]
+  (let [repo (fs/file base "repo")
+        wt-gitdir (fs/file repo ".git" "worktrees" wt-name)]
+    (fs/create-dirs wt-gitdir)
+    (spit (fs/file wt-gitdir "commondir") (str commondir-str "\n"))
+    (spit (fs/file base wt-name ".git") (str "gitdir: " gitdir-str "\n"))
+    (str repo)))
+
+(deftest workspaces-hash-worktree-canonicalization-test
+  (let [tmp (fs/create-temp-dir {:prefix "eca-worktree-test"})]
+    (try
+      (testing "a linked worktree hashes like its repository's main checkout"
+        (let [wt (str (fs/file tmp "wt1"))
+              _ (fs/create-dirs wt)
+              repo (setup-worktree! tmp "wt1" (str (fs/file tmp "repo" ".git" "worktrees" "wt1")) "../..")]
+          (is (= (cache/workspaces-hash [{:uri repo}] identity)
+                 (cache/workspaces-hash [{:uri wt}] identity)))
+          (testing "and shares the main checkout's cache dir name"
+            (is (= (#'cache/workspace-dir-name [{:uri repo}] identity)
+                   (#'cache/workspace-dir-name [{:uri wt}] identity))))))
+      (testing "relative gitdir and absolute commondir pointers also resolve"
+        (let [base (fs/file tmp "rel")
+              wt (str (fs/file base "wt2"))
+              _ (fs/create-dirs wt)
+              repo (setup-worktree! base "wt2"
+                                    "../repo/.git/worktrees/wt2"
+                                    (str (fs/file base "repo" ".git")))]
+          (is (= (cache/workspaces-hash [{:uri repo}] identity)
+                 (cache/workspaces-hash [{:uri wt}] identity)))))
+      (finally
+        (fs/delete-tree tmp)))))
+
+(deftest workspaces-hash-worktree-no-canonicalization-test
+  (let [tmp (fs/create-temp-dir {:prefix "eca-worktree-neg-test"})
+        raw-hash (fn [path] (#'cache/paths-hash [path]))]
+    (try
+      (testing "a normal checkout (.git directory) keeps its own hash"
+        (let [repo (str (fs/file tmp "normal"))]
+          (fs/create-dirs (fs/file repo ".git"))
+          (is (= (raw-hash repo) (cache/workspaces-hash [{:uri repo}] identity)))))
+      (testing "a worktree of a bare repo keeps its own hash (common dir is not named .git)"
+        (let [bare-gitdir (fs/file tmp "bare.git" "worktrees" "wt")
+              wt (str (fs/file tmp "bare-wt"))]
+          (fs/create-dirs bare-gitdir)
+          (fs/create-dirs wt)
+          (spit (fs/file bare-gitdir "commondir") "../..\n")
+          (spit (fs/file wt ".git") (str "gitdir: " bare-gitdir "\n"))
+          (is (= (raw-hash wt) (cache/workspaces-hash [{:uri wt}] identity)))))
+      (testing "a submodule checkout keeps its own hash (no commondir file)"
+        (let [module-gitdir (fs/file tmp "parent" ".git" "modules" "sub")
+              sub (str (fs/file tmp "parent" "sub"))]
+          (fs/create-dirs module-gitdir)
+          (fs/create-dirs sub)
+          (spit (fs/file sub ".git") "gitdir: ../.git/modules/sub\n")
+          (is (= (raw-hash sub) (cache/workspaces-hash [{:uri sub}] identity)))))
+      (testing "a dir without .git keeps its own hash"
+        (let [plain (str (fs/file tmp "plain"))]
+          (fs/create-dirs plain)
+          (is (= (raw-hash plain) (cache/workspaces-hash [{:uri plain}] identity)))))
+      (finally
+        (fs/delete-tree tmp)))))
+
 (deftest workspace-cache-file-stable-test
   (testing "resolves to the same canonical file regardless of folder order"
     (with-temp-cache-dir
@@ -124,6 +189,31 @@
           (is (contains? redundant (str hash-only-file)))
           (is (contains? redundant (str other-prefixed-file)))
           (is (not (contains? redundant (str canonical)))))))))
+
+(deftest redundant-workspace-cache-files-worktree-migration-test
+  (testing "a worktree's pre-canonicalization cache dir is redundant for the repo-level cache"
+    (with-temp-cache-dir
+      (let [tmp (fs/create-temp-dir {:prefix "eca-worktree-migration-test"})]
+        (try
+          (let [wt (str (fs/file tmp "wt1"))
+                _ (fs/create-dirs wt)
+                repo (setup-worktree! tmp "wt1" (str (fs/file tmp "repo" ".git" "worktrees" "wt1")) "../..")
+                workspaces [{:uri wt}]
+                raw-hash (#'cache/paths-hash [wt])
+                base (cache/global-dir)
+                ;; chats saved before canonicalization, when the worktree was its own bucket
+                legacy-file (io/file base (str "wt1_" raw-hash) "db.transit.json")
+                canonical (cache/workspace-cache-file workspaces "db.transit.json" identity)]
+            (fs/create-dirs (.getParentFile legacy-file))
+            (spit legacy-file "legacy worktree chats")
+            (is (= (str (cache/workspace-cache-file [{:uri repo}] "db.transit.json" identity))
+                   (str canonical))
+                "worktree resolves to the repo-level cache file")
+            (is (= [(str legacy-file)]
+                   (map str (cache/redundant-workspace-cache-files workspaces "db.transit.json" identity)))
+                "the old worktree bucket is folded into the repo-level cache"))
+          (finally
+            (fs/delete-tree tmp)))))))
 
 (deftest first-valid-home-test
   (let [first-valid-home #'cache/first-valid-home]

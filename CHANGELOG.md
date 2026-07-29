@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Share chat history across git worktrees of the same repo, and merge workspace cache writes from concurrent servers instead of overwriting. #558
+
 ## 0.151.1
 
 - Fix git tool heredoc failures for messages with apostrophes on old shells (e.g. macOS bash 3.2); git tool now honors `toolCall.shellCommand` path/args config. #562
