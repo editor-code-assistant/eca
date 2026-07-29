@@ -37,20 +37,44 @@
 (def ^:private default-max-retries 10)
 (def ^:private premature-stop-max-retries 3)
 (def ^:private default-base-delay-ms 2000)
-(def ^:private default-backoff-multiplier 2)
+(def ^:private default-backoff-multiplier 2.0)
 (def ^:private max-delay-ms 60000)
 (def ^:private default-rate-limit-max-wait-seconds 60)
 (def ^:private rate-limit-wait-buffer-ms 1000)
 (def ^:private cancel-check-interval-ms 100)
 
+(defn ^:private non-negative-long [value default]
+  (if (and (number? value) (not (neg? value)))
+    (long value)
+    default))
+
+(defn ^:private retry-policy [provider-config error-type]
+  (let [retry-config (:retry provider-config)]
+    {:max-retries (non-negative-long
+                   (if (= :premature-stop error-type)
+                     (:prematureStopMaxRetries retry-config)
+                     (:maxRetries retry-config))
+                   (if (= :premature-stop error-type)
+                     premature-stop-max-retries
+                     default-max-retries))
+     :base-delay-ms (non-negative-long (:baseDelayMs retry-config) default-base-delay-ms)
+     :backoff-multiplier (if (and (number? (:backoffMultiplier retry-config))
+                                  (>= (:backoffMultiplier retry-config) 1))
+                           (double (:backoffMultiplier retry-config))
+                           default-backoff-multiplier)
+     :max-delay-ms (non-negative-long (:maxDelayMs retry-config) max-delay-ms)}))
+
 (defn ^:private retry-delay-ms
-  "Computes exponential backoff delay with jitter for the given attempt (0-based).
-   Capped at `max-delay-ms` to avoid excessively long waits."
-  [attempt]
-  (let [base (long (* default-base-delay-ms (Math/pow default-backoff-multiplier (long attempt))))
-        capped (min base max-delay-ms)
-        jitter (long (* capped (rand)))]
-    (+ (quot capped 2) jitter)))
+  "Computes exponential backoff delay with jitter for the given attempt (0-based)."
+  ([attempt]
+   (retry-delay-ms attempt {:base-delay-ms default-base-delay-ms
+                            :backoff-multiplier default-backoff-multiplier
+                            :max-delay-ms max-delay-ms}))
+  ([attempt {:keys [base-delay-ms backoff-multiplier max-delay-ms]}]
+   (let [base (long (* base-delay-ms (Math/pow backoff-multiplier (long attempt))))
+         capped (min base max-delay-ms)
+         jitter (long (* capped (rand)))]
+     (+ (quot capped 2) jitter))))
 
 (defn ^:private sleep-with-cancel
   "Sleeps for `duration-ms`, checking `cancelled-fn?` every 100ms.
@@ -520,9 +544,8 @@
         maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
-                            max-retries (if (= :premature-stop error-type)
-                                          premature-stop-max-retries
-                                          default-max-retries)
+                            policy (retry-policy provider-config error-type)
+                            max-retries (:max-retries policy)
                             rl-wait (when (= :rate-limited error-type)
                                       (llm-providers.errors/rate-limit-wait (:headers error-data)
                                                                             (:body error-data)
@@ -542,7 +565,7 @@
                                  (not @first-response-received*)
                                  (not (cancelled?)))
                           (let [delay-ms (or rate-limit-delay-ms
-                                             (retry-delay-ms attempt))]
+                                             (retry-delay-ms attempt policy))]
                             (logger/info logger-tag
                                          (format "Retryable error (attempt %d/%d), retrying in %ds%s"
                                                  (inc attempt) max-retries (quot delay-ms 1000)
@@ -555,6 +578,7 @@
                                            :max-retries max-retries
                                            :delay-ms delay-ms
                                            :resets-at (:resets-at rl-wait)
+                                           :policy policy
                                            :error-data error-data
                                            :classified classified})
                                 (catch Exception e

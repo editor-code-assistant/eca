@@ -34,10 +34,13 @@
 
 (def ^:private logger-tag "[CHAT]")
 
-(def ^:private max-auto-continues
-  "Max times a single prompt chain is auto-continued after interrupted or
-   truncated responses (e.g. proxies dropping long streaming connections #547)."
-  3)
+(def ^:private default-max-auto-continues 3)
+
+(defn ^:private provider-max-auto-continues [config provider]
+  (let [configured (get-in config [:providers provider :retry :maxAutoContinues])]
+    (if (and (integer? configured) (not (neg? configured)))
+      (long configured)
+      default-max-auto-continues)))
 
 (defn ^:private prompt-error-data
   "Returns serializable terminal prompt error details for chat state."
@@ -935,6 +938,7 @@
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
             all-tools (f.tools/all-tools chat-id agent @db* config)
+            auto-continue-limit (provider-max-auto-continues config provider)
             received-msgs* (atom "")
             reasonings* (atom {})
             server-tool-times* (atom {})
@@ -1154,7 +1158,7 @@
                                                             (not (string/blank? response-text))
                                                             (or (:premature? msg)
                                                                 (truncated-response? response-text))
-                                                            (< (:auto-continue-count chat-ctx 0) max-auto-continues)
+                                                            (< (:auto-continue-count chat-ctx 0) auto-continue-limit)
                                                             (not (or (:on-finished-side-effect chat-ctx)
                                                                      (:on-after-finish! chat-ctx))))
                                                      (do
@@ -1443,10 +1447,24 @@
                                 (let [partial-text @received-msgs*
                                       transient-error? (contains? #{:overloaded :premature-stop} error-type)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
+                                      user-messages-recorded? (boolean
+                                                               (when-let [user-content-id (:user-content-id chat-ctx)]
+                                                                 (some #(= user-content-id (:content-id %))
+                                                                       (get-in @db* [:chats chat-id :messages]))))
+                                      continue-existing-response? (or (not (string/blank? partial-text))
+                                                                      user-messages-recorded?)
+                                      retry-messages (if continue-existing-response?
+                                                       [{:role "user"
+                                                         :content [{:type :text
+                                                                    :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                                       user-messages)
+                                      retry-source-type (if continue-existing-response?
+                                                          :auto-continue
+                                                          :transient-error-retry)
                                       can-auto-continue? (and (not stopping?)
                                                               (or transient-error?
                                                                   (string/includes? (or message "") "idle timeout"))
-                                                              (< (:auto-continue-count chat-ctx 0) max-auto-continues)
+                                                              (< (:auto-continue-count chat-ctx 0) auto-continue-limit)
                                                               (not (or (:on-finished-side-effect chat-ctx)
                                                                        (:on-after-finish! chat-ctx)))
                                                               (not compacting?))]
@@ -1460,7 +1478,12 @@
                                       (logger/info logger-tag "Transient error during response, auto-continuing"
                                                    {:chat-id chat-id :error-type error-type})
                                       (lifecycle/send-content! chat-ctx :system
-                                                               {:type :progress :state :running :text (str (or message "Connection interrupted") ", continuing...")})
+                                                               {:type :progress
+                                                                :state :running
+                                                                :text (str (or message "Connection interrupted")
+                                                                           (if continue-existing-response?
+                                                                             ", continuing..."
+                                                                             ", retrying original request..."))})
                                       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                       (lifecycle/finish-chat-prompt! :idle
                                                                      (assoc chat-ctx
@@ -1470,10 +1493,8 @@
                                                                             :on-after-finish!
                                                                             (fn []
                                                                               (prompt-messages!
-                                                                               [{:role "user"
-                                                                                 :content [{:type :text
-                                                                                            :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
-                                                                               :auto-continue
+                                                                               retry-messages
+                                                                               retry-source-type
                                                                                (update chat-ctx :auto-continue-count (fnil inc 0)))))))
                                     (do
                                       (when-not stopping?

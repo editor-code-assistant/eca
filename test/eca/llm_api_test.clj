@@ -589,7 +589,50 @@
   (testing "capped at max-delay-ms for high attempts"
     (dotimes [_ 50]
       (let [d9 (#'llm-api/retry-delay-ms 9)]
-        (is (<= 30000 d9 90000) "attempt 9: capped at 60s base")))))
+        (is (<= 30000 d9 90000) "attempt 9: capped at 60s base"))))
+
+  (testing "uses configured base, multiplier, and cap"
+    (with-redefs [clojure.core/rand (constantly 0)]
+      (let [policy {:base-delay-ms 100
+                    :backoff-multiplier 3.0
+                    :max-delay-ms 250}]
+        (is (= 50 (#'llm-api/retry-delay-ms 0 policy)))
+        (is (= 125 (#'llm-api/retry-delay-ms 1 policy)))
+        (is (= 125 (#'llm-api/retry-delay-ms 2 policy)))))))
+
+(deftest retry-policy-test
+  (testing "defaults preserve existing retry behavior"
+    (is (= {:max-retries 10
+            :base-delay-ms 2000
+            :backoff-multiplier 2.0
+            :max-delay-ms 60000}
+           (#'llm-api/retry-policy {} :overloaded)))
+    (is (= 3 (:max-retries (#'llm-api/retry-policy {} :premature-stop)))))
+
+  (testing "provider retry configuration overrides the defaults"
+    (let [provider-config {:retry {:maxRetries 6
+                                   :prematureStopMaxRetries 4
+                                   :baseDelayMs 500
+                                   :backoffMultiplier 1.5
+                                   :maxDelayMs 10000}}]
+      (is (= {:max-retries 6
+              :base-delay-ms 500
+              :backoff-multiplier 1.5
+              :max-delay-ms 10000}
+             (#'llm-api/retry-policy provider-config :overloaded)))
+      (is (= 4 (:max-retries (#'llm-api/retry-policy provider-config :premature-stop))))))
+
+  (testing "invalid values fall back to safe defaults"
+    (let [policy (#'llm-api/retry-policy
+                  {:retry {:maxRetries -1
+                           :baseDelayMs -2
+                           :backoffMultiplier 0
+                           :maxDelayMs -3}}
+                  :overloaded)]
+      (is (= 10 (:max-retries policy)))
+      (is (= 2000 (:base-delay-ms policy)))
+      (is (= 2.0 (:backoff-multiplier policy)))
+      (is (= 60000 (:max-delay-ms policy))))))
 
 (deftest sleep-with-cancel-test
   (testing "completes when not cancelled"
@@ -912,6 +955,45 @@
            :on-message-received identity})))
       (is (= 4 @attempt*) "1 initial + 3 retries")
       (is (true? @on-error-called*)))))
+
+(deftest configured-retry-policy-test
+  (testing "uses configured retry count and backoff for a 503 auth_unavailable response"
+    (let [attempt* (atom 0)
+          delays* (atom [])
+          retry-events* (atom [])
+          final-error* (atom nil)
+          error {:status 503
+                 :body "{\"error\":{\"message\":\"auth_unavailable: no auth available (providers=codex, model=gpt-5.6-sol)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+                 :message "OpenAI response status: 503 body: auth_unavailable"}]
+      (with-redefs [eca.llm-api/prompt! (fn [_]
+                                          (swap! attempt* inc)
+                                          {:error error})
+                    clojure.core/rand (constantly 0)
+                    eca.llm-api/sleep-with-cancel (fn [delay-ms _]
+                                                    (swap! delays* conj delay-ms)
+                                                    true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :config {:providers {"anthropic" {:key "test-key"
+                                               :url "http://test"
+                                               :retry {:maxRetries 2
+                                                       :baseDelayMs 100
+                                                       :backoffMultiplier 3
+                                                       :maxDelayMs 250}
+                                               :models {"claude-sonnet-4-6" {:extraPayload {:stream false}}}}}}
+           :on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error #(reset! final-error* %)
+           :on-message-received identity})))
+      (is (= 3 @attempt*) "one initial request plus two configured retries")
+      (is (= [50 125] @delays*))
+      (is (= 2 (count @retry-events*)))
+      (is (= {:max-retries 2
+              :base-delay-ms 100
+              :backoff-multiplier 3.0
+              :max-delay-ms 250}
+             (:policy (first @retry-events*))))
+      (is (= error @final-error*)))))
 
 (deftest sync-retry-cancelled-test
   (testing "stops retrying when cancelled"
