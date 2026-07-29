@@ -1066,8 +1066,8 @@
         },
         "file": {
           "type": "string",
-          "description": "Path to a shell script file to execute.",
-          "markdownDescription": "Path to a shell script file to execute."
+          "description": "Path to a shell script file to execute. Relative paths resolve against the first workspace root; ~ is supported.",
+          "markdownDescription": "Path to a shell script file to execute. Relative paths resolve against the first workspace root; `~` is supported."
         },
         "timeout": {
           "type": "integer",
