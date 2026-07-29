@@ -484,6 +484,113 @@
       (is (true? (:silent? (ex-data (:exception (first @errors*))))))
       (is (empty? @messages*)))))
 
+(deftest create-response-error-event-test
+  (testing "generic SSE error terminates the stream and invokes error handling"
+    (let [response-headers {"X-Request-ID" ["req_overloaded"]}
+          expected-error {:code "server_is_overloaded"
+                          :message "Our servers are currently overloaded. Please try again later."
+                          :sequence_number 0
+                          :error/source :openai-responses
+                          :request-id "req_overloaded"
+                          :headers response-headers}
+          closed?* (atom false)
+          closed-at-error?* (atom false)
+          errors* (atom [])
+          messages* (atom [])
+          stream-text (str "event: error\n"
+                           "data: {\"type\":\"error\",\"code\":\"server_is_overloaded\",\"message\":\"Our servers are currently overloaded. Please try again later.\",\"sequence_number\":0}\n\n"
+                           "event: response.completed\n"
+                           "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+          stream-body (proxy [java.io.ByteArrayInputStream]
+                              [(.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8)]
+                        (close []
+                          (reset! closed?* true)
+                          (proxy-super close)))]
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :stream (:as opts)))
+                                {:status 200
+                                 :headers response-headers
+                                 :body stream-body})]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-error (fn [error]
+                       (reset! closed-at-error?* @closed?*)
+                       (swap! errors* conj error))
+           :on-message-received (fn [message] (swap! messages* conj message))})))
+      (is (= [expected-error] @errors*))
+      (is (true? @closed-at-error?*)
+          "retry/error handling must start only after the errored stream is closed")
+      (is (empty? @messages*)
+          "events after error must not emit a finish message"))))
+
+(deftest create-response-incomplete-event-test
+  (testing "response.incomplete terminates the stream and invokes error handling"
+    (let [response-headers {"X-Request-ID" ["req_incomplete"]}
+          expected-error {:message "OpenAI response incomplete: max_output_tokens"
+                          :error/type :premature-stop
+                          :error/source :openai-responses
+                          :headers response-headers
+                          :response-id "resp_incomplete"
+                          :request-id "req_incomplete"
+                          :incomplete-reason "max_output_tokens"}
+          errors* (atom [])
+          messages* (atom [])
+          stream-text (str "event: response.incomplete\n"
+                           "data: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"resp_incomplete\",\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n"
+                           "event: response.completed\n"
+                           "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")]
+      (with-redefs [http/post (fn [_url _opts]
+                                {:status 200
+                                 :headers response-headers
+                                 :body (java.io.ByteArrayInputStream.
+                                        (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-error (fn [error] (swap! errors* conj error))
+           :on-message-received (fn [message] (swap! messages* conj message))})))
+      (is (= [expected-error] @errors*))
+      (is (empty? @messages*)
+          "events after response.incomplete must not emit a finish message"))))
+
+(deftest create-response-premature-eof-test
+  (testing "EOF before a terminal response event invokes error handling"
+    (let [response-headers {"X-Request-ID" ["req_disconnected"]}
+          expected-error {:message "Stream disconnected before completion: stream closed before response.completed"
+                          :error/type :premature-stop
+                          :error/source :openai-responses
+                          :request-id "req_disconnected"
+                          :headers response-headers}
+          closed?* (atom false)
+          closed-at-error?* (atom false)
+          errors* (atom [])
+          messages* (atom [])
+          stream-text (str "event: response.created\n"
+                           "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_123\",\"status\":\"in_progress\"}}\n\n")
+          stream-body (proxy [java.io.ByteArrayInputStream]
+                              [(.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8)]
+                        (close []
+                          (reset! closed?* true)
+                          (proxy-super close)))]
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :stream (:as opts)))
+                                {:status 200
+                                 :headers response-headers
+                                 :body stream-body})]
+        (llm-providers.openai/create-response!
+         (base-provider-params)
+         (base-callbacks
+          {:on-error (fn [error]
+                       (reset! closed-at-error?* @closed?*)
+                       (swap! errors* conj error))
+           :on-message-received (fn [message] (swap! messages* conj message))})))
+      (is (= [expected-error] @errors*))
+      (is (true? @closed-at-error?*)
+          "retry/error handling must start only after the disconnected stream is closed")
+      (is (empty? @messages*)
+          "premature EOF must not emit a finish message"))))
+
 (deftest normalize-messages-tool-call-output-image-test
   (let [tool-output-with-image
         {:role "tool_call_output"

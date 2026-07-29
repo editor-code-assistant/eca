@@ -171,6 +171,38 @@
                 :request-id request-id
                 :headers response-headers)))
 
+(defn ^:private response-incomplete->error-data [data response-headers]
+  (let [response (:response data)
+        reason (get-in response [:incomplete_details :reason])
+        request-id (some non-blank-str
+                         [(:request-id response)
+                          (:request_id response)
+                          (response-header response-headers "x-request-id")])]
+    (assoc-some {:message (if reason
+                           (format "OpenAI response incomplete: %s" reason)
+                           "OpenAI response incomplete")
+                 :error/type :premature-stop
+                 :error/source :openai-responses
+                 :headers response-headers}
+                :response-id (:id response)
+                :request-id request-id
+                :incomplete-reason reason)))
+
+(defn ^:private stream-error->error-data [data response-headers]
+  (let [error (or (:error data) data)
+        error (if (= "error" (:type error))
+                (dissoc error :type)
+                error)
+        request-id (some non-blank-str
+                         [(:request-id error)
+                          (:request_id error)
+                          (response-header response-headers "x-request-id")])]
+    (assoc-some error
+                :message (or (:message error) "OpenAI response stream failed")
+                :error/source :openai-responses
+                :request-id request-id
+                :headers response-headers)))
+
 (defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [oauth? (= :auth/oauth auth-type)
         stream? (and on-stream (not= false (:stream body)))
@@ -221,16 +253,45 @@
                 (let [stream-error
                       (with-open [rdr (io/reader body)]
                         (loop [events (seq (llm-util/event-data-seq rdr))]
-                          (when-let [[event data] (first events)]
-                            (set-reading-fn false)
-                            (touch-fn)
-                            (llm-util/log-response logger-tag rid event data)
-                            (if (= "response.failed" event)
-                              (response-failed->error-data data resp-headers)
-                              (do
-                                (on-stream event data resp-headers)
-                                (set-reading-fn true)
-                                (recur (next events)))))))]
+                          (if-let [[event data] (first events)]
+                            (do
+                              (set-reading-fn false)
+                              (touch-fn)
+                              (llm-util/log-response logger-tag rid event data)
+                              (cond
+                                (= "response.failed" event)
+                                (response-failed->error-data data resp-headers)
+
+                                (= "response.incomplete" event)
+                                (response-incomplete->error-data data resp-headers)
+
+                                (= "error" event)
+                                (stream-error->error-data data resp-headers)
+
+                                (= "response.completed" event)
+                                (do
+                                  (on-stream event data resp-headers)
+                                  nil)
+
+                                :else
+                                (do
+                                  (on-stream event data resp-headers)
+                                  (set-reading-fn true)
+                                  (recur (next events)))))
+                            (case @reason*
+                              :cancelled
+                              (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                              :idle-timeout
+                              {:message (format "Stream idle timeout: no data received for %d seconds"
+                                                (or stream-idle-timeout-seconds 120))}
+
+                              (assoc-some
+                               {:message "Stream disconnected before completion: stream closed before response.completed"
+                                :error/type :premature-stop
+                                :error/source :openai-responses
+                                :headers resp-headers}
+                               :request-id (response-header resp-headers "x-request-id"))))))]
                   (when stream-error
                     (on-error stream-error)))
                 (catch java.io.IOException e
