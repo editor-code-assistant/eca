@@ -273,6 +273,61 @@
           (testing "preserves subagent chat for resume replay"
             (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
 
+(deftest spawn-agent-provider-error-test
+  (testing "returns a failed tool result with provider error and partial output"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-error"]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [_params _db* _messenger _config _metrics]
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :prompt-error]
+                                 {:message "Our servers are currently overloaded. Please try again later."
+                                  :error-type :overloaded
+                                  :request-id "req_overloaded"})
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [{:role "assistant"
+                                   :content [{:type :text :text "Partial findings"}]}]))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "find files" "activity" "exploring"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-error"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error true
+                       :contents [{:type :text
+                                   :text #"(?s)Failed.*servers are currently overloaded.*Error type: overloaded.*Request ID: req_overloaded.*Partial result.*Partial findings"}]}
+                      result))))))
+
+  (testing "an error status without structured details still returns failure"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-error-status"]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [_params _db* _messenger _config _metrics]
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :error))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "general" "task" "investigate"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-error-status"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error true
+                       :contents [{:text #"sub-agent prompt failed"}]}
+                      result)))))))
+
 (deftest spawn-agent-trust-propagation-test
   (testing "forwards trust to subagent chat/prompt"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})

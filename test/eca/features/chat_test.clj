@@ -165,6 +165,65 @@
               :role :system}]}
            (h/messages))))))
 
+(deftest terminal-prompt-error-test
+  (testing "records a terminal provider error after chat recovery is exhausted"
+    (h/reset-components!)
+    (let [attempts* (atom 0)
+          {:keys [chat-id]}
+          (prompt!
+           {:message "Investigate the failure"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-error]}]
+              (swap! attempts* inc)
+              (on-error {:status 503
+                         :body "{\"error\":{\"message\":\"auth_unavailable: no auth available\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
+                         :message "OpenAI response status: 503 body: auth_unavailable"}))})]
+      (is (= 4 @attempts*) "one initial request plus three chat-level recovery attempts")
+      (is (match? {:message "OpenAI response status: 503 body: auth_unavailable"
+                   :error-type :overloaded
+                   :status 503}
+                  (get-in (h/db) [:chats chat-id :prompt-error]))))))
+
+(deftest provider-max-auto-continues-test
+  (is (= 3 (#'f.chat/provider-max-auto-continues {} "openai")))
+  (is (= 7 (#'f.chat/provider-max-auto-continues
+            {:providers {"openai" {:retry {:maxAutoContinues 7}}}}
+            "openai")))
+  (is (= 0 (#'f.chat/provider-max-auto-continues
+            {:providers {"openai" {:retry {:maxAutoContinues 0}}}}
+            "openai")))
+  (is (= 3 (#'f.chat/provider-max-auto-continues
+            {:providers {"openai" {:retry {:maxAutoContinues -1}}}}
+            "openai"))))
+
+(deftest transient-error-recovery-test
+  (testing "retries the original request when overload happens before model output"
+    (h/reset-components!)
+    (let [requests* (atom [])
+          {:keys [chat-id]}
+          (prompt!
+           {:message "Investigate the failure"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [user-messages on-first-response-received on-message-received on-error]}]
+              (let [attempt (count (swap! requests* conj user-messages))]
+                (if (= 1 attempt)
+                  (on-error {:code "server_is_overloaded"
+                             :message "Our servers are currently overloaded. Please try again later."
+                             :error/source :openai-responses})
+                  (do
+                    (on-first-response-received {:type :text :text "Recovered"})
+                    (on-message-received {:type :text :text "Recovered"})
+                    (on-message-received {:type :finish})))))})]
+      (is (= 2 (count @requests*)))
+      (is (= (first @requests*) (second @requests*))
+          "a no-output retry must replay the original task, not a contextless continuation")
+      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+                   {:role "assistant" :content [{:type :text :text "Recovered"}]}]
+                  (get-in (h/db) [:chats chat-id :messages])))
+      (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))
+
 (deftest prompt-multiple-text-interaction-test
   (testing "Chat history"
     (h/reset-components!)

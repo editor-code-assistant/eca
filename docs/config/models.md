@@ -400,7 +400,9 @@ Schema:
 | `thinkTagStart`                   | string  | Optional override the think start tag tag for openai-chat (Default: "<think>") api                           | No       |
 | `thinkTagEnd`                     | string  | Optional override the think end tag for openai-chat (Default: "</think>") api                                | No       |
 | `httpClient`                      | map     | Allow customize the http-client for this provider requests, like changing http version                       | No       |
-| `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Rules](#retry-rules))    | No       |
+| `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Policy and Rules](#retry-policy-and-rules)) | No       |
+| `retry`                           | map     | Retry count and exponential backoff policy for transient errors; applies to normal chats and sub-agents | No       |
+| `rateLimitMaxWaitSeconds`         | integer | Maximum provider-supplied rate-limit reset wait, including ECA's one-second safety buffer (default: `60`) | No       |
 | `extraHeaders`                    | map     | Extra headers sent on all requests to this provider (completion and models list fetch). Model-level `extraHeaders` win on conflicts | No       |
 | `models`                          | map     | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload`     | map     | Extra payload sent in body to LLM                                                                            | No       |
@@ -611,9 +613,22 @@ Notes:
 - Authentication priority: a configured `key` (with dynamic string parse support, including `${env:OPENAI_API_KEY}`-style defaults that resolve from environment variables) takes precedence over `/login` (OAuth/subscription) auth, which in turn takes precedence over a bare `<PROVIDER>_API_KEY` env var. A configured/env key can therefore incur paid API usage even when you are logged in.
 - All providers with API key auth can use credential files.
 
-### Retry Rules
+### Retry Policy and Rules
 
-ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529) with exponential backoff. You can define custom retry rules per provider using `retryRules` to handle additional status codes or error patterns.
+ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529), provider overload errors, and premature stream termination. The provider-level `retry` object controls the retry budget and exponential backoff for both normal chats and sub-agents:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `maxRetries` | `10` | Retries for rate limits, overloaded providers, and custom retry rules; excludes the initial request |
+| `prematureStopMaxRetries` | `3` | Retries when a stream ends before a terminal completion event; excludes the initial request |
+| `maxAutoContinues` | `3` | Chat-level recovery prompts after partial output or exhausted request retries; applies to normal chats and sub-agents |
+| `baseDelayMs` | `2000` | Initial backoff delay; ECA applies jitter from 50% to 150% |
+| `backoffMultiplier` | `2` | Multiplier applied after each retry |
+| `maxDelayMs` | `60000` | Backoff cap before jitter; provider reset waits are controlled separately by `rateLimitMaxWaitSeconds` |
+
+A value of `0` for either retry count disables request retries in that category; `maxAutoContinues: 0` disables chat-level recovery prompts. If a provider supplies an explicit rate-limit reset time, that delay takes precedence over exponential backoff and is accepted only when it does not exceed `rateLimitMaxWaitSeconds`.
+
+You can define custom retry rules per provider using `retryRules` to handle additional status codes or error patterns.
 
 Each rule can match by:
 
@@ -630,6 +645,14 @@ At least one of `status` or `errorPattern` is required. When both are specified,
       "api": "openai-chat",
       "url": "${env:MY_COMPANY_API_URL}",
       "key": "${env:MY_COMPANY_API_KEY}",
+      "retry": {
+        "maxRetries": 15,
+        "prematureStopMaxRetries": 5,
+        "maxAutoContinues": 5,
+        "baseDelayMs": 2000,
+        "backoffMultiplier": 2,
+        "maxDelayMs": 60000
+      },
       "retryRules": [
         {"status": 418, "label": "Corporate proxy throttle"},
         {"errorPattern": "capacity.*exceeded", "label": "Capacity exceeded"},
