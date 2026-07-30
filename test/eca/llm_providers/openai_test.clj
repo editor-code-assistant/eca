@@ -4,6 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.llm-providers.openai :as llm-providers.openai]
+   [eca.llm-providers.openai-codex :as openai-codex]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -56,6 +57,89 @@
           (is (= 429 (get-in result [:error :status])))
           (is (= error-body (get-in result [:error :body])))
           (is (= "7" (get-in result [:error :headers "retry-after"]))))))))
+
+(deftest base-responses-codex-routing-test
+  (testing "Codex profile sends stable routing headers and replays returned turn state"
+    (let [requests* (atom [])
+          turn-context (openai-codex/new-turn-context "chat-123")]
+      (with-redefs [http/post (fn [url opts]
+                                (swap! requests* conj [url opts])
+                                {:status 200
+                                 :headers {"x-codex-turn-state" "turn-state-1"}
+                                 :body {:output [{:content [{:text "ok"}]}]}})]
+        (dotimes [_ 2]
+          (#'llm-providers.openai/base-responses-request!
+           {:rid "r1"
+            :api-key "oauth-token"
+            :account-id "account-1"
+            :api-url "https://api.openai.com"
+            :request-profile openai-codex/request-profile
+            :turn-context turn-context
+            :responses-lite? true
+            :body {:model "gpt-5.6-sol" :input "hi" :stream false}}))
+
+        (let [[first-url first-request] (first @requests*)
+              [_ second-request] (second @requests*)]
+          (is (= openai-codex/responses-url first-url))
+          (is (= "chat-123" (get-in first-request [:headers "Session-ID"])))
+          (is (= "chat-123" (get-in first-request [:headers "Thread-ID"])))
+          (is (= "chat-123" (get-in first-request [:headers "x-client-request-id"])))
+          (is (= "account-1" (get-in first-request [:headers "ChatGPT-Account-ID"])))
+          (is (= "true"
+                 (get-in first-request
+                         [:headers "x-openai-internal-codex-responses-lite"])))
+          (is (nil? (get-in first-request [:headers "OpenAI-Beta"])))
+          (is (nil? (get-in first-request [:headers "x-codex-turn-state"])))
+          (is (= "turn-state-1"
+                 (get-in second-request [:headers "x-codex-turn-state"]))))))))
+
+(deftest create-response-codex-tool-continuation-replays-turn-state-test
+  (testing "the post-tool request stays on the first response's Codex turn state"
+    (let [requests* (atom [])
+          first-stream (str
+                        "event: response.completed\n"
+                        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"item-1\",\"call_id\":\"call-1\",\"name\":\"eca__shell_command\",\"arguments\":\"{}\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+          final-stream (str
+                        "event: response.completed\n"
+                        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")]
+      (with-redefs [http/post
+                    (fn [_url opts]
+                      (swap! requests* conj opts)
+                      {:status 200
+                       :headers {"x-codex-turn-state"
+                                 (if (= 1 (count @requests*)) "state-1" "state-2")}
+                       :body (java.io.ByteArrayInputStream.
+                              (.getBytes ^String (if (= 1 (count @requests*))
+                                                  first-stream
+                                                  final-stream)
+                                         java.nio.charset.StandardCharsets/UTF_8))})]
+        (llm-providers.openai/create-response!
+         {:model "gpt-test"
+          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+          :instructions "test"
+          :reason? false
+          :supports-image? false
+          :api-key "oauth-token"
+          :api-url "https://api.openai.com"
+          :past-messages []
+          :tools [{:full-name "eca__shell_command"
+                   :description "run"
+                   :parameters {:type "object"}}]
+          :web-search false
+          :request-profile openai-codex/request-profile
+          :turn-context (openai-codex/new-turn-context "chat-1")}
+         {:on-message-received (fn [_])
+          :on-error (fn [error] (throw (ex-info "unexpected error" error)))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_] {:new-messages [] :tools []})
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])
+          :on-server-web-search (fn [_])
+          :on-server-image-generation (fn [_])})
+        (is (= 2 (count @requests*)))
+        (is (nil? (get-in (first @requests*) [:headers "x-codex-turn-state"])))
+        (is (= "state-1"
+               (get-in (second @requests*) [:headers "x-codex-turn-state"])))))))
 
 (deftest oauth-authorize-test
   (testing "that OAuth token exchange is routed through the http proxy"
@@ -184,6 +268,87 @@
                 {:api-key "fresh-token"
                  :account-id "new-account"}]
                @requests*))))))
+
+(deftest create-response-retries-post-tool-request-test
+  (testing "retries the exact post-tool request without executing the tool again"
+    (let [requests* (atom [])
+          retry-events* (atom [])
+          tools-called* (atom 0)
+          messages* (atom [])
+          errors* (atom [])]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [body on-error on-stream] :as _opts}]
+                      (let [request-number (count (swap! requests* conj body))]
+                        (case request-number
+                          1 (on-stream "response.completed"
+                                       {:response {:status "completed"
+                                                   :output [{:type "function_call"
+                                                             :id "item-1"
+                                                             :call_id "call-1"
+                                                             :name "eca__read_file"
+                                                             :arguments "{\"path\":\"/tmp/a\"}"}]
+                                                   :usage {:input_tokens 1
+                                                           :output_tokens 1}}})
+                          2 (on-error {:type "service_unavailable_error"
+                                       :code "server_is_overloaded"
+                                       :message "Our servers are currently overloaded. Please try again later."
+                                       :error/source :openai-responses})
+                          3 (do
+                              (on-stream "response.output_text.delta" {:delta "Recovered"})
+                              (on-stream "response.completed"
+                                         {:response {:status "completed"
+                                                     :output []
+                                                     :usage {:input_tokens 2
+                                                             :output_tokens 1}}}))))
+                      :ok)]
+        (llm-providers.openai/create-response!
+         {:model "gpt-test"
+          :user-messages [{:role "user" :content [{:type :text :text "inspect"}]}]
+          :instructions "ins"
+          :reason? false
+          :supports-image? false
+          :api-key "token"
+          :api-url "http://localhost:1"
+          :past-messages []
+          :tools [{:full-name "eca__read_file" :description "read" :parameters {:type "object"}}]
+          :web-search false
+          :extra-payload {}
+          :extra-headers nil
+          :auth-type :auth/api-key}
+         {:on-message-received (fn [message] (swap! messages* conj message))
+          :on-error (fn [error] (swap! errors* conj error))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_]
+                             (swap! tools-called* inc)
+                             {:new-messages [{:role "tool_call"
+                                              :content {:id "call-1"
+                                                        :full-name "eca__read_file"
+                                                        :arguments {:path "/tmp/a"}}}
+                                             {:role "tool_call_output"
+                                              :content {:id "call-1"
+                                                        :full-name "eca__read_file"
+                                                        :output {:error false
+                                                                 :contents [{:type :text :text "contents"}]}}}]
+                              :tools []})
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])
+          :on-server-web-search (fn [_])
+          :on-server-image-generation (fn [_])
+          :retry-request (fn [{:keys [error-data attempt replay-safe? retry-fn]}]
+                           (swap! retry-events* conj {:error-data error-data
+                                                      :attempt attempt
+                                                      :replay-safe? replay-safe?})
+                           (retry-fn (inc attempt)))})
+        (is (= 3 (count @requests*)))
+        (is (= 1 @tools-called*) "the completed tool call must not be replayed")
+        (is (= (second @requests*) (nth @requests* 2))
+            "the retry must replay the exact post-tool request body")
+        (is (true? (:replay-safe? (first @retry-events*))))
+        (is (= "server_is_overloaded" (get-in (first @retry-events*) [:error-data :code])))
+        (is (= [{:type :text :text "Recovered"}
+                {:type :finish :finish-reason "completed"}]
+               @messages*))
+        (is (empty? @errors*))))))
 
 (deftest ->normalize-messages-test
   (testing "no previous history"
@@ -663,8 +828,8 @@
                            :properties {"limit" {:type "number"}}}}]
             false false)))))
 
-(deftest create-response-oauth-preserves-built-in-tools-test
-  (testing "OAuth requests keep web_search and image_generation when capabilities are enabled"
+(deftest create-response-standard-preserves-built-in-tools-test
+  (testing "standard Responses requests keep web_search and image_generation when enabled"
     (let [requests* (atom [])]
       (with-redefs [llm-providers.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
@@ -675,7 +840,6 @@
                                              :status "completed"}}))]
         (llm-providers.openai/create-response!
          (assoc (base-provider-params)
-                :auth-type :auth/oauth
                 :web-search true
                 :image-generation true)
          (base-callbacks {}))
@@ -683,6 +847,77 @@
                      {:type "web_search"}
                      {:type "image_generation" :output_format "png"}]
                     (get-in (first @requests*) [:body :tools])))))))
+
+(deftest create-response-codex-request-shapes-test
+  (testing "public Responses requests ignore Codex-only Lite metadata"
+    (let [request* (atom nil)]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (reset! request* opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params)
+                :model "gpt-5.6-sol"
+                :request-profile :openai-responses
+                :responses-lite? true)
+         (base-callbacks {}))
+        (is (= "test" (get-in @request* [:body :instructions])))
+        (is (= ["function"] (mapv :type (get-in @request* [:body :tools]))))
+        (is (nil? (get-in @request* [:body :tool_choice])))
+        (is (= "user" (-> @request* :body :input first :role))))))
+
+  (testing "regular Codex requests use top-level instructions without duplicating a system input"
+    (let [request* (atom nil)]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (reset! request* opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params)
+                :request-profile openai-codex/request-profile
+                :turn-context (openai-codex/new-turn-context "chat-1"))
+         (base-callbacks {}))
+        (is (= "test" (get-in @request* [:body :instructions])))
+        (is (= "auto" (get-in @request* [:body :tool_choice])))
+        (is (= ["user"] (mapv :role (get-in @request* [:body :input])))))))
+
+  (testing "Responses Lite moves instructions and function tools into developer input items"
+    (let [request* (atom nil)]
+      (with-redefs [llm-providers.openai/base-responses-request!
+                    (fn [{:keys [on-stream] :as opts}]
+                      (reset! request* opts)
+                      (on-stream "response.completed"
+                                 {:response {:output []
+                                             :usage {:input_tokens 0 :output_tokens 0}
+                                             :status "completed"}}))]
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params)
+                :model "gpt-5.6-sol"
+                :request-profile openai-codex/request-profile
+                :turn-context (openai-codex/new-turn-context "chat-1")
+                :responses-lite? true
+                :reason? true
+                :default-reasoning-effort "low"
+                :web-search true
+                :image-generation true)
+         (base-callbacks {}))
+        (let [body (:body @request*)]
+          (is (nil? (:instructions body)))
+          (is (nil? (:tools body)))
+          (is (= "additional_tools" (get-in body [:input 0 :type])))
+          (is (= ["function"] (mapv :type (get-in body [:input 0 :tools]))))
+          (is (= "developer" (get-in body [:input 1 :role])))
+          (is (= {:effort "low" :summary "auto" :context "all_turns"}
+                 (:reasoning body)))
+          (is (= "auto" (:tool_choice body)))
+          (is (false? (:parallel_tool_calls body)))
+          (is (true? (:responses-lite? @request*))))))))
 
 (deftest create-response-image-generation-tool-on-request-test
   (testing "request body includes image_generation tool when :image-generation is true"
@@ -943,13 +1178,34 @@
                                {:status 200
                                 :body {:models [{:slug "gpt-5.5"
                                                  :context_window 272000
-                                                 :max_output_tokens 128000}]}})]
-        (let [result (#'llm-providers.openai/fetch-oauth-models "oauth-token" {"gpt-5.5" {}})]
-          (is (= "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0"
-                 (first @request*)))
+                                                 :max_output_tokens 128000}
+                                                {:slug "gpt-5.6-sol"
+                                                 :context_window 272000
+                                                 :use_responses_lite true
+                                                 :default_reasoning_level "low"
+                                                 :supported_reasoning_levels [{:effort "low"}
+                                                                              {:effort "max"}]}
+                                                {:slug "gpt-5.6-terra"
+                                                 :use_responses_lite false}]}})]
+        (let [result (#'llm-providers.openai/fetch-oauth-models
+                      "oauth-token" "account-1" {"gpt-5.5" {}})
+              client-version (second (re-find #"client_version=(\d+\.\d+\.\d+)"
+                                              (first @request*)))]
+          (is (re-matches
+               #"https://chatgpt\.com/backend-api/codex/models\?client_version=\d+\.\d+\.\d+"
+               (first @request*)))
           (is (= "Bearer oauth-token" (get-in @request* [1 :headers "Authorization"])))
+          (is (= "codex_cli_rs" (get-in @request* [1 :headers "Originator"])))
+          (is (= (str "codex_cli_rs/" client-version)
+                 (get-in @request* [1 :headers "User-Agent"])))
+          (is (= "account-1" (get-in @request* [1 :headers "ChatGPT-Account-ID"])))
           (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))
-          (is (= 128000 (get-in result ["gpt-5.5" :limit :output]))))))))
+          (is (= 128000 (get-in result ["gpt-5.5" :limit :output])))
+          (is (true? (get-in result ["gpt-5.6-sol" :discovered-codex-responses-lite?])))
+          (is (false? (get-in result ["gpt-5.6-terra" :discovered-codex-responses-lite?])))
+          (is (= "low" (get-in result ["gpt-5.6-sol" :discovered-default-reasoning-effort])))
+          (is (= #{"low" "max"}
+                 (set (keys (get-in result ["gpt-5.6-sol" :discovered-variants]))))))))))
 
 (deftest fetch-oauth-models-fallback-on-error-test
   (testing "falls back to known Codex caps when /models is unauthorized"

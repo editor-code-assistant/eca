@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Share chat history across git worktrees of the same repo, and merge workspace cache writes from concurrent servers instead of overwriting. #558
+- Fix ChatGPT OAuth routing and Responses Lite payloads for GPT-5.6 models.
+- Retry overloaded OpenAI post-tool requests without rerunning completed tools.
 
 ## 0.151.1
 

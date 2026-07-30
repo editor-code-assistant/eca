@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.llm-providers.openai-codex :as openai-codex]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -20,8 +21,6 @@
 (def ^:private logger-tag "[OPENAI]")
 
 (def ^:private responses-path "/v1/responses")
-(def ^:private codex-url "https://chatgpt.com/backend-api/codex/responses")
-(def ^:private codex-models-url "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0")
 (def ^:private codex-models-timeout-ms 10000)
 
 ;; OpenAI OAuth requests go through the ChatGPT Codex backend, whose context
@@ -38,6 +37,9 @@
    "gpt-5.5" 272000
    "gpt-5.4" 272000
    "gpt-5.2" 272000
+   "gpt-5.6-sol" 272000
+   "gpt-5.6-terra" 272000
+   "gpt-5.6-luna" 272000
    "gpt-5" 272000})
 
 (defn ^:private pos-num [n]
@@ -47,6 +49,11 @@
   (if (and (map? a) (map? b))
     (merge-with deep-merge-config a b)
     b))
+
+(defn ^:private merge-codex-model-config [fallback live]
+  (cond-> (deep-merge-config fallback live)
+    (contains? live :discovered-variants)
+    (assoc :discovered-variants (:discovered-variants live))))
 
 (defn ^:private codex-context-fallback-for [model]
   (let [model-name (string/lower-case (str model))]
@@ -69,13 +76,17 @@
         context-limit (:context_window model)
         output-limit (or (:max_output_tokens model) (:max_completion_tokens model))]
     (when (and (string? slug) (not (string/blank? slug)))
-      [slug (codex-model-config context-limit output-limit)])))
+      [slug (deep-merge-config
+             (codex-model-config context-limit output-limit)
+             (openai-codex/live-model-discovery model))])))
 
 (defn ^:private codex-fallback-models [static-models]
   (merge
    (into {}
          (map (fn [[model context-limit]]
-                [model (codex-model-config context-limit nil)]))
+                [model (deep-merge-config
+                        (codex-model-config context-limit nil)
+                        (or (openai-codex/responses-lite-fallback model) {}))]))
          codex-context-fallback)
    (into {}
          (keep (fn [[model model-config]]
@@ -88,33 +99,38 @@
   "Resolves OpenAI OAuth (ChatGPT/Codex) model limits from the Codex /models
    endpoint, falling back to known Codex caps on any failure. Returns a map of
    model-id -> model-config in user-override shape."
-  [api-key static-models]
-  (let [fallback-models (codex-fallback-models static-models)]
-    (try
-      (if-not api-key
-        fallback-models
-        (let [{:keys [status body]} (http/get codex-models-url
-                                              {:headers {"Authorization" (str "Bearer " api-key)}
-                                               :throw-exceptions? false
-                                               :as :json
-                                               :http-client (client/merge-with-global-http-client {})
-                                               :timeout codex-models-timeout-ms})]
-          (if (not= 200 status)
-            (do
-              (logger/warn logger-tag (format "Codex /models endpoint returned status %s" status))
-              fallback-models)
-            (let [live-models (not-empty (into {}
-                                               (keep codex-live-model-entry)
-                                               (:models body)))]
-              (or (not-empty (merge-with deep-merge-config fallback-models live-models))
-                  fallback-models)))))
-      (catch Exception e
-        (logger/warn logger-tag (format "Failed to fetch Codex /models endpoint: %s" e))
-        fallback-models))))
+  ([api-key static-models]
+   (fetch-oauth-models api-key nil static-models))
+  ([api-key account-id static-models]
+   (let [fallback-models (codex-fallback-models static-models)]
+     (try
+       (if-not api-key
+         fallback-models
+         (let [{:keys [status body]} (http/get openai-codex/models-url
+                                               {:headers (merge
+                                                          {"Authorization" (str "Bearer " api-key)}
+                                                          (openai-codex/request-headers
+                                                           {:account-id account-id}))
+                                                :throw-exceptions? false
+                                                :as :json
+                                                :http-client (client/merge-with-global-http-client {})
+                                                :timeout codex-models-timeout-ms})]
+           (if (not= 200 status)
+             (do
+               (logger/warn logger-tag (format "Codex /models endpoint returned status %s" status))
+               fallback-models)
+             (let [live-models (not-empty (into {}
+                                                (keep codex-live-model-entry)
+                                                (:models body)))]
+               (or (not-empty (merge-with merge-codex-model-config fallback-models live-models))
+                   fallback-models)))))
+       (catch Exception e
+         (logger/warn logger-tag (format "Failed to fetch Codex /models endpoint: %s" e))
+         fallback-models)))))
 
 (defmethod llm-util/provider-models-override ["openai" :auth/oauth]
-  [{:keys [api-key static-models]}]
-  (fetch-oauth-models api-key static-models))
+  [{:keys [api-key account-id static-models]}]
+  (fetch-oauth-models api-key account-id static-models))
 
 (defn ^:private jwt-payload->account-id
   "Extract account ID from JWT payload, checking multiple locations like opencode does."
@@ -203,11 +219,14 @@
                 :request-id request-id
                 :headers response-headers)))
 
-(defn ^:private base-responses-request! [{:keys [rid body api-url auth-type url-relative-path api-key account-id on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
-  (let [oauth? (= :auth/oauth auth-type)
+(defn ^:private base-responses-request!
+  [{:keys [rid body api-url request-profile url-relative-path api-key account-id
+           turn-context responses-lite? on-error on-stream http-client extra-headers
+           cancelled? stream-idle-timeout-seconds]}]
+  (let [codex? (openai-codex/responses-profile? request-profile)
         stream? (and on-stream (not= false (:stream body)))
-        url (if oauth?
-              codex-url
+        url (if codex?
+              openai-codex/responses-url
               (join-api-url api-url (or url-relative-path responses-path)))
         ;; Use persisted account-id first, fall back to extracting from JWT
         resolved-account-id (or account-id (jwt-token->account-id api-key))
@@ -216,13 +235,13 @@
                         extra-headers)
         headers (client/merge-llm-headers
                  (merge
-                  (assoc-some
-                   {"Authorization" (str "Bearer " api-key)
-                    "Content-Type" "application/json"}
-                   "ChatGPT-Account-Id" resolved-account-id
-                   "OpenAI-Beta" (when oauth? "responses=experimental"),
-                   "Originator" (when oauth? "codex_cli_rs")
-                   "Session-ID" (when oauth? (str (random-uuid))))
+                  {"Authorization" (str "Bearer " api-key)
+                   "Content-Type" "application/json"}
+                  (when codex?
+                    (openai-codex/request-headers
+                     {:account-id resolved-account-id
+                      :turn-context turn-context
+                      :responses-lite? responses-lite?}))
                   extra-headers))
         on-error (or on-error
                      (fn [error-data]
@@ -237,6 +256,10 @@
                                                           :throw-exceptions? false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if stream? :stream :json)})]
+        (when (and codex? (= 200 status))
+          (openai-codex/capture-turn-state!
+           turn-context
+           (response-header resp-headers "x-codex-turn-state")))
         (if (not= 200 status)
           (let [body-str (if stream? (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
@@ -319,6 +342,38 @@
                    :message (if (ex-data e)
                               (format "Internal error: %s" (or (ex-message e) (.getName (class e))))
                               (llm-util/connection-error-message e))})))))
+
+(def ^:private responses-replay-blocking-events
+  #{"response.output_text.delta"
+    "response.output_text.annotation.added"
+    "response.reasoning_summary_text.delta"
+    "response.reasoning_summary_text.done"
+    "response.output_item.added"
+    "response.output_item.done"
+    "response.completed"})
+
+(defn ^:private request-with-retry!
+  "Runs one exact Responses API request with request-scoped retries.
+   The shared retry controller owns policy and backoff; this wrapper only tracks
+   whether the current HTTP attempt emitted output that makes replay unsafe."
+  [{:keys [on-error on-stream retry-request] :as request-opts}]
+  (letfn [(request! [attempt]
+            (let [replay-safe?* (atom true)]
+              (base-responses-request!
+               (assoc request-opts
+                      :on-error (fn [error-data]
+                                  (if retry-request
+                                    (retry-request {:error-data error-data
+                                                    :attempt attempt
+                                                    :replay-safe? @replay-safe?*
+                                                    :on-give-up on-error
+                                                    :retry-fn request!})
+                                    (on-error error-data)))
+                      :on-stream (fn [event data & args]
+                                   (when (contains? responses-replay-blocking-events event)
+                                     (reset! replay-safe?* false))
+                                   (apply on-stream event data args))))))]
+    (request! 0)))
 
 (defn ^:private normalize-messages [messages supports-image?]
   ;; Each history entry maps to one or more provider messages. Switched from
@@ -419,33 +474,41 @@
 
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search image-generation extra-payload extra-headers
-                                auth-type account-id http-client prompt-cache-key cancelled? stream-idle-timeout-seconds]}
+                                account-id http-client prompt-cache-key cancelled? stream-idle-timeout-seconds
+                                request-profile turn-context responses-lite? default-reasoning-effort]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-                                on-server-web-search on-server-image-generation] :as callbacks}]
-  (let [oauth? (= :auth/oauth auth-type)
+                                on-server-web-search on-server-image-generation retry-request] :as callbacks}]
+  (let [codex? (openai-codex/responses-profile? request-profile)
+        responses-lite? (and codex? responses-lite?)
+        turn-context (when codex?
+                       (or turn-context (openai-codex/new-turn-context nil)))
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (->tools tools web-search image-generation)
-        body (merge
-              (assoc-some
-               {:model model
-                :input (if oauth?
-                         (concat [{:role "system" :content instructions}] input)
-                         input)
-                :prompt_cache_key (or prompt-cache-key
-                                      (str (System/getProperty "user.name") "@ECA"))
-                :instructions instructions
-                :tools tools
-                :include (when reason?
-                           ["reasoning.encrypted_content"])
-                :store false
-                :reasoning (when reason?
-                             {:effort "medium"
-                              :summary "auto"})
-                :stream true}
-               :max_output_tokens (when-not oauth? max-output-tokens)
-               :parallel_tool_calls (:parallel_tool_calls extra-payload))
-              extra-payload)
+        base-body (merge
+                   (assoc-some
+                    {:model model
+                     :input input
+                     :prompt_cache_key (or prompt-cache-key
+                                           (str (System/getProperty "user.name") "@ECA"))
+                     :instructions instructions
+                     :tools tools
+                     :include (when reason?
+                                ["reasoning.encrypted_content"])
+                     :store false
+                     :reasoning (when reason?
+                                  {:effort (or default-reasoning-effort "medium")
+                                   :summary "auto"})
+                     :stream true}
+                    :max_output_tokens (when-not codex? max-output-tokens)
+                    :tool_choice (when codex? "auto")
+                    :parallel_tool_calls (:parallel_tool_calls extra-payload))
+                   extra-payload)
+        prepare-body (fn [body]
+                       (if responses-lite?
+                         (openai-codex/responses-lite-body body)
+                         body))
+        body (prepare-body base-body)
         tool-call-by-item-id* (atom {})
         reasoning-item-id* (atom nil)
         sync-result* (when-not callbacks (atom nil))
@@ -573,22 +636,26 @@
                   (when-let [{:keys [new-messages tools fresh-api-key provider-auth]} (on-tools-called tool-calls)]
                     (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)]
                       (reset! tool-call-by-item-id* {})
-                      (base-responses-request!
+                      (request-with-retry!
                        {:rid (llm-util/gen-rid)
-                        :body (assoc body
-                                     :input (normalize-messages new-messages supports-image?)
-                                     :tools (->tools tools web-search image-generation))
+                        :body (prepare-body
+                               (assoc base-body
+                                      :input (normalize-messages new-messages supports-image?)
+                                      :tools (->tools tools web-search image-generation)))
                         :api-url api-url
                         :url-relative-path url-relative-path
                         :api-key (or fresh-api-key api-key)
                         :account-id (or (:account-id provider-auth) account-id)
                         :http-client http-client
                         :extra-headers extra-headers
-                        :auth-type auth-type
+                        :request-profile request-profile
+                        :turn-context turn-context
+                        :responses-lite? responses-lite?
                         :cancelled? cancelled?
                         :stream-idle-timeout-seconds stream-idle-timeout-seconds
                         :on-error on-error
-                        :on-stream handle-stream})))
+                        :on-stream handle-stream
+                        :retry-request retry-request})))
                   (on-message-received {:type :finish
                                         :finish-reason (-> data :response :status)})))
               nil))
@@ -610,7 +677,9 @@
                  :account-id account-id
                  :http-client http-client
                  :extra-headers extra-headers
-                 :auth-type auth-type
+                 :request-profile request-profile
+                 :turn-context turn-context
+                 :responses-lite? responses-lite?
                  :cancelled? cancelled?
                  :stream-idle-timeout-seconds stream-idle-timeout-seconds
                  :on-error on-error

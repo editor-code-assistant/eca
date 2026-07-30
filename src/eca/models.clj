@@ -441,8 +441,9 @@
   (when (contains? native-models-endpoint-providers (:api provider-config))
     (let [api-url (or (get-in db [:auth provider :api-url])
                       (llm-util/provider-api-url provider config))
+          provider-auth (get-in db [:auth provider])
           [auth-type api-key] (llm-util/provider-api-key provider
-                                                         (get-in db [:auth provider])
+                                                         provider-auth
                                                          config)
           api-type (:api provider-config)]
       ;; Provider+auth specific source first (e.g. OpenAI OAuth -> ChatGPT Codex
@@ -452,6 +453,7 @@
                              {:provider provider
                               :auth-type auth-type
                               :api-key api-key
+                              :account-id (:account-id provider-auth)
                               :static-models (:models provider-config)})
                             (when api-url
                               (fetch-provider-native-models
@@ -537,6 +539,9 @@
                 :reason? (:discovered-reason? model-config)
                 :api (:discovered-api model-config)
                 :variants (:discovered-variants model-config)
+                :codex-responses-lite? (:discovered-codex-responses-lite? model-config)
+                :default-reasoning-effort (:discovered-default-reasoning-effort model-config)
+                :supports-parallel-tool-calls? (:discovered-supports-parallel-tool-calls? model-config)
                 :image-input? (:imageInput model-config)
                 :limit (not-empty limit-overrides)
                 :max-output-tokens output-override

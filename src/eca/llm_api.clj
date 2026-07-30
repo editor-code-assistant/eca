@@ -18,6 +18,7 @@
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
+   [eca.llm-providers.openai-codex :as llm-providers.openai-codex]
    [eca.llm-providers.openrouter]
    [eca.llm-providers.z-ai]
    [eca.llm-util :as llm-util]
@@ -243,8 +244,8 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           on-server-web-search on-server-image-generation on-history-sanitized
-           past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
+           on-server-web-search on-server-image-generation on-history-sanitized retry-request
+           past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key turn-context]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities) tools)
@@ -274,6 +275,17 @@
                              (:extraHeaders model-config))
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
+        openai-codex? (and (= "openai" provider)
+                           (= :auth/oauth auth-type))
+        codex-model-fallback (when openai-codex?
+                               (llm-providers.openai-codex/responses-lite-fallback
+                                real-model))
+        responses-lite? (if (contains? model-capabilities :codex-responses-lite?)
+                          (:codex-responses-lite? model-capabilities)
+                          (:discovered-codex-responses-lite? codex-model-fallback))
+        default-reasoning-effort (or (:default-reasoning-effort model-capabilities)
+                                     (:discovered-default-reasoning-effort
+                                      codex-model-fallback))
         api-url (llm-util/provider-api-url provider config)
         ;; Flatten {:static :dynamic} instructions map into a single string for non-Anthropic providers
         flat-instructions (if (map? instructions) (f.prompt/instructions->str instructions) instructions)
@@ -303,7 +315,8 @@
                      :on-reason on-reason
                      :on-usage-updated on-usage-updated
                      :on-server-web-search on-server-web-search
-                     :on-server-image-generation on-server-image-generation})]
+                     :on-server-image-generation on-server-image-generation
+                     :retry-request retry-request})]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
@@ -319,14 +332,20 @@
           :tools tools
           :web-search web-search
           :image-generation image-generation
-          :extra-payload (merge {:parallel_tool_calls true}
+          :extra-payload (merge {:parallel_tool_calls
+                                 (not= false (:supports-parallel-tool-calls? model-capabilities))}
                                 extra-payload)
           :extra-headers extra-headers
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
-          :auth-type auth-type
+          :request-profile (if openai-codex?
+                             llm-providers.openai-codex/request-profile
+                             :openai-responses)
           :account-id (:account-id provider-auth)
+          :turn-context turn-context
+          :responses-lite? responses-lite?
+          :default-reasoning-effort default-reasoning-effort
           :prompt-cache-key prompt-cache-key
           :cancelled? cancelled?
           :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
@@ -475,7 +494,8 @@
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized
-           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent? prompt-cache-key]
+           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?
+           prompt-cache-key chat-id]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -488,6 +508,11 @@
          on-history-sanitized identity
          cancelled? (constantly false)}}]
   (let [first-response-received* (atom false)
+        openai-oauth? (and (= "openai" provider)
+                           (= :auth/oauth
+                              (first (llm-util/provider-api-key provider provider-auth config))))
+        turn-context (when openai-oauth?
+                       (llm-providers.openai-codex/new-turn-context chat-id))
         ;; Fire :on-history-sanitized at most once per sync-or-async-prompt! call:
         ;; prompt! is invoked multiple times on retries and we don't want to
         ;; spam the chat with repeated "history sanitized" notices.
@@ -541,7 +566,7 @@
                                                  {:exception (ex-message e)})
                                     provider-auth))
                                 provider-auth))
-        maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
+        maybe-retry (fn [error-data attempt replay-safe? on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
                             policy (retry-policy provider-config error-type)
@@ -559,10 +584,10 @@
                                                      default-rate-limit-max-wait-seconds)))
                             wait-too-long? (boolean (and rate-limit-delay-ms
                                                          (> rate-limit-delay-ms max-wait-ms)))]
-                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
+                        (if (and replay-safe?
+                                 (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
                                  (< attempt max-retries)
                                  (not wait-too-long?)
-                                 (not @first-response-received*)
                                  (not (cancelled?)))
                           (let [delay-ms (or rate-limit-delay-ms
                                              (retry-delay-ms attempt policy))]
@@ -611,12 +636,14 @@
                               :variant variant
                               :subagent? subagent?
                               :prompt-cache-key prompt-cache-key
+                              :turn-context turn-context
                               :on-error on-error-wrapper
                               :on-history-sanitized on-history-sanitized-wrapper
                               :config config})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
                   (if error
-                    (maybe-retry error attempt on-error-wrapper sync-prompt-with-retry)
+                    (maybe-retry error attempt (not @first-response-received*)
+                                 on-error-wrapper sync-prompt-with-retry)
                     (do
                       (when reason-text
                         (on-reason-wrapper {:status :started :id reason-id})
@@ -648,6 +675,7 @@
                 :variant variant
                 :subagent? subagent?
                 :prompt-cache-key prompt-cache-key
+                :turn-context turn-context
                 :cancelled? cancelled?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
@@ -657,10 +685,14 @@
                 :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper
                 :on-history-sanitized on-history-sanitized-wrapper
+                :retry-request (fn [{:keys [error-data attempt replay-safe? retry-fn on-give-up]}]
+                                 (maybe-retry error-data (or attempt 0) (true? replay-safe?)
+                                              (or on-give-up on-error-wrapper) retry-fn))
                 :on-error (fn [error-data]
                             (if (:silent? (ex-data (:exception error-data)))
                               (on-error-wrapper error-data)
-                              (maybe-retry error-data attempt on-error-wrapper async-prompt-with-retry)))
+                              (maybe-retry error-data attempt (not @first-response-received*)
+                                           on-error-wrapper async-prompt-with-retry)))
                 :config config}))]
         (async-prompt-with-retry* 0)))))
 

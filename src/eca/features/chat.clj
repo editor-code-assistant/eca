@@ -1055,6 +1055,7 @@
                                             (lifecycle/maybe-renew-auth-token chat-ctx)
                                             (get-in @db* [:auth provider]))
                 :variant (:variant chat-ctx)
+                :chat-id chat-id
                 :prompt-cache-key (prompt-cache-key agent)
                 :subagent? (some? (get-in @db* [:chats chat-id :subagent]))
                 :cancelled? (fn []
