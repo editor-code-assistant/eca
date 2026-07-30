@@ -1,6 +1,10 @@
 (ns eca.models
   (:require
+   [babashka.fs :as fs]
+   [cheshire.core :as json]
+   [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.llm-providers.ollama :as llm-providers.ollama]
@@ -72,17 +76,62 @@
                               status (truncate-for-log body))
                       {:status status})))))
 
-(defn ^:private models-dev []
+(defn ^:private models-dev-cache-file ^java.io.File []
+  (io/file (cache/global-dir) "models-dev.json"))
+
+(defn ^:private save-models-dev-cache!
+  "Persists the models.dev payload so later startups can fall back to it when
+   the fetch fails. Best-effort: failures only log a warning."
+  [data]
   (try
-    (let [data (fetch-models-dev-data)]
-      (if (map? data)
-        data
-        (do
-          (logger/warn logger-tag " Unexpected models.dev payload shape. Ignoring payload.")
-          {})))
+    (let [file (models-dev-cache-file)
+          temp (io/file (str file ".tmp"))]
+      (io/make-parents file)
+      (spit temp (json/generate-string data))
+      (fs/move temp file {:replace-existing true}))
     (catch Exception e
-      (logger/error logger-tag " Error fetching models from models.dev:" (.getMessage e))
-      {})))
+      (logger/warn logger-tag " Could not cache models.dev payload:" (.getMessage e)))))
+
+(defn ^:private read-models-dev-cache
+  "Returns the last successfully fetched models.dev payload from disk, or nil."
+  []
+  (try
+    (let [file (models-dev-cache-file)]
+      (when (fs/exists? file)
+        (let [data (json/parse-string (slurp file))]
+          (when (and (map? data) (seq data))
+            data))))
+    (catch Exception e
+      (logger/warn logger-tag " Could not read models.dev cache:" (.getMessage e))
+      nil)))
+
+(defn ^:private models-dev
+  "Returns the models.dev catalog, preferring a fresh fetch and caching it on
+   disk. Falls back to the cached payload when the fetch fails (e.g. transient
+   network failure at startup), so model capabilities don't silently degrade
+   to pessimistic defaults (no image input, no token limits). Returns {} when
+   neither fetch nor cache is available."
+  []
+  (let [fetched (try
+                  (let [data (fetch-models-dev-data)]
+                    (if (map? data)
+                      data
+                      (do
+                        (logger/warn logger-tag " Unexpected models.dev payload shape. Ignoring payload.")
+                        nil)))
+                  (catch Exception e
+                    (logger/error logger-tag " Error fetching models from models.dev:" (.getMessage e))
+                    nil))]
+    (if fetched
+      (do
+        (when (seq fetched)
+          (save-models-dev-cache! fetched))
+        fetched)
+      (if-let [cached (read-models-dev-cache)]
+        (do
+          (logger/info logger-tag " Using cached models.dev catalog fallback")
+          cached)
+        {}))))
 
 (def ^:private one-million 1000000)
 

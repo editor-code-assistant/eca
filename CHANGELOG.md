@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Share chat history across git worktrees of the same repo, and merge workspace cache writes from concurrent servers instead of overwriting. #558
+- Cache models.dev catalog on disk and fall back to it when the fetch fails, avoiding model capabilities silently degrading (e.g. no image input) on transient network failures.
 
 ## 0.151.1
 

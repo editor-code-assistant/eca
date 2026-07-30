@@ -1,9 +1,12 @@
 (ns eca.models-test
   (:require
+   [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [hato.client :as http]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]
+   [eca.cache :as cache]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.models :as models]))
@@ -50,6 +53,35 @@
         (is false "Expected ExceptionInfo on non-200 status")
         (catch clojure.lang.ExceptionInfo e
           (is (re-find #"upstream exploded" (ex-message e))))))))
+
+(deftest models-dev-test
+  (let [temp-dir (fs/create-temp-dir "eca-models-dev-test")
+        cache-file (io/file (str temp-dir) "models-dev.json")
+        payload {"anthropic" {"models" {"claude-x" {"modalities" {"input" ["text" "image"]}}}}}]
+    (try
+      (with-redefs [cache/global-dir (fn [] (io/file (str temp-dir)))
+                    logger/error (fn [& _])
+                    logger/info (fn [& _])]
+        (testing "Successful fetch returns payload and caches it on disk"
+          (with-redefs [http/get (fn [_url _opts] {:status 200 :body payload})]
+            (is (= payload (#'models/models-dev)))
+            (is (fs/exists? cache-file))))
+
+        (testing "Failed fetch falls back to the cached payload"
+          (with-redefs [http/get (fn [_url _opts] {:status 503 :body "down"})]
+            (is (= payload (#'models/models-dev)))))
+
+        (testing "Failed fetch with no cache returns empty catalog"
+          (fs/delete cache-file)
+          (with-redefs [http/get (fn [_url _opts] {:status 503 :body "down"})]
+            (is (= {} (#'models/models-dev)))))
+
+        (testing "Empty payload is returned but not cached"
+          (with-redefs [http/get (fn [_url _opts] {:status 200 :body {}})]
+            (is (= {} (#'models/models-dev)))
+            (is (not (fs/exists? cache-file))))))
+      (finally
+        (fs/delete-tree temp-dir)))))
 
 (deftest truncate-for-log-test
   (testing "Returns short strings unchanged"
