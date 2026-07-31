@@ -844,6 +844,18 @@
           (is (= 272000 (get-in supported ["openai/gpt-5.5" :limit :context])))
           (is (zero? @native-calls*) "native /models must not be called when an override wins"))))))
 
+(deftest discovered-provider-data-builds-model-capabilities-test
+  (is (= {:variants {"low" {:reasoning {:effort "low" :summary "auto"}}}
+          :provider-data {:responses-lite? true
+                          :default-reasoning-effort "low"
+                          :parallel-tool-calls? false}}
+         (#'models/config-overrides->capabilities
+          {:discovered-provider-data {:responses-lite? true
+                                      :default-reasoning-effort "low"
+                                      :parallel-tool-calls? false}
+           :discovered-variants {"low" {:reasoning {:effort "low"
+                                                    :summary "auto"}}}}))))
+
 (deftest openai-token-keeps-direct-api-context-window-test
   (testing "API-key (non-OAuth) OpenAI keeps the direct API context window (no override)"
     (let [request* (atom nil)

@@ -243,7 +243,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           on-server-web-search on-server-image-generation on-history-sanitized
+           on-server-web-search on-server-image-generation on-history-sanitized retry-request
            past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
@@ -303,7 +303,8 @@
                      :on-reason on-reason
                      :on-usage-updated on-usage-updated
                      :on-server-web-search on-server-web-search
-                     :on-server-image-generation on-server-image-generation})]
+                     :on-server-image-generation on-server-image-generation
+                     :retry-request retry-request})]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
@@ -319,13 +320,14 @@
           :tools tools
           :web-search web-search
           :image-generation image-generation
-          :extra-payload (merge {:parallel_tool_calls true}
-                                extra-payload)
+          :extra-payload (merge {:parallel_tool_calls true} extra-payload)
           :extra-headers extra-headers
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
+          :provider provider
           :auth-type auth-type
+          :provider-data (:provider-data model-capabilities)
           :account-id (:account-id provider-auth)
           :prompt-cache-key prompt-cache-key
           :cancelled? cancelled?
@@ -475,7 +477,8 @@
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized
-           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent? prompt-cache-key]
+           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?
+           prompt-cache-key]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -541,7 +544,7 @@
                                                  {:exception (ex-message e)})
                                     provider-auth))
                                 provider-auth))
-        maybe-retry (fn [error-data attempt on-give-up retry-prompt-fn]
+        maybe-retry (fn [error-data attempt replay-safe? on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
                             policy (retry-policy provider-config error-type)
@@ -559,10 +562,10 @@
                                                      default-rate-limit-max-wait-seconds)))
                             wait-too-long? (boolean (and rate-limit-delay-ms
                                                          (> rate-limit-delay-ms max-wait-ms)))]
-                        (if (and (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
+                        (if (and replay-safe?
+                                 (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
                                  (< attempt max-retries)
                                  (not wait-too-long?)
-                                 (not @first-response-received*)
                                  (not (cancelled?)))
                           (let [delay-ms (or rate-limit-delay-ms
                                              (retry-delay-ms attempt policy))]
@@ -616,7 +619,8 @@
                               :config config})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
                   (if error
-                    (maybe-retry error attempt on-error-wrapper sync-prompt-with-retry)
+                    (maybe-retry error attempt (not @first-response-received*)
+                                 on-error-wrapper sync-prompt-with-retry)
                     (do
                       (when reason-text
                         (on-reason-wrapper {:status :started :id reason-id})
@@ -657,10 +661,14 @@
                 :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper
                 :on-history-sanitized on-history-sanitized-wrapper
+                :retry-request (fn [{:keys [error-data attempt replay-safe? retry-fn on-give-up]}]
+                                 (maybe-retry error-data (or attempt 0) (true? replay-safe?)
+                                              (or on-give-up on-error-wrapper) retry-fn))
                 :on-error (fn [error-data]
                             (if (:silent? (ex-data (:exception error-data)))
                               (on-error-wrapper error-data)
-                              (maybe-retry error-data attempt on-error-wrapper async-prompt-with-retry)))
+                              (maybe-retry error-data attempt (not @first-response-received*)
+                                           on-error-wrapper async-prompt-with-retry)))
                 :config config}))]
         (async-prompt-with-retry* 0)))))
 

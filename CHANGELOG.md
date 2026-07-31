@@ -4,6 +4,8 @@
 
 - Share chat history across git worktrees of the same repo, and merge workspace cache writes from concurrent servers instead of overwriting. #558
 - Cache models.dev catalog on disk and fall back to it when the fetch fails, avoiding model capabilities silently degrading (e.g. no image input) on transient network failures.
+- Fix ChatGPT OAuth routing and Responses Lite payloads for GPT-5.6 models. #563
+- Retry overloaded OpenAI post-tool requests without rerunning completed tools. #563
 
 ## 0.151.1
 

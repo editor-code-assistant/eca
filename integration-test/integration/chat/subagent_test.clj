@@ -126,3 +126,70 @@
                          (= "assistant" (:role e))
                          (matches? {:type "text" :text "Final answer"} (:content e))))
                   events))))))
+
+(deftest spawn-subagent-retries-overloaded-post-tool-request-test
+  (eca/start-process!)
+  (eca/request! (fixture/initialize-request))
+  (eca/notify! (fixture/initialized-notification))
+
+  (llm.mocks/set-case! :subagent-retry-0)
+  (let [resp (eca/request! (fixture/chat-prompt-request
+                            {:model "openai/gpt-5.2"
+                             :message "What can you find?"}))
+        parent-chat-id (:chatId resp)
+        events (drain-content-events-until
+                (fn [e]
+                  (and (= parent-chat-id (:chatId e))
+                       (= "assistant" (:role e))
+                       (= "text" (-> e :content :type))
+                       (= "Final answer" (-> e :content :text)))))
+        subagent-chat-id (->> events
+                              (keep :chatId)
+                              (filter #(string/starts-with? % "subagent-"))
+                              first)]
+    (is (string? subagent-chat-id))
+
+    (testing "subagent reports retrying the overloaded post-tool request"
+      (is (some (fn [e]
+                  (and (= subagent-chat-id (:chatId e))
+                       (= "system" (:role e))
+                       (matches? {:type "progress"
+                                  :state "running"
+                                  :text #"Provider overloaded.*Retrying"}
+                                 (:content e))))
+                events)))
+
+    (testing "subagent tool executes exactly once"
+      (is (= 1
+             (count
+              (filter (fn [e]
+                        (and (= subagent-chat-id (:chatId e))
+                             (= "assistant" (:role e))
+                             (matches? {:type "toolCalled"
+                                        :name "directory_tree"
+                                        :error false}
+                                       (:content e))))
+                      events)))))
+
+    (testing "subagent finishes after the retried request succeeds"
+      (is (some (fn [e]
+                  (and (= subagent-chat-id (:chatId e))
+                       (= parent-chat-id (:parentChatId e))
+                       (= "assistant" (:role e))
+                       (matches? {:type "text" :text "Subagent done"} (:content e))))
+                events)))
+
+    (testing "parent receives a successful subagent result and finishes"
+      (is (some (fn [e]
+                  (and (= parent-chat-id (:chatId e))
+                       (= "assistant" (:role e))
+                       (matches? {:type "toolCalled"
+                                  :name "spawn_agent"
+                                  :error false}
+                                 (:content e))))
+                events))
+      (is (some (fn [e]
+                  (and (= parent-chat-id (:chatId e))
+                       (= "assistant" (:role e))
+                       (matches? {:type "text" :text "Final answer"} (:content e))))
+                events)))))

@@ -1,6 +1,8 @@
 (ns eca.llm-api-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [cheshire.core :as json]
+   [hato.client :as http]
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
@@ -517,6 +519,165 @@
           :sync? false}))
       (is (not (true? (:image-generation @captured*)))
           "openai handler should NOT receive :image-generation true when capability is off"))))
+
+(deftest prompt-forwards-codex-decision-inputs-only-for-openai-test
+  (let [base-opts {:model "gpt-5.6-sol"
+                   :model-capabilities {:api :openai-responses
+                                        :tools true
+                                        :reason? true
+                                        :web-search false
+                                        :model-name "gpt-5.6-sol"
+                                        :provider-data {:responses-lite? true
+                                                        :default-reasoning-effort "low"}}
+                   :instructions "test"
+                   :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                   :past-messages []
+                   :tools []
+                   :sync? false}]
+    (testing "the openai handler receives provider, auth-type and opaque provider-data"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai/create-response!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (merge base-opts
+                  {:provider "openai"
+                   :provider-auth {:api-key "oauth-token"
+                                   :type :auth/oauth
+                                   :account-id "account-1"}
+                   :config {:providers {"openai" {:api "openai-responses"
+                                                  :url "https://api.openai.com"
+                                                  :models {}}}}})))
+        (is (= "openai" (:provider @captured*)))
+        (is (= :auth/oauth (:auth-type @captured*)))
+        (is (= {:responses-lite? true
+                :default-reasoning-effort "low"}
+               (:provider-data @captured*)))))
+
+    (testing "OpenAI API keys forward their auth-type so no Codex behavior applies"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai/create-response!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (merge base-opts
+                  {:provider "openai"
+                   :provider-auth {:api-key "sk-test" :type :auth/api-key}
+                   :config {:providers {"openai" {:api "openai-responses"
+                                                  :url "https://api.openai.com"
+                                                  :models {}}}}})))
+        (is (= "openai" (:provider @captured*)))
+        (is (= :auth/api-key (:auth-type @captured*)))))
+
+    (testing "Copilot and custom Responses providers receive no provider identity"
+      (doseq [[provider provider-auth provider-config]
+              [["github-copilot"
+                {:api-key "copilot-token"
+                 :api-url "https://api.githubcopilot.com"
+                 :type :auth/oauth}
+                {:api "openai-chat"
+                 :url "https://api.githubcopilot.com"
+                 :models {}}]
+               ["gateway"
+                {:api-key "gateway-token" :type :auth/api-key}
+                {:api "openai-responses"
+                 :url "https://gateway.example.com"
+                 :models {"gpt-5.6-sol" {}}}]]]
+        (let [captured* (atom nil)]
+          (with-redefs [llm-providers.openai/create-response!
+                        (fn [opts _callbacks] (reset! captured* opts) :ok)]
+            (#'eca.llm-api/prompt!
+             (merge base-opts
+                    {:provider provider
+                     :provider-auth provider-auth
+                     :config {:providers {provider provider-config}}})))
+          (is (nil? (:provider @captured*))
+              (str provider " must not inherit ChatGPT Codex transport"))
+          (is (nil? (:auth-type @captured*))))))))
+
+(deftest oauth-gpt-5-6-lite-retries-post-tool-request-test
+  (testing "GPT-5.6 Lite keeps routing state and executes the tool once across overload retry"
+    (let [requests* (atom [])
+          tools-called* (atom 0)
+          messages* (atom [])
+          terminal-errors* (atom [])
+          stream (fn [text]
+                   (java.io.ByteArrayInputStream.
+                    (.getBytes ^String text java.nio.charset.StandardCharsets/UTF_8)))
+          tool-stream (str
+                       "event: response.completed\n"
+                       "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"item-1\",\"call_id\":\"call-1\",\"name\":\"eca__directory_tree\",\"arguments\":\"{}\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+          overloaded-stream (str
+                             "event: error\n"
+                             "data: {\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"Our servers are currently overloaded.\"}\n\n")
+          final-stream (str
+                        "event: response.output_text.delta\n"
+                        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\n"
+                        "event: response.completed\n"
+                        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")]
+      (with-redefs [http/post
+                    (fn [url opts]
+                      (let [request-number (inc (count @requests*))
+                            body (json/parse-string (:body opts) true)]
+                        (swap! requests* conj {:url url
+                                              :headers (:headers opts)
+                                              :body body})
+                        {:status 200
+                         :headers {"x-codex-turn-state"
+                                   (if (= 1 request-number) "state-1" "state-2")}
+                         :body (stream (case request-number
+                                         1 tool-stream
+                                         2 overloaded-stream
+                                         final-stream))}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         {:provider "openai"
+          :model "gpt-5.6-sol"
+          :model-capabilities {:api :openai-responses
+                               :model-name "gpt-5.6-sol"
+                               :tools true
+                               :reason? true
+                               :web-search true
+                               :image-generation? true
+                               :provider-data {:responses-lite? true
+                                               :default-reasoning-effort "low"}}
+          :instructions "test"
+          :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+          :past-messages []
+          :tools [{:full-name "eca__directory_tree"
+                   :description "list"
+                   :parameters {:type "object"}}]
+          :config {:providers {"openai" {:api "openai-responses"
+                                         :url "https://api.openai.com"
+                                         :models {"gpt-5.6-sol" {}}}}}
+          :provider-auth {:api-key "oauth-token"
+                          :account-id "account-1"
+                          :type :auth/oauth}
+          :on-message-received #(swap! messages* conj %)
+          :on-error #(swap! terminal-errors* conj %)
+          :on-tools-called (fn [_]
+                             (swap! tools-called* inc)
+                             {:new-messages [{:role "tool_call_output"
+                                              :content {:id "call-1"
+                                                        :output {:contents [{:type :text
+                                                                            :text "result"}]}}}]
+                              :tools []})})
+
+        (is (= 3 (count @requests*)))
+        (is (= 1 @tools-called*))
+        (is (empty? @terminal-errors*))
+        (is (some #(= {:type :text :text "done"} %) @messages*))
+        (doseq [{:keys [body]} @requests*]
+          (is (= "additional_tools" (get-in body [:input 0 :type])))
+          (is (nil? (:instructions body)))
+          (is (nil? (:tools body)))
+          (is (false? (:parallel_tool_calls body))))
+        (is (nil? (get-in (first @requests*) [:headers "x-codex-turn-state"])))
+        (is (= ["state-1" "state-1"]
+               (mapv #(get-in % [:headers "x-codex-turn-state"])
+                     (rest @requests*))))
+        (let [session-ids (mapv #(get-in % [:headers "Session-ID"]) @requests*)]
+          (is (every? string? session-ids))
+          (is (= 1 (count (distinct session-ids)))
+              "every request in the turn shares one Session-ID"))))))
 
 (deftest prompt-forwards-stream-idle-timeout-and-cache-retention-to-anthropic-handler-test
   (testing "custom provider with :api anthropic forwards :stream-idle-timeout-seconds and :cache-retention to chat!"
@@ -1167,6 +1328,116 @@
                  :message "Request failed"
                  :error/source :openai-responses}]
                @errors*))))))
+
+(deftest async-request-scoped-retry-test
+  (testing "retries a replay-safe request after earlier visible output"
+    (let [prompt-calls* (atom 0)
+          request-retries* (atom 0)
+          retry-events* (atom [])
+          errors* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-prepare-tool-call on-message-received on-error retry-request]}]
+                                          (swap! prompt-calls* inc)
+                                          (on-prepare-tool-call {:id "call_1"
+                                                                 :full-name "tool"
+                                                                 :arguments-text "{}"})
+                                          (retry-request
+                                           {:error-data {:code "server_is_overloaded"
+                                                         :message "Request failed"
+                                                         :error/source :openai-responses}
+                                            :attempt 0
+                                            :replay-safe? true
+                                            :on-give-up on-error
+                                            :retry-fn (fn [next-attempt]
+                                                        (is (= 1 next-attempt))
+                                                        (swap! request-retries* inc)
+                                                        (on-message-received {:type :text :text "recovered"})
+                                                        (on-message-received {:type :finish :finish-reason "stop"}))}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-retry (fn [event] (swap! retry-events* conj event))
+           :on-error (fn [error] (swap! errors* conj error))
+           :on-prepare-tool-call identity
+           :on-message-received identity})))
+      (is (= 1 @prompt-calls*) "the outer prompt must not be replayed")
+      (is (= 1 @request-retries*))
+      (is (= 1 (count @retry-events*)))
+      (is (= :overloaded (get-in (first @retry-events*) [:classified :error/type])))
+      (is (empty? @errors*))))
+
+  (testing "does not retry a request that is not replay-safe"
+    (let [request-retries* (atom 0)
+          sleep-calls* (atom 0)
+          errors* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error retry-request]}]
+                                          (on-message-received {:type :text :text "partial"})
+                                          (retry-request
+                                           {:error-data {:code "server_error"
+                                                         :message "Request failed"
+                                                         :error/source :openai-responses}
+                                            :attempt 0
+                                            :replay-safe? false
+                                            :on-give-up on-error
+                                            :retry-fn (fn [_]
+                                                        (swap! request-retries* inc))}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _]
+                                                   (swap! sleep-calls* inc)
+                                                   true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-error (fn [error] (swap! errors* conj error))
+           :on-message-received identity})))
+      (is (zero? @request-retries*))
+      (is (zero? @sleep-calls*))
+      (is (= 1 (count @errors*)))))
+
+  (testing "gives up when the request retry budget is exhausted"
+    (let [request-retries* (atom 0)
+          errors* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error retry-request]}]
+                                          (on-message-received {:type :text :text "earlier output"})
+                                          (retry-request
+                                           {:error-data {:code "server_error"
+                                                         :message "Request failed"
+                                                         :error/source :openai-responses}
+                                            :attempt 1
+                                            :replay-safe? true
+                                            :on-give-up on-error
+                                            :retry-fn (fn [_]
+                                                        (swap! request-retries* inc))}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _] true)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:config {:providers {"anthropic" {:key "test-key"
+                                               :url "http://test"
+                                               :retry {:maxRetries 1}
+                                               :models {"claude-sonnet-4-6" {}}}}}
+           :on-error (fn [error] (swap! errors* conj error))
+           :on-message-received identity})))
+      (is (zero? @request-retries*))
+      (is (= 1 (count @errors*)))))
+
+  (testing "gives up when cancellation interrupts request retry backoff"
+    (let [request-retries* (atom 0)
+          errors* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-error retry-request]}]
+                                          (on-message-received {:type :text :text "earlier output"})
+                                          (retry-request
+                                           {:error-data {:code "server_error"
+                                                         :message "Request failed"
+                                                         :error/source :openai-responses}
+                                            :attempt 0
+                                            :replay-safe? true
+                                            :on-give-up on-error
+                                            :retry-fn (fn [_]
+                                                        (swap! request-retries* inc))}))
+                    eca.llm-api/sleep-with-cancel (fn [_ _] false)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-error (fn [error] (swap! errors* conj error))
+           :on-message-received identity})))
+      (is (zero? @request-retries*))
+      (is (= 1 (count @errors*))))))
 
 (deftest async-duplicate-errors-delivered-once-test
   (testing "only the first terminal error reaches on-error when stacked requests fail together (#547)"
