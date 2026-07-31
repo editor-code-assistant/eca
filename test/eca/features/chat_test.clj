@@ -1238,6 +1238,47 @@
                              {:role :system :content {:state :finished :type :progress}}])}
            (h/messages))))))
 
+(deftest inactive-compact-tool-error-reaches-provider-continuation-test
+  (testing "inactive compact_chat result is included in the next provider request"
+    (h/reset-components!)
+    (let [continuation* (atom nil)
+          original-all-tools f.tools/all-tools
+          original-call-tool! f.tools/call-tool!
+          expected-error "Chat compaction is not active for this request. This tool is available only while chat compaction is in progress. To compact manually, the user must use the `/compact` command; compaction may also start automatically when context usage reaches the configured threshold."
+          {:keys [chat-id]}
+          (prompt!
+           {:message "Continue normally"}
+           {:all-tools-mock original-all-tools
+            :call-tool-mock original-call-tool!
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received
+                         on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received)
+              (on-prepare-tool-call {:id "compact-call-1"
+                                     :full-name "eca__compact_chat"
+                                     :arguments-text "{\"summary\":\"Must not be stored\"}"})
+              (reset! continuation*
+                      (on-tools-called [{:id "compact-call-1"
+                                         :full-name "eca__compact_chat"
+                                         :arguments {"summary" "Must not be stored"}}]))
+              (on-message-received {:type :text :text "Understood"})
+              (on-message-received {:type :finish}))})
+          tool-output (->> (:new-messages @continuation*)
+                           (filter #(= "tool_call_output" (:role %)))
+                           last
+                           :content)]
+      (is (match? {:id "compact-call-1"
+                   :full-name "eca__compact_chat"
+                   :error true
+                   :output {:error true
+                            :contents [{:type :text :text expected-error}]}}
+                  tool-output)
+          "the provider continuation must contain the exact inactive-compaction error for the LLM")
+      (is (nil? (get-in (h/db) [:chats chat-id :last-summary])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (not (true? (get-in (h/db) [:chats chat-id :compacting?])))
+          "the accidental call must not activate or complete compaction"))))
+
 (deftest concurrent-tool-calls-test
   (testing "Running three calls simultaneously"
     (h/reset-components!)
