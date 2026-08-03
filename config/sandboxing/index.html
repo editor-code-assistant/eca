@@ -6,23 +6,29 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="ECA is a free, open-source AI pair programming tool that connects any LLM to any editor via a standardized protocol. Works with VS Code, Emacs, Neovim, IntelliJ, Desktop and supports OpenAI, Anthropic, Copilot, Ollama and more.">
+        <meta name="description" content="Run the ECA server and all its tools inside a sandbox (Docker, bubblewrap, and more) for OS-level isolation, working with any editor.">
       
       
       
+        <link rel="canonical" href="https://eca.dev/config/sandboxing/">
       
       
+        <link rel="prev" href="../network/">
       
-      <link rel="icon" href="/images/logo.svg">
+      
+        <link rel="next" href="../examples/">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
     
     
       
-        <title>ECA - Editor Code Assistant</title>
+        <title>Sandboxing - ECA - Editor Code Assistant</title>
       
     
     
-      <link rel="stylesheet" href="/assets/stylesheets/main.342714a4.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.342714a4.min.css">
       
       
 
@@ -41,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="/stylesheets/layout.css">
+      <link rel="stylesheet" href="../../stylesheets/layout.css">
     
-    <script>__md_scope=new URL("/",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
   
@@ -62,15 +68,19 @@
     
   
   
+    
   
+  
+  
+    
   
   
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="ECA - Editor Code Assistant" />
-  <meta property="og:description" content="ECA is a free, open-source AI pair programming tool that connects any LLM to any editor via a standardized protocol. Works with VS Code, Emacs, Neovim, IntelliJ, Desktop and supports OpenAI, Anthropic, Copilot, Ollama and more." />
-  <meta property="og:url" content="" />
+  <meta property="og:title" content="Sandboxing - ECA - Editor Code Assistant" />
+  <meta property="og:description" content="Run the ECA server and all its tools inside a sandbox (Docker, bubblewrap, and more) for OS-level isolation, working with any editor." />
+  <meta property="og:url" content="https://eca.dev/config/sandboxing/" />
   <meta property="og:image" content="https://eca.dev/images/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -78,8 +88,8 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="ECA - Editor Code Assistant" />
-  <meta name="twitter:description" content="ECA is a free, open-source AI pair programming tool that connects any LLM to any editor via a standardized protocol. Works with VS Code, Emacs, Neovim, IntelliJ, Desktop and supports OpenAI, Anthropic, Copilot, Ollama and more." />
+  <meta name="twitter:title" content="Sandboxing - ECA - Editor Code Assistant" />
+  <meta name="twitter:description" content="Run the ECA server and all its tools inside a sandbox (Docker, bubblewrap, and more) for OS-level isolation, working with any editor." />
   <meta name="twitter:image" content="https://eca.dev/images/og-image.png" />
 
   </head>
@@ -93,6 +103,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#sandboxing" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -103,9 +118,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/." title="ECA - Editor Code Assistant" class="md-header__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
+    <a href="../.." title="ECA - Editor Code Assistant" class="md-header__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
       
-  <img src="/images/logo.svg" alt="logo">
+  <img src="../../images/logo.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -122,7 +137,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              Sandboxing
             
           </span>
         </div>
@@ -209,7 +224,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/." class="md-tabs__link">
+        <a href="../.." class="md-tabs__link">
           
   
   
@@ -229,7 +244,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/features/" class="md-tabs__link">
+        <a href="../../features/" class="md-tabs__link">
           
   
   
@@ -249,7 +264,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/install/" class="md-tabs__link">
+        <a href="../../install/" class="md-tabs__link">
           
   
   
@@ -265,11 +280,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="/config/introduction/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../introduction/" class="md-tabs__link">
           
   
   
@@ -287,7 +304,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/protocol/" class="md-tabs__link">
+      <a href="../../protocol/" class="md-tabs__link">
         
   
   
@@ -306,7 +323,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/troubleshooting/" class="md-tabs__link">
+      <a href="../../troubleshooting/" class="md-tabs__link">
         
   
   
@@ -379,9 +396,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/." title="ECA - Editor Code Assistant" class="md-nav__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
+    <a href="../.." title="ECA - Editor Code Assistant" class="md-nav__button md-logo" aria-label="ECA - Editor Code Assistant" data-md-component="logo">
       
-  <img src="/images/logo.svg" alt="logo">
+  <img src="../../images/logo.svg" alt="logo">
 
     </a>
     ECA - Editor Code Assistant
@@ -453,7 +470,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -528,7 +545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/features/" class="md-nav__link">
+      <a href="../../features/" class="md-nav__link">
         
   
   
@@ -551,7 +568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/workflows/" class="md-nav__link">
+      <a href="../../workflows/" class="md-nav__link">
         
   
   
@@ -574,7 +591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/read-chat/" class="md-nav__link">
+      <a href="../../read-chat/" class="md-nav__link">
         
   
   
@@ -649,7 +666,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/install/" class="md-nav__link">
+      <a href="../../install/" class="md-nav__link">
         
   
   
@@ -676,28 +693,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -710,7 +730,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Configuration
@@ -724,7 +744,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/introduction/" class="md-nav__link">
+      <a href="../introduction/" class="md-nav__link">
         
   
   
@@ -747,7 +767,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/models/" class="md-nav__link">
+      <a href="../models/" class="md-nav__link">
         
   
   
@@ -770,7 +790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/tools/" class="md-nav__link">
+      <a href="../tools/" class="md-nav__link">
         
   
   
@@ -793,7 +813,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/variants/" class="md-nav__link">
+      <a href="../variants/" class="md-nav__link">
         
   
   
@@ -816,7 +836,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/skills/" class="md-nav__link">
+      <a href="../skills/" class="md-nav__link">
         
   
   
@@ -839,7 +859,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/rules/" class="md-nav__link">
+      <a href="../rules/" class="md-nav__link">
         
   
   
@@ -862,7 +882,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/commands/" class="md-nav__link">
+      <a href="../commands/" class="md-nav__link">
         
   
   
@@ -885,7 +905,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/agents/" class="md-nav__link">
+      <a href="../agents/" class="md-nav__link">
         
   
   
@@ -908,7 +928,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/hooks/" class="md-nav__link">
+      <a href="../hooks/" class="md-nav__link">
         
   
   
@@ -931,7 +951,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/completion/" class="md-nav__link">
+      <a href="../completion/" class="md-nav__link">
         
   
   
@@ -954,7 +974,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/rewrite/" class="md-nav__link">
+      <a href="../rewrite/" class="md-nav__link">
         
   
   
@@ -977,7 +997,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/context-management/" class="md-nav__link">
+      <a href="../context-management/" class="md-nav__link">
         
   
   
@@ -1000,7 +1020,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/plugins/" class="md-nav__link">
+      <a href="../plugins/" class="md-nav__link">
         
   
   
@@ -1023,7 +1043,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/metrics/" class="md-nav__link">
+      <a href="../metrics/" class="md-nav__link">
         
   
   
@@ -1046,7 +1066,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/remote/" class="md-nav__link">
+      <a href="../remote/" class="md-nav__link">
         
   
   
@@ -1069,7 +1089,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/network/" class="md-nav__link">
+      <a href="../network/" class="md-nav__link">
         
   
   
@@ -1089,10 +1109,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/config/sandboxing/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Sandboxing
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1103,6 +1145,95 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#docker-podman" class="md-nav__link">
+    <span class="md-ellipsis">
+      Docker / Podman
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker / Podman">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#secrets" class="md-nav__link">
+    <span class="md-ellipsis">
+      Secrets
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persisting-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      Persisting state
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      Caveats
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linux-bubblewrap-and-friends" class="md-nav__link">
+    <span class="md-ellipsis">
+      Linux: bubblewrap and friends
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wrapping-only-shell-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Wrapping only shell commands
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#defense-in-depth" class="md-nav__link">
+    <span class="md-ellipsis">
+      Defense in depth
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1115,7 +1246,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/config/examples/" class="md-nav__link">
+      <a href="../examples/" class="md-nav__link">
         
   
   
@@ -1145,7 +1276,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/protocol/" class="md-nav__link">
+      <a href="../../protocol/" class="md-nav__link">
         
   
   
@@ -1167,7 +1298,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/troubleshooting/" class="md-nav__link">
+      <a href="../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1243,6 +1374,85 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#docker-podman" class="md-nav__link">
+    <span class="md-ellipsis">
+      Docker / Podman
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker / Podman">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#secrets" class="md-nav__link">
+    <span class="md-ellipsis">
+      Secrets
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persisting-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      Persisting state
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      Caveats
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linux-bubblewrap-and-friends" class="md-nav__link">
+    <span class="md-ellipsis">
+      Linux: bubblewrap and friends
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wrapping-only-shell-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      Wrapping only shell commands
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#defense-in-depth" class="md-nav__link">
+    <span class="md-ellipsis">
+      Defense in depth
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1254,8 +1464,161 @@
             <div class="md-content" data-md-component="content">
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="sandboxing">Sandboxing<a class="headerlink" href="#sandboxing" title="Permanent link">#</a></h1>
+<p><a href="../tools/#approval-permissions">Approval rules</a>, <a href="../hooks/">hooks</a> and disabled tools are policies enforced by the ECA process itself. Sandboxing adds OS-level enforcement on top, useful when working on untrusted codebases or letting agents run with less supervision.</p>
+<p>Everything ECA executes — built-in tools (shell commands, file edits), MCP stdio servers, hooks, plugins, custom tools and <code>${cmd:...}</code> config interpolation — runs in, or as child processes of, the <code>eca server</code> process. <strong>Sandboxing the server process sandboxes the entire tool surface</strong>, whatever editor you use.</p>
+<p>The pattern is always the same: instead of your editor spawning <code>eca server</code> directly, point it to a wrapper that starts the server inside the sandbox.</p>
+<h2 id="docker-podman">Docker / Podman<a class="headerlink" href="#docker-podman" title="Permanent link">#</a></h2>
+<p>ECA publishes a ready-to-use image at <a href="https://github.com/editor-code-assistant/sandbox-image"><code>ghcr.io/editor-code-assistant/sandbox-image</code></a> (<code>linux/amd64</code> and <code>linux/arm64</code>), containing the latest <code>eca</code> binary and a minimal toolset (git, curl, ripgrep). It's tagged with <code>latest</code> and the bundled ECA version.</p>
+<p>Create a wrapper script:</p>
+<div class="highlight"><span class="filename">~/.local/bin/eca-sandboxed</span><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="nb">exec</span><span class="w"> </span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-i<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span>-w<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.config/eca:/root/.config/eca:ro&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>ghcr.io/editor-code-assistant/sandbox-image:latest<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>eca<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$@</span><span class="s2">&quot;</span>
+</code></pre></div>
+<p>How it works:</p>
+<ul>
+<li><code>-i</code> keeps stdin open, so the JSON-RPC stdio between editor and server flows through <code>docker run</code> transparently.</li>
+<li>The workspace is mounted at the <strong>same absolute path</strong> (<code>$PWD:$PWD</code>), so the file URIs your editor sends are valid inside the container: no path translation needed, works with any client. This assumes your editor starts the server from the project directory; replace <code>$PWD</code> with the project path otherwise.</li>
+<li><code>~/.config/eca</code> is mounted read-only for your global config.</li>
+</ul>
+<p>Then make your editor start the wrapper (<code>chmod +x</code> it first) instead of <code>eca</code>:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="emacs" name="__tabbed_1" type="radio" /><input id="vscode" name="__tabbed_1" type="radio" /><input id="intellij" name="__tabbed_1" type="radio" /><input id="nvim" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="emacs">Emacs</label><label for="vscode">VsCode</label><label for="intellij">IntelliJ</label><label for="nvim">Nvim</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="p">(</span><span class="k">setq</span><span class="w"> </span><span class="nv">eca-custom-command</span><span class="w"> </span><span class="o">&#39;</span><span class="p">(</span><span class="s">&quot;/home/you/.local/bin/eca-sandboxed&quot;</span><span class="w"> </span><span class="s">&quot;server&quot;</span><span class="p">))</span>
+<span class="c1">;; The host PID is not visible inside the container, see caveats below.</span>
+<span class="p">(</span><span class="k">setq</span><span class="w"> </span><span class="nv">eca-send-process-id</span><span class="w"> </span><span class="no">nil</span><span class="p">)</span>
+</code></pre></div>
+<p>Alternatively, wrap the command in elisp without any script via <code>eca-process-wrapper-function</code>,
+see the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">eca-emacs sandboxing docs</a>.</p>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><span class="filename">your-json-preferences</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;eca.serverPath&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/home/you/.local/bin/eca-sandboxed&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Set <code>Tools</code> &gt; <code>ECA</code> &gt; <code>Server path</code> to <code>/home/you/.local/bin/eca-sandboxed</code>.</p>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="c1">-- in your eca-nvim setup opts</span>
+<span class="p">{</span>
+<span class="w">  </span><span class="nv">server_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/home/you/.local/bin/eca-sandboxed&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<h3 id="secrets">Secrets<a class="headerlink" href="#secrets" title="Permanent link">#</a></h3>
+<p><code>${cmd:...}</code> <a href="../introduction/#dynamic-string-contents">config interpolation</a> resolves <strong>inside</strong> the sandbox, where your secret manager (1Password, pass, etc) is likely not available. Resolve secrets on the host and inject the result via the <code>ECA_CONFIG</code> env var instead:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">exec</span><span class="w"> </span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-i<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="s2">&quot;ECA_CONFIG={\&quot;providers\&quot;:{\&quot;openrouter\&quot;:{\&quot;key\&quot;:\&quot;</span><span class="k">$(</span>op<span class="w"> </span><span class="nb">read</span><span class="w"> </span><span class="s1">&#39;op://Private/OpenRouter API Key/credential&#39;</span><span class="k">)</span><span class="s2">\&quot;}}}&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>...
+</code></pre></div>
+<h3 id="persisting-state">Persisting state<a class="headerlink" href="#persisting-state" title="Permanent link">#</a></h3>
+<p>ECA keeps caches, chat history and logins under <code>~/.cache/eca</code>, which is ephemeral in the container. To keep them across runs, add a volume:</p>
+<div class="highlight"><pre><span></span><code><span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.cache/eca-sandbox:/root/.cache/eca&quot;</span><span class="w"> </span><span class="se">\</span>
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Prefer a dedicated host dir (like <code>eca-sandbox</code> above) over sharing <code>~/.cache/eca</code> with a host ECA, so sandboxed and unsandboxed sessions don't mix state.</p>
+</div>
+<h3 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">#</a></h3>
+<ul>
+<li><strong>Client processId</strong>: when the editor sends its <code>processId</code> on <code>initialize</code>, the server watches that PID and exits once it disappears. Inside the container's PID namespace the host PID doesn't exist, so the server would exit right after starting. Either make the client not send it (Emacs: <code>eca-send-process-id</code>), or run the container with <code>--pid=host</code>, which keeps the watchdog working at the cost of PID isolation.</li>
+<li><strong>Network</strong>: the container needs egress to your LLM providers (and any HTTP MCP servers); <code>--network none</code> will break chat. Restrict selectively (e.g. via a proxy) if needed.</li>
+<li><strong>Login</strong>: <code>/login</code> flows that open a browser or listen on localhost callbacks don't work from inside the container. Prefer API keys, or login on the host and share the state as shown above.</li>
+<li>
+<p><strong>Tooling</strong>: the agent can only use what exists in the image. Extend it with your project toolchain so it can build and run tests:</p>
+<div class="highlight"><pre><span></span><code><span class="k">FROM</span><span class="w"> </span><span class="s">ghcr.io/editor-code-assistant/sandbox-image:latest</span>
+<span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>--no-install-recommends<span class="w"> </span>nodejs<span class="w"> </span>npm
+</code></pre></div>
+</li>
+</ul>
+<h2 id="linux-bubblewrap-and-friends">Linux: bubblewrap and friends<a class="headerlink" href="#linux-bubblewrap-and-friends" title="Permanent link">#</a></h2>
+<p>Containers are not required, any command wrapper works. Example with <a href="https://github.com/containers/bubblewrap">bubblewrap</a>, giving a read-only view of the host except the project dir, ECA cache and <code>/tmp</code>:</p>
+<div class="highlight"><span class="filename">~/.local/bin/eca-bwrap</span><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
+<span class="nb">exec</span><span class="w"> </span>bwrap<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--ro-bind<span class="w"> </span>/<span class="w"> </span>/<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--dev<span class="w"> </span>/dev<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--proc<span class="w"> </span>/proc<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--tmpfs<span class="w"> </span>/tmp<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--bind<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--bind<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.cache/eca&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.cache/eca&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--die-with-parent<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>eca<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$@</span><span class="s2">&quot;</span>
+</code></pre></div>
+<p>Since the filesystem view and PID namespace are unchanged, the path and <code>processId</code> caveats above don't apply. Examples for other wrappers (jai, firejail) live in the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">eca-emacs sandboxing docs</a> and follow the same shape.</p>
+<p>On macOS there is no bubblewrap equivalent, prefer the container approach.</p>
+<h2 id="wrapping-only-shell-commands">Wrapping only shell commands<a class="headerlink" href="#wrapping-only-shell-commands" title="Permanent link">#</a></h2>
+<p>A lighter (and weaker) option is to sandbox only what the <code>shell_command</code>, <code>git</code> and custom tools execute, keeping the server unsandboxed, via the <a href="../introduction/#default-config"><code>toolCall.shellCommand</code></a> config:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;shellCommand&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/home/you/.local/bin/sandboxed-bash&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;args&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-c&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This does not cover MCP servers, hooks, plugins or the filesystem tools (which run in the server process). Prefer sandboxing the whole server.</p>
+</div>
+<h2 id="defense-in-depth">Defense in depth<a class="headerlink" href="#defense-in-depth" title="Permanent link">#</a></h2>
+<p>Sandboxing composes with ECA's own guardrails:</p>
+<ul>
+<li><a href="../tools/#approval-permissions">Approval rules</a>: deny/ask patterns per tool and arguments.</li>
+<li><a href="../tools/#disabled-tools">Disabled tools</a>: remove tools from the LLM entirely.</li>
+<li><a href="../hooks/">Hooks</a>: <code>preToolCall</code> hooks can reject tool calls programmatically.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 3, 2026 14:15:57 UTC">August 3, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
               </article>
             </div>
           
@@ -1271,6 +1634,28 @@
   
   <nav class="md-footer__inner md-grid" aria-label="Footer" >
     
+    <a href="../network/" class="md-footer__link md-footer__link--prev">
+      <div class="md-footer__button md-icon">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </div>
+      <div class="md-footer__title">
+        <span class="md-footer__direction">Previous</span>
+        <span class="md-ellipsis">Network / Enterprise</span>
+      </div>
+    </a>
+    
+    
+    <a href="../examples/" class="md-footer__link md-footer__link--next">
+      <div class="md-footer__title">
+        <span class="md-footer__direction">Next</span>
+        <span class="md-ellipsis">User Examples</span>
+      </div>
+      <div class="md-footer__button md-icon">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+      </div>
+    </a>
     
   </nav>
   
@@ -1332,10 +1717,10 @@
     
     
       
-      <script id="__config" type="application/json">{"base": "/", "features": ["navigation.tabs", "navigation.expand", "navigation.sections", "content.code.copy", "content.code.select"], "search": "/assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.expand", "navigation.sections", "content.code.copy", "content.code.select"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="/assets/javascripts/bundle.56ea9cef.min.js"></script>
+      <script src="../../assets/javascripts/bundle.56ea9cef.min.js"></script>
       
     
   </body>
