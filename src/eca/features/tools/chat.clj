@@ -5,27 +5,25 @@
 (set! *warn-on-reflection* true)
 
 (defn ^:private compact-chat [arguments {:keys [db* chat-id]}]
-  (let [summary (get arguments "summary")]
-    ;; Mark chat as not compacting anymore
-    (swap! db* assoc-in [:chats chat-id :compacting?] false)
-
-    ;; Save summary to replace chat history later
-    (swap! db* assoc-in [:chats chat-id :last-summary] summary)
-
-    ;; Signal that compact is done so the LLM loop stops
-    (swap! db* assoc-in [:chats chat-id :compact-done?] true)
-
-    (tools.util/single-text-content "Compacted successfully!")))
+  (let [chat (get-in @db* [:chats chat-id])]
+    (if (or (:compacting? chat) (:auto-compacting? chat))
+      (do
+        (swap! db* update-in [:chats chat-id]
+               assoc
+               :compacting? false
+               :last-summary (get arguments "summary")
+               :compact-done? true)
+        (tools.util/single-text-content "Compacted successfully!"))
+      (tools.util/single-text-content
+       "Chat compaction is not active for this request. This tool is available only while chat compaction is in progress. To compact manually, the user must use the `/compact` command; compaction may also start automatically when context usage reaches the configured threshold."
+       :error))))
 
 (def definitions
   {"compact_chat"
-   {:description "Compact / summarize a chat, cleaning chat history, emptying usage and presenting the summary to user"
+   {:description "During chat compaction, submit a summary that will become the active conversation context"
     :parameters {:type "object"
                  :properties {"summary" {:type "string"
                                          :description "The summary/compacted text"}}
                  :required ["summary"]}
     :handler #'compact-chat
-    :enabled-fn (fn [{:keys [db chat-id]}]
-                  (or (get-in db [:chats chat-id :compacting?] false)
-                      (get-in db [:chats chat-id :auto-compacting?] false)))
     :summary-fn (constantly "Compacting...")}})

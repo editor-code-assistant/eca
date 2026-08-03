@@ -38,6 +38,17 @@
                      :origin :native}])
          (f.tools/all-tools "123" "code" {} {}))))
 
+  (testing "Compact tool schema is stable across compaction state"
+    (let [db {:chats {"123" {}}}
+          wire-tools (fn [db]
+                       (mapv #(select-keys % [:full-name :description :parameters])
+                             (f.tools/all-tools "123" "code" db {})))
+          normal-tools (wire-tools db)
+          manual-tools (wire-tools (assoc-in db [:chats "123" :compacting?] true))
+          auto-tools (wire-tools (assoc-in db [:chats "123" :auto-compacting?] true))]
+      (is (some #(= "eca__compact_chat" (:full-name %)) normal-tools))
+      (is (= normal-tools manual-tools auto-tools))))
+
   (testing "Subagent excludes spawn_agent, task, git, and ask_user tools"
     (let [db {:chats {"sub-1" {:subagent {:name "explorer"}}}}
           tools (f.tools/all-tools "sub-1" "code" db {})
