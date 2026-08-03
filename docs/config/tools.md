@@ -291,6 +291,9 @@ By default, ECA asks to call any non read-only tool (check the [default rules](#
 - `byDefault`: `"ask"`, `"allow"` or `"deny"`, used when no rule matches. Default: `"ask"`.
 - `deny`, `ask` and `allow`: maps of [tool selector](#tool-selectors) to an optional [`argsMatchers`](#matching-arguments-with-argsmatchers).
 
+!!! tip
+    Approval rules are enforced by the ECA process itself. For OS-level isolation on top of them, check [Sandboxing](./sandboxing.md).
+
 Check some examples:
 
 === "Allow any tools by default"

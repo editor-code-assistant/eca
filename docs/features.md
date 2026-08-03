@@ -48,7 +48,7 @@ When passing tools to LLM, ECA will always prefix the tool with the server name,
 
 !!! info "Approval / permissions"
 
-    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./config/tools.md#approval--permissions) or try the `plan` agent.
+    By default, ECA ask to approve all non-read only tools or mcp tools, you can easily configure that, check `toolCall approval` [config](./config/tools.md#approval-permissions) or try the `plan` agent.
 
 #### Native tools
 

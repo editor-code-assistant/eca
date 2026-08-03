@@ -31,6 +31,7 @@ nav:
     - Metrics: config/metrics.md
     - Remote: config/remote.md
     - Network / Enterprise: config/network.md
+    - Sandboxing: config/sandboxing.md
     - User Examples: config/examples.md
   - Protocol: protocol.md
   - Troubleshooting: troubleshooting.md
