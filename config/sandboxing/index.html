@@ -1476,13 +1476,13 @@
 <p>Everything ECA executes — built-in tools (shell commands, file edits), MCP stdio servers, hooks, plugins, custom tools and <code>${cmd:...}</code> config interpolation — runs in, or as child processes of, the <code>eca server</code> process. <strong>Sandboxing the server process sandboxes the entire tool surface</strong>, whatever editor you use.</p>
 <p>The pattern is always the same: instead of your editor spawning <code>eca server</code> directly, point it to a wrapper that starts the server inside the sandbox.</p>
 <h2 id="docker-podman">Docker / Podman<a class="headerlink" href="#docker-podman" title="Permanent link">#</a></h2>
-<p>ECA publishes a ready-to-use image at <a href="https://github.com/editor-code-assistant/sandbox-image"><code>ghcr.io/editor-code-assistant/sandbox-image</code></a> (<code>linux/amd64</code> and <code>linux/arm64</code>), containing the latest <code>eca</code> binary and a minimal toolset (git, curl, ripgrep). It's tagged with <code>latest</code> and the bundled ECA version.</p>
+<p>ECA publishes a ready-to-use image at <a href="https://github.com/editor-code-assistant/eca-sandbox-image"><code>ghcr.io/editor-code-assistant/eca-sandbox-image</code></a> (<code>linux/amd64</code> and <code>linux/arm64</code>), containing the latest <code>eca</code> binary and a minimal toolset (git, curl, ripgrep). It's tagged with <code>latest</code> and the bundled ECA version.</p>
 <p>Create a wrapper script:</p>
 <div class="highlight"><span class="filename">~/.local/bin/eca-sandboxed</span><pre><span></span><code><span class="ch">#!/usr/bin/env bash</span>
 <span class="nb">exec</span><span class="w"> </span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-i<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span>-w<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">/.config/eca:/root/.config/eca:ro&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>ghcr.io/editor-code-assistant/sandbox-image:latest<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>ghcr.io/editor-code-assistant/eca-sandbox-image:latest<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>eca<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$@</span><span class="s2">&quot;</span>
 </code></pre></div>
 <p>How it works:</p>
@@ -1541,7 +1541,7 @@ see the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">
 <li><strong>Login</strong>: <code>/login</code> flows that open a browser or listen on localhost callbacks don't work from inside the container. Prefer API keys, or login on the host and share the state as shown above.</li>
 <li>
 <p><strong>Tooling</strong>: the agent can only use what exists in the image. Extend it with your project toolchain so it can build and run tests:</p>
-<div class="highlight"><pre><span></span><code><span class="k">FROM</span><span class="w"> </span><span class="s">ghcr.io/editor-code-assistant/sandbox-image:latest</span>
+<div class="highlight"><pre><span></span><code><span class="k">FROM</span><span class="w"> </span><span class="s">ghcr.io/editor-code-assistant/eca-sandbox-image:latest</span>
 <span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>--no-install-recommends<span class="w"> </span>nodejs<span class="w"> </span>npm
 </code></pre></div>
 </li>
@@ -1603,7 +1603,7 @@ see the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 3, 2026 14:15:57 UTC">August 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 3, 2026 14:17:59 UTC">August 3, 2026</span>
   </span>
 
     
