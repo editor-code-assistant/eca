@@ -12,7 +12,7 @@ The pattern is always the same: instead of your editor spawning `eca server` dir
 
 ## Docker / Podman
 
-ECA publishes a ready-to-use image at [`ghcr.io/editor-code-assistant/sandbox-image`](https://github.com/editor-code-assistant/sandbox-image) (`linux/amd64` and `linux/arm64`), containing the latest `eca` binary and a minimal toolset (git, curl, ripgrep). It's tagged with `latest` and the bundled ECA version.
+ECA publishes a ready-to-use image at [`ghcr.io/editor-code-assistant/eca-sandbox-image`](https://github.com/editor-code-assistant/eca-sandbox-image) (`linux/amd64` and `linux/arm64`), containing the latest `eca` binary and a minimal toolset (git, curl, ripgrep). It's tagged with `latest` and the bundled ECA version.
 
 Create a wrapper script:
 
@@ -21,7 +21,7 @@ Create a wrapper script:
 exec docker run --rm -i \
   -v "$PWD:$PWD" -w "$PWD" \
   -v "$HOME/.config/eca:/root/.config/eca:ro" \
-  ghcr.io/editor-code-assistant/sandbox-image:latest \
+  ghcr.io/editor-code-assistant/eca-sandbox-image:latest \
   eca "$@"
 ```
 
@@ -94,7 +94,7 @@ ECA keeps caches, chat history and logins under `~/.cache/eca`, which is ephemer
 - __Tooling__: the agent can only use what exists in the image. Extend it with your project toolchain so it can build and run tests:
 
     ```dockerfile
-    FROM ghcr.io/editor-code-assistant/sandbox-image:latest
+    FROM ghcr.io/editor-code-assistant/eca-sandbox-image:latest
     RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm
     ```
 
