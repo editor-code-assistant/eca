@@ -164,7 +164,7 @@
 (defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools max-output-tokens
                      extra-headers extra-payload cancelled? stream-idle-timeout-seconds]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
-                     on-reason] :as callbacks}]
+                     on-reason on-usage-updated] :as callbacks}]
   (let [messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
                   (normalize-messages user-messages))
@@ -182,7 +182,7 @@
         tool-calls* (atom {})
         on-stream-fn (when stream?
                        (fn handle-stream [rid _event data reasoning?* reason-id]
-                         (let [{:keys [message done_reason]} data]
+                         (let [{:keys [message done_reason prompt_eval_count eval_count]} data]
                            (cond
                              (seq (:tool_calls message))
                              (let [function (:function (first (seq (:tool_calls message))))
@@ -194,6 +194,10 @@
                                (swap! tool-calls* assoc rid tool-call))
 
                              done_reason
+                             (do
+                               (when (and on-usage-updated (or prompt_eval_count eval_count))
+                                 (on-usage-updated {:input-tokens (or prompt_eval_count 0)
+                                                    :output-tokens (or eval_count 0)}))
                              (if-let [tool-call (get @tool-calls* rid)]
                                  ;; TODO support multiple tool calls
                                (when-let [{:keys [new-messages tools]} (on-tools-called [tool-call])]
@@ -210,7 +214,7 @@
                                      :on-error on-error
                                      :on-stream handle-stream})))
                                (on-message-received {:type :finish
-                                                     :finish-reason done_reason}))
+                                                     :finish-reason done_reason})))
 
                              message
                              (if (:thinking message)

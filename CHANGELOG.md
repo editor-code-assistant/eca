@@ -4,6 +4,8 @@
 
 - Keep `compact_chat` in the tool schema across normal and compact requests, preserving prompt-cache prefixes while rejecting calls outside active compaction.
 
+- Provide token metrics for ollama provider. #567.
+
 ## 0.152.0
 
 - Share chat history across git worktrees of the same repo, and merge workspace cache writes from concurrent servers instead of overwriting. #558
