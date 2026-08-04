@@ -162,3 +162,64 @@
       (is (= "Stream cancelled" (ex-message (:exception (first @errors*)))))
       (is (true? (:silent? (ex-data (:exception (first @errors*))))))
       (is (empty? @messages*)))))
+
+(defn ^:private ndjson-stream
+  "Builds an in-memory NDJSON stream body like Ollama's streaming responses."
+  [& chunks]
+  (let [lines (apply str (map #(str (json/generate-string %) "\n") chunks))]
+    (java.io.ByteArrayInputStream. (.getBytes ^String lines "UTF-8"))))
+
+(defn ^:private run-stream-chat!
+  "Runs a streamed chat! against a mocked Ollama response of a text chunk
+   followed by `final-chunk`, returning the collected callback events."
+  ([final-chunk] (run-stream-chat! final-chunk true))
+  ([final-chunk usage-callback?]
+   (let [events* (atom [])
+         stream-body (ndjson-stream
+                      {:message {:role "assistant" :content "Hello"} :done false}
+                      final-chunk)
+         callbacks (cond-> {:on-message-received (fn [msg] (swap! events* conj [:msg msg]))
+                            :on-error (fn [err] (swap! events* conj [:error err]))
+                            :on-prepare-tool-call (fn [_])
+                            :on-tools-called (fn [_] nil)
+                            :on-reason (fn [_])}
+                     usage-callback?
+                     (assoc :on-usage-updated (fn [usage] (swap! events* conj [:usage usage]))))]
+     (with-redefs [http/post (fn [_url _opts] {:status 200 :body stream-body})]
+       (llm-providers.ollama/chat!
+        {:model "test-model"
+         :instructions "System prompt"
+         :user-messages [{:role "user" :content "hello"}]
+         :past-messages []
+         :tools []
+         :api-url "http://localhost:1"}
+        callbacks))
+     @events*)))
+
+(deftest chat-stream-usage-metrics-test
+  (testing "emits usage from prompt_eval_count and eval_count before finish"
+    (is (= [[:msg {:type :text :text "Hello"}]
+            [:usage {:input-tokens 16 :output-tokens 224}]
+            [:msg {:type :finish :finish-reason "stop"}]]
+           (run-stream-chat! {:message {:role "assistant" :content ""}
+                              :done true
+                              :done_reason "stop"
+                              :prompt_eval_count 16
+                              :eval_count 224}))))
+  (testing "missing count defaults to 0"
+    (is (= [[:msg {:type :text :text "Hello"}]
+            [:usage {:input-tokens 0 :output-tokens 42}]
+            [:msg {:type :finish :finish-reason "stop"}]]
+           (run-stream-chat! {:done true :done_reason "stop" :eval_count 42}))))
+  (testing "no usage event when response has no token counts"
+    (is (= [[:msg {:type :text :text "Hello"}]
+            [:msg {:type :finish :finish-reason "stop"}]]
+           (run-stream-chat! {:done true :done_reason "stop"}))))
+  (testing "works without on-usage-updated callback"
+    (is (= [[:msg {:type :text :text "Hello"}]
+            [:msg {:type :finish :finish-reason "stop"}]]
+           (run-stream-chat! {:done true
+                              :done_reason "stop"
+                              :prompt_eval_count 16
+                              :eval_count 224}
+                             false)))))
