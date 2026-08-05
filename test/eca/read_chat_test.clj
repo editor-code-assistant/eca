@@ -466,3 +466,73 @@
                       (read-chat/run {:db-cache-path path :chat-id "chat-1" :since "2025-01-01"})))]
           (is (= "" (string/trim out)))
           (is (string/includes? (str err-buf) "without :created-at")))))))
+
+;; per-chat layout (#557)
+
+(defn ^:private with-tmp-per-chat-layout [db f]
+  (let [dir (fs/create-temp-dir {:prefix "eca-cache-dir"})]
+    (try
+      (doseq [[id chat] (:chats db)]
+        (write-transit-file (str (doto (io/file (str dir) "chats" (db/chat-file-name id))
+                                   io/make-parents))
+                            {:version db/chats-version :chat chat}))
+      (write-transit-file (str (doto (io/file (str dir) "chats" "index.transit.json")
+                                 io/make-parents))
+                          {:version db/chats-version
+                           :chats (update-vals (:chats db) db/chat-list-meta)})
+      (f (str dir))
+      (finally (fs/delete-tree dir)))))
+
+(deftest run-per-chat-layout-test
+  (testing "listing reads the chats index inside a workspace cache dir"
+    (with-tmp-per-chat-layout sample-db
+      (fn [dir]
+        (let [records (parse-jsonl (with-out-str (read-chat/run {:db-cache-path dir})))]
+          (is (= 3 (count records)))
+          (is (= "chat-2" (:id (first records))))
+          (is (every? #(contains? % :title) records))))))
+  (testing "detail mode reads the chat's own file"
+    (with-tmp-per-chat-layout sample-db
+      (fn [dir]
+        (let [records (parse-jsonl (with-out-str (read-chat/run {:db-cache-path dir :chat-id "chat-1"})))]
+          (is (= 5 (count records)))
+          (is (every? #(contains? % :role) records))))))
+  (testing "unknown chat-id throws chat-not-found"
+    (with-tmp-per-chat-layout sample-db
+      (fn [dir]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (read-chat/run {:db-cache-path dir :chat-id "nope"}))))))
+  (testing "a dir holding only a legacy blob still works"
+    (let [dir (fs/create-temp-dir {:prefix "eca-legacy-dir"})]
+      (try
+        (write-transit-file (str (io/file (str dir) "db.transit.json")) sample-db)
+        (let [records (parse-jsonl (with-out-str (read-chat/run {:db-cache-path (str dir)})))]
+          (is (= 3 (count records))))
+        (finally (fs/delete-tree dir)))))
+  (testing "--workspace resolves to a per-chat layout dir"
+    (let [workspaces [(str (fs/create-temp-dir {:prefix "eca-ws-pc"}))]
+          cache-root (fs/create-temp-dir {:prefix "eca-cache-pc"})]
+      (try
+        (with-redefs [cache/global-dir (fn [] (io/file (str cache-root)))]
+          (let [dir (cache/workspace-cache-dir
+                     (mapv (fn [path] {:uri (shared/filename->uri path)}) workspaces)
+                     shared/uri->filename)]
+            (write-transit-file (str (doto (io/file dir "chats" "index.transit.json")
+                                       io/make-parents))
+                                {:version db/chats-version
+                                 :chats (update-vals (:chats sample-db) db/chat-list-meta)})
+            (let [records (parse-jsonl (with-out-str (read-chat/run {:workspace workspaces})))]
+              (is (= 3 (count records))))))
+        (finally
+          (doseq [ws workspaces] (fs/delete-tree ws))
+          (fs/delete-tree cache-root))))))
+
+(deftest run-per-chat-index-path-direct-test
+  (testing "--db-cache-path pointing directly at index.transit.json works for detail mode too"
+    (with-tmp-per-chat-layout sample-db
+      (fn [dir]
+        (let [index-path (str (io/file dir "chats" "index.transit.json"))
+              listing (parse-jsonl (with-out-str (read-chat/run {:db-cache-path index-path})))
+              detail (parse-jsonl (with-out-str (read-chat/run {:db-cache-path index-path :chat-id "chat-1"})))]
+          (is (= 3 (count listing)))
+          (is (= 5 (count detail))))))))

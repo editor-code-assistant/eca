@@ -166,7 +166,8 @@ Every hook receives these fields on stdin:
 
 - `hook_name`, `hook_type`, `workspaces`, `cwd`, `db_cache_path`, `session_id`, `eca_executable`
   - `cwd` — the first workspace folder, matching the working directory ECA uses for hook commands.
-  - `session_id` — the cache session key derived from the `db_cache_path` parent directory.
+  - `db_cache_path` — the workspace chat cache dir (holding `chats/index.transit.json` and per-chat files); pass it to `eca read-chat --db-cache-path`.
+  - `session_id` — the cache session key: the `db_cache_path` dir name.
   - `eca_executable` — the launch command of the running ECA process (executable path for native binaries; the full `java ... -jar` invocation for JVM launches).
 
 **Chat-scoped hooks** (everything except `sessionStart`/`sessionEnd`) additionally receive `chat_id`, `agent`, `behavior` (deprecated alias of `agent`), `full_model`, and `variant`.
@@ -377,7 +378,7 @@ eca_executable=$(echo "$input" | jq -r '.eca_executable')
 $eca_executable read-chat --db-cache-path "$db_cache_path" --chat-id "$chat_id"
 ```
 
-Keep the query focused and fast — the hook runs synchronously with a 30s timeout. `read-chat` needs no running server and reads directly from `db.transit.json`. See [`read-chat`](../read-chat.md) for full options and scripting examples.
+Keep the query focused and fast — the hook runs synchronously with a 30s timeout. `read-chat` needs no running server and reads directly from the chat cache files. See [`read-chat`](../read-chat.md) for full options and scripting examples.
 
 ## `/hooks` command
 

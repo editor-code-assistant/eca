@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [babashka.process :as p]
    [cheshire.core :as json]
+   [clojure.string :as string]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -17,8 +18,17 @@
 (def ^:const default-hook-timeout-ms 30000)
 
 (defn ^:private session-id-from-db-cache-path
+  "Session key derived from `db-cache-path`: the workspace cache dir name.
+   The path is that dir itself since the per-chat layout (#557); a legacy
+   `db.transit.json` file path yields its parent dir name."
   [db-cache-path]
-  (some-> db-cache-path fs/file fs/parent fs/file-name str not-empty))
+  (some-> (when db-cache-path
+            (if (string/ends-with? db-cache-path ".json")
+              (fs/parent (fs/file db-cache-path))
+              (fs/file db-cache-path)))
+          fs/file-name
+          str
+          not-empty))
 
 (defn base-hook-data
   "Returns common fields for ALL hooks: :workspaces, :cwd, :db-cache-path,

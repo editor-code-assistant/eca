@@ -418,7 +418,8 @@
                               :model "openai/gpt-5.2"
                               :messages []}})
     (let [session-defaults (:last-config-notified (h/db))]
-      (with-redefs [db/update-workspaces-cache! (fn [& _])]
+      (with-redefs [db/save-chat! (fn [& _])
+                    db/delete-chat-from-cache! (fn [& _])]
         (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-b"
                :chat {:select-model "anthropic/claude-sonnet-4-5"
@@ -452,7 +453,7 @@
                          :variant "low"
                          :trust true
                          :messages []}]
-      (with-redefs [db/update-workspaces-cache! (fn [& _])
+      (with-redefs [db/save-chat! (fn [& _])
                     f.chat.export/import-chat! (fn [_] {:chat imported-chat})]
         (f.commands/handle-command! "import" ["/tmp/chat.edn"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-a"

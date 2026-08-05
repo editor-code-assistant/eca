@@ -19,7 +19,7 @@
    {:help {:alias :h
            :desc "Print read-chat options"}
     :db-cache-path {:ref "<PATH>"
-                    :desc "Path to db.transit.json file"
+                    :desc "Path to the workspace chat cache dir (or a legacy db.transit.json file)"
                     :coerce :string}
     :workspace {:ref "<PATH>"
                 :desc "Workspace path. Repeat in the same order as the ECA session. Alternative to --db-cache-path"
@@ -49,7 +49,8 @@
        "  --since/--until filter messages by :created-at.\n"
        "  --role filters by message role.\n\n"
        "Input source: pass either --db-cache-path <PATH> or one or more --workspace <PATH> values.\n"
-       "Workspace inputs are normalized and resolved with the same order-sensitive cache path logic ECA uses.\n\n"
+       "--db-cache-path accepts the workspace cache dir (per-chat layout) or a legacy db.transit.json file.\n"
+       "Workspace inputs are normalized and resolved with the same cache path logic ECA uses.\n\n"
        "Date formats: relative (2h, 30m, 1d) or ISO-8601 (2025-01-01, 2025-01-01T00:00:00Z).\n\n"
        "Options:\n"
        (cli/format-opts read-chat-spec)))
@@ -77,13 +78,14 @@
 
 (defn resolve-db-cache-path
   "Resolve the db cache path from explicit opts.
-   Accepts either :db-cache-path or repeated :workspace paths."
+   Accepts either :db-cache-path or repeated :workspace paths; the latter
+   resolves to the workspace cache dir (per-chat layout)."
   [opts]
   (if-let [path (:db-cache-path opts)]
     path
     (when-let [workspaces (seq (:workspace opts))]
       (let [workspace-uris (mapv (fn [wpath] {:uri (shared/filename->uri wpath)}) workspaces)]
-        (str (cache/workspace-cache-file workspace-uris "db.transit.json" shared/uri->filename))))))
+        (str (cache/workspace-cache-dir workspace-uris shared/uri->filename))))))
 
 (defn ^:private parse-date-ms [^String s]
   (or (when-let [[_ amount-str unit] (re-matches #"^(\d+)([mhd])$" s)]
@@ -158,6 +160,81 @@
   (binding [*out* *err*]
     (println (str "Warning: " msg))))
 
+(defn ^:private resolve-source
+  "Classifies `path` into the cache layout it points at: a workspace cache dir
+   using the per-chat layout (#557), a dir still holding only a legacy
+   `db.transit.json` blob, a chats index file, or a legacy blob file."
+  [^String path]
+  (let [f (io/file path)]
+    (cond
+      (.isDirectory f)
+      (let [index (io/file f "chats" "index.transit.json")
+            legacy (io/file f "db.transit.json")]
+        (if (and (not (.exists index)) (.exists legacy))
+          {:layout :legacy :file legacy}
+          {:layout :per-chat :dir f}))
+
+      (= "index.transit.json" (.getName f))
+      {:layout :per-chat :dir (some-> f .getParentFile .getParentFile)}
+
+      :else
+      {:layout :legacy :file f})))
+
+(defn ^:private check-version! [actual expected]
+  (when-not (= actual expected)
+    (warn! (str "DB version mismatch. File has version " actual
+                ", expected " expected ". Output may be incomplete."))))
+
+(defn ^:private read-db-or-throw
+  "read-db with a friendlier ::file-not-found message, since a missing file
+   usually means the input path or --workspace set does not match the
+   original ECA session."
+  [file workspace-inputs not-found-msg]
+  (try
+    (read-db file)
+    (catch clojure.lang.ExceptionInfo e
+      (if (= (:type (ex-data e)) ::file-not-found)
+        (throw (ex-info (if workspace-inputs
+                          (str "Resolved DB cache path does not exist: " file
+                               ". The provided --workspace set likely does not match the original ECA session workspaces.")
+                          (str not-found-msg ". Check --db-cache-path and try again."))
+                        (shared/assoc-some (ex-data e) :workspace-inputs workspace-inputs)
+                        e))
+        (throw e)))))
+
+(defn ^:private run-per-chat!
+  [dir {:keys [chat-id] :as opts} workspace-inputs]
+  (if chat-id
+    (let [chat-f (io/file dir "chats" (db/chat-file-name chat-id))
+          payload (try
+                    (read-db chat-f)
+                    (catch clojure.lang.ExceptionInfo e
+                      (if (= (:type (ex-data e)) ::file-not-found)
+                        (throw (ex-info (str "Chat not found: " chat-id)
+                                        {:chat-id chat-id :type ::chat-not-found}
+                                        e))
+                        (throw e))))
+          _ (check-version! (:version payload) db/chats-version)
+          {:keys [messages warnings]} (chat-messages {:chats {chat-id (:chat payload)}} chat-id opts)]
+      (doseq [w warnings] (warn! w))
+      (emit-jsonl! messages))
+    (let [index-f (io/file dir "chats" "index.transit.json")
+          payload (read-db-or-throw index-f workspace-inputs
+                                    (str "Chats index not found: " index-f))]
+      (check-version! (:version payload) db/chats-version)
+      (emit-jsonl! (list-chats {:chats (:chats payload)} opts)))))
+
+(defn ^:private run-legacy!
+  [file {:keys [chat-id] :as opts} workspace-inputs]
+  (let [db (read-db-or-throw file workspace-inputs
+                             (str "DB cache file not found: " file))]
+    (check-version! (:version db) db/version)
+    (if chat-id
+      (let [{:keys [messages warnings]} (chat-messages db chat-id opts)]
+        (doseq [w warnings] (warn! w))
+        (emit-jsonl! messages))
+      (emit-jsonl! (list-chats db opts)))))
+
 (defn run
   [opts]
   (let [path (resolve-db-cache-path opts)
@@ -165,26 +242,9 @@
     (when-not path
       (throw (ex-info "Missing required input source: pass --db-cache-path <PATH> or one or more --workspace <PATH>"
                       {:type ::missing-path})))
-    (let [db (try
-               (read-db path)
-               (catch clojure.lang.ExceptionInfo e
-                 (if (= (:type (ex-data e)) ::file-not-found)
-                   (throw (ex-info
-                           (if workspace-inputs
-                             (str "Resolved DB cache path does not exist: " path
-                                  ". The provided --workspace set likely does not match the original ECA session workspaces.")
-                             (str "DB cache file not found: " path
-                                  ". Check --db-cache-path and try again."))
-                           (shared/assoc-some (ex-data e) :workspace-inputs workspace-inputs)
-                           e))
-                   (throw e))))]
-      (when-not (= (:version db) db/version)
-        (warn! (str "DB version mismatch. File has version " (:version db)
-                    ", expected " db/version ". Output may be incomplete.")))
-      (if-let [chat-id (:chat-id opts)]
-        (let [{:keys [messages warnings]} (chat-messages db chat-id opts)]
-          (doseq [w warnings] (warn! w))
-          (emit-jsonl! messages))
-        (emit-jsonl! (list-chats db opts)))
-      (.flush ^java.io.Writer *out*)
-      {:result-code 0})))
+    (let [{:keys [layout dir file]} (resolve-source path)]
+      (case layout
+        :per-chat (run-per-chat! dir opts workspace-inputs)
+        :legacy (run-legacy! file opts workspace-inputs)))
+    (.flush ^java.io.Writer *out*)
+    {:result-code 0}))

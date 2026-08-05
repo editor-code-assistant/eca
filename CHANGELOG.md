@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Store chats in per-chat cache files with a lazy-loaded index instead of one whole-workspace blob, fixing CPU spikes and slow startup as history grows; legacy caches migrate automatically. #557
+- Hooks `db_cache_path` now points at the workspace cache dir instead of `db.transit.json`; `read-chat --db-cache-path` accepts the dir or a legacy file. #557
 - Keep `compact_chat` in the tool schema across normal and compact requests, preserving prompt-cache prefixes while rejecting calls outside active compaction.
 
 - Provide token metrics for ollama provider. #567.

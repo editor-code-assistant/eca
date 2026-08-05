@@ -967,7 +967,7 @@
                                 ;; *_result entry appended right after, which
                                 ;; triggers the save in their place.
                                 (when-not (#{"tool_call" "server_tool_use"} role)
-                                  (db/update-workspaces-cache! @db* metrics))))
+                                  (db/save-chat! @db* chat-id metrics))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  ;; Never let the context-breakdown (a display-only
@@ -1032,7 +1032,7 @@
                     (swap! db* assoc-in [:chats chat-id :title] title)
                     (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
                     (when (= :idle (get-in @db* [:chats chat-id :status]))
-                      (db/update-workspaces-cache! @db* metrics))))))))
+                      (db/save-chat! @db* chat-id metrics))))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
@@ -1516,7 +1516,7 @@
                                       ;; :prompt-finished? was already set or the prompt-id rotated,
                                       ;; which would leave a chat that hit an error without a save.
                                       ;; Persist explicitly so users can always /resume an errored chat.
-                                      (db/update-workspaces-cache! @db* metrics)
+                                      (db/save-chat! @db* chat-id metrics)
                                       (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
@@ -1530,7 +1530,7 @@
                   (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
                   ;; Belt-and-suspenders: persist before finish-chat-prompt!,
                   ;; which may short-circuit. See note above in :on-error.
-                  (db/update-workspaces-cache! @db* metrics)
+                  (db/save-chat! @db* chat-id metrics)
                   (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx))))
               (finally
                 (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
@@ -1541,7 +1541,7 @@
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
                     (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
                     (lifecycle/trigger-chat-status-hook! chat-ctx))
-                  (db/update-workspaces-cache! @db* metrics))))))))))
+                  (db/save-chat! @db* chat-id metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
@@ -1870,6 +1870,9 @@
                                        chats
                                        (assoc chats chat-id {:id chat-id}))))
             chat-just-created? (not (contains? (:chats old-db) chat-id))
+            ;; A chat from a previous session may be index-only in memory;
+            ;; load its message history before prompting on it.
+            _ (db/hydrate-chat! db* chat-id metrics)
             ;; A freshly-created chat with no client-provided trust inherits
             ;; the server default (chat.defaultTrust), so every editor gets
             ;; trust-by-default without having to send anything.
@@ -2076,13 +2079,17 @@
                        (update :chats dissoc chat-id)
                        (update :deleted-chat-ids (fnil conj #{}) chat-id))))
       (messenger/chat-deleted messenger {:chat-id chat-id})
-      ;; Save updated cache (without this chat)
-      (db/update-workspaces-cache! @db* metrics))))
+      ;; Delete the chat's cache file and drop it from the chats index
+      (db/delete-chat-from-cache! @db* chat-id metrics))))
 
 (defn clear-chat
   "Clear specific aspects of a chat. Currently supports clearing :messages."
   [{:keys [chat-id messages]} db* messenger metrics]
   (when (get-in @db* [:chats chat-id])
+    ;; Hydrate first so the dissocs below apply to the full chat and the
+    ;; save writes memory wholesale instead of merging over the disk copy
+    ;; (which would resurrect :task/:usage/:prompt-cache on reload).
+    (db/hydrate-chat! db* chat-id metrics)
     (swap! db* update-in [:chats chat-id]
            (fn [chat]
              (cond-> chat
@@ -2093,7 +2100,7 @@
                             (dissoc :tool-calls :last-api :usage :task
                                     :prompt-cache :last-editor-state)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
-    (db/update-workspaces-cache! @db* metrics)))
+    (db/save-chat! @db* chat-id metrics)))
 
 (defn update-chat
   "Update chat metadata like title and trust.
@@ -2112,13 +2119,14 @@
                                          {:chat-id chat-id
                                           :role    "system"
                                           :content {:type :metadata :title title}})
-        (db/update-workspaces-cache! @db* metrics))))
+        (db/save-chat! @db* chat-id metrics))))
   {})
 
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
    Then notify to clear chat and then the kept messages."
   [{:keys [chat-id content-id include]} db* messenger metrics]
+  (db/hydrate-chat! db* chat-id metrics)
   (let [include (if (seq include)
                   (set include)
                   ;; backwards compatibility
@@ -2144,7 +2152,7 @@
       ;; Rollback is the user's recovery tool for a chat that got into a bad
       ;; state. Persist immediately so the cleaned-up history survives a
       ;; restart instead of relying on the next unrelated save.
-      (db/update-workspaces-cache! @db* metrics)
+      (db/save-chat! @db* chat-id metrics)
       (messenger/chat-cleared
        messenger
        {:chat-id chat-id
@@ -2174,6 +2182,7 @@
    after any message type (user, tool call, reason, etc).
    Clears and replays the chat to render the flag at the correct position."
   [{:keys [chat-id content-id text]} db* messenger metrics]
+  (db/hydrate-chat! db* chat-id metrics)
   (let [messages (vec (get-in @db* [:chats chat-id :messages]))
         insert-idx (find-last-message-idx messages content-id)]
     (when insert-idx
@@ -2183,7 +2192,7 @@
             new-messages (into (subvec messages 0 insert-after)
                                (cons flag-msg (subvec messages insert-after)))]
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-        (db/update-workspaces-cache! @db* metrics)
+        (db/save-chat! @db* chat-id metrics)
         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
         (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))
     {}))
@@ -2191,19 +2200,21 @@
 (defn remove-flag
   "Remove a flag message identified by content-id from the chat."
   [{:keys [chat-id content-id]} db* metrics]
+  (db/hydrate-chat! db* chat-id metrics)
   (when-let [messages (get-in @db* [:chats chat-id :messages])]
     (let [new-messages (vec (remove #(and (= "flag" (:role %))
                                           (= content-id (:content-id %)))
                                     messages))]
       (when (not= (count new-messages) (count messages))
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-        (db/update-workspaces-cache! @db* metrics))))
+        (db/save-chat! @db* chat-id metrics))))
   {})
 
 (defn fork-chat
   "Fork the chat creating a new chat with messages up to and including
    the message identified by content-id."
   [{:keys [chat-id content-id]} db* messenger metrics]
+  (db/hydrate-chat! db* chat-id metrics)
   (let [chat (get-in @db* [:chats chat-id])
         messages (vec (:messages chat))
         target-idx (find-last-message-idx messages content-id)]
@@ -2223,7 +2234,7 @@
                       :prompt-finished? true}]
         (swap! db* assoc-in [:chats new-id] new-chat)
         (mark-editor-open! db* new-id)
-        (db/update-workspaces-cache! @db* metrics)
+        (db/save-chat! @db* new-id metrics)
         (messenger/chat-opened messenger {:chat-id new-id :title new-title})
         (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
         (lifecycle/send-content! {:messenger messenger :chat-id new-id}
@@ -2249,15 +2260,17 @@
         chats (->> (:chats db)
                    (remove (fn [[_ v]] (:subagent v)))
                    (sort-by (fn [[_ v]] (or (get v primary) (get v secondary) 0)) >)
-                   (mapv (fn [[k {:keys [title status created-at updated-at model messages]}]]
-                           (assoc-some
-                            {:id k
-                             :title title
-                             :status (or status :idle)
-                             :message-count (count messages)}
-                            :created-at created-at
-                            :updated-at updated-at
-                            :model model))))]
+                   (mapv (fn [[k chat]]
+                           (let [{:keys [title status created-at updated-at model message-count]}
+                                 (db/chat-list-meta chat)]
+                             (assoc-some
+                              {:id k
+                               :title title
+                               :status (or status :idle)
+                               :message-count (or message-count 0)}
+                              :created-at created-at
+                              :updated-at updated-at
+                              :model model)))))]
     {:chats (if (and limit (pos? (long limit)))
               (vec (take (long limit) chats))
               chats)}))
@@ -2276,53 +2289,56 @@
    can page older via `chat/history`. Without them the full history is replayed.
    Returns `{:found false}` when the chat does not exist or is a subagent,
    otherwise `{:found true :chat-id ... :title ... :selection ... :meta? ...}`."
-  [{:keys [chat-id limit before after] :as params} db* messenger config]
-  (let [chat (get-in @db* [:chats chat-id])
-        windowed? (some #(contains? params %) [:limit :before :after])
-        page (when windowed?
-               (history/window-messages (vec (:messages chat))
-                                        {:limit limit :before before :after after}))]
-    (cond
-      (or (nil? chat) (:subagent chat))
-      {:found false}
+  ([params db* messenger config]
+   (open-chat! params db* messenger config nil))
+  ([{:keys [chat-id limit before after] :as params} db* messenger config metrics]
+   (db/hydrate-chat! db* chat-id metrics)
+   (let [chat (get-in @db* [:chats chat-id])
+         windowed? (some #(contains? params %) [:limit :before :after])
+         page (when windowed?
+                (history/window-messages (vec (:messages chat))
+                                         {:limit limit :before before :after after}))]
+     (cond
+       (or (nil? chat) (:subagent chat))
+       {:found false}
 
-      (= :cursor-expired (:error page))
-      {:found true :chat-id chat-id
-       :error {:code "cursor_expired"
-               :message "Cursor no longer points to an existing message; refetch the latest page"}}
+       (= :cursor-expired (:error page))
+       {:found true :chat-id chat-id
+        :error {:code "cursor_expired"
+                :message "Cursor no longer points to an existing message; refetch the latest page"}}
 
-      :else
-      (let [title (:title chat)
-            messages (if windowed? (:messages page) (:messages chat))
-            chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
-        (mark-editor-open! db* chat-id)
-        (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
-        (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
-        (send-chat-contents! messages chat-ctx)
-        (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
-        (let [model-selection (config/notify-selected-model-changed!
-                               (:model chat) db* messenger config (:variant chat) chat-id)
-              trust-selection (config/notify-selected-trust-changed!
-                               (:trust chat) db* messenger chat-id)
-              agent-selection (config/validate-agent-name
-                               (or (:agent chat)
-                                   (:defaultAgent (:chat config))
-                                   (:defaultAgent config))
-                               config)
-              selection (merge {:model nil :variant nil :variants []}
-                               model-selection
-                               {:agent agent-selection
-                                :trust trust-selection})]
-          (assoc-some {:found true
-                       :chat-id chat-id
-                       :title title
-                       :selection selection}
-                      :meta (when windowed?
-                              {:total (:total page)
-                               :returned (:returned page)
-                               :before-cursor (:before-cursor page)
-                               :after-cursor (:after-cursor page)
-                               :compaction-cursor (history/compaction-cursor (:messages chat))})))))))
+       :else
+       (let [title (:title chat)
+             messages (if windowed? (:messages page) (:messages chat))
+             chat-ctx {:chat-id chat-id :db* db* :messenger messenger}]
+         (mark-editor-open! db* chat-id)
+         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
+         (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
+         (send-chat-contents! messages chat-ctx)
+         (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
+         (let [model-selection (config/notify-selected-model-changed!
+                                (:model chat) db* messenger config (:variant chat) chat-id)
+               trust-selection (config/notify-selected-trust-changed!
+                                (:trust chat) db* messenger chat-id)
+               agent-selection (config/validate-agent-name
+                                (or (:agent chat)
+                                    (:defaultAgent (:chat config))
+                                    (:defaultAgent config))
+                                config)
+               selection (merge {:model nil :variant nil :variants []}
+                                model-selection
+                                {:agent agent-selection
+                                 :trust trust-selection})]
+           (assoc-some {:found true
+                        :chat-id chat-id
+                        :title title
+                        :selection selection}
+                       :meta (when windowed?
+                               {:total (:total page)
+                                :returned (:returned page)
+                                :before-cursor (:before-cursor page)
+                                :after-cursor (:after-cursor page)
+                                :compaction-cursor (history/compaction-cursor (:messages chat))}))))))))
 
 (defn fetch-history
   "Window a chat's persisted messages and return the transformed content items
@@ -2331,20 +2347,23 @@
    `before`/`after` are opaque cursors (or the `lastCompaction` sentinel) and
    `limit` bounds the page. Returns {:contents [...] :meta {...}}, or
    {:error {:code :message}} when the chat is unknown or a cursor is stale."
-  [{:keys [chat-id limit before after]} db*]
-  (let [db @db*
-        chat (get-in db [:chats chat-id])]
-    (if (or (nil? chat) (:subagent chat))
-      {:error {:code "chat_not_found" :message (str "Chat " chat-id " not found")}}
-      (let [messages (vec (:messages chat))
-            result (history/window-messages messages {:limit limit :before before :after after})]
-        (if (= :cursor-expired (:error result))
-          {:error {:code "cursor_expired"
-                   :message "Cursor no longer points to an existing message; refetch the latest page"}}
-          {:contents (messages->contents (:messages result)
-                                         {:chat-id chat-id :parent-chat-id nil :db db})
-           :meta {:total (:total result)
-                  :returned (:returned result)
-                  :before-cursor (:before-cursor result)
-                  :after-cursor (:after-cursor result)
-                  :compaction-cursor (history/compaction-cursor messages)}})))))
+  ([params db*]
+   (fetch-history params db* nil))
+  ([{:keys [chat-id limit before after]} db* metrics]
+   (db/hydrate-chat! db* chat-id metrics)
+   (let [db @db*
+         chat (get-in db [:chats chat-id])]
+     (if (or (nil? chat) (:subagent chat))
+       {:error {:code "chat_not_found" :message (str "Chat " chat-id " not found")}}
+       (let [messages (vec (:messages chat))
+             result (history/window-messages messages {:limit limit :before before :after after})]
+         (if (= :cursor-expired (:error result))
+           {:error {:code "cursor_expired"
+                    :message "Cursor no longer points to an existing message; refetch the latest page"}}
+           {:contents (messages->contents (:messages result)
+                                          {:chat-id chat-id :parent-chat-id nil :db db})
+            :meta {:total (:total result)
+                   :returned (:returned result)
+                   :before-cursor (:before-cursor result)
+                   :after-cursor (:after-cursor result)
+                   :compaction-cursor (history/compaction-cursor messages)}}))))))

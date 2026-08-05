@@ -485,7 +485,7 @@
         (dispatch-finish-callbacks! chat-ctx {:follow-up-text follow-up-text
                                               :stop-turn? stop-turn?
                                               :stopping? stopping?})
-        (db/update-workspaces-cache! @db* metrics)))))
+        (db/save-chat! @db* chat-id metrics)))))
 
 (defn finish-chat-prompt-stopped!
   "Finish a turn that was halted by a hook (continue:false) or otherwise aborted.

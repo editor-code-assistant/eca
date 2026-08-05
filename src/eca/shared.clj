@@ -573,11 +573,14 @@
     (mapv (comp uri->filename :uri) folders)))
 
 (defn db-cache-path
-  "Returns the absolute path to the workspace-specific DB cache file as a string.
-   Used by hooks to access the cached database."
+  "Returns the absolute path to the workspace-specific chat DB cache as a
+   string. Since the per-chat layout (#557) this is the workspace cache
+   directory (holding `chats/index.transit.json` and `chats/<id>.transit.json`)
+   instead of the legacy `db.transit.json` file. Used by hooks to access the
+   cached database, typically via `eca read-chat --db-cache-path`."
   [db]
-  (str (cache/workspace-cache-file (or (:initial-workspace-folders db)
-                                       (:workspace-folders db)) "db.transit.json" uri->filename)))
+  (str (cache/workspace-cache-dir (or (:initial-workspace-folders db)
+                                      (:workspace-folders db)) uri->filename)))
 
 (defn messages-after-last-compact-marker
   "Returns messages after the last compact_marker, or all messages if none exists.

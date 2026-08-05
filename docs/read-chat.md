@@ -4,7 +4,9 @@ description: "Stream raw ECA chat history from the DB cache as JSONL: list chats
 
 # read-chat
 
-Inspect ECA's chat database offline by reading `db.transit.json` directly. No running server is required.
+Inspect ECA's chat database offline by reading the workspace chat cache directly. No running server is required.
+
+`--db-cache-path` takes the workspace cache dir (e.g. `~/.cache/eca/myproj_a1b2C3d4`, holding `chats/index.transit.json` plus one `chats/<chat-id>.transit.json` per chat) and also accepts a legacy `db.transit.json` file written by older ECA versions.
 
 Output is always **raw JSONL** (one JSON object per line) in the persisted internal shape, making it suitable for debugging, export, and programmatic processing.
 
@@ -12,16 +14,16 @@ Output is always **raw JSONL** (one JSON object per line) in the persisted inter
 
 ```bash
 # List all chats (newest first)
-eca read-chat --db-cache-path ~/.cache/eca/db.transit.json
+eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4
 
 # Resolve the cache from the session's workspace folders
 eca read-chat --workspace ~/Code/Clojure/eca --workspace ~/Code/Clojure/eca-worktrees/add-read-chat-command
 
 # Stream raw messages from a specific chat
-eca read-chat --db-cache-path ~/.cache/eca/db.transit.json --chat-id <chat-id>
+eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 --chat-id <chat-id>
 
 # Last 10 user messages from the past hour
-eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
   --chat-id <chat-id> --since 1h --role user | tail -n 10
 ```
 
@@ -47,7 +49,7 @@ Provide exactly one input source: `--db-cache-path` or one or more `--workspace`
 
 | Option | Description |
 |--------|-------------|
-| `--db-cache-path <PATH>` | Path to `db.transit.json`. |
+| `--db-cache-path <PATH>` | Workspace cache dir (or a legacy `db.transit.json` file). |
 | `--workspace <PATH>` | Workspace folder; repeat in the original session order. |
 | `--chat-id <ID>` | Focus on a chat; omit to list all chats. |
 | `--role <ROLE>` | Filter messages by exact `role` string (requires `--chat-id`). |
@@ -85,21 +87,21 @@ Messages created before `:created-at` tracking was added lack timestamps. When f
 === "Last 10 messages"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc | tail -n 10
     ```
 
 === "Count messages"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc | wc -l
     ```
 
 === "Extract user text"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc --role user | \
       jq -r '
         def content_text:
@@ -120,7 +122,7 @@ Messages created before `:created-at` tracking was added lack timestamps. When f
 === "Extract assistant text"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc --role assistant | \
       jq -r '.content[]? | select(.type == "text") | .text'
     ```
@@ -128,7 +130,7 @@ Messages created before `:created-at` tracking was added lack timestamps. When f
 === "List tool calls"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc --role tool_call | \
       jq -c '.content | {id, name, input: .arguments, summary, server, full_name: ."full-name"}'
     ```
@@ -136,7 +138,7 @@ Messages created before `:created-at` tracking was added lack timestamps. When f
 === "List tool outputs"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc --role tool_call_output | \
       jq -c '
         .content
@@ -153,28 +155,28 @@ Messages created before `:created-at` tracking was added lack timestamps. When f
 === "Find chats by model"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json | \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 | \
       jq -c 'select(.model | contains("claude"))'
     ```
 
 === "Count user prompts"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json | \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 | \
       jq '{id: .id, count: .["user-prompt-count"]}'
     ```
 
 === "Export a chat"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 \
       --chat-id abc > chat-export.jsonl
     ```
 
 === "Recent chats, pretty-printed"
 
     ```bash
-    eca read-chat --db-cache-path ~/.cache/eca/db.transit.json --since 1d | \
+    eca read-chat --db-cache-path ~/.cache/eca/myproj_a1b2C3d4 --since 1d | \
       jq '{title, model, updated_at: .["updated-at"]}'
     ```
 

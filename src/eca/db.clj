@@ -2,8 +2,10 @@
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
+   [clojure.string :as string]
    [cognitect.transit :as transit]
    [eca.cache :as cache]
+   [eca.digest :as digest]
    [eca.logger :as logger]
    [eca.metrics :as metrics]
    [eca.shared :as shared])
@@ -18,7 +20,18 @@
 
 (def ^:private logger-tag "[DB]")
 
-(def version 6)
+(def version
+  "Schema version of the global cache (`~/.cache/eca/db.transit.json`) and of
+   the legacy whole-workspace chat blobs read only for migration. Kept at 6 on
+   purpose: the global (auth) schema did not change with the per-chat layout,
+   so rolling back to an older ECA does not log users out."
+  6)
+
+(def chats-version
+  "Schema version of the per-chat layout files (`chats/index.transit.json` and
+   `chats/<chat-id>.transit.json`). Successor of the version 6 whole-workspace
+   blob (#557); older ECA versions never read these files."
+  7)
 
 (def ^:private _db-spec
   "Used for documentation only"
@@ -60,6 +73,11 @@
                                              :name :string
                                              :description :string
                                              :mime-type :string}]}}
+   ;; In-memory chats: entries loaded from the chats index start "index-only"
+   ;; (marked :index-only?, no :messages, plus precomputed :message-count/
+   ;; :user-message-count/:flags) until hydrate-chat! loads their per-chat
+   ;; cache file. Live chats never carry the marker: their memory state is
+   ;; authoritative and never overwritten from disk.
    :chats {"<chat-id>" {:id :string
                         :title (or :string nil)
                         :title-custom? :boolean ;; user manually renamed the chat
@@ -156,7 +174,8 @@
    ;; Chat ids deleted in this session (not cached), see _db-spec.
    :deleted-chat-ids #{}
 
-   ;; cacheable, bump db `version` when changing any below
+   ;; cacheable; bump `chats-version` when changing :chats shape, `version`
+   ;; when changing :auth/:mcp-auth shape
    :chats {}
    :auth {"anthropic" {}
           "azure" {}
@@ -185,8 +204,46 @@
 (defn ^:private transit-global-db-file []
   (io/file (cache/global-dir) "db.transit.json"))
 
-(defn ^:private transit-global-by-workspaces-db-file [workspaces]
+(defn ^:private legacy-workspace-db-file
+  "Pre-v7 whole-workspace chat blob (every chat in one file). Only read to
+   migrate it into the per-chat layout; never written anymore (#557)."
+  ^java.io.File [workspaces]
   (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename))
+
+(defn ^:private db-workspaces
+  "Workspace set keying this session's cache dir. Prefers the folders the
+   session initialized with so mid-session workspace folder changes do not
+   retarget the cache dir."
+  [db]
+  (or (:initial-workspace-folders db)
+      (:workspace-folders db)))
+
+(defn ^:private chats-dir
+  ^java.io.File [workspaces]
+  (io/file (cache/workspace-cache-dir workspaces shared/uri->filename) "chats"))
+
+(defn ^:private chats-index-file
+  ^java.io.File [workspaces]
+  (io/file (chats-dir workspaces) "index.transit.json"))
+
+(defn chat-file-name
+  "Filesystem-safe file name for `chat-id`. Server-generated ids (lowercase
+   UUIDs) are used as-is; anything else falls back to a digest: client-supplied
+   ids may contain path separators or filesystem-hostile characters, uppercase
+   would collide on case-insensitive filesystems, and ids prefixed `index`
+   could collide with the index file name. Public so `read-chat` can locate a
+   chat's file inside a cache dir."
+  ^String [chat-id]
+  (let [chat-id (str chat-id)]
+    (str (if (and (re-matches #"[a-z0-9][a-z0-9_-]{7,127}" chat-id)
+                  (not (string/starts-with? chat-id "index")))
+           chat-id
+           (digest/sha-256-hex chat-id))
+         ".transit.json")))
+
+(defn ^:private chat-file
+  ^java.io.File [workspaces chat-id]
+  (io/file (chats-dir workspaces) (chat-file-name chat-id)))
 
 (defn read-transit-file
   "Read and return the transit+json data from a cache file.
@@ -196,15 +253,15 @@
     (with-open [is (io/input-stream cache-file)]
       (transit/read (transit/reader is :json)))))
 
-(defn ^:private read-cache [cache-file metrics]
+(defn ^:private read-cache [cache-file expected-version metrics]
   (try
     (metrics/task metrics :db/read-cache
       (if-let [cache (read-transit-file cache-file)]
-        (when (= version (:version cache))
+        (when (= expected-version (:version cache))
           cache)
         (logger/info logger-tag (str "No existing DB cache found for " cache-file))))
     (catch Throwable e
-      (logger/error logger-tag "Could not load global cache from DB" e))))
+      (logger/error logger-tag (str "Could not load cache from " cache-file) e))))
 
 (defn ^:private atomic-move!
   "Rename `src` to `dest`. Tries an atomic move first so a crash mid-rename
@@ -281,14 +338,7 @@
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
 (defn ^:private read-global-cache [metrics]
-  (let [cache (read-cache (transit-global-db-file) metrics)]
-    (when (= version (:version cache))
-      cache)))
-
-(defn ^:private read-global-by-workspaces-cache [workspaces metrics]
-  (let [cache (read-cache (transit-global-by-workspaces-db-file workspaces) metrics)]
-    (when (= version (:version cache))
-      cache)))
+  (read-cache (transit-global-db-file) version metrics))
 
 (defn ^:private chat-recency [chat]
   (or (:updated-at chat) (:created-at chat) 0))
@@ -370,100 +420,340 @@
   (let [attrs (cache-file-attrs f)]
     (boolean (and attrs (not= attrs (.get last-workspace-write-attrs (.getAbsolutePath f)))))))
 
-(defn consolidate-workspace-cache!
-  "Heals chat caches that fragmented across multiple directories for the same
-   workspace set (legacy hash-only dirs, dirs prefixed from a different folder
-   order, or per-worktree dirs from before worktree canonicalization). Merges
-   every matching cache into the canonical dir (newest chat wins) and removes
-   the redundant dirs. Best-effort and idempotent; runs under the workspace
-   cache file lock so it cannot race writes from another live server."
-  [workspaces metrics]
-  (try
-    (let [redundant (cache/redundant-workspace-cache-files workspaces "db.transit.json" shared/uri->filename)]
-      (when (seq redundant)
-        (let [canonical (transit-global-by-workspaces-db-file workspaces)]
-          (with-os-file-lock-fn
-            (workspace-cache-lock-file canonical)
-            (fn []
-              (let [caches (keep #(read-cache % metrics) (cons canonical redundant))
-                    merged (merge-chats (map :chats caches))]
-                (logger/info logger-tag (str "Consolidating " (count redundant) " redundant workspace cache dir(s) into " canonical))
-                (upsert-cache! {:chats merged :version version} canonical metrics)
-                (record-workspace-write-attrs! canonical)
-                (doseq [^java.io.File f redundant]
-                  (try
-                    (fs/delete-tree (.getParentFile f))
-                    (catch Throwable e
-                      (logger/warn logger-tag (str "Could not remove redundant cache dir " (.getParentFile f)) e))))))))))
-    (catch Throwable e
-      (logger/warn logger-tag "Could not consolidate workspace cache" e))))
-
 (defn stamp-chat-ids
   "Ensures every chat value carries its map key as :id, so readers can rely on
    it. Heals legacy rows persisted before chats were seeded with an :id."
   [chats]
   (reduce-kv (fn [m k v] (assoc m k (assoc v :id k))) {} chats))
 
+(def ^:private chat-meta-keys
+  "Chat keys persisted in the chats index and loaded eagerly at startup.
+   Everything else (notably :messages) lives only in the per-chat file and is
+   loaded on demand via `hydrate-chat!`."
+  [:id :title :title-custom? :status :created-at :updated-at :model :variant
+   :agent :trust :subagent :parent-chat-id :user-prompt-count])
+
+(def ^:private chat-computed-meta-keys
+  "Message-derived index fields, precomputed on save so chat listings never
+   need to load message history."
+  [:message-count :user-message-count :flags])
+
+(defn hydrated?
+  "True when the in-memory `chat` is authoritative (created or already loaded
+   in this session), false for index-only entries loaded lazily at startup.
+   Keyed on the explicit `:index-only?` marker rather than the presence of
+   `:messages`: a live chat legitimately has no `:messages` before the first
+   token arrives, and its memory state must never be overwritten from disk."
+  [chat]
+  (not (:index-only? chat)))
+
+(defn chat-list-meta
+  "Small projection of `chat` used for chat listings and the on-disk chats
+   index. For hydrated chats the message-derived fields are computed; for
+   index-only entries the stored values pass through."
+  [chat]
+  (if (hydrated? chat)
+    (let [messages (:messages chat)]
+      (assoc (select-keys chat chat-meta-keys)
+             :message-count (count messages)
+             :user-message-count (count (filterv #(= "user" (:role %)) messages))
+             :flags (into []
+                          (comp (filter #(= "flag" (:role %)))
+                                (map #(get-in % [:content :text])))
+                          messages)))
+    (select-keys chat (into chat-meta-keys chat-computed-meta-keys))))
+
+(defn ^:private normalize-chat-for-write [chat-id chat]
+  ;; Persist every chat that lives in memory, even with empty/absent
+  ;; :messages: dropping them erased chats intentionally rolled back to empty
+  ;; and chats that hit a provider error before any token arrived. Cleanup of
+  ;; stale chats is handled by cleanup-old-chats! instead.
+  (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
+      (dissoc :tool-calls :last-status-payload)
+      (assoc :id chat-id)))
+
+(defn ^:private read-chat-file
+  "Reads a chat's own cache file, returning the chat map or nil."
+  [workspaces chat-id metrics]
+  (:chat (read-cache (chat-file workspaces chat-id) chats-version metrics)))
+
+(defn ^:private write-chat-file!
+  "Writes `chat` to its cache file, unless the on-disk copy is strictly newer:
+   when the file changed on disk since this process last wrote it (peer
+   process sharing the cache dir, #558), the disk copy is read and kept if its
+   recency wins. Chat-level recency with ties keeping this process's copy
+   mirrors the old whole-blob merge semantics; the check is attrs-based so the
+   hot save path does no extra reads."
+  [workspaces chat-id chat metrics]
+  (let [dest (chat-file workspaces chat-id)
+        chat (normalize-chat-for-write chat-id chat)
+        disk-chat (when (workspace-cache-changed-on-disk? dest)
+                    (:chat (read-cache dest chats-version metrics)))]
+    (when-not (and disk-chat (> (chat-recency disk-chat) (chat-recency chat)))
+      (upsert-cache! {:version chats-version :chat chat} dest metrics)
+      (record-workspace-write-attrs! dest))))
+
+(defn ^:private db->index-entries [db]
+  (stamp-chat-ids (update-vals (:chats db) chat-list-meta)))
+
+(defn ^:private write-chats-index!
+  "Persists `entries` ({chat-id meta}) to the workspace chats index.
+
+   Safe across processes sharing one cache dir (#558): when the index changed
+   on disk since this process last wrote it, on-disk entries are merged in
+   (newest recency wins per chat, ties keep this process's copy). Ids in
+   `deleted-ids` are never resurrected by the merge. Runs under a
+   cross-process file lock; if locking fails, falls back to a plain overwrite."
+  [entries deleted-ids dest metrics]
+  (let [write! (fn [entries]
+                 (upsert-cache! {:version chats-version :chats entries} dest metrics)
+                 (record-workspace-write-attrs! dest))]
+    (try
+      (with-os-file-lock-fn
+        (workspace-cache-lock-file dest)
+        (fn []
+          (let [disk-entries (when (workspace-cache-changed-on-disk? dest)
+                               (:chats (read-cache dest chats-version metrics)))
+                entries (cond-> entries
+                          (seq disk-entries) (as-> $ (merge-chats [$ disk-entries]))
+                          (seq deleted-ids) (as-> $ (apply dissoc $ deleted-ids)))]
+            (write! entries))))
+      (catch Throwable e
+        (logger/warn logger-tag (str "Chats index lock failed, writing without merge: " (ex-message e)))
+        (write! entries)))))
+
+(defonce ^:private ^ConcurrentHashMap last-index-state
+  ;; abs path of index file -> [entries deleted-ids] as of this process's last
+  ;; write, so saves that did not change any chat meta skip the index write.
+  (ConcurrentHashMap.))
+
+(defn update-chats-index!
+  "Derives the chats index from the in-memory `db` and persists it. Skips the
+   write when nothing changed since this process's last index write."
+  [db metrics]
+  (let [dest (chats-index-file (db-workspaces db))
+        k (.getAbsolutePath dest)
+        entries (db->index-entries db)
+        deleted-ids (not-empty (:deleted-chat-ids db))
+        state [entries deleted-ids]]
+    ;; Skip only when nothing changed AND the file is still there, so a
+    ;; deleted/lost index is always recreated.
+    (when-not (and (= state (.get last-index-state k))
+                   (fs/exists? dest))
+      (write-chats-index! entries deleted-ids dest metrics)
+      (.put last-index-state k state))))
+
+(defn save-chat!
+  "Persists one chat to its own cache file and refreshes the chats index: the
+   cost of saving a history mutation is O(this chat) plus a metadata-only
+   index refresh, not O(all workspace history) (#557). Hydration-safe: when
+   the in-memory copy is index-only, its metadata is merged over the on-disk
+   chat so messages are never clobbered (e.g. renaming a chat that was never
+   opened this session); if that on-disk chat exists but cannot be read, the
+   file write is skipped instead of replacing history with a message-less
+   chat."
+  [db chat-id metrics]
+  (when-let [chat (get-in db [:chats chat-id])]
+    (let [workspaces (db-workspaces db)]
+      (if (hydrated? chat)
+        (write-chat-file! workspaces chat-id chat metrics)
+        (let [disk-chat (read-chat-file workspaces chat-id metrics)]
+          (if (and (nil? disk-chat) (fs/exists? (chat-file workspaces chat-id)))
+            (logger/warn logger-tag (str "Skipping cache save of chat " chat-id ": existing chat file is unreadable"))
+            (write-chat-file! workspaces chat-id
+                              (merge disk-chat
+                                     (apply dissoc chat :index-only? chat-computed-meta-keys))
+                              metrics))))
+      (update-chats-index! db metrics))))
+
+(defn save-all-chats!
+  "Persists every hydrated in-memory chat plus the chats index. Used as a
+   final flush at lifecycle boundaries (shutdown); index-only entries are
+   already on disk and are left untouched."
+  [db metrics]
+  (let [workspaces (db-workspaces db)]
+    (doseq [[chat-id chat] (:chats db)
+            :when (hydrated? chat)]
+      (write-chat-file! workspaces chat-id chat metrics))
+    (update-chats-index! db metrics)))
+
+(defn ^:private delete-chat-file! [workspaces chat-id]
+  (let [f (chat-file workspaces chat-id)]
+    (try
+      (when (fs/exists? f)
+        (fs/delete f))
+      (catch Throwable e
+        (logger/warn logger-tag (str "Could not delete chat cache file " f) e)))))
+
+(defn delete-chat-from-cache!
+  "Deletes a chat's cache file and drops it from the chats index. The caller
+   must have removed the chat from (:chats db) and tombstoned the id in
+   :deleted-chat-ids so peer-process index merges cannot resurrect it."
+  [db chat-id metrics]
+  (delete-chat-file! (db-workspaces db) chat-id)
+  (update-chats-index! db metrics))
+
+(defn hydrate-chat!
+  "Ensures `chat-id`'s message history is loaded into memory, reading its
+   cache file when the in-memory copy is index-only. When the on-disk copy is
+   strictly newer (a peer process advanced the chat), it wins entirely;
+   otherwise in-memory metadata stays on top of the on-disk history. No-op for
+   hydrated chats and ids without a cache file."
+  [db* chat-id metrics]
+  (let [db @db*
+        chat (get-in db [:chats chat-id])]
+    (when (and chat (not (hydrated? chat)))
+      (let [disk-chat (read-chat-file (db-workspaces db) chat-id metrics)]
+        (swap! db* update-in [:chats chat-id]
+               (fn [mem-chat]
+                 (cond
+                   (or (nil? mem-chat) (hydrated? mem-chat))
+                   ;; raced with a concurrent hydration/mutation; keep it
+                   mem-chat
+
+                   ;; file vanished: memory becomes authoritative
+                   (nil? disk-chat)
+                   (dissoc mem-chat :index-only?)
+
+                   :else
+                   (let [mem-meta (apply dissoc mem-chat :index-only? chat-computed-meta-keys)]
+                     (if (> (chat-recency disk-chat) (chat-recency mem-meta))
+                       (merge mem-meta disk-chat)
+                       (merge disk-chat mem-meta))))))))))
+
+(defn ^:private chat-files-on-disk
+  "The per-chat cache files inside the workspace's chats dir (excluding the
+   index)."
+  [workspaces]
+  (let [dir (chats-dir workspaces)]
+    (if (fs/exists? dir)
+      (into []
+            (comp (map fs/file)
+                  (filter (fn [^java.io.File f]
+                            (and (.isFile f)
+                                 (string/ends-with? (.getName f) ".transit.json")
+                                 (not= "index.transit.json" (.getName f))))))
+            (fs/list-dir dir))
+      [])))
+
+(defn ^:private reconcile-index-with-chat-files
+  "Self-heals index `entries` against the actual per-chat files: files missing
+   from the index are read and their meta added (index lost, or a crash landed
+   between a chat write and its index write); entries whose file vanished are
+   dropped (deleted by a peer process). Returns [entries dropped-ids changed?];
+   dropped ids must be tombstoned by the caller so the index merge-on-write
+   cannot resurrect them from the on-disk index."
+  [entries workspaces metrics]
+  (let [files (chat-files-on-disk workspaces)
+        file-names (into #{} (map (fn [^java.io.File f] (.getName f))) files)
+        indexed-file-names (into #{} (map chat-file-name) (keys entries))
+        [entries dropped-ids] (reduce-kv (fn [[entries dropped-ids] id _]
+                                           (if (contains? file-names (chat-file-name id))
+                                             [entries dropped-ids]
+                                             [(dissoc entries id) (conj dropped-ids id)]))
+                                         [entries #{}]
+                                         entries)
+        [entries added?] (reduce (fn [[entries added?] ^java.io.File f]
+                                   (if (contains? indexed-file-names (.getName f))
+                                     [entries added?]
+                                     (if-let [chat (:chat (read-cache f chats-version metrics))]
+                                       (if-let [id (:id chat)]
+                                         [(assoc entries id (chat-list-meta chat)) true]
+                                         [entries added?])
+                                       [entries added?])))
+                                 [entries false]
+                                 files)]
+    [entries dropped-ids (boolean (or added? (seq dropped-ids)))]))
+
+(defn ^:private read-legacy-workspace-cache
+  "Reads a pre-v7 whole-workspace chat blob, returning its stamped :chats map
+   or nil. Entries with non-string ids are dropped (old bugs left e.g. a
+   nil-keyed chat in long-lived caches); they have no addressable identity and
+   would poison the migration. The blob is kept as `.bak`, so nothing is lost."
+  [^java.io.File f metrics]
+  (when-let [chats (:chats (read-cache f version metrics))]
+    (let [invalid-ids (remove string? (keys chats))]
+      (when (seq invalid-ids)
+        (logger/warn logger-tag (str "Dropping " (count invalid-ids) " chat(s) with invalid ids from legacy cache " f)))
+      (stamp-chat-ids (into {} (filter (comp string? key)) chats)))))
+
+(defn migrate-legacy-workspace-caches!
+  "Migrates pre-v7 whole-workspace `db.transit.json` blobs into the per-chat
+   layout (#557). Reads the canonical blob plus blobs living in redundant
+   cache dirs for the same workspace set (legacy hash-only names, different
+   folder-order prefixes, pre-worktree-canonicalization dirs - #558), merges
+   them (newest chat wins), splits the result into per-chat files - skipping
+   ids whose per-chat file is already newer, so bouncing between ECA versions
+   converges without losing the newest copy - refreshes the index, renames the
+   canonical blob to `db.transit.json.bak` (rollback insurance) and removes
+   the redundant dirs. Best-effort and idempotent; runs under the chats index
+   file lock so it cannot race writes from another live server."
+  [workspaces metrics]
+  (try
+    (let [canonical (legacy-workspace-db-file workspaces)
+          redundant (cache/redundant-workspace-cache-files workspaces "db.transit.json" shared/uri->filename)
+          legacy-files (filterv fs/exists? (cons canonical redundant))]
+      (when (seq legacy-files)
+        (let [index-file (chats-index-file workspaces)]
+          (with-os-file-lock-fn
+            (workspace-cache-lock-file index-file)
+            (fn []
+              (let [legacy-chats (merge-chats (keep #(read-legacy-workspace-cache % metrics) legacy-files))]
+                (logger/info logger-tag (str "Migrating " (count legacy-chats) " chat(s) from legacy workspace cache(s) to per-chat files..."))
+                (doseq [[chat-id chat] legacy-chats]
+                  ;; Per-chat so one unmigratable chat cannot abort the whole
+                  ;; migration (which would leave history invisible until fixed).
+                  (try
+                    (let [existing (read-chat-file workspaces chat-id metrics)]
+                      (when (or (nil? existing)
+                                (> (chat-recency chat) (chat-recency existing)))
+                        (write-chat-file! workspaces chat-id chat metrics)))
+                    (catch Throwable e
+                      (logger/warn logger-tag (str "Could not migrate chat " chat-id) e))))
+                ;; Refresh the index; existing entries win over migrated meta
+                ;; when newer or tied, matching the per-chat file rule above
+                ;; (only a strictly newer legacy chat overwrote the file).
+                (let [disk-entries (:chats (read-cache index-file chats-version metrics))
+                      entries (merge-chats [disk-entries
+                                            (stamp-chat-ids (update-vals legacy-chats chat-list-meta))])]
+                  (upsert-cache! {:version chats-version :chats entries} index-file metrics)
+                  (record-workspace-write-attrs! index-file))
+                (when (fs/exists? canonical)
+                  (atomic-move! canonical (io/file (str (.getPath canonical) ".bak"))))
+                (doseq [^java.io.File f redundant]
+                  (try
+                    (fs/delete-tree (.getParentFile f))
+                    (catch Throwable e
+                      (logger/warn logger-tag (str "Could not remove redundant cache dir " (.getParentFile f)) e))))))))))
+    (catch Throwable e
+      (logger/warn logger-tag "Could not migrate legacy workspace cache" e))))
+
 (defn load-db-from-cache! [db* config metrics]
   (when-not (:pureConfig config)
     (when-let [global-cache (read-global-cache metrics)]
       (logger/info logger-tag "Loading from global-cache caches...")
       (swap! db* shared/deep-merge global-cache))
-    (let [workspaces (:workspace-folders @db*)]
-      (consolidate-workspace-cache! workspaces metrics)
-      (when-let [global-by-workspace-cache (read-global-by-workspaces-cache workspaces metrics)]
-        (logger/info logger-tag "Loading from workspace-cache caches...")
-        (swap! db* shared/deep-merge global-by-workspace-cache)))
-    (swap! db* update :chats stamp-chat-ids)))
-
-(defn ^:private normalize-db-for-workspace-write [db]
-  (-> (select-keys db [:chats])
-      (update :chats (fn [chats]
-                       ;; Persist every chat that lives in memory.
-                       ;; We used to drop chats with empty :messages
-                       ;; here, but that erased chats that were
-                       ;; intentionally rolled back to empty and also
-                       ;; (combined with the late add-to-history!
-                       ;; behaviour) erased chats that hit a provider
-                       ;; error before any token arrived. Cleanup of
-                       ;; stale chats is handled by
-                       ;; cleanup-old-chats! instead.
-                       (-> (update-vals chats #(dissoc % :tool-calls :last-status-payload))
-                           stamp-chat-ids)))))
+    (let [workspaces (db-workspaces @db*)]
+      (migrate-legacy-workspace-caches! workspaces metrics)
+      (let [index-entries (:chats (read-cache (chats-index-file workspaces) chats-version metrics))
+            [entries dropped-ids changed?] (reconcile-index-with-chat-files index-entries workspaces metrics)
+            entries (update-vals (stamp-chat-ids entries) #(assoc % :index-only? true))]
+        (when (seq dropped-ids)
+          ;; Tombstone entries whose chat file vanished so the index
+          ;; merge-on-write (which merges the on-disk index on this session's
+          ;; first write) cannot resurrect them.
+          (swap! db* update :deleted-chat-ids (fnil into #{}) dropped-ids))
+        (when (seq entries)
+          (logger/info logger-tag (str "Loading " (count entries) " chat(s) from workspace chats index..."))
+          ;; Chats load as index-only entries (meta without history, marked
+          ;; :index-only?); history is hydrated on demand (chat/prompt,
+          ;; chat/open, /resume, ...).
+          (swap! db* update :chats #(merge entries %)))
+        (when changed?
+          (update-chats-index! @db* metrics))))))
 
 (defn ^:private normalize-db-for-global-write [db]
   (select-keys db [:auth :mcp-auth]))
-
-(defn update-workspaces-cache!
-  "Persists the workspace-scoped db slice (chats) to the workspace cache file.
-
-   Safe across processes: multiple ECA servers can share one cache file (e.g. a
-   repo and its worktrees, #558), so when the file changed on disk since this
-   process last wrote it, the on-disk chats are merged in (newest wins, ties
-   keep the in-memory copy) instead of blindly overwritten. Chats deleted in
-   this session (`:deleted-chat-ids`) are never resurrected by the merge. Runs
-   under a cross-process file lock; if locking fails it falls back to a plain
-   overwrite (previous behavior)."
-  [db metrics]
-  (let [dest (transit-global-by-workspaces-db-file (or (:initial-workspace-folders db)
-                                                       (:workspace-folders db)))
-        payload (-> (normalize-db-for-workspace-write db)
-                    (assoc :version version))
-        deleted-ids (not-empty (:deleted-chat-ids db))]
-    (try
-      (with-os-file-lock-fn
-        (workspace-cache-lock-file dest)
-        (fn []
-          (let [disk-chats (when (workspace-cache-changed-on-disk? dest)
-                             (:chats (read-cache dest metrics)))
-                chats (cond-> (:chats payload)
-                        (seq disk-chats) (as-> $ (merge-chats [$ disk-chats]))
-                        deleted-ids (as-> $ (apply dissoc $ deleted-ids)))]
-            (upsert-cache! (assoc payload :chats chats) dest metrics)
-            (record-workspace-write-attrs! dest))))
-      (catch Throwable e
-        (logger/warn logger-tag (str "Workspace cache lock failed, writing without merge: " (ex-message e)))
-        (upsert-cache! payload dest metrics)))))
 
 (defn update-global-cache! [db metrics]
   (-> (normalize-db-for-global-write db)
@@ -511,8 +801,9 @@
       false)))
 
 (defn cleanup-old-chats!
-  "Deletes chats older than retention-days from the db and flushes the workspace cache.
-   When retention-days is non-positive, cleanup is disabled."
+  "Deletes chats older than retention-days: removes them from memory and their
+   per-chat cache files, then refreshes the chats index once. When
+   retention-days is non-positive, cleanup is disabled."
   [db* metrics retention-days]
   (when (pos? retention-days)
     (let [retention-ms (* retention-days 24 60 60 1000)
@@ -528,8 +819,12 @@
                                    true))))
                      chats)))
       (when-let [removed-ids (not-empty @removed-ids*)]
-        ;; Tombstone the ids so the merge-on-write in update-workspaces-cache!
-        ;; does not resurrect them from a cache file shared with another server.
+        ;; Tombstone the ids so the index merge-on-write does not resurrect
+        ;; them from an index file shared with another live server.
         (swap! db* update :deleted-chat-ids (fnil into #{}) removed-ids)
         (logger/info logger-tag (str "Cleaned up " (count removed-ids) " chat(s) older than " retention-days " days"))
-        (update-workspaces-cache! @db* metrics)))))
+        (let [db @db*
+              workspaces (db-workspaces db)]
+          (doseq [chat-id removed-ids]
+            (delete-chat-file! workspaces chat-id))
+          (update-chats-index! db metrics))))))

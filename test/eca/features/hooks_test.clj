@@ -17,7 +17,8 @@
 (h/reset-components-before-test)
 
 (defn cache-session-id [db-cache-path]
-  (some-> db-cache-path fs/file fs/parent fs/file-name str))
+  ;; db_cache_path is the workspace cache dir; session id is its name.
+  (some-> db-cache-path fs/file fs/file-name str))
 
 (defn set-action-payload [a*]
   (fn [p]

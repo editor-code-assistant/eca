@@ -205,7 +205,7 @@
 (defn shutdown [{:keys [db* config metrics]}]
   (metrics/task metrics :eca/shutdown
     ;; 1. Save cache BEFORE hook so db-cache-path contains current state
-    (db/update-workspaces-cache! @db* metrics)
+    (db/save-all-chats! @db* metrics)
 
     ;; 2. Trigger sessionEnd hook
     (f.hooks/trigger-if-matches! :sessionEnd
@@ -302,7 +302,7 @@
    to restore the chat's stored selection. Returns `{:found bool ...}`."
   [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-open
-    (f.chat/open-chat! params db* messenger config)))
+    (f.chat/open-chat! params db* messenger config metrics)))
 
 (defn chat-history
   "Fetch a window of a chat's history (request/response, no streaming).
@@ -311,7 +311,7 @@
    `{:error {:code :message}}`."
   [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-history
-    (f.chat/fetch-history params db*)))
+    (f.chat/fetch-history params db* metrics)))
 
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server

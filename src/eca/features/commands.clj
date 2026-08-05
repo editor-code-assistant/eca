@@ -686,7 +686,7 @@
                              :messages (vec (:messages chat))
                              :prompt-finished? true}]
                (swap! db* assoc-in [:chats new-id] new-chat)
-               (db/update-workspaces-cache! @db* metrics)
+               (db/save-chat! @db* new-id metrics)
                (messenger/chat-opened messenger {:chat-id new-id :title new-title})
                {:type :chat-messages
                 :chats {new-id {:messages (:messages chat)
@@ -719,11 +719,8 @@
                                      (reduce
                                       (fn [s chat-id]
                                         (let [chat (get chats chat-id)
-                                              msgs-count (count (filter #(= "user" (:role %))
-                                                                        (:messages chat)))
-                                              flags (->> (:messages chat)
-                                                         (filter #(= "flag" (:role %)))
-                                                         (map #(get-in % [:content :text])))]
+                                              {:keys [user-message-count flags]} (db/chat-list-meta chat)
+                                              msgs-count (or user-message-count 0)]
                                           ;; List every persisted chat, even ones with zero user
                                           ;; messages (e.g. a chat that hit a provider error very
                                           ;; early, or one rolled back to empty). The user can
@@ -743,12 +740,20 @@
                    (chat-message-fn "Chat ID not found.")
 
                    :else
-                   (let [chat (get chats selected-chat-id)]
-                     (swap! db* assoc-in [:chats chat-id] chat)
+                   (let [_ (db/hydrate-chat! db* selected-chat-id metrics)
+                         chat (get-in @db* [:chats selected-chat-id])]
+                     (swap! db* assoc-in [:chats chat-id] (assoc chat :id chat-id))
                      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting?)
                      (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
-                     (swap! db* update-in [:chats] #(dissoc % selected-chat-id))
-                     (db/update-workspaces-cache! @db* metrics)
+                     ;; The resumed content now lives under chat-id; drop the
+                     ;; old id from memory and cache, tombstoning it so peer
+                     ;; index merges cannot resurrect it.
+                     (swap! db* (fn [db]
+                                  (-> db
+                                      (update :chats dissoc selected-chat-id)
+                                      (update :deleted-chat-ids (fnil conj #{}) selected-chat-id))))
+                     (db/save-chat! @db* chat-id metrics)
+                     (db/delete-chat-from-cache! @db* selected-chat-id metrics)
                      ;; Align the client's selected model with the resumed chat
                      ;; so the LLM call keeps using the chat's original model. #417
                      (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat) chat-id)
@@ -889,7 +894,7 @@
                      ;; Persist under the original id so the chat stays /resume-able
                      ;; and reuses provider/cache keyed by chat-id (#28).
                      (swap! db* assoc-in [:chats imported-id] imported-chat)
-                     (db/update-workspaces-cache! @db* metrics)
+                     (db/save-chat! @db* imported-id metrics)
                      (messenger/chat-opened messenger {:chat-id imported-id :title (:title imported-chat)})
                      ;; Align the client's model/trust with the imported chat (like /resume).
                      (config/notify-selected-model-changed! (:model imported-chat) db* messenger config (:variant imported-chat) imported-id)

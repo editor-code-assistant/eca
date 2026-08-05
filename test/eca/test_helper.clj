@@ -1,12 +1,24 @@
 (ns eca.test-helper
   (:require
+   [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [use-fixtures]]
+   [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.shared :as shared]))
+
+(def ^:private isolated-cache-dir
+  "Tests use `user.dir` (this repo) as their workspace folder, so without
+   isolation every test run writes chat caches into the developer's real
+   ~/.cache/eca history for the eca workspace (#557). Redirect ECA's cache
+   dir to a per-run temp dir for the whole test JVM."
+  (io/file (str (fs/create-temp-dir {:prefix "eca-test-cache"}))))
+
+(alter-var-root #'cache/global-dir (constantly (constantly isolated-cache-dir)))
 
 (def windows? (string/starts-with? (System/getProperty "os.name") "Windows"))
 

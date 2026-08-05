@@ -1583,7 +1583,7 @@
               (on-message-received {:type :finish}))})
           first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])
           save-calls* (atom 0)]
-      (with-redefs [db/update-workspaces-cache! (fn [_ _] (swap! save-calls* inc))]
+      (with-redefs [db/save-chat! (fn [& _] (swap! save-calls* inc))]
         (f.chat/rollback-chat {:chat-id chat-id
                                :include ["messages" "tools"]
                                :content-id first-content-id}

@@ -6,6 +6,7 @@
    [cheshire.core :as json]
    [clojure.core.async :as async]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as f.chat.history]
    [eca.handlers :as handlers]
@@ -164,7 +165,8 @@
                    (mapv (fn [[id chat]] (chat-summary (assoc chat :id id)))))]
     (json-response chats)))
 
-(defn handle-get-chat [{:keys [db*]} request chat-id]
+(defn handle-get-chat [{:keys [db* metrics]} request chat-id]
+  (db/hydrate-chat! db* chat-id metrics)
   (if-let [chat (chat-or-404 db* chat-id)]
     (let [db @db*
           config (config/all db)

@@ -75,7 +75,7 @@
 
 (def ^:private linked-worktree-root
   "Memoized `linked-worktree-root*`: resolved on nearly every chat mutation via
-   `eca.db/update-workspaces-cache!`, and a worktree's gitdir pointer does not
+   `eca.db/save-chat!`, and a worktree's gitdir pointer does not
    change during a server's lifetime."
   (memoize linked-worktree-root*))
 
@@ -142,13 +142,19 @@
       (str sanitized "_" hash)
       hash)))
 
-(defn workspace-cache-file
-  "Returns a File object for a workspace-specific cache file.
+(defn workspace-cache-dir
+  "Returns a File object for the workspace-specific cache directory.
    The directory identity is the order-independent <hash>; the human-readable
    prefix is cosmetic. Healing of caches fragmented across differently-named
-   dirs for the same workspace is handled by eca.db/consolidate-workspace-cache!."
+   dirs for the same workspace is handled by eca.db/migrate-legacy-workspace-caches!."
+  ^File [workspaces uri->filename-fn]
+  (io/file (global-dir) (workspace-dir-name workspaces uri->filename-fn)))
+
+(defn workspace-cache-file
+  "Returns a File object for a workspace-specific cache file inside
+   `workspace-cache-dir`."
   [workspaces filename uri->filename-fn]
-  (io/file (global-dir) (workspace-dir-name workspaces uri->filename-fn) filename))
+  (io/file (workspace-cache-dir workspaces uri->filename-fn) filename))
 
 (defn redundant-workspace-cache-files
   "Returns the cache files named `filename` that live in directories belonging to
