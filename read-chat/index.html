@@ -1586,20 +1586,21 @@
 
 
 <h1 id="read-chat">read-chat<a class="headerlink" href="#read-chat" title="Permanent link">#</a></h1>
-<p>Inspect ECA's chat database offline by reading <code>db.transit.json</code> directly. No running server is required.</p>
+<p>Inspect ECA's chat database offline by reading the workspace chat cache directly. No running server is required.</p>
+<p><code>--db-cache-path</code> takes the workspace cache dir (e.g. <code>~/.cache/eca/myproj_a1b2C3d4</code>, holding <code>chats/index.transit.json</code> plus one <code>chats/&lt;chat-id&gt;.transit.json</code> per chat) and also accepts a legacy <code>db.transit.json</code> file written by older ECA versions.</p>
 <p>Output is always <strong>raw JSONL</strong> (one JSON object per line) in the persisted internal shape, making it suitable for debugging, export, and programmatic processing.</p>
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">#</a></h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># List all chats (newest first)</span>
-eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json
+eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4
 
 <span class="c1"># Resolve the cache from the session&#39;s workspace folders</span>
 eca<span class="w"> </span>read-chat<span class="w"> </span>--workspace<span class="w"> </span>~/Code/Clojure/eca<span class="w"> </span>--workspace<span class="w"> </span>~/Code/Clojure/eca-worktrees/add-read-chat-command
 
 <span class="c1"># Stream raw messages from a specific chat</span>
-eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span>--chat-id<span class="w"> </span>&lt;chat-id&gt;
+eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span>--chat-id<span class="w"> </span>&lt;chat-id&gt;
 
 <span class="c1"># Last 10 user messages from the past hour</span>
-eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>&lt;chat-id&gt;<span class="w"> </span>--since<span class="w"> </span>1h<span class="w"> </span>--role<span class="w"> </span>user<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">10</span>
 </code></pre></div>
 <h2 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">#</a></h2>
@@ -1622,7 +1623,7 @@ eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span
 <tbody>
 <tr>
 <td><code>--db-cache-path &lt;PATH&gt;</code></td>
-<td>Path to <code>db.transit.json</code>.</td>
+<td>Workspace cache dir (or a legacy <code>db.transit.json</code> file).</td>
 </tr>
 <tr>
 <td><code>--workspace &lt;PATH&gt;</code></td>
@@ -1693,17 +1694,17 @@ eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span
 <div class="tabbed-set tabbed-alternate" data-tabs="1:10"><input checked="checked" id="last-10-messages" name="__tabbed_1" type="radio" /><input id="count-messages" name="__tabbed_1" type="radio" /><input id="extract-user-text" name="__tabbed_1" type="radio" /><input id="extract-assistant-text" name="__tabbed_1" type="radio" /><input id="list-tool-calls" name="__tabbed_1" type="radio" /><input id="list-tool-outputs" name="__tabbed_1" type="radio" /><input id="find-chats-by-model" name="__tabbed_1" type="radio" /><input id="count-user-prompts" name="__tabbed_1" type="radio" /><input id="export-a-chat" name="__tabbed_1" type="radio" /><input id="recent-chats-pretty-printed" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="last-10-messages">Last 10 messages</label><label for="count-messages">Count messages</label><label for="extract-user-text">Extract user text</label><label for="extract-assistant-text">Extract assistant text</label><label for="list-tool-calls">List tool calls</label><label for="list-tool-outputs">List tool outputs</label><label for="find-chats-by-model">Find chats by model</label><label for="count-user-prompts">Count user prompts</label><label for="export-a-chat">Export a chat</label><label for="recent-chats-pretty-printed">Recent chats, pretty-printed</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">10</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span><span class="p">|</span><span class="w"> </span>wc<span class="w"> </span>-l
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>user<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;</span>
 <span class="s1">    def content_text:</span>
@@ -1722,19 +1723,19 @@ eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>assistant<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">&#39;.content[]? | select(.type == &quot;text&quot;) | .text&#39;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>tool_call<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;.content | {id, name, input: .arguments, summary, server, full_name: .&quot;full-name&quot;}&#39;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>--role<span class="w"> </span>tool_call_output<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;</span>
 <span class="s1">    .content</span>
@@ -1749,22 +1750,22 @@ eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;select(.model | contains(&quot;claude&quot;))&#39;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;{id: .id, count: .[&quot;user-prompt-count&quot;]}&#39;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--chat-id<span class="w"> </span>abc<span class="w"> </span>&gt;<span class="w"> </span>chat-export.jsonl
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/db.transit.json<span class="w"> </span>--since<span class="w"> </span>1d<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span class="w"> </span>~/.cache/eca/myproj_a1b2C3d4<span class="w"> </span>--since<span class="w"> </span>1d<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>jq<span class="w"> </span><span class="s1">&#39;{title, model, updated_at: .[&quot;updated-at&quot;]}&#39;</span>
 </code></pre></div>
 </div>
@@ -1839,7 +1840,7 @@ eca<span class="w"> </span>read-chat<span class="w"> </span>--db-cache-path<span
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 4, 2026 19:11:34 UTC">August 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 5, 2026 13:57:56 UTC">August 5, 2026</span>
   </span>
 
     
