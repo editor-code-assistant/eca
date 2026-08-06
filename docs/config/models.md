@@ -153,6 +153,24 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
 
 	see - https://github.blog/changelog/2026-02-13-network-configuration-changes-for-copilot-coding-agent/#whats-changing
 
+    **GitHub Enterprise login**
+
+    The `url` setting above only changes the Copilot API endpoint, not the login. If your account lives on a GitHub Enterprise instance (e.g. `https://mycompany.ghe.com`), set `auth.url` so the `/login` device flow uses your enterprise host instead of `github.com`:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "github-copilot": {
+          "auth": {
+            "url": "https://mycompany.ghe.com"
+          }
+        }
+      }
+    }
+    ```
+
+    If your instance uses a custom OAuth application, also set `auth.clientId`.
+
     _Tip: check [Your Copilot plan](https://github.com/settings/copilot/features) to enable models to your account._
 
 === "Google / Gemini"
