@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Mark MCP servers as `running` right after tools listing, fetching prompts/resources afterwards so slow/unresponsive list requests don't delay server startup.
+
 ## 0.153.1
 
 - Apply `mcpTimeoutSeconds` to MCP tools/prompts/resources listing, avoiding servers stuck in `starting` state when a list request never gets a response.

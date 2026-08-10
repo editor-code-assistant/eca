@@ -492,8 +492,6 @@
                                (swap! db* assoc-in [:mcp-clients name :version] version)
                                (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
                                (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client list-timeout-ms))
-                               (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client list-timeout-ms))
-                               (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client list-timeout-ms))
                                (if (and needs-reinit?* @needs-reinit?*)
                                  (do (try (pp/stop-client-transport! transport false) (catch Exception _))
                                      (if (< attempt max-init-retries)
@@ -509,6 +507,11 @@
                                  (do (swap! db* assoc-in [:mcp-clients name :status] :running)
                                      (on-server-updated (->server name server-config :running @db*))
                                      (logger/info logger-tag (format "Started MCP server %s" name))
+                                     ;; Fetch after flipping to running: servers may take long or never
+                                     ;; answer these list requests, and they should not gate the status.
+                                     (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client list-timeout-ms))
+                                     (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client list-timeout-ms))
+                                     (on-server-updated (->server name server-config :running @db*))
                                      :ok)))
                              (catch Exception e
                                (try (pp/stop-client-transport! transport false) (catch Exception _))
