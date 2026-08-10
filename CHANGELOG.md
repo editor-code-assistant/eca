@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Apply `mcpTimeoutSeconds` to MCP tools/prompts/resources listing, avoiding servers stuck in `starting` state when a list request never gets a response.
+
 ## 0.153.0
 
 - Store chats in per-chat cache files with a lazy-loaded index instead of one whole-workspace blob, fixing CPU spikes and slow startup as history grows; legacy caches migrate automatically. #557

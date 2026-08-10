@@ -326,22 +326,33 @@
     (logger/warn logger-tag (format "Could not list %s: %s" kind (format-jsonrpc-error jsonrpc-error)))
     []))
 
-(defn ^:private list-server-tools [client]
+(defn ^:private on-list-timeout [kind]
+  (fn [_id _timeout-value]
+    (logger/warn logger-tag (format "Timeout waiting server response listing %s" kind))
+    []))
+
+(defn ^:private list-options [kind timeout-ms]
+  {:on-error (on-list-error kind)
+   :timeout-millis timeout-ms
+   :timeout-value ::list-timeout
+   :on-timeout (on-list-timeout kind)})
+
+(defn ^:private list-server-tools [client timeout-ms]
   (if (get-in (pmc/get-initialize-result client) [:capabilities :tools])
-    (or (some->> (pmc/list-tools client {:on-error (on-list-error "tools")})
+    (or (some->> (pmc/list-tools client (list-options "tools" timeout-ms))
                  (mapv tool->internal))
         [])
     []))
 
-(defn ^:private list-server-prompts [client]
+(defn ^:private list-server-prompts [client timeout-ms]
   (if (get-in (pmc/get-initialize-result client) [:capabilities :prompts])
-    (or (pmc/list-prompts client {:on-error (on-list-error "prompts")})
+    (or (pmc/list-prompts client (list-options "prompts" timeout-ms))
         [])
     []))
 
-(defn ^:private list-server-resources [client]
+(defn ^:private list-server-resources [client timeout-ms]
   (if (get-in (pmc/get-initialize-result client) [:capabilities :resources])
-    (or (pmc/list-resources client {:on-error (on-list-error "resources")})
+    (or (pmc/list-resources client (list-options "resources" timeout-ms))
         [])
     []))
 
@@ -453,6 +464,7 @@
                                 server-config
                                 {:on-server-updated on-server-updated})
           (let [init-timeout (:mcpTimeoutSeconds config)
+                list-timeout-ms (* 1000 init-timeout)
                 pending-tools-refresh* (atom nil)
                 on-tools-change (fn [tools]
                                   (let [tools (mapv tool->internal tools)]
@@ -479,9 +491,9 @@
                                                                          http-client (assoc :http-client http-client)))
                                (swap! db* assoc-in [:mcp-clients name :version] version)
                                (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
-                               (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client))
-                               (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client))
-                               (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client))
+                               (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client list-timeout-ms))
+                               (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client list-timeout-ms))
+                               (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client list-timeout-ms))
                                (if (and needs-reinit?* @needs-reinit?*)
                                  (do (try (pp/stop-client-transport! transport false) (catch Exception _))
                                      (if (< attempt max-init-retries)
