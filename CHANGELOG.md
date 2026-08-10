@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.153.1
+
 - Apply `mcpTimeoutSeconds` to MCP tools/prompts/resources listing, avoiding servers stuck in `starting` state when a list request never gets a response.
 
 ## 0.153.0
