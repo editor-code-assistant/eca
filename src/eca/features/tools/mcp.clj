@@ -509,9 +509,14 @@
                                      (logger/info logger-tag (format "Started MCP server %s" name))
                                      ;; Fetch after flipping to running: servers may take long or never
                                      ;; answer these list requests, and they should not gate the status.
-                                     (swap! db* assoc-in [:mcp-clients name :prompts] (list-server-prompts client list-timeout-ms))
-                                     (swap! db* assoc-in [:mcp-clients name :resources] (list-server-resources client list-timeout-ms))
-                                     (on-server-updated (->server name server-config :running @db*))
+                                     (let [prompts (list-server-prompts client list-timeout-ms)
+                                           resources (list-server-resources client list-timeout-ms)]
+                                       (swap! db* assoc-in [:mcp-clients name :prompts] prompts)
+                                       (swap! db* assoc-in [:mcp-clients name :resources] resources)
+                                       ;; Notify again only when something actually arrived, avoiding
+                                       ;; a redundant duplicate notification for servers without them.
+                                       (when (or (seq prompts) (seq resources))
+                                         (on-server-updated (->server name server-config :running @db*))))
                                      :ok)))
                              (catch Exception e
                                (try (pp/stop-client-transport! transport false) (catch Exception _))

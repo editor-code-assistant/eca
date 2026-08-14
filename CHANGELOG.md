@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Skip redundant MCP `tool/serverUpdated` notification after prompts/resources listing when the server has none.
+
 ## 0.154.0
 
 - Improve `/login` UX: markdown links, provider/method selection via `chat/askQuestion` when supported by client, GitHub Copilot login completes automatically, secrets not echoed.

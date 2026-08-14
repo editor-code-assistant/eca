@@ -421,7 +421,7 @@
                                           (catch clojure.lang.ExceptionInfo e
                                             e))]
       (is e)
-      (is (string/includes? (.getMessage e) "DB cache file not found: /nonexistent/path"))
+      (is (string/includes? (.getMessage e) (str "DB cache file not found: " (io/file "/nonexistent/path"))))
       (is (string/includes? (.getMessage e) "Check --db-cache-path")))))
 
 (deftest run-missing-workspace-derived-path-test
