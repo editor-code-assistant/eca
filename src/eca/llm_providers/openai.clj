@@ -923,13 +923,17 @@
 
 ;; --- Chat-based login (legacy /login command) ---
 
-(defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg!]}]
+(defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg! ask!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
-  (send-msg! (multi-str "Now, inform the login method:"
-                        ""
-                        "- pro: GPT Plus/Pro (subscription)"
-                        "- manual: Manually enter API Key")))
+  (if ask!
+    (ask! {:question "Select the OpenAI login method:"
+           :options [{:label "pro" :description "GPT Plus/Pro (subscription)"}
+                     {:label "manual" :description "Manually enter API Key"}]})
+    (send-msg! (multi-str "Now, inform the login method:"
+                          ""
+                          "- pro: GPT Plus/Pro (subscription)"
+                          "- manual: Manually enter API Key"))))
 
 (defmethod f.login/login-step ["openai" :login/waiting-login-method] [{:keys [db* input provider send-msg!] :as ctx}]
   (case input
@@ -955,7 +959,7 @@
         :on-error (fn [error]
                     (send-msg! (str "Error authenticating via oauth: " error))
                     (oauth/stop-oauth-server! local-server-port))})
-      (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate at OpenAI, then ECA will finish the login automatically." url)))
+      (send-msg! (format "Open your browser at: [OpenAI login](%s)\n\nAuthenticate at OpenAI, then ECA will finish the login automatically." url)))
     "manual"
     (do
       (swap! db* assoc-in [:auth provider] {:step :login/waiting-api-key
@@ -969,7 +973,7 @@
         (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
         (send-msg! (str "API key saved in " (.getCanonicalPath (config/global-config-file))))
         (f.login/login-done! ctx))
-    (send-msg! (format "Invalid API key '%s'" input))))
+    (send-msg! "Invalid API key, it should start with 'sk-'")))
 
 (defmethod f.login/login-step ["openai" :login/renew-token] [{:keys [db* provider] :as ctx}]
   (let [current-auth (get-in @db* [:auth provider])

@@ -140,7 +140,7 @@
                        :arguments []}
                       {:name "login"
                        :type :native
-                       :description "Log into a provider (Ex: /login gitub-copilot)"
+                       :description "Log into a provider (Ex: /login github-copilot)"
                        :arguments [{:name "provider-id"}]}
                       {:name "model"
                        :type :native

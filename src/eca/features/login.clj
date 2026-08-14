@@ -7,7 +7,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
-   [eca.shared :refer [multi-str]]))
+   [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -18,8 +18,68 @@
 (defmethod login-step :default [{:keys [send-msg!]}]
   (send-msg! "Error: Unknown login step"))
 
+(def ^:private ask-timeout-ms (* 5 60 1000))
+
+(def ^:private secret-input-steps
+  "Steps whose chat input is a secret (OAuth code / API key) and therefore
+   must not be echoed back to the chat."
+  #{:login/waiting-provider-code :login/waiting-api-key})
+
+(defn ^:private ask-question-supported? [db]
+  (boolean (get-in db [:client-capabilities :code-assistant :chat-capabilities :ask-question])))
+
+(defn ^:private cancel-login! [{:keys [db* chat-id messenger send-msg!]}]
+  (let [provider (get-in @db* [:chats chat-id :login-provider])]
+    (when provider
+      (swap! db* assoc-in [:auth provider] {}))
+    (swap! db* assoc-in [:chats chat-id :login-provider] nil)
+    (swap! db* assoc-in [:chats chat-id :status] :idle)
+    (send-msg! "Login cancelled")
+    (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle})))
+
+(declare ^:private with-ask-support)
+
+(defn ^:private ask-and-continue!
+  "Asks a question via the client's `chat/askQuestion` UI in background and
+   feeds the answer back into the login state machine. A cancelled or timed
+   out question cancels the login."
+  [{:keys [db* chat-id messenger config] :as ctx} {:keys [question options]}]
+  (shared/future* config
+    (try
+      (let [response (deref (messenger/ask-question messenger
+                                                    {:chatId chat-id
+                                                     :question question
+                                                     :allowFreeform false
+                                                     :request-id (str (random-uuid))
+                                                     :options options})
+                            ask-timeout-ms
+                            {:cancelled true})
+            answer (some-> (:answer response) string/trim)]
+        ;; Ignore stale answers when login is no longer active for this chat.
+        (when (= :login (get-in @db* [:chats chat-id :status]))
+          (if (or (:cancelled response) (string/blank? answer))
+            (cancel-login! ctx)
+            (let [provider (get-in @db* [:chats chat-id :login-provider])
+                  step (get-in @db* [:auth provider :step] :login/start)]
+              (login-step (with-ask-support (assoc ctx
+                                                   :provider provider
+                                                   :step step
+                                                   :input answer)))))))
+      (catch Exception e
+        (logger/error logger-tag "Error handling login answer:" (ex-message e))
+        ((:send-msg! ctx) (str "Login error: " (ex-message e)))))))
+
+(defn ^:private with-ask-support
+  "Adds an `:ask!` fn to the login ctx when the client supports the
+   `chat/askQuestion` request. Login steps use it to ask for choices
+   interactively, falling back to the text-based flow when absent."
+  [{:keys [db*] :as ctx}]
+  (if (ask-question-supported? @db*)
+    (assoc ctx :ask! (fn [question-data] (ask-and-continue! ctx question-data)))
+    ctx))
+
 ;; No provider selected
-(defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg!] :as ctx}]
+(defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
   (let [provider (string/trim input)
         providers (->> @db* :auth keys sort)]
     (if (get-in @db* [:auth provider])
@@ -28,14 +88,17 @@
           (when-let [warning (f.providers/key-auth-override-warning provider config)]
             (send-msg! warning))
           (login-step (assoc ctx :provider provider)))
-      (send-msg! (multi-str
-                   (reduce
-                     (fn [s provider]
-                       (str s "- " provider "\n"))
-                     "Inform the provider:\n\n"
-                     providers)
-                   ""
-                   "For other providers, configure manually in your ECA config.")))))
+      (if ask!
+        (ask! {:question "Select the provider to login (other providers can be configured manually in your ECA config):"
+               :options (mapv (fn [p] {:label p}) providers)})
+        (send-msg! (multi-str
+                     (reduce
+                       (fn [s provider]
+                         (str s "- " provider "\n"))
+                       "Inform the provider:\n\n"
+                       providers)
+                     ""
+                     "For other providers, configure manually in your ECA config."))))))
 
 (defn handle-step [{:keys [message chat-id]} db* messenger config metrics]
   (let [provider (get-in @db* [:chats chat-id :login-provider])
@@ -54,26 +117,27 @@
                         :role "system"
                         :content {:type :progress
                                   :state :finished}}))
-        ctx {:chat-id chat-id
-             :step step
-             :input input
-             :db* db*
-             :config config
-             :messenger messenger
-             :metrics metrics
-             :provider provider
-             :send-msg! send-msg!}]
+        ctx (with-ask-support
+              {:chat-id chat-id
+               :step step
+               :input input
+               :db* db*
+               :config config
+               :messenger messenger
+               :metrics metrics
+               :provider provider
+               :send-msg! send-msg!})
+        secret-input? (and (contains? secret-input-steps step)
+                           (not= "cancel" input))]
     (messenger/chat-content-received
      messenger
      {:chat-id chat-id
       :role "user"
       :content {:type :text
-                :text (str input "\n")}})
+                :text (str (if secret-input? "*****" input) "\n")}})
     (if (= "cancel" input)
       (do
-        (send-msg! "Login cancelled")
-        (swap! db* assoc-in [:chats chat-id :login-provider] nil)
-        (swap! db* assoc-in [:chats chat-id :status] :idle)
+        (cancel-login! ctx)
         {:chat-id chat-id
          :status :idle})
       (do
@@ -152,4 +216,8 @@
   (swap! db* assoc-in [:chats chat-id :login-provider] nil)
   (swap! db* assoc-in [:chats chat-id :status] :idle)
   (when-not silent?
-    (send-msg! (format "\nLogin successful! You can now use the '%s' models." provider))))
+    (send-msg! (format "\nLogin successful! You can now use the '%s' models." provider))
+    ;; Login may complete asynchronously (OAuth callback, device-flow polling,
+    ;; askQuestion answer), where there is no chat/prompt response to carry the
+    ;; new status, so notify the client explicitly.
+    (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle})))

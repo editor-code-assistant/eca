@@ -258,31 +258,51 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
+(defn ^:private poll-device-authorization!
+  "Polls GitHub's device-flow token endpoint in background until the user
+   authorizes in the browser, the login state changes (e.g. cancelled), or
+   `max-attempts` is reached. Calls `on-token` with the token data on success
+   or `on-timeout` when attempts are exhausted."
+  [provider-settings db* {:keys [interval-ms max-attempts on-token on-timeout]
+                          :or {interval-ms 5000
+                               max-attempts 180}}]
+  (future
+    (loop [attempts 0]
+      (Thread/sleep (long interval-ms))
+      (when (= :login/waiting-user-confirmation
+               (get-in @db* [:auth "github-copilot" :step]))
+        (if (< attempts max-attempts)
+          (let [token-data (try
+                             (when-let [access-token (oauth-access-token
+                                                      provider-settings
+                                                      (get-in @db* [:auth "github-copilot" :device-code]))]
+                               (assoc (oauth-renew-token provider-settings access-token)
+                                      :access-token access-token))
+                             (catch Exception e
+                               (logger/debug "[COPILOT]" "Device poll attempt" attempts ":" (ex-message e))
+                               nil))]
+            (if token-data
+              (try
+                (on-token token-data)
+                (catch Exception e
+                  (logger/warn "[COPILOT]" "Failed to complete device login:" (ex-message e))))
+              (recur (inc attempts))))
+          (on-timeout))))))
+
 (defmethod f.providers/start-login! ["github-copilot" "device"] [_ _ db* config messenger metrics]
   (let [provider-settings (get-in config [:providers "github-copilot"])
         {:keys [user-code device-code url]} (oauth-url provider-settings)]
     (swap! db* assoc-in [:auth "github-copilot"] {:step :login/waiting-user-confirmation
                                                    :device-code device-code})
-    (future
-      (loop [attempts 0]
-        (Thread/sleep 5000)
-        (when (and (< attempts 60)
-                   (= :login/waiting-user-confirmation
-                      (get-in @db* [:auth "github-copilot" :step])))
-          (let [result (try
-                         (let [access-token (oauth-access-token provider-settings device-code)
-                               token-data (oauth-renew-token provider-settings access-token)]
-                           (swap! db* update-in [:auth "github-copilot"] merge
-                                  (assoc token-data
-                                         :step :login/done
-                                         :access-token access-token))
-                           (f.providers/sync-and-notify! "github-copilot" db* messenger metrics)
-                           :done)
-                         (catch Exception e
-                           (logger/debug "[COPILOT]" "Device poll attempt" attempts ":" (ex-message e))
-                           :retry))]
-            (when (= :retry result)
-              (recur (inc attempts)))))))
+    (poll-device-authorization!
+     provider-settings
+     db*
+     {:max-attempts 60
+      :on-token (fn [token-data]
+                  (swap! db* update-in [:auth "github-copilot"] merge
+                         (assoc token-data :step :login/done))
+                  (f.providers/sync-and-notify! "github-copilot" db* messenger metrics))
+      :on-timeout (fn [])})
     {:action "device-code"
      :url url
      :code user-code
@@ -291,7 +311,19 @@
 
 ;; --- Chat-based login (legacy /login command) ---
 
-(defmethod f.login/login-step ["github-copilot" :login/start] [{:keys [db* chat-id provider config send-msg!]}]
+(defn ^:private complete-chat-device-login!
+  "Finishes the chat-based device login once, guarding against the polling
+   future and a typed chat message completing it twice."
+  [{:keys [db* provider config send-msg!] :as ctx} token-data]
+  (when (= :login/waiting-user-confirmation (get-in @db* [:auth provider :step]))
+    (swap! db* update-in [:auth provider] merge (assoc token-data :step :login/done))
+    (f.login/login-done! ctx)
+    (let [github-url (github-base-url (get-in config [:providers provider]))]
+      (send-msg! (format "\nMake sure to enable the models you want to use at: [%s/settings/copilot/features](%s/settings/copilot/features)"
+                         github-url
+                         github-url)))))
+
+(defmethod f.login/login-step ["github-copilot" :login/start] [{:keys [db* chat-id provider config send-msg!] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
         {:keys [user-code device-code url]} (oauth-url provider-settings)
         github-url (github-base-url provider-settings)]
@@ -299,20 +331,31 @@
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
                                           :device-code device-code})
     (send-msg! (multi-str
-                (format "First, make sure you have Copilot enabled in your Github account: %s/settings/copilot/features" github-url)
-                (format "Then, open your browser at:\n\n%s\n\nAuthenticate using the code: `%s`\nThen type anything in the chat and send it to continue the authentication."
-                        url
-                        user-code)))))
+                (format "First, make sure you have Copilot enabled in your GitHub account: [%s/settings/copilot/features](%s/settings/copilot/features)"
+                        github-url
+                        github-url)
+                ""
+                (format "Then, open your browser at [%s](%s) and authenticate using the code:" url url)
+                ""
+                (format "`%s`" user-code)
+                ""
+                "ECA will complete the login automatically after you authorize, type 'cancel' anytime to abort."))
+    (poll-device-authorization!
+     provider-settings
+     db*
+     {:on-token (fn [token-data] (complete-chat-device-login! ctx token-data))
+      :on-timeout (fn [] (send-msg! "GitHub authorization timed out. Type 'cancel' and start the login again."))})))
 
 (defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider config send-msg!] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
-        access-token (oauth-access-token provider-settings (get-in @db* [:auth provider :device-code]))
-        token-data (oauth-renew-token provider-settings access-token)]
-    (swap! db* update-in [:auth provider] merge
-           (assoc token-data :step :login/done :access-token access-token))
-    (f.login/login-done! ctx)
-    (send-msg! (format "\nMake sure to enable the model you want to use at: %s/settings/copilot/features"
-                       (github-base-url provider-settings)))))
+        token-data (try
+                     (when-let [access-token (oauth-access-token provider-settings (get-in @db* [:auth provider :device-code]))]
+                       (assoc (oauth-renew-token provider-settings access-token)
+                              :access-token access-token))
+                     (catch Exception _ nil))]
+    (if token-data
+      (complete-chat-device-login! ctx token-data)
+      (send-msg! "Waiting for the browser authorization to complete, type 'cancel' to abort."))))
 
 (defmethod f.login/login-step ["github-copilot" :login/renew-token] [{:keys [db* provider config] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])

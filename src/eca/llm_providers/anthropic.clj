@@ -725,14 +725,19 @@
 
 ;; --- Chat-based login (legacy /login command) ---
 
-(defmethod f.login/login-step ["anthropic" :login/start] [{:keys [db* chat-id provider send-msg!]}]
+(defmethod f.login/login-step ["anthropic" :login/start] [{:keys [db* chat-id provider send-msg! ask!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
-  (send-msg! (multi-str "Now, inform the login method:"
-                        ""
-                        "- max: Claude Pro/Max (for claude.ai accounts, subscription)"
-                        "- console: Automatically create API Key and use it (non subscription)"
-                        "- manual: Manually enter API Key (non subscriptions)")))
+  (if ask!
+    (ask! {:question "Select the Anthropic login method:"
+           :options [{:label "max" :description "Claude Pro/Max (for claude.ai accounts, subscription)"}
+                     {:label "console" :description "Automatically create API Key and use it (non subscription)"}
+                     {:label "manual" :description "Manually enter API Key (non subscriptions)"}]})
+    (send-msg! (multi-str "Now, inform the login method:"
+                          ""
+                          "- max: Claude Pro/Max (for claude.ai accounts, subscription)"
+                          "- console: Automatically create API Key and use it (non subscription)"
+                          "- manual: Manually enter API Key (non subscriptions)"))))
 
 (defmethod f.login/login-step ["anthropic" :login/waiting-login-method] [{:keys [db* input provider send-msg!]}]
   (case input
@@ -741,14 +746,14 @@
       (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                             :mode :max
                                             :verifier verifier})
-      (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
+      (send-msg! (format "Open your browser at: [Anthropic login](%s)\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
                          url)))
     "console"
     (let [{:keys [verifier url]} (oauth-url :console)]
       (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                             :mode :console
                                             :verifier verifier})
-      (send-msg! (format "Open your browser at:\n\n%s\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
+      (send-msg! (format "Open your browser at: [Anthropic login](%s)\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
                          url)))
     "manual"
     (do
@@ -784,7 +789,7 @@
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))
-    (send-msg! (format "Invalid API key '%s'" input))))
+    (send-msg! "Invalid API key, it should start with 'sk-'")))
 
 (defmethod f.login/login-step ["anthropic" :login/renew-token] [{:keys [db* provider] :as ctx}]
   (let [{:keys [refresh-token]} (get-in @db* [:auth provider])

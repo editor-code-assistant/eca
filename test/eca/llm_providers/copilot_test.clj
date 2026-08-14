@@ -120,6 +120,63 @@
                   :api-url    "https://copilot-proxy.ghe.example.com"}
                  result)))))))
 
+(deftest poll-device-authorization!-test
+  (testing "completes with token data when github authorizes"
+    (let [db* (atom {:auth {"github-copilot" {:step :login/waiting-user-confirmation
+                                              :device-code "device-123"}}})
+          post-calls* (atom 0)
+          result* (promise)]
+      (with-client-proxied {}
+        (fn handler [req]
+          (if (= "POST" (:method req))
+            (do (swap! post-calls* inc)
+                (if (< @post-calls* 3)
+                  ;; github answers 200 with an error body while authorization is pending
+                  {:status 200 :body {:error "authorization_pending"}}
+                  {:status 200 :body {:access_token "gh-access"}}))
+            {:status 200 :body {:token "copilot-api-key" :expires_at 9999999999}}))
+        (#'llm-providers.copilot/poll-device-authorization!
+         test-provider-settings
+         db*
+         {:interval-ms 10
+          :max-attempts 20
+          :on-token (fn [token-data] (deliver result* token-data))
+          :on-timeout (fn [] (deliver result* :timeout))})
+        (is (= {:api-key "copilot-api-key"
+                :expires-at 9999999999
+                :access-token "gh-access"}
+               (deref result* 5000 :never-completed))))))
+
+  (testing "calls on-timeout when attempts are exhausted"
+    (let [db* (atom {:auth {"github-copilot" {:step :login/waiting-user-confirmation
+                                              :device-code "device-123"}}})
+          result* (promise)]
+      (with-client-proxied {}
+        (fn handler [_req] {:status 200 :body {:error "authorization_pending"}})
+        (#'llm-providers.copilot/poll-device-authorization!
+         test-provider-settings
+         db*
+         {:interval-ms 10
+          :max-attempts 2
+          :on-token (fn [token-data] (deliver result* token-data))
+          :on-timeout (fn [] (deliver result* :timeout))})
+        (is (= :timeout (deref result* 5000 :never-completed))))))
+
+  (testing "stops silently when the login was cancelled"
+    (let [db* (atom {:auth {"github-copilot" {}}})
+          called* (atom false)]
+      (with-client-proxied {}
+        (fn handler [_req] {:status 200 :body {:access_token "gh-access"}})
+        (let [polling (#'llm-providers.copilot/poll-device-authorization!
+                       test-provider-settings
+                       db*
+                       {:interval-ms 10
+                        :max-attempts 2
+                        :on-token (fn [_] (reset! called* true))
+                        :on-timeout (fn [] (reset! called* true))})]
+          @polling
+          (is (false? @called*)))))))
+
 (def ^:private test-auth
   {:api-url "http://localhost:99"
    :api-key "test-api-key"})

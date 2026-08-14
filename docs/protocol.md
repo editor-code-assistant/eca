@@ -669,7 +669,9 @@ type ChatContent =
     | ChatFlagContent;
     
 /**
- * Simple text message from the LLM
+ * Simple text message from the LLM.
+ * The text may contain markdown (e.g. links like `[title](url)` in login flows),
+ * clients are encouraged to render it as markdown.
  */
 interface ChatTextContent {
     type: 'text';
@@ -2393,6 +2395,8 @@ interface EditorDiagnostic {
 A server request to ask the user a question and receive an answer during a chat session.
 This enables the server to present the user with a question (optionally with predefined options)
 and wait for their response. When `allowFreeform` is true, the user can type a custom answer in addition to selecting a predefined option.
+Besides tool-originated questions (e.g. the `ask_user` tool), the server may also send this request
+during interactive flows like the `/login` command (e.g. to select a provider or login method).
 
 _Request:_
 
