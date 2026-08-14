@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.154.0
+
 - Improve `/login` UX: markdown links, provider/method selection via `chat/askQuestion` when supported by client, GitHub Copilot login completes automatically, secrets not echoed.
 - Mark MCP servers as `running` right after tools listing, fetching prompts/resources afterwards so slow/unresponsive list requests don't delay server startup.
 - Ask user consent and enable the GitHub Copilot per-model policy when a request fails with model_not_supported, instead of surfacing the raw 400 error.
