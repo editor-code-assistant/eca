@@ -526,7 +526,10 @@
         on-error-wrapper (fn [{:keys [exception] :as args}]
                            (when-not (:silent? (ex-data exception))
                              (if (compare-and-set! error-delivered?* false true)
-                               (do
+                               (let [args (llm-providers.errors/enrich-provider-error
+                                           {:provider provider
+                                            :model (real-model-name model model-capabilities)
+                                            :error-data args})]
                                  (logger/error args)
                                  (on-error args))
                                (logger/debug logger-tag "Skipping duplicate error, prompt already errored"

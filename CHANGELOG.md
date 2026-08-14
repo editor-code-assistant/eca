@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Mark MCP servers as `running` right after tools listing, fetching prompts/resources afterwards so slow/unresponsive list requests don't delay server startup.
+- Ask user consent and enable the GitHub Copilot per-model policy when a request fails with model_not_supported, instead of surfacing the raw 400 error.
 
 ## 0.153.1
 

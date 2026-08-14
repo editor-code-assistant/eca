@@ -187,6 +187,36 @@
          (classify-by-message {:message (ex-message exception)}))
        {:error/type :unknown})))
 
+(defmulti enrich-provider-error
+  "Rewrites a provider-specific raw error into an actionable one before it is
+   delivered to error callbacks. Dispatches on `:provider`; receives a context
+   map {:provider :model :error-data} and returns the (possibly updated)
+   error-data. Default: error-data unchanged."
+  (fn [{:keys [provider]}] provider))
+
+(defmethod enrich-provider-error :default [{:keys [error-data]}] error-data)
+
+(defmulti recoverable-error?
+  "Pure predicate: true when the provider offers an interactive recovery for
+   this terminal error (e.g. Copilot per-model policy consent). Dispatches on
+   `:provider`; receives {:provider :error-data :db}. Default: false."
+  (fn [{:keys [provider]}] provider))
+
+(defmethod recoverable-error? :default [_] false)
+
+(defmulti recover-error!
+  "Runs the provider-specific interactive recovery for a terminal error.
+   Dispatches on `:provider`; receives {:provider :model :error-data :db
+   :messenger :chat-id}. Returns nil when nothing was recovered, or a map:
+     :retry?             - true when the failed prompt should be retried
+     :notice             - system text to show the user (optional)
+     :retry-user-message - user message replayed when the original messages
+                           are already in history (optional)
+   Default: nil."
+  (fn [{:keys [provider]}] provider))
+
+(defmethod recover-error! :default [_] nil)
+
 (defn context-overflow?
   "Returns true if the error is a context window overflow."
   [error-data]

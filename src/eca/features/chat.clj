@@ -1443,6 +1443,60 @@
                                                                                             :invalid-image-retry
                                                                                             (assoc chat-ctx :image-retried? true))))))
 
+                                ;; Providers may offer an interactive recovery for terminal request
+                                ;; errors (e.g. Copilot asks consent to enable a per-model policy
+                                ;; and retries). At most one recovery attempt per prompt.
+                                (and (not compacting?)
+                                     (not (:error-recovery-attempted? chat-ctx))
+                                     (llm-providers.errors/recoverable-error? {:provider provider
+                                                                               :error-data error-data
+                                                                               :db db}))
+                                (let [real-model (or (get-in db [:models full-model :model-name]) model)
+                                      {:keys [retry? notice retry-user-message]}
+                                      (llm-providers.errors/recover-error! {:provider provider
+                                                                            :model real-model
+                                                                            :error-data error-data
+                                                                            :db db
+                                                                            :messenger messenger
+                                                                            :chat-id chat-id})]
+                                  (if retry?
+                                    (let [user-msgs-in-history? (boolean (when-let [user-content-id (:user-content-id chat-ctx)]
+                                                                           (some #(= user-content-id (:content-id %))
+                                                                                 (get-in @db* [:chats chat-id :messages]))))
+                                          retry-messages (if user-msgs-in-history?
+                                                           [{:role "user"
+                                                             :content [{:type :text
+                                                                        :text (or retry-user-message
+                                                                                  "The provider issue was just resolved. Continue with the original request.")}]}]
+                                                           user-messages)
+                                          finished-or-superseded? (or (get-in @db* [:chats chat-id :prompt-finished?])
+                                                                      (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))]
+                                      (logger/info logger-tag "Provider error recovered"
+                                                   {:chat-id chat-id :provider provider :model real-model})
+                                      (if finished-or-superseded?
+                                        (logger/info logger-tag "Skipping retry, prompt finished or superseded" {:chat-id chat-id})
+                                        (do
+                                          (lifecycle/send-content! chat-ctx :system
+                                                                   {:type :text
+                                                                    :text (or notice "\nRecovered from provider error, retrying...\n")})
+                                          (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                          (lifecycle/finish-chat-prompt! :idle
+                                                                         (assoc chat-ctx
+                                                                                :on-finished-side-effect
+                                                                                (fn []
+                                                                                  (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                                :on-after-finish!
+                                                                                (fn []
+                                                                                  (prompt-messages! retry-messages
+                                                                                                    :error-recovery-retry
+                                                                                                    (assoc chat-ctx :error-recovery-attempted? true))))))))
+                                    (let [text (or notice (str "\n" (:message error-data)))]
+                                      (swap! db* assoc-in [:chats chat-id :prompt-error]
+                                             (prompt-error-data error-data error-type))
+                                      (lifecycle/send-content! chat-ctx :system {:type :text :text text})
+                                      (db/save-chat! @db* chat-id metrics)
+                                      (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx)))))
+
                                 :else
                                 (let [partial-text @received-msgs*
                                       transient-error? (contains? #{:overloaded :premature-stop} error-type)

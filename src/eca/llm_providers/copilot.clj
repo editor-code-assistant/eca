@@ -1,11 +1,15 @@
 (ns eca.llm-providers.copilot
   (:require
    [cheshire.core :as json]
+   [clojure.string :as string]
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.llm-providers.errors :as llm-providers.errors]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.messenger :as messenger]
    [eca.shared :refer [multi-str]]
    [hato.client :as http]))
 
@@ -26,6 +30,178 @@
 (defn ^:private copilot-client-id [provider-settings]
   (or (get-in provider-settings [:auth :clientId])
       default-client-id))
+
+(defn model-not-supported-error?
+  "True when a Copilot completion request failed with 400 model_not_supported:
+   the model id is unknown or the account's per-model policy is not enabled."
+  [{:keys [status body]}]
+  (and (= 400 status)
+       (string/includes? (if (string? body) body (pr-str body))
+                         "model_not_supported")))
+
+(defn enrich-model-not-supported-error
+  "Rewrites Copilot's cryptic 400 model_not_supported error with actionable
+   guidance: the /models catalog lists every model, but requests fail until
+   the account's per-model policy is enabled (via a client consent prompt;
+   there is no per-model toggle on the GitHub settings page anymore)."
+  [error-data model]
+  (if (model-not-supported-error? error-data)
+    (assoc error-data :message
+           (format (multi-str
+                    "GitHub Copilot rejected model '%s': it is not supported or not enabled for your account."
+                    "To enable it, use an ECA client that supports questions (ECA asks and enables it on retry) or enable it once via VS Code."
+                    "On Business/Enterprise plans an org admin must enable the model in the org's Copilot policies.")
+                   model))
+    error-data))
+
+(defn ^:private policy-api-headers [api-key]
+  (merge {"Authorization" (str "Bearer " api-key)
+          "Content-Type" "application/json"}
+         (llm-util/copilot-ide-headers)))
+
+(defn fetch-model-policy
+  "Live-fetches the Copilot /models catalog and returns the policy entry for
+   `model` as {:listed? bool :policy {:state .. :terms ..}}, or nil when the
+   catalog cannot be fetched."
+  [{:keys [api-url api-key]} model]
+  (try
+    (let [{:keys [status body]} (http/get (str api-url "/models")
+                                          {:headers (policy-api-headers api-key)
+                                           :throw-exceptions? false
+                                           :as :json
+                                           :http-client (client/merge-with-global-http-client {})})]
+      (if (= 200 status)
+        (let [entry (first (filter #(= model (:id %)) (:data body)))]
+          {:listed? (some? entry)
+           :policy (:policy entry)})
+        (do
+          (logger/warn "[COPILOT]" "Failed to fetch model policy, status:" status)
+          nil)))
+    (catch Exception e
+      (logger/warn "[COPILOT]" "Failed to fetch model policy:" (ex-message e))
+      nil)))
+
+(defn enable-model-policy!
+  "Enables the account's per-model policy for `model`, accepting the model
+   terms; the same call editor consent dialogs make. Returns {:enabled? true}
+   or {:enabled? false ...}."
+  [{:keys [api-url api-key]} model]
+  (try
+    (let [{:keys [status body]} (http/post (str api-url "/models/" model "/policy")
+                                           {:headers (policy-api-headers api-key)
+                                            :body (json/generate-string {:state "enabled"})
+                                            :throw-exceptions? false
+                                            :as :json
+                                            :http-client (client/merge-with-global-http-client {})})]
+      (if (and (number? status) (<= 200 status 299))
+        {:enabled? true}
+        {:enabled? false :status status :body body}))
+    (catch Exception e
+      {:enabled? false :error (ex-message e)})))
+
+(def ^:private enable-model-answer-label "Enable model")
+
+(def ^:private ask-to-enable-timeout-ms (* 5 60 1000))
+
+(defn ask-to-enable-model!
+  "Interactive consent to enable a Copilot per-model policy, mirroring the
+   editors' consent dialog: live-checks the policy state, asks the user via
+   chat/askQuestion and enables the policy on acceptance.
+   Returns {:result :enabled|:declined|:cancelled|:no-policy|:enable-failed}."
+  [{:keys [messenger chat-id auth model]}]
+  (let [{:keys [listed? policy] :as policy-check} (fetch-model-policy auth model)]
+    (if (or (nil? policy-check)
+            (not listed?)
+            (nil? policy)
+            (= "enabled" (:state policy)))
+      {:result :no-policy :listed? listed? :policy policy}
+      (let [question (multi-str
+                      (format "GitHub Copilot model '%s' is not enabled for your account." model)
+                      ""
+                      (str (:terms policy))
+                      ""
+                      "Enable it?")
+            response (deref (messenger/ask-question
+                             messenger
+                             {:chatId chat-id
+                              :question question
+                              :allowFreeform false
+                              :request-id (str (random-uuid))
+                              :options [{:label enable-model-answer-label
+                                         :description "Accept these terms and enable the model for your account"}
+                                        {:label "Cancel"
+                                         :description "Keep the model disabled"}]})
+                            ask-to-enable-timeout-ms
+                            {:cancelled true})]
+        (cond
+          (:cancelled response)
+          {:result :cancelled}
+
+          (= enable-model-answer-label (:answer response))
+          (let [{:keys [enabled?] :as enable-result} (enable-model-policy! auth model)
+                ;; The policy endpoint answers 200 but silently ignores models
+                ;; not included in the account's plan (e.g. premium models on
+                ;; Copilot Free), so verify the policy actually flipped.
+                verified-policy (when enabled? (fetch-model-policy auth model))]
+            (cond
+              (not enabled?)
+              (assoc enable-result :result :enable-failed)
+
+              (or (nil? verified-policy)
+                  (= "enabled" (get-in verified-policy [:policy :state])))
+              {:result :enabled}
+
+              :else
+              {:result :enable-rejected :policy (:policy verified-policy)}))
+
+          :else
+          {:result :declined})))))
+
+(defmethod llm-providers.errors/enrich-provider-error "github-copilot"
+  [{:keys [error-data model]}]
+  (enrich-model-not-supported-error error-data model))
+
+(defmethod llm-providers.errors/recoverable-error? "github-copilot"
+  [{:keys [error-data db]}]
+  (boolean
+   (and (model-not-supported-error? error-data)
+        (get-in db [:client-capabilities :code-assistant :chat-capabilities :ask-question]))))
+
+(defmethod llm-providers.errors/recover-error! "github-copilot"
+  [{:keys [model db messenger chat-id]}]
+  (let [auth (get-in db [:auth "github-copilot"])]
+    (messenger/chat-content-received messenger
+                                     {:chat-id chat-id
+                                      :role :system
+                                      :content {:type :progress :state :running :text "Waiting model enable answer"}})
+    (let [{:keys [result] :as outcome} (ask-to-enable-model! {:messenger messenger
+                                                              :chat-id chat-id
+                                                              :auth auth
+                                                              :model model})]
+      (case result
+        :enabled
+        {:retry? true
+         :notice (format "\nModel '%s' enabled for your account, retrying...\n" model)
+         :retry-user-message "The model was just enabled for this account. Continue with the original request."}
+
+        (:declined :cancelled)
+        {:retry? false :notice (format "\nModel '%s' was not enabled." model)}
+
+        :enable-rejected
+        {:retry? false
+         :notice (format (str "\nGitHub accepted the request but did not enable model '%s':"
+                              " it is likely not included in your Copilot plan."
+                              " Select another model.")
+                         model)}
+
+        :enable-failed
+        {:retry? false
+         :notice (format "\nFailed to enable model '%s': %s"
+                         model
+                         (pr-str (select-keys outcome [:status :body :error])))}
+
+        ;; :no-policy or unknown: fall back to the enriched terminal error message
+        {:retry? false :notice nil}))))
 
 (defn ^:private auth-headers []
   {"Content-Type" "application/json"

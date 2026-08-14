@@ -3,6 +3,16 @@
    [clojure.test :refer [deftest is testing]]
    [eca.llm-providers.errors :as llm-providers.errors]))
 
+(deftest provider-error-extension-defaults-test
+  (testing "providers without extensions keep errors untouched and non-recoverable"
+    (let [error-data {:message "boom" :status 500}]
+      (is (= error-data (llm-providers.errors/enrich-provider-error
+                         {:provider "unknown" :model "m" :error-data error-data})))
+      (is (false? (llm-providers.errors/recoverable-error?
+                   {:provider "unknown" :error-data error-data :db {}})))
+      (is (nil? (llm-providers.errors/recover-error!
+                 {:provider "unknown" :error-data error-data :db {}}))))))
+
 (deftest classify-error-context-overflow-test
   (testing "Anthropic prompt too long"
     (is (= {:error/type :context-overflow}
