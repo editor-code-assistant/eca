@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.154.1
+
 - Skip redundant MCP `tool/serverUpdated` notification after prompts/resources listing when the server has none.
 - Chat retention (`chatRetentionDays`) now considers when the chat was last updated instead of when it was created, keeping old but still active chats.
 
