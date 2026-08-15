@@ -58,8 +58,8 @@
     },
     "chatRetentionDays": {
       "type": "integer",
-      "description": "Number of days to keep old chats and tool call output cache before cleanup. Set to 0 to disable cleanup entirely.",
-      "markdownDescription": "Number of days to keep old chats and tool call output cache before cleanup. Set to `0` to disable cleanup entirely.",
+      "description": "Number of days to keep chats (since last update) and tool call output cache before cleanup. Set to 0 to disable cleanup entirely.",
+      "markdownDescription": "Number of days to keep chats (since last update) and tool call output cache before cleanup. Set to `0` to disable cleanup entirely.",
       "default": 14
     },
     "agent": {
