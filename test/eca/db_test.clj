@@ -458,24 +458,38 @@
                                  "recent-chat" {:id "recent-chat"
                                                 :created-at two-days-ago
                                                 :messages [{:role "user" :content "hello"}]}
+                                 "old-but-active" {:id "old-but-active"
+                                                   :created-at fifteen-days-ago
+                                                   :updated-at two-days-ago
+                                                   :messages [{:role "user" :content "hi again"}]}
+                                 "stale-updated" {:id "stale-updated"
+                                                  :created-at fifteen-days-ago
+                                                  :updated-at fifteen-days-ago
+                                                  :messages [{:role "user" :content "bye"}]}
                                  "no-timestamp" {:id "no-timestamp"
                                                  :messages [{:role "user" :content "hey"}]}}})]
-          (doseq [id ["old-chat" "recent-chat" "no-timestamp"]]
+          (doseq [id ["old-chat" "recent-chat" "old-but-active" "stale-updated" "no-timestamp"]]
             (db/save-chat! @db* id nil))
-          (testing "deletes old chats (memory + file), keeps recent and chats without created-at"
+          (testing "deletes stale chats (memory + file), keeps recently updated and chats without timestamps"
             (db/cleanup-old-chats! db* nil 14)
             (is (nil? (get-in @db* [:chats "old-chat"]))
                 "Chat older than 14 days should be removed")
             (is (some? (get-in @db* [:chats "recent-chat"]))
                 "Chat newer than 14 days should be kept")
+            (is (some? (get-in @db* [:chats "old-but-active"]))
+                "Chat created long ago but updated recently should be kept")
+            (is (nil? (get-in @db* [:chats "stale-updated"]))
+                "Chat not updated for more than 14 days should be removed")
             (is (some? (get-in @db* [:chats "no-timestamp"]))
                 "Chat without created-at should be kept")
-            (is (= #{"old-chat"} (:deleted-chat-ids @db*))
+            (is (= #{"old-chat" "stale-updated"} (:deleted-chat-ids @db*))
                 "Removed chat ids are tombstoned so index merges cannot resurrect them")
             (is (not (fs/exists? (chat-cache-file workspaces "old-chat")))
                 "old chat's cache file is deleted")
+            (is (not (fs/exists? (chat-cache-file workspaces "stale-updated")))
+                "stale chat's cache file is deleted")
             (is (fs/exists? (chat-cache-file workspaces "recent-chat")))
-            (is (= #{"recent-chat" "no-timestamp"} (set (keys (read-index workspaces)))))))
+            (is (= #{"recent-chat" "old-but-active" "no-timestamp"} (set (keys (read-index workspaces)))))))
         (finally (fs/delete-tree tmpdir))))))
 
 (deftest cleanup-old-chats-no-op-test

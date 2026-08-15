@@ -801,7 +801,8 @@
       false)))
 
 (defn cleanup-old-chats!
-  "Deletes chats older than retention-days: removes them from memory and their
+  "Deletes chats not updated for retention-days (falling back to `:created-at`
+   when `:updated-at` is missing): removes them from memory and their
    per-chat cache files, then refreshes the chats index once. When
    retention-days is non-positive, cleanup is disabled."
   [db* metrics retention-days]
@@ -813,8 +814,8 @@
              (fn [chats]
                (into {}
                      (filter (fn [[id chat]]
-                               (let [created-at (:created-at chat)]
-                                 (if (and created-at (< created-at cutoff))
+                               (let [recency (or (:updated-at chat) (:created-at chat))]
+                                 (if (and recency (< recency cutoff))
                                    (do (swap! removed-ids* conj id) false)
                                    true))))
                      chats)))
@@ -822,7 +823,7 @@
         ;; Tombstone the ids so the index merge-on-write does not resurrect
         ;; them from an index file shared with another live server.
         (swap! db* update :deleted-chat-ids (fnil into #{}) removed-ids)
-        (logger/info logger-tag (str "Cleaned up " (count removed-ids) " chat(s) older than " retention-days " days"))
+        (logger/info logger-tag (str "Cleaned up " (count removed-ids) " chat(s) not updated for " retention-days " days"))
         (let [db @db*
               workspaces (db-workspaces db)]
           (doseq [chat-id removed-ids]
