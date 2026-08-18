@@ -192,6 +192,12 @@
       "markdownDescription": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
       "default": 120
     },
+    "connectTimeoutSeconds": {
+      "type": "integer",
+      "description": "Timeout in seconds to establish outgoing HTTP connections (e.g. to LLM providers). Set 0 to disable. Read from file-based config only (like network settings), not initializationOptions.",
+      "markdownDescription": "Timeout in seconds to establish outgoing HTTP connections (e.g. to LLM providers). Set `0` to disable. Read from file-based config only (like network settings), not `initializationOptions`.",
+      "default": 15
+    },
     "mcpServers": {
       "type": "object",
       "description": "MCP (Model Context Protocol) server configurations.",

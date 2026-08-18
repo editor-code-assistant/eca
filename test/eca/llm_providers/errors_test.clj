@@ -143,6 +143,55 @@
              :body "Bad Gateway"
              :message "LLM response status: 502 body: Bad Gateway"})))))
 
+(deftest classify-error-network-test
+  (testing "DNS resolution failure is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.UnknownHostException. "litellm.company.com")
+             :message "DNS resolution failed: litellm.company.com"}))))
+
+  (testing "connection refused is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.ConnectException. "Connection refused")
+             :message "Could not connect: Connection refused"}))))
+
+  (testing "connect timeout is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.http.HttpConnectTimeoutException. "HTTP connect timed out")
+             :message "Connection timed out: HTTP connect timed out"}))))
+
+  (testing "socket timeout is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.SocketTimeoutException. "Read timed out")}))))
+
+  (testing "exception kind is found in the cause chain"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.io.IOException. "request failed"
+                                              (java.net.UnknownHostException. "litellm.company.com"))}))))
+
+  (testing "network errors are retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:exception (java.net.UnknownHostException. "litellm.company.com")})))
+    (is (true? (llm-providers.errors/retryable?
+                {:exception (java.net.http.HttpConnectTimeoutException. "HTTP connect timed out")}))))
+
+  (testing "TLS errors are not network nor retryable"
+    (let [pkix {:exception (javax.net.ssl.SSLHandshakeException.
+                            "PKIX path building failed: unable to find valid certification path")}]
+      (is (= {:error/type :unknown} (llm-providers.errors/classify-error pkix)))
+      (is (false? (llm-providers.errors/retryable? pkix)))))
+
+  (testing "custom retry rules take priority over network classification"
+    (is (= {:error/type :retryable-custom :error/label "VPN down"}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.UnknownHostException. "litellm.company.com")
+             :message "DNS resolution failed: litellm.company.com"}
+            [{:errorPattern "DNS resolution failed" :label "VPN down"}])))))
+
 (deftest classify-openai-response-failed-test
   (let [generic-message (str "An error occurred while processing your request. "
                              "You can retry your request, or contact support if the error persists.")
@@ -230,8 +279,8 @@
            (llm-providers.errors/classify-error
             {:exception (Exception. "boom")}))))
 
-  (testing "exception with connection reset message is overloaded"
-    (is (= {:error/type :overloaded}
+  (testing "exception with connection reset message is network"
+    (is (= {:error/type :network}
            (llm-providers.errors/classify-error
             {:exception (Exception. "Connection reset")}))))
 

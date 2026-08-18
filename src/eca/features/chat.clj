@@ -1068,6 +1068,7 @@
                                              (case error-type
                                                :rate-limited "Rate limited"
                                                :overloaded "Provider overloaded"
+                                               :network "Network issues"
                                                :premature-stop "Empty response"
                                                "Transient error"))]
                               (lifecycle/send-content! chat-ctx :system
@@ -1499,7 +1500,7 @@
 
                                 :else
                                 (let [partial-text @received-msgs*
-                                      transient-error? (contains? #{:overloaded :premature-stop} error-type)
+                                      transient-error? (contains? #{:overloaded :premature-stop :network} error-type)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
                                       user-messages-recorded? (boolean
                                                                (when-let [user-content-id (:user-content-id chat-ctx)]

@@ -5,7 +5,8 @@
    across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.)."
   (:require
    [cheshire.core :as json]
-   [clojure.string :as string]))
+   [clojure.string :as string]
+   [eca.llm-util :as llm-util]))
 
 (set! *warn-on-reflection* true)
 
@@ -133,6 +134,21 @@
 
       :else nil)))
 
+(def ^:private network-exception-kinds
+  "Connection-level exception kinds (see `llm-util/classify-connection-exception`)
+   caused by local network/VPN/DNS failures rather than provider-side issues."
+  #{:dns :connect-refused :timeout :connection-closed})
+
+(defn ^:private classify-by-exception-kind
+  "Classifies connection-level exceptions by their cause chain. Network
+   failures (DNS, refused/timed-out connects, dropped connections) are
+   transient from the client's perspective (e.g. VPN down, wifi flap) and
+   classify as :network. TLS errors are deterministic and stay unclassified."
+  [exception]
+  (when (contains? network-exception-kinds
+                   (:kind (llm-util/classify-connection-exception exception)))
+    {:error/type :network}))
+
 (defn ^:private classify-by-custom-rules
   "Checks user-configured retry rules. Each rule may have :status (int),
    :errorPattern (regex string, case-insensitive, matched against body, message,
@@ -172,6 +188,7 @@
      :invalid-image     — provider rejected an image in the request (e.g. too small)
      :rate-limited      — 429 or rate limit pattern in body/message
      :overloaded        — provider overloaded (503, 529, etc.)
+     :network           — connection-level failure (DNS, connect refused/timeout, dropped)
      :auth              — authentication/authorization failure (401, 403)
      :unknown           — unclassified error"
   ([error-data] (classify-error error-data nil))
@@ -182,6 +199,8 @@
        (classify-openai-responses-error error-data)
        (when status
          (classify-by-status-and-body error-data))
+       (when exception
+         (classify-by-exception-kind exception))
        (classify-by-message error-data)
        (when exception
          (classify-by-message {:message (ex-message exception)}))
@@ -222,12 +241,13 @@
   [error-data]
   (= :context-overflow (:error/type (classify-error error-data))))
 
-(def ^:private retryable-error-types
-  #{:rate-limited :overloaded :retryable-custom :premature-stop})
+(def retryable-error-types
+  "Error types considered transient and safe to retry."
+  #{:rate-limited :overloaded :retryable-custom :premature-stop :network})
 
 (defn retryable?
   "Returns true if the error is transient and the request can be retried
-   (rate-limited, provider overloaded, or matched a custom retry rule)."
+   (rate-limited, provider overloaded, network failure, or matched a custom retry rule)."
   ([error-data] (retryable? error-data nil))
   ([error-data retry-rules]
    (contains? retryable-error-types

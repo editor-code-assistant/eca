@@ -142,8 +142,13 @@
       (when-some [cfg-file (:config-file options)]
         (reset! config/custom-config-file-path* cfg-file))
       (logger/set-level! (keyword (:log-level options)))
-      (network/setup! (config/read-file-configs))
-      (client/hato-client-global-setup! {})
+      (let [file-config (config/read-file-configs)
+            connect-timeout-s (:connectTimeoutSeconds file-config)]
+        (network/setup! file-config)
+        (client/hato-client-global-setup!
+         (cond-> {}
+           (and (number? connect-timeout-s) (pos? connect-timeout-s))
+           (assoc :connect-timeout (long (* 1000 connect-timeout-s))))))
       (let [finished @(server/run-io-server! (:verbose options))]
         {:result-code (if (= :done finished) 0 1)}))
 

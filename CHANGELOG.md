@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Retry LLM requests on network failures (VPN/wifi drops: DNS, refused or timed-out connects) with "Network issues" progress, instead of failing or hanging.
+- Add `connectTimeoutSeconds` config (default 15) so requests fail fast instead of hanging when the network black-holes connections.
+
 ## 0.154.1
 
 - Skip redundant MCP `tool/serverUpdated` notification after prompts/resources listing when the server has none.

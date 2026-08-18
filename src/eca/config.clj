@@ -235,6 +235,7 @@
    :mcpKeepAliveSeconds 30
    :lspTimeoutSeconds 30
    :streamIdleTimeoutSeconds 120
+   :connectTimeoutSeconds 15
    :mcpServers {}
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""

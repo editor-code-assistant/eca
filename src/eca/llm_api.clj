@@ -566,7 +566,7 @@
                             wait-too-long? (boolean (and rate-limit-delay-ms
                                                          (> rate-limit-delay-ms max-wait-ms)))]
                         (if (and replay-safe?
-                                 (contains? #{:rate-limited :overloaded :retryable-custom :premature-stop} error-type)
+                                 (contains? llm-providers.errors/retryable-error-types error-type)
                                  (< attempt max-retries)
                                  (not wait-too-long?)
                                  (not (cancelled?)))
