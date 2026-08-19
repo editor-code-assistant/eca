@@ -38,7 +38,9 @@
   {:client-info {:name :string
                  :version :string}
    :workspace-folders [{:name :string :uri :string}]
-   :client-capabilities {:code-assistant {:editor {:diagnostics :boolean}
+   :client-capabilities {:code-assistant {:editor {:diagnostics :boolean
+                                                   :definition :boolean
+                                                   :references :boolean}
                                           :chat-capabilities {:ask-question :boolean}}}
    :config-hash :string
    :providers-config-hash :string

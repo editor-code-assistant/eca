@@ -211,6 +211,18 @@ interface ClientCapabilities {
              * server request.
              */ 
             diagnostics?: boolean;
+
+            /**
+             * Whether client supports provide the definition locations of a symbol
+             * (Ex: LSP definition) via `editor/getDefinition` server request.
+             */
+            definition?: boolean;
+
+            /**
+             * Whether client supports provide the references of a symbol
+             * (Ex: LSP references) via `editor/getReferences` server request.
+             */
+            references?: boolean;
         }
 
         /**
@@ -2390,6 +2402,143 @@ interface EditorDiagnostic {
 }
 ```
 
+### Editor definition (↪️)
+
+A server request to retrieve from the editor the definition location(s) of the symbol
+at a position in a file, typically backed by the editor's language server (LSP).
+Only sent when client declared the `codeAssistant.editor.definition` capability.
+
+All positions in request and response are 1-based and `character` offsets count
+UTF-16 code units (the LSP default encoding); clients should convert to/from
+their language server positions (LSP ones are 0-based).
+
+Clients should answer with a `status` the server can act on instead of hanging:
+
+- If no language server is attached to the file yet, clients SHOULD attempt to
+start/attach the appropriate one (e.g. opening the file in background) and answer
+`starting` while it initializes; the server retries the request periodically within
+its `lspTimeoutSeconds` budget before giving up.
+- `no-server` should be answered only when the client cannot provide a language
+server for that file at all.
+- `error` (with `message`) should be answered on failures, so the server can give
+actionable feedback to the LLM.
+
+_Request:_ 
+
+* method: `editor/getDefinition`
+* params: `EditorGetDefinitionParams` defined as follows:
+
+```typescript
+interface EditorGetDefinitionParams {
+    /**
+     * The uri of the file containing the symbol.
+     */
+    uri: string;
+
+    /**
+     * The position (1-based) of the symbol in the file.
+     */
+    position: {
+        line: number;
+        character: number;
+    };
+}
+```
+
+_Response:_
+
+```typescript
+interface EditorGetDefinitionResponse {
+    /**
+     * The outcome of the request:
+     * - 'success': locations contain the results (may be empty when symbol has no definition).
+     * - 'starting': a language server is starting/initializing for this file, server may retry.
+     * - 'no-server': no language server available for this file.
+     * - 'error': failed to compute the result, message should explain why.
+     */
+    status: 'success' | 'starting' | 'no-server' | 'error';
+
+    /**
+     * The definition locations when status is 'success'.
+     */
+    locations?: EditorLocation[];
+
+    /**
+     * Optional detail for 'no-server' and 'error' statuses.
+     */
+    message?: string;
+}
+
+interface EditorLocation {
+    /**
+     * The location file uri.
+     */
+    uri: string;
+
+    /**
+     * The location range (1-based).
+     */
+    range: Range;
+}
+```
+
+### Editor references (↪️)
+
+A server request to retrieve from the editor the references of the symbol
+at a position in a file, typically backed by the editor's language server (LSP).
+Only sent when client declared the `codeAssistant.editor.references` capability.
+
+Follows the same position conventions and `status` semantics as `editor/getDefinition`.
+
+_Request:_ 
+
+* method: `editor/getReferences`
+* params: `EditorGetReferencesParams` defined as follows:
+
+```typescript
+interface EditorGetReferencesParams {
+    /**
+     * The uri of the file containing the symbol.
+     */
+    uri: string;
+
+    /**
+     * The position (1-based) of the symbol in the file.
+     */
+    position: {
+        line: number;
+        character: number;
+    };
+
+    /**
+     * Whether to include the symbol declaration in the results.
+     * Defaults to true when absent.
+     */
+    includeDeclaration?: boolean;
+}
+```
+
+_Response:_
+
+```typescript
+interface EditorGetReferencesResponse {
+    /**
+     * Same semantics as EditorGetDefinitionResponse status.
+     */
+    status: 'success' | 'starting' | 'no-server' | 'error';
+
+    /**
+     * The reference locations when status is 'success'.
+     */
+    locations?: EditorLocation[];
+
+    /**
+     * Optional detail for 'no-server' and 'error' statuses.
+     */
+    message?: string;
+}
+```
+
 ### Chat ask question (↪️)
 
 A server request to ask the user a question and receive an answer during a chat session.
@@ -2777,8 +2926,8 @@ interface EcaServerUpdatedParams {
      * The built-in tools supported by eca.
      *
      * Built-in tools include: read_file, write_file, edit_file, move_file,
-     * directory_tree, shell_command, editor_diagnostics, compact_chat,
-     * skill, spawn_agent, and task.
+     * directory_tree, shell_command, editor_diagnostics, editor_definition,
+     * editor_references, compact_chat, skill, spawn_agent, and task.
      *
      * Note: `spawn_agent` and `task` are excluded from subagent tool sets.
      * `spawn_agent` is excluded to prevent nesting, and `task` because

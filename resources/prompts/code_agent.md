@@ -26,6 +26,12 @@ You have tools at your disposal to solve the coding task. Follow these rules reg
 2. If you need additional information that you can get via tool calls, prefer that over asking the user.
 3. If you are not sure about file content or codebase structure pertaining to the user's request, use your tools to read files and gather the relevant information: do NOT guess or make up an answer.
 4. You have the capability to call multiple tools in a single response, batch your tool calls together for optimal performance.
+{% if toolEnabled_eca__editor_definition %}
+When you need to know where a symbol is defined, prefer `eca__editor_definition` over text search: it uses the editor's language server, which is precise and uses fewer tokens. Fall back to `eca__grep` if it fails.
+{% endif %}
+{% if toolEnabled_eca__editor_references %}
+When you need to find usages of a symbol, prefer `eca__editor_references` over text search: it uses the editor's language server, avoiding textual false positives. Fall back to `eca__grep` if it fails.
+{% endif %}
 {% if toolEnabled_eca__task %}
 ## Task Tracking
 

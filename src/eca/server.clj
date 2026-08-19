@@ -320,6 +320,13 @@
   (editor-diagnostics [_this uri]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-request server "editor/getDiagnostics" (assoc-some {} :uri uri))))
+  (editor-definition [_this uri position]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-request server "editor/getDefinition" {:uri uri :position position})))
+  (editor-references [_this uri position include-declaration]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-request server "editor/getReferences" (assoc-some {:uri uri :position position}
+                                                                            :include-declaration include-declaration))))
   (ask-question [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-request server "chat/askQuestion" params))))

@@ -77,6 +77,8 @@ ECA support built-in tools to avoid user extra installation and configuration, t
     Provides access to get information from editor workspaces.
 
     - `editor_diagnostics`: Ask client about the diagnostics (like LSP diagnostics).
+    - `editor_definition`: Ask client for the definition locations of a symbol (like LSP definition). Requires client capability, can be disabled via `toolCall.editorNav.enabled` config.
+    - `editor_references`: Ask client for the references of a symbol (like LSP references). Requires client capability, can be disabled via `toolCall.editorNav.enabled` config.
 
 !!! info "Custom Tools"
 

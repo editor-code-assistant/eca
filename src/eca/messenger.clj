@@ -19,4 +19,6 @@
   (showMessage [this msg])
   (progress [this params])
   (editor-diagnostics [this uri])
+  (editor-definition [this uri position])
+  (editor-references [this uri position include-declaration])
   (ask-question [this params]))

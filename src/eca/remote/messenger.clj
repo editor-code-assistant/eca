@@ -67,6 +67,10 @@
 
   (editor-diagnostics [_this uri]
     (messenger/editor-diagnostics inner uri))
+  (editor-definition [_this uri position]
+    (messenger/editor-definition inner uri position))
+  (editor-references [_this uri position include-declaration]
+    (messenger/editor-references inner uri position include-declaration))
   (ask-question [_this params]
     ;; No SSE clients: delegate to inner. Otherwise ask both the editor (inner)
     ;; and SSE clients; the first answer wins.

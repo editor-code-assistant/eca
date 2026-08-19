@@ -38,7 +38,7 @@
   (cond-> uri windows?
           (string/replace #"^(file):///(?!\w:/)" (str "$1:///" windows-drive-letter ":/"))))
 
-(defrecord TestMessenger [messages* diagnostics* ask-question-response*]
+(defrecord TestMessenger [messages* diagnostics* ask-question-response* definition-response* references-response*]
   messenger/IMessenger
   (chat-content-received [_ data] (swap! messages* update :chat-content-received (fnil conj []) data))
   (chat-cleared [_ params] (swap! messages* update :chat-clear (fnil conj []) params))
@@ -54,6 +54,18 @@
   (showMessage [_ data] (swap! messages* update :show-message (fnil conj []) data))
   (progress [_ data] (swap! messages* update :progress (fnil conj []) data))
   (editor-diagnostics [_ _uri] (future {:diagnostics @diagnostics*}))
+  (editor-definition [_ uri position]
+    (let [v @definition-response*]
+      (cond
+        (= v :block) (promise)
+        (fn? v) (future (v uri position))
+        :else (future v))))
+  (editor-references [_ uri position include-declaration]
+    (let [v @references-response*]
+      (cond
+        (= v :block) (promise)
+        (fn? v) (future (v uri position include-declaration))
+        :else (future v))))
   (ask-question [_ _params]
     (let [v @ask-question-response*]
       (cond
@@ -63,7 +75,7 @@
 
 (defn ^:private make-components []
   {:db* (atom db/initial-db)
-   :messenger (->TestMessenger (atom {}) (atom []) (atom nil))
+   :messenger (->TestMessenger (atom {}) (atom []) (atom nil) (atom nil) (atom nil))
    :metrics (metrics/->NoopMetrics)
    :config config/initial-config})
 

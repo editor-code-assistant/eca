@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `editor_definition` and `editor_references` tools backed by the editor's language server, behind new client capabilities and `toolCall.editorNav.enabled` config. #351
+
 ## 0.154.2
 
 - Retry LLM requests on network failures (VPN/wifi drops: DNS, refused or timed-out connects) with "Network issues" progress, instead of failing or hanging.

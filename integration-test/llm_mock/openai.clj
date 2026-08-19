@@ -226,6 +226,23 @@
                            :status "completed"}})
     (hk/close ch)))
 
+(defn ^:private editor-lsp-0 [ch body]
+  (if (some #(= "function_call_output" (:type %)) (:input body))
+    (send-text-response! ch "Found it")
+    (send-function-call-response! ch "item-1" "tool-1" "eca__editor_definition"
+                                  {:path (h/project-path->canon-path "resources/file1.md")
+                                   :line 1
+                                   :symbol "Something"})))
+
+(defn ^:private editor-lsp-1 [ch body]
+  (if (some #(= "function_call_output" (:type %)) (:input body))
+    (send-text-response! ch "Could not check references")
+    (send-function-call-response! ch "item-1" "tool-1" "eca__editor_references"
+                                  {:path (h/project-path->canon-path "resources/file1.md")
+                                   :line 1
+                                   :symbol "Something"
+                                   :include_declaration false})))
+
 (defonce ^:private subagent-follow-up-attempt* (atom 0))
 
 (defn ^:private subagent-spawn-0
@@ -302,5 +319,7 @@
                        :reasoning-0 (reasoning-0 ch)
                        :reasoning-1 (reasoning-1 ch)
                        :tool-calling-0 (tool-calling-0 ch body)
+                       :editor-lsp-0 (editor-lsp-0 ch body)
+                       :editor-lsp-1 (editor-lsp-1 ch body)
                        :subagent-spawn-0 (subagent-spawn-0 ch body)
                        :subagent-retry-0 (subagent-spawn-0 ch body true)))))})))

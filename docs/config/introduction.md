@@ -136,7 +136,10 @@ By default ECA consider the following as the base configuration:
           "maxLines": 2000
         },
         "shellCommand": {
-          "summaryMaxLength": 30
+          "summaryMaxLength": 35
+        },
+        "editorNav": {
+          "enabled": true
         }
       },
       "mcpTimeoutSeconds" : 60,
