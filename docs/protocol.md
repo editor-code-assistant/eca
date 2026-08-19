@@ -2386,7 +2386,8 @@ interface EditorDiagnostic {
     source: string;
     
     /**
-     * The diagnostic range (1-based).
+     * The diagnostic range (0-based, as editors report them natively;
+     * unlike editor definition/references locations, which are 1-based).
      */
     range: Range;
     
