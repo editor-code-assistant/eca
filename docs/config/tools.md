@@ -111,6 +111,63 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+=== "You.com web search & research"
+
+    [You.com](https://you.com/?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs) provides web search, URL content extraction, and AI-powered research via MCP.
+
+    **Option 1: Authenticated (full features)**
+    
+    Get your API key from [you.com/api](https://you.com/api?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs) and set it as `YDC_API_KEY` environment variable:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "you-search": {
+          "url": "https://api.you.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:YDC_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    **Option 2: Keyless (basic web search)**
+    
+    Try You.com search without an API key using the free profile:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "you-search-free": {
+          "url": "https://api.you.com/mcp?profile=free"
+        }
+      }
+    }
+    ```
+
+    **Option 3: Specialized profiles**
+    
+    Use focused endpoints for specific domains:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "you-finance": {
+          "url": "https://api.you.com/mcp?tools=you-finance",
+          "headers": {
+            "Authorization": "Bearer ${env:YDC_API_KEY}"
+          }
+        },
+        "you-docs": {
+          "url": "https://you.com/docs/_mcp/server"
+        }
+      }
+    }
+    ```
+
+    Available tools include `you_search` (web search with citations), `you_url_contents` (webpage content extraction), and `you_research` (multi-step research workflows).
+
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client
