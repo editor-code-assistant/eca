@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.155.0
+
 - Add `editor_definition` and `editor_references` tools backed by the editor's language server, behind new client capabilities and `toolCall.editorNav.enabled` config. #351
 
 ## 0.154.2
