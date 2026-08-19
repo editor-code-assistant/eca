@@ -1188,7 +1188,21 @@
               "type": "integer",
               "description": "Maximum length of shell command summary.",
               "markdownDescription": "Maximum length of shell command summary.",
-              "default": 25
+              "default": 35
+            }
+          }
+        },
+        "editorNav": {
+          "type": "object",
+          "description": "Configuration for the editor LSP navigation tools (editor_definition and editor_references).",
+          "markdownDescription": "Configuration for the editor LSP navigation tools (`editor_definition` and `editor_references`).",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Whether to offer the editor_definition and editor_references tools when the client declares support for them.",
+              "markdownDescription": "Whether to offer the `editor_definition` and `editor_references` tools when the client declares support for them.",
+              "default": true
             }
           }
         },

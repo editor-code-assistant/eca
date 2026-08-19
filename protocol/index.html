@@ -1567,6 +1567,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#editor-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor definition (↪️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editor-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor references (↪️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-ask-question" class="md-nav__link">
     <span class="md-ellipsis">
       Chat ask question (↪️)
@@ -2330,6 +2348,24 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#editor-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor definition (↪️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editor-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      Editor references (↪️)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#chat-ask-question" class="md-nav__link">
     <span class="md-ellipsis">
       Chat ask question (↪️)
@@ -2858,6 +2894,18 @@ separated by a <code>\r\n</code>.</p>
 <span class="cm">             * server request.</span>
 <span class="cm">             */</span><span class="w"> </span>
 <span class="w">            </span><span class="nx">diagnostics?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">            </span><span class="cm">/**</span>
+<span class="cm">             * Whether client supports provide the definition locations of a symbol</span>
+<span class="cm">             * (Ex: LSP definition) via `editor/getDefinition` server request.</span>
+<span class="cm">             */</span>
+<span class="w">            </span><span class="nx">definition?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+
+<span class="w">            </span><span class="cm">/**</span>
+<span class="cm">             * Whether client supports provide the references of a symbol</span>
+<span class="cm">             * (Ex: LSP references) via `editor/getReferences` server request.</span>
+<span class="cm">             */</span>
+<span class="w">            </span><span class="nx">references?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
 <span class="w">        </span><span class="p">}</span>
 
 <span class="w">        </span><span class="cm">/**</span>
@@ -4864,6 +4912,127 @@ Useful for server to provide to LLM information about errors/warnings about curr
 <span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="editor-definition">Editor definition (↪️)<a class="headerlink" href="#editor-definition" title="Permanent link">#</a></h3>
+<p>A server request to retrieve from the editor the definition location(s) of the symbol
+at a position in a file, typically backed by the editor's language server (LSP).
+Only sent when client declared the <code>codeAssistant.editor.definition</code> capability.</p>
+<p>All positions in request and response are 1-based and <code>character</code> offsets count
+UTF-16 code units (the LSP default encoding); clients should convert to/from
+their language server positions (LSP ones are 0-based).</p>
+<p>Clients should answer with a <code>status</code> the server can act on instead of hanging:</p>
+<ul>
+<li>If no language server is attached to the file yet, clients SHOULD attempt to
+start/attach the appropriate one (e.g. opening the file in background) and answer
+<code>starting</code> while it initializes; the server retries the request periodically within
+its <code>lspTimeoutSeconds</code> budget before giving up.</li>
+<li><code>no-server</code> should be answered only when the client cannot provide a language
+server for that file at all.</li>
+<li><code>error</code> (with <code>message</code>) should be answered on failures, so the server can give
+actionable feedback to the LLM.</li>
+</ul>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>editor/getDefinition</code></li>
+<li>params: <code>EditorGetDefinitionParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">EditorGetDefinitionParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The uri of the file containing the symbol.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">uri</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The position (1-based) of the symbol in the file.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">position</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">EditorGetDefinitionResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The outcome of the request:</span>
+<span class="cm">     * - &#39;success&#39;: locations contain the results (may be empty when symbol has no definition).</span>
+<span class="cm">     * - &#39;starting&#39;: a language server is starting/initializing for this file, server may retry.</span>
+<span class="cm">     * - &#39;no-server&#39;: no language server available for this file.</span>
+<span class="cm">     * - &#39;error&#39;: failed to compute the result, message should explain why.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;success&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;starting&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;no-server&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The definition locations when status is &#39;success&#39;.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">locations?</span><span class="o">:</span><span class="w"> </span><span class="kt">EditorLocation</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional detail for &#39;no-server&#39; and &#39;error&#39; statuses.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">message?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">EditorLocation</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The location file uri.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">uri</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The location range (1-based).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">range</span><span class="o">:</span><span class="w"> </span><span class="kt">Range</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="editor-references">Editor references (↪️)<a class="headerlink" href="#editor-references" title="Permanent link">#</a></h3>
+<p>A server request to retrieve from the editor the references of the symbol
+at a position in a file, typically backed by the editor's language server (LSP).
+Only sent when client declared the <code>codeAssistant.editor.references</code> capability.</p>
+<p>Follows the same position conventions and <code>status</code> semantics as <code>editor/getDefinition</code>.</p>
+<p><em>Request:</em> </p>
+<ul>
+<li>method: <code>editor/getReferences</code></li>
+<li>params: <code>EditorGetReferencesParams</code> defined as follows:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">EditorGetReferencesParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The uri of the file containing the symbol.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">uri</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The position (1-based) of the symbol in the file.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">position</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">line</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">        </span><span class="nx">character</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Whether to include the symbol declaration in the results.</span>
+<span class="cm">     * Defaults to true when absent.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">includeDeclaration?</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><em>Response:</em></p>
+<div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">EditorGetReferencesResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Same semantics as EditorGetDefinitionResponse status.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;success&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;starting&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;no-server&#39;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The reference locations when status is &#39;success&#39;.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">locations?</span><span class="o">:</span><span class="w"> </span><span class="kt">EditorLocation</span><span class="p">[];</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Optional detail for &#39;no-server&#39; and &#39;error&#39; statuses.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">message?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
 <h3 id="chat-ask-question">Chat ask question (↪️)<a class="headerlink" href="#chat-ask-question" title="Permanent link">#</a></h3>
 <p>A server request to ask the user a question and receive an answer during a chat session.
 This enables the server to present the user with a question (optionally with predefined options)
@@ -5217,8 +5386,8 @@ their status and available tools and actions.</p>
 <span class="cm">     * The built-in tools supported by eca.</span>
 <span class="cm">     *</span>
 <span class="cm">     * Built-in tools include: read_file, write_file, edit_file, move_file,</span>
-<span class="cm">     * directory_tree, shell_command, editor_diagnostics, compact_chat,</span>
-<span class="cm">     * skill, spawn_agent, and task.</span>
+<span class="cm">     * directory_tree, shell_command, editor_diagnostics, editor_definition,</span>
+<span class="cm">     * editor_references, compact_chat, skill, spawn_agent, and task.</span>
 <span class="cm">     *</span>
 <span class="cm">     * Note: `spawn_agent` and `task` are excluded from subagent tool sets.</span>
 <span class="cm">     * `spawn_agent` is excluded to prevent nesting, and `task` because</span>
@@ -5974,7 +6143,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 19, 2026 12:29:40 UTC">August 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="August 19, 2026 16:42:15 UTC">August 19, 2026</span>
   </span>
 
     
