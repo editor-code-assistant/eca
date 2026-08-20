@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.155.1
+
 - Fix Anthropic streaming dropping tool calls when providers report `end_turn`/`stop` stop_reason with pending `tool_use` blocks. #576
 
 ## 0.155.0
