@@ -385,6 +385,20 @@
     (and (>= requested-max-tokens 4000)
          (< output-tokens (quot requested-max-tokens 2)))))
 
+(defn ^:private normalize-stop-reason
+  "Some Anthropic-compatible providers report stop_reason 'end_turn' (or the
+   OpenAI-ism 'stop') even when the response contains complete tool_use blocks,
+   which would silently drop the tool calls. Coerce to 'tool_use' in that case.
+   'max_tokens' is never coerced since a truncated tool call is genuinely
+   incomplete."
+  [stop-reason content-blocks]
+  (if (and (contains? #{"end_turn" "stop"} stop-reason)
+           (some #(= "tool_use" (:type %)) (vals content-blocks)))
+    (do
+      (logger/warn logger-tag (format "Provider reported stop_reason '%s' with pending tool calls, coercing to 'tool_use'" stop-reason))
+      "tool_use")
+    stop-reason))
+
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
@@ -520,7 +534,7 @@
                                                        :input-cache-creation-tokens (or (:cache-creation-input-tokens ctx) (:cache_creation_input_tokens usage))
                                                        :input-cache-read-tokens (or (:cache-read-input-tokens ctx) (:cache_read_input_tokens usage))
                                                        :output-tokens (:output_tokens usage)})))
-                                (case (-> data :delta :stop_reason)
+                                (case (normalize-stop-reason (-> data :delta :stop_reason) @content-block*)
                                   "tool_use" (let [tool-calls (keep
                                                                (fn [content-block]
                                                                  (when (= "tool_use" (:type content-block))

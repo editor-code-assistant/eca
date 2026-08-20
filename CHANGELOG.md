@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Anthropic streaming dropping tool calls when providers report `end_turn`/`stop` stop_reason with pending `tool_use` blocks. #576
+
 ## 0.155.0
 
 - Add `editor_definition` and `editor_references` tools backed by the editor's language server, behind new client capabilities and `toolCall.editorNav.enabled` config. #351

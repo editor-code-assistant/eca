@@ -656,3 +656,97 @@
                   (run-stream! {:type "message_delta"
                                 :delta {:stop_reason "refusal"}
                                 :usage {:output_tokens 1}}))))))
+
+(deftest chat!-stream-mislabeled-stop-reason-test
+  (let [sse (fn [event data]
+              (str "event: " event "\n"
+                   "data: " (json/generate-string data) "\n\n"))
+        tool-use-events [(sse "message_start" {:type "message_start"
+                                               :message {:usage {:input_tokens 10}}})
+                         (sse "content_block_start" {:type "content_block_start"
+                                                     :index 0
+                                                     :content_block {:type "tool_use"
+                                                                     :id "toolu_1"
+                                                                     :name "eca__shell_command"}})
+                         (sse "content_block_delta" {:type "content_block_delta"
+                                                     :index 0
+                                                     :delta {:type "input_json_delta"
+                                                             :partial_json "{\"command\":\"ls\"}"}})
+                         (sse "content_block_stop" {:type "content_block_stop"
+                                                    :index 0})]
+        run-stream! (fn [events]
+                      (let [messages* (atom [])
+                            errors* (atom [])
+                            tools-called* (atom [])
+                            stream-text (apply str events)]
+                        (with-redefs [http/post (fn [_url opts]
+                                                  (is (= :stream (:as opts)))
+                                                  {:status 200
+                                                   :body (java.io.ByteArrayInputStream.
+                                                          (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
+                          (llm-providers.anthropic/chat!
+                           {:model "claude-fable-5"
+                            :api-url "http://localhost:1"
+                            :api-key "fake-key"
+                            :auth-type :auth/key
+                            :instructions {:static "STATIC" :dynamic nil}
+                            :user-messages [{:role "user" :content "hello"}]
+                            :past-messages []
+                            :cancelled? (constantly false)}
+                           {:on-message-received (fn [msg] (swap! messages* conj msg))
+                            :on-error (fn [err] (swap! errors* conj err))
+                            :on-prepare-tool-call identity
+                            :on-tools-called (fn [tool-calls]
+                                               (swap! tools-called* into tool-calls)
+                                               nil)
+                            :on-usage-updated identity}))
+                        {:messages @messages*
+                         :errors @errors*
+                         :tools-called @tools-called*}))]
+    (testing "end_turn with a pending tool_use block is coerced to tool_use (#576)"
+      (is (match? {:tools-called [{:id "toolu_1"
+                                   :full-name "eca__shell_command"
+                                   :arguments {"command" "ls"}}]
+                   :messages empty?
+                   :errors empty?}
+                  (run-stream! (conj tool-use-events
+                                     (sse "message_delta" {:type "message_delta"
+                                                           :delta {:stop_reason "end_turn"}
+                                                           :usage {:output_tokens 5}})
+                                     (sse "message_stop" {:type "message_stop"}))))))
+    (testing "OpenAI-ism stop with a pending tool_use block is coerced to tool_use (#576)"
+      (is (match? {:tools-called [{:id "toolu_1"
+                                   :full-name "eca__shell_command"
+                                   :arguments {"command" "ls"}}]
+                   :messages empty?
+                   :errors empty?}
+                  (run-stream! (conj tool-use-events
+                                     (sse "message_delta" {:type "message_delta"
+                                                           :delta {:stop_reason "stop"}
+                                                           :usage {:output_tokens 5}})
+                                     (sse "message_stop" {:type "message_stop"}))))))
+    (testing "max_tokens with a pending tool_use block is not coerced"
+      (is (match? {:tools-called empty?
+                   :messages [{:type :limit-reached
+                               :tokens {:output_tokens 20000}}]
+                   :errors empty?}
+                  (run-stream! (conj tool-use-events
+                                     (sse "message_delta" {:type "message_delta"
+                                                           :delta {:stop_reason "max_tokens"}
+                                                           :usage {:output_tokens 20000}})
+                                     (sse "message_stop" {:type "message_stop"}))))))
+    (testing "genuine end_turn with only text still finishes normally"
+      (is (match? {:tools-called empty?
+                   :messages [{:type :text :text "hello!"}
+                              {:type :finish :finish-reason "end_turn"}]
+                   :errors empty?}
+                  (run-stream! [(sse "message_start" {:type "message_start"
+                                                      :message {:usage {:input_tokens 10}}})
+                                (sse "content_block_delta" {:type "content_block_delta"
+                                                            :index 0
+                                                            :delta {:type "text_delta"
+                                                                    :text "hello!"}})
+                                (sse "message_delta" {:type "message_delta"
+                                                      :delta {:stop_reason "end_turn"}
+                                                      :usage {:output_tokens 5}})
+                                (sse "message_stop" {:type "message_stop"})]))))))
