@@ -130,27 +130,34 @@
      :discovered-variants (codex-reasoning-variants supported-reasoning-efforts)}))
 
 (defn ^:private codex-live-model-discovery
-  "Maps a Codex /models entry into generic discovery keys. Codex-only model
-   behavior goes inside :discovered-provider-data, interpreted only here."
+  "Maps a Codex /models entry into provider-specific discovery metadata."
   [{:keys [use_responses_lite default_reasoning_level
            supported_reasoning_levels supports_parallel_tool_calls] :as model}]
   (let [efforts (codex-normalize-reasoning-efforts supported_reasoning_levels)
         provider-data (assoc-some
                        (cond-> {}
                          (contains? model :use_responses_lite)
-                         (assoc :responses-lite? (true? use_responses_lite)))
+                         (assoc :responses-lite? (true? use_responses_lite))
+
+                         ;; Lite requires parallel_tool_calls=false. Preserve the
+                         ;; explicit live pair before merging fallback metadata.
+                         (and (true? use_responses_lite)
+                              (true? supports_parallel_tool_calls))
+                         (assoc :parallel-tool-calls-without-lite? true))
                        :default-reasoning-effort default_reasoning_level
                        :parallel-tool-calls? supports_parallel_tool_calls)]
     (assoc-some {}
                 :discovered-provider-data (not-empty provider-data)
                 :discovered-variants (codex-reasoning-variants efforts))))
 
+(defn ^:private function-tool? [tool]
+  (= "function" (:type tool)))
+
 (defn ^:private codex-responses-lite-body
   "Projects a regular Responses request into the Codex Responses Lite shape."
   [body]
   (let [instructions (:instructions body)
-        tools (->> (:tools body)
-                   (filterv #(= "function" (:type %))))
+        tools (filterv function-tool? (:tools body))
         input (cond-> [{:type "additional_tools"
                         :role "developer"
                         :tools tools}]
@@ -168,6 +175,17 @@
                :parallel_tool_calls false
                :reasoning (assoc (or (:reasoning body) {})
                                  :context "all_turns")))))
+
+(defn ^:private codex-body-projection
+  "Selects the effective Codex wire shape once for an entire turn."
+  [codex? provider-data body]
+  (cond
+    (not codex?) :ordinary
+    (and (true? (:parallel-tool-calls-without-lite? provider-data))
+         (true? (:parallel_tool_calls body))
+         (some function-tool? (:tools body))) :codex-parallel
+    (true? (:responses-lite? provider-data)) :codex-lite
+    :else :ordinary))
 
 (defn ^:private pos-num [n]
   (when (and (number? n) (pos? n)) n))
@@ -608,7 +626,6 @@
         provider-data (when codex?
                         (merge (:discovered-provider-data (codex-model-fallback-discovery model))
                                provider-data))
-        responses-lite? (boolean (:responses-lite? provider-data))
         default-reasoning-effort (:default-reasoning-effort provider-data)
         turn-context (when codex? (new-codex-turn-context))
         input (concat (normalize-messages past-messages supports-image?)
@@ -637,9 +654,15 @@
                     ;; tool calls; sending true to it fails the request.
                     (and codex? (false? (:parallel-tool-calls? provider-data)))
                     (assoc :parallel_tool_calls false))
+        body-projection (codex-body-projection codex? provider-data base-body)
+        responses-lite? (= :codex-lite body-projection)
         prepare-body (fn [body]
-                       (if responses-lite?
-                         (codex-responses-lite-body body)
+                       (case body-projection
+                         :codex-lite (codex-responses-lite-body body)
+                         :codex-parallel (-> body
+                                             (update :tools #(filterv function-tool? %))
+                                             (update :reasoning #(assoc (or % {})
+                                                                       :context "all_turns")))
                          body))
         body (prepare-body base-body)
         tool-call-by-item-id* (atom {})

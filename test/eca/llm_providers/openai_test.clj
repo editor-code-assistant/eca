@@ -539,6 +539,75 @@
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
 
+(deftest create-response-parallel-tool-calls-test
+  (let [tool-batches* (atom [])
+        requests* (atom [])
+        read-tool {:full-name "eca__read_file"
+                   :description "read"
+                   :parameters {:type "object"}}]
+    (with-redefs [llm-providers.openai/base-responses-request!
+                  (fn [{:keys [on-stream] :as opts}]
+                    (let [request-number (count (swap! requests* conj opts))]
+                      (on-stream "response.completed"
+                                 {:response {:output (if (= 1 request-number)
+                                                      [{:type "function_call"
+                                                        :id "item-1"
+                                                        :call_id "call-1"
+                                                        :name "eca__read_file"
+                                                        :arguments "{\"path\":\"/a\"}"}
+                                                       {:type "function_call"
+                                                        :id "item-2"
+                                                        :call_id "call-2"
+                                                        :name "eca__read_file"
+                                                        :arguments "{\"path\":\"/b\"}"}]
+                                                      [])
+                                             :usage {:input_tokens 10 :output_tokens 5}
+                                             :status "completed"}})))]
+      (llm-providers.openai/create-response!
+       (assoc (base-provider-params)
+              :provider "openai"
+              :auth-type :auth/oauth
+              :reason? true
+              :web-search true
+              :image-generation true
+              :extra-payload {:parallel_tool_calls true}
+              :provider-data {:responses-lite? true
+                              :parallel-tool-calls? true
+                              :parallel-tool-calls-without-lite? true}
+              :tools [read-tool])
+       (base-callbacks
+        {:on-tools-called
+         (fn [tool-calls]
+           (swap! tool-batches* conj tool-calls)
+           {:new-messages
+            (mapcat (fn [{:keys [id full-name arguments]}]
+                      [{:role "tool_call"
+                        :content {:id id
+                                  :full-name full-name
+                                  :arguments arguments}}
+                       {:role "tool_call_output"
+                        :content {:id id
+                                  :full-name full-name
+                                  :output {:error false
+                                           :contents [{:type :text :text "contents"}]}}}])
+                    tool-calls)
+            :tools [read-tool]})}))
+      (is (= [["call-1" "item-1"] ["call-2" "item-2"]]
+             (mapv (juxt :id :item-id) (first @tool-batches*))))
+      (is (= 2 (count @requests*)))
+      (doseq [request @requests*]
+        (is (false? (:responses-lite? request)))
+        (is (= "test" (get-in request [:body :instructions])))
+        (is (= ["function"] (mapv :type (get-in request [:body :tools]))))
+        (is (true? (get-in request [:body :parallel_tool_calls])))
+        (is (= "all_turns" (get-in request [:body :reasoning :context]))))
+      (is (= [["function_call" "call-1"]
+              ["function_call_output" "call-1"]
+              ["function_call" "call-2"]
+              ["function_call_output" "call-2"]]
+             (mapv (juxt :type :call_id)
+                   (get-in (second @requests*) [:body :input])))))))
+
 (deftest create-response-sync-error-test
   (testing "sync completion path returns a structured error instead of throwing on non-200 (#495)"
     (with-client-proxied {:version :http-2}
@@ -847,6 +916,69 @@
                      {:type "web_search"}
                      {:type "image_generation" :output_format "png"}]
                     (get-in (first @requests*) [:body :tools])))))))
+
+(deftest create-response-codex-partial-live-metadata-stays-lite-test
+  (let [request* (atom nil)]
+    (with-redefs [http/get
+                  (fn [_url _opts]
+                    {:status 200
+                     :body {:models [{:slug "gpt-5.6-sol"
+                                      :supports_parallel_tool_calls true}]}})
+                  llm-providers.openai/base-responses-request!
+                  (fn [{:keys [on-stream] :as opts}]
+                    (reset! request* opts)
+                    (on-stream "response.completed"
+                               {:response {:output []
+                                           :usage {:input_tokens 0 :output_tokens 0}
+                                           :status "completed"}}))]
+      (let [models (#'llm-providers.openai/fetch-oauth-models "oauth-token" {})
+            provider-data (get-in models
+                                  ["gpt-5.6-sol" :discovered-provider-data])]
+        (is (true? (:responses-lite? provider-data)))
+        (is (true? (:parallel-tool-calls? provider-data)))
+        (is (nil? (:parallel-tool-calls-without-lite? provider-data)))
+        (llm-providers.openai/create-response!
+         (assoc (base-provider-params)
+                :model "gpt-5.6-sol"
+                :provider "openai"
+                :auth-type :auth/oauth
+                :extra-payload {:parallel_tool_calls true}
+                :provider-data provider-data)
+         (base-callbacks {}))
+        (is (true? (:responses-lite? @request*)))
+        (is (false? (get-in @request* [:body :parallel_tool_calls])))
+        (is (= "additional_tools" (get-in @request* [:body :input 0 :type])))))))
+
+(deftest create-response-codex-parallel-shape-compatibility-test
+  (let [request* (atom nil)
+        cases [{:label "requested false stays Lite"
+                :params {:extra-payload {:parallel_tool_calls false}
+                         :provider-data {:responses-lite? true
+                                         :parallel-tool-calls? true
+                                         :parallel-tool-calls-without-lite? true}}}
+               {:label "no function tools stays Lite"
+                :params {:tools []
+                         :extra-payload {:parallel_tool_calls true}
+                         :provider-data {:responses-lite? true
+                                         :parallel-tool-calls? true
+                                         :parallel-tool-calls-without-lite? true}}}]]
+    (with-redefs [llm-providers.openai/base-responses-request!
+                  (fn [{:keys [on-stream] :as opts}]
+                    (reset! request* opts)
+                    (on-stream "response.completed"
+                               {:response {:output []
+                                           :usage {:input_tokens 0 :output_tokens 0}
+                                           :status "completed"}}))]
+      (doseq [{:keys [label params]} cases]
+        (testing label
+          (llm-providers.openai/create-response!
+           (merge (base-provider-params)
+                  {:provider "openai" :auth-type :auth/oauth}
+                  params)
+           (base-callbacks {}))
+          (is (true? (:responses-lite? @request*)))
+          (is (false? (get-in @request* [:body :parallel_tool_calls])))
+          (is (= "additional_tools" (get-in @request* [:body :input 0 :type]))))))))
 
 (deftest create-response-codex-request-shapes-test
   (testing "API-key requests ignore Codex-only Lite metadata, even for Lite models"
@@ -1322,6 +1454,7 @@
 
 (deftest codex-live-model-discovery-test
   (is (= {:discovered-provider-data {:responses-lite? true
+                                     :parallel-tool-calls-without-lite? true
                                      :default-reasoning-effort "low"
                                      :parallel-tool-calls? true}
           :discovered-variants
