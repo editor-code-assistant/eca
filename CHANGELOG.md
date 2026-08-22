@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restore parallel function-call batching for ChatGPT OAuth models that advertise Responses Lite and parallel tool-call support. #572
+
 ## 0.155.1
 
 - Fix Anthropic streaming dropping tool calls when providers report `end_turn`/`stop` stop_reason with pending `tool_use` blocks. #576
