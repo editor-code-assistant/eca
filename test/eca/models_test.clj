@@ -285,6 +285,33 @@
              :api-key "k"
              :api-type "openai-chat"}))))))
 
+(deftest fetch-provider-native-llamacpp-models-limits-test
+  (testing "llama.cpp/llama-swap-shaped entries keep meta n_ctx (falling back to n_ctx_train) as discovered context limit"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data [{:id "gemma-4-26b"
+                                             :meta {:n_ctx 65536
+                                                    :n_ctx_train 131072}}
+                                            {:id "trained-only"
+                                             :meta {:n_ctx_train 131072}}
+                                            {:id "openrouter-shaped-wins"
+                                             :context_length 200000
+                                             :meta {:n_ctx 65536}}
+                                            {:id "no-limits"
+                                             :meta {}}]}})]
+      (is (match?
+           (m/equals
+            {"gemma-4-26b" (m/equals {:discovered-limit {:context 65536}})
+             "trained-only" (m/equals {:discovered-limit {:context 131072}})
+             "openrouter-shaped-wins" (m/equals {:discovered-limit {:context 200000}})
+             "no-limits" (m/equals {})})
+           (#'models/fetch-provider-native-models
+            {:provider "llama-swap"
+             :api-url "http://localhost:9292/v1"
+             :auth-type nil
+             :api-key "k"
+             :api-type "openai-chat"}))))))
+
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
     (let [dynamic {"gpt-4" {}

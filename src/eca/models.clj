@@ -429,13 +429,17 @@
 
 (defn ^:private parse-native-model-entry
   "Parses a generic /models entry. OpenRouter-shaped entries expose
-   `context_length` and `top_provider.max_completion_tokens`; keep them as
-   discovered limits so provider-reported data wins over models.dev catalogs.
-   Entries without that metadata (e.g. plain OpenAI/Anthropic) keep an empty
-   config, preserving the previous id-only behavior."
-  [{:keys [id context_length top_provider]}]
+   `context_length` and `top_provider.max_completion_tokens`; llama.cpp /
+   llama-swap-shaped entries expose the served and trained context windows
+   under `meta.n_ctx` / `meta.n_ctx_train`. Keep them as discovered limits so
+   provider-reported data wins over models.dev catalogs. Entries without that
+   metadata (e.g. plain OpenAI/Anthropic) keep an empty config, preserving the
+   previous id-only behavior."
+  [{:keys [id context_length top_provider] entry-meta :meta}]
   (when (and (string? id) (not (string/blank? id)))
-    (let [context (pos-num context_length)
+    (let [context (or (pos-num context_length)
+                      (pos-num (:n_ctx entry-meta))
+                      (pos-num (:n_ctx_train entry-meta)))
           output (sane-output-limit context (pos-num (:max_completion_tokens top_provider)))]
       [id (assoc-some {}
                       :discovered-limit (not-empty
