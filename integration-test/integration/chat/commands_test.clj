@@ -33,6 +33,7 @@
                        {:name "context" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "fork" :arguments []}
+                       {:name "btw" :arguments [{:name "prompt" :required true}]}
                        {:name "resume" :arguments [{:name "chat-id"}]}
                        {:name "export" :arguments [{:name "filepath"}]}
                        {:name "import" :arguments [{:name "filepath"}]}
@@ -212,3 +213,93 @@
                              (some #(= "tool_result" (:type %)) content)))
                       (:messages (llm.mocks/get-req-body :compact-0)))
             "Only one LLM request should be made - no tool_result continuation")))))
+
+(deftest btw-command
+  (eca/start-process!)
+
+  ;; Disable chat title generation for deterministic content ordering.
+  (eca/request! (fixture/initialize-request
+                 {:initializationOptions (merge fixture/default-init-options
+                                                {:chat {:title false}})}))
+  (eca/notify! (fixture/initialized-notification))
+
+  (let [chat-id* (atom nil)
+        btw-chat-id* (atom nil)]
+    (testing "Setup: send an initial message to create chat history"
+      (llm.mocks/set-case! :simple-text-0)
+      (let [resp (eca/request! (fixture/chat-prompt-request
+                                {:model "openai/gpt-5.2"
+                                 :message "Tell me a joke!"}))
+            chat-id (reset! chat-id* (:chatId resp))]
+        (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
+        (match-content chat-id "assistant" {:type "text" :text "Knock"})
+        (match-content chat-id "assistant" {:type "text" :text " knock!"})
+        (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "system" {:type "progress" :state "finished"})))
+
+    (testing "/btw forks the chat and prompts the question there"
+      (llm.mocks/set-case! :simple-text-1)
+      (let [resp (eca/request! (fixture/chat-prompt-request
+                                {:chat-id @chat-id*
+                                 :model "openai/gpt-5.2"
+                                 :message "/btw Who's there?"}))
+            chat-id @chat-id*
+            opened (eca/client-awaits-server-notification :chat/opened)
+            btw-chat-id (reset! btw-chat-id* (:chatId opened))]
+        (is (match? {:chatId chat-id
+                     :model "openai/gpt-5.2"
+                     :status "prompting"}
+                    resp))
+        (is (match? {:chatId (m/pred string?)
+                     :title "btw: Who's there?"}
+                    opened))
+        (is (not= chat-id btw-chat-id))
+
+        ;; Origin chat shows the command and the fork notice only.
+        (match-content chat-id "user" {:type "text" :text "/btw Who's there?\n"})
+        (match-content chat-id "system" {:type "text" :text "Side question forked to: btw: Who's there?"})
+        ;; Forked chat replays the copied history and gets its title.
+        (match-content btw-chat-id "user" {:type "text" :text "\nTell me a joke!"})
+        (match-content btw-chat-id "assistant" {:type "text" :text "\nKnock knock!"})
+        (match-content btw-chat-id "system" {:type "metadata" :title "btw: Who's there?"})
+        ;; Origin chat turn finishes while the fork answers the question.
+        (match-content chat-id "system" {:type "progress" :state "finished"})
+        (match-content btw-chat-id "user" {:type "text" :text "Who's there?\n"})
+        (match-content btw-chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+        (match-content btw-chat-id "system" {:type "progress" :state "running" :text "Generating"})
+        (match-content btw-chat-id "assistant" {:type "text" :text "Foo"})
+        (match-content btw-chat-id "system" {:type "usage"})
+        (match-content btw-chat-id "system" {:type "progress" :state "finished"})
+
+        ;; The forked chat request contains the copied history + the question.
+        (is (match?
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+                      {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
+                      {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
+             (llm.mocks/get-req-body :simple-text-1)))))
+
+    (testing "the origin chat history stays clean after /btw"
+      (llm.mocks/set-case! :simple-text-2)
+      (let [resp (eca/request! (fixture/chat-prompt-request
+                                {:chat-id @chat-id*
+                                 :model "openai/gpt-5.2"
+                                 :message "What foo?"}))
+            chat-id @chat-id*]
+        (is (match? {:chatId chat-id :status "prompting"} resp))
+        (match-content chat-id "user" {:type "text" :text "What foo?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
+        (match-content chat-id "assistant" {:type "text" :text "Foo"})
+        (match-content chat-id "assistant" {:type "text" :text " bar!"})
+        (match-content chat-id "assistant" {:type "text" :text "\n\n"})
+        (match-content chat-id "assistant" {:type "text" :text "Ha!"})
+        (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "system" {:type "progress" :state "finished"})
+        ;; No trace of the /btw exchange in the origin chat request.
+        (is (match?
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+                      {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
+                      {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
+             (llm.mocks/get-req-body :simple-text-2)))))))

@@ -39,6 +39,39 @@
       (is (= 2 (count chats)))
       (is (= ["c1" "c2"] (mapv :id chats))))))
 
+(deftest prompt-steer-test
+  (let [test-config (assoc (config/initial-config) :env "test")]
+    (testing "steered message on a running chat is queued"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :running})
+      (f.chat/prompt-steer {:chat-id "chat-1" :message "also do X"}
+                           (h/db*) (h/messenger) test-config (h/metrics))
+      (is (= "also do X" (get-in @(h/db*) [:chats "chat-1" :steer-message]))))
+
+    (testing "steered /btw is diverted to an immediate prompt instead of queued"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1"
+                                                 :status :running
+                                                 :agent "code"
+                                                 :variant "high"})
+      (let [prompted* (atom nil)]
+        (with-redefs [f.chat/prompt (fn [params & _] (reset! prompted* params))]
+          (f.chat/prompt-steer {:chat-id "chat-1" :message "/btw what is foo?"}
+                               (h/db*) (h/messenger) test-config (h/metrics)))
+        (is (= {:chat-id "chat-1"
+                :message "/btw what is foo?"
+                :agent "code"
+                :variant "high"}
+               @prompted*))
+        (is (nil? (get-in @(h/db*) [:chats "chat-1" :steer-message])))))
+
+    (testing "steered message on an idle chat is dropped"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :idle})
+      (f.chat/prompt-steer {:chat-id "chat-1" :message "hello"}
+                           (h/db*) (h/messenger) test-config (h/metrics))
+      (is (nil? (get-in @(h/db*) [:chats "chat-1" :steer-message]))))))
+
 (deftest query-context-test
   (testing "preserves order and removes already added contexts"
     (with-redefs [f.context/all-contexts (fn [& _]

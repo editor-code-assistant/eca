@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `/btw` command to ask a side question in a forked chat, keeping the current chat history clean. Runs immediately even while the chat is running (steered /btw is not queued).
+
 ## 0.155.2
 
 - Discover model context limit from llama.cpp/llama-swap `/models` `meta.n_ctx`/`n_ctx_train`, enabling usage limit and auto-compaction for local providers. #577

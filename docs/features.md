@@ -132,6 +132,8 @@ The built-in commands are:
 - `/skills`: List known skills that ECA can load.
 - `/hooks`: List active hooks grouped by type, showing name, description, and matcher.
 - `/compact`: Compact/summarize conversation helping reduce context window.
+- `/fork`: Fork the current chat into a new chat with the same history and settings.
+- `/btw`: Ask a side question in a forked chat, keeping the current chat history clean. Ex: `/btw how does X work?`.
 - `/resume`: Resume a chat from previous session of this workspace folder.
 - `/costs`: Show costs about current session.
 - `/config`: Show ECA config for troubleshooting.

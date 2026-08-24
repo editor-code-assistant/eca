@@ -250,9 +250,9 @@
   (metrics/task metrics :eca/chat-prompt-stop
     (f.chat/prompt-stop params db* messenger config metrics {})))
 
-(defn chat-prompt-steer [{:keys [db* metrics]} params]
+(defn chat-prompt-steer [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-prompt-steer
-    (f.chat/prompt-steer params db*)))
+    (f.chat/prompt-steer params db* messenger config metrics)))
 
 (defn chat-prompt-steer-remove [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-prompt-steer-remove

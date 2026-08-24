@@ -618,7 +618,7 @@
           (filter #({"preRequest" "prePrompt"} (:type (val %))))
           (sort-by key)))))
 
-(declare prompt-messages!)
+(declare prompt prompt-messages!)
 
 (defn ^:private tokenize-args [^String s]
   (if (string/blank? s)
@@ -1639,6 +1639,27 @@
                                                                               :title title)))))
                          (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
         :new-chat-status (lifecycle/finish-chat-prompt! (:status result) (assoc chat-ctx :skip-post-request-hooks? true))
+        :side-prompt (let [{:keys [target-chat-id target-title target-messages message notice-text]} result
+                           {:keys [chat-id db*]} chat-ctx]
+                       (lifecycle/send-content! chat-ctx :system {:type :text :text notice-text})
+                       (when target-chat-id
+                         (let [target-ctx (assoc chat-ctx :chat-id target-chat-id)]
+                           (send-chat-contents! target-messages target-ctx)
+                           (lifecycle/send-content! target-ctx :system (assoc-some {:type :metadata} :title target-title))))
+                       ;; Finish the /btw turn in the origin chat only when no prompt is
+                       ;; in flight there; finishing mid-run would set :prompt-finished?
+                       ;; and cancel the running turn.
+                       (when-not (contains? #{:running :stopping} (get-in @db* [:chats chat-id :status]))
+                         (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
+                       (when target-chat-id
+                         (prompt {:chat-id target-chat-id
+                                  :message message
+                                  :agent (:agent chat-ctx)
+                                  :variant (:variant chat-ctx)}
+                                 db*
+                                 (:messenger chat-ctx)
+                                 (:config chat-ctx)
+                                 (:metrics chat-ctx))))
         :send-prompt (let [prompt-contents (:prompt result)]
                        ;; Keep original slash command in :message for hooks (already in parent chat-ctx)
                        (prompt-messages! [{:role "user" :content prompt-contents}]
@@ -2060,15 +2081,36 @@
     {:chat-id chat-id
      :commands commands}))
 
+(def ^:private steer-divertible-commands
+  "Commands that are safe to execute immediately while a prompt is running.
+   A steered message matching one is handled as a normal prompt right away
+   (e.g. /btw forks the chat ASAP) instead of being queued for the running turn."
+  #{"btw"})
+
+(defn ^:private steer-divertible? [message db config]
+  (let [{:keys [type command]} (message->decision message db config)]
+    (and (= :eca-command type)
+         (contains? steer-divertible-commands command))))
+
 (defn prompt-steer
-  [{:keys [chat-id message]} db*]
+  [{:keys [chat-id message]} db* messenger config metrics]
   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
     (when (and (string? message)
                (not (string/blank? message))
-               (identical? :running (get-in @db* [:chats chat-id :status])))
-      (logger/info logger-tag "Steer message received" {:chat-id chat-id})
-      (swap! db* update-in [:chats chat-id :steer-message]
-             (fn [existing] (if existing (str existing "\n" message) message))))))
+               (get-in @db* [:chats chat-id]))
+      (if (steer-divertible? message @db* config)
+        (do
+          (logger/info logger-tag "Steer message diverted to immediate command" {:chat-id chat-id})
+          (future* config
+            (prompt {:chat-id chat-id
+                     :message message
+                     :agent (get-in @db* [:chats chat-id :agent])
+                     :variant (get-in @db* [:chats chat-id :variant])}
+                    db* messenger config metrics)))
+        (when (identical? :running (get-in @db* [:chats chat-id :status]))
+          (logger/info logger-tag "Steer message received" {:chat-id chat-id})
+          (swap! db* update-in [:chats chat-id :steer-message]
+                 (fn [existing] (if existing (str existing "\n" message) message))))))))
 
 (defn prompt-steer-remove
   "Drop any pending steer message for the chat.

@@ -39,6 +39,55 @@
       (str base " (" (inc (parse-long n)) ")")
       (str title " (2)"))))
 
+(defn btw-title [question]
+  (let [question (string/trim question)]
+    (str "btw: " (if (> (count question) 40)
+                   (str (subs question 0 40) "...")
+                   question))))
+
+(defn drop-dangling-tool-calls
+  "Drops tool_call/server_tool_use entries without their paired
+   tool_call_output/server_tool_result, which can exist mid-turn (outputs are
+   appended to history only after execution). A fork taken at that moment would
+   otherwise replay an unpaired tool call that providers reject."
+  [messages]
+  (let [output-ids (into #{}
+                         (keep #(when (= "tool_call_output" (:role %))
+                                  (get-in % [:content :id])))
+                         messages)
+        result-ids (into #{}
+                         (keep #(when (= "server_tool_result" (:role %))
+                                  (get-in % [:content :tool-use-id])))
+                         messages)]
+    (filterv (fn [{:keys [role content]}]
+               (case role
+                 "tool_call" (contains? output-ids (:id content))
+                 "server_tool_use" (contains? result-ids (:id content))
+                 true))
+             messages)))
+
+(defn ^:private fork-chat!
+  "Creates a new chat copying `chat`'s history (sanitized) and base settings
+   plus `extra-copied-keys`, persists it and notifies the client.
+   Returns the new chat."
+  [chat new-title extra-copied-keys {:keys [db* messenger metrics]}]
+  (let [new-id (str (random-uuid))
+        now (System/currentTimeMillis)
+        new-chat (merge {:id new-id
+                         :title new-title
+                         :status :idle
+                         :created-at now
+                         :updated-at now
+                         :model (:model chat)
+                         :last-api (:last-api chat)
+                         :messages (drop-dangling-tool-calls (vec (:messages chat)))
+                         :prompt-finished? true}
+                        (select-keys chat extra-copied-keys))]
+    (swap! db* assoc-in [:chats new-id] new-chat)
+    (db/save-chat! @db* new-id metrics)
+    (messenger/chat-opened messenger {:chat-id new-id :title new-title})
+    new-chat))
+
 (defn ^:private normalize-command-name [f]
   (string/lower-case (fs/strip-ext (fs/file-name f))))
 
@@ -171,6 +220,10 @@
                        :type :native
                        :description "Fork current chat into a new chat with the same history and settings."
                        :arguments []}
+                      {:name "btw"
+                       :type :native
+                       :description "Ask a side question in a forked chat, keeping this chat history clean (Ex: /btw how does X work?)"
+                       :arguments [{:name "prompt" :required true}]}
                       {:name "resume"
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
@@ -673,27 +726,29 @@
                      (multi-str (str "Selected model: `" selected-model "`")
                                 "Using model defaults.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
-                   new-id (str (random-uuid))
-                   now (System/currentTimeMillis)
-                   new-title (fork-title (:title chat))
-                   new-chat {:id new-id
-                             :title new-title
-                             :status :idle
-                             :created-at now
-                             :updated-at now
-                             :model (:model chat)
-                             :last-api (:last-api chat)
-                             :messages (vec (:messages chat))
-                             :prompt-finished? true}]
-               (swap! db* assoc-in [:chats new-id] new-chat)
-               (db/save-chat! @db* new-id metrics)
-               (messenger/chat-opened messenger {:chat-id new-id :title new-title})
+                   {new-id :id new-title :title new-messages :messages}
+                   (fork-chat! chat (fork-title (:title chat)) [] chat-ctx)]
                {:type :chat-messages
-                :chats {new-id {:messages (:messages chat)
+                :chats {new-id {:messages new-messages
                                 :title new-title}
                         chat-id {:messages [{:role "system"
                                              :content [{:type :text
                                                         :text (str "Chat forked to: " new-title)}]}]}}})
+      "btw" (let [question (string/trim (string/replace-first (:message chat-ctx) #"^/btw\s*" ""))]
+              (if (string/blank? question)
+                ;; :side-prompt without a target only shows the notice; unlike
+                ;; :chat-messages it never finishes a running turn (mid-run /btw).
+                {:type :side-prompt
+                 :notice-text "Usage: /btw <prompt>. Asks a side question in a forked chat, keeping this chat history clean."}
+                (let [chat (get-in @db* [:chats chat-id])
+                      {new-id :id new-title :title new-messages :messages}
+                      (fork-chat! chat (btw-title question) [:variant :trust :prompt-cache :startup-context] chat-ctx)]
+                  {:type :side-prompt
+                   :target-chat-id new-id
+                   :target-title new-title
+                   :target-messages new-messages
+                   :message question
+                   :notice-text (str "Side question forked to: " new-title)})))
       "resume" (let [chats (into {}
                                  (filter #(and (not= chat-id (first %))
                                                (not (:subagent (second %)))))

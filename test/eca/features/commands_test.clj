@@ -295,6 +295,77 @@
       (finally
         (fs/delete-tree tmp-dir)))))
 
+(deftest btw-title-test
+  (testing "prefixes and keeps short questions"
+    (is (= "btw: how does X work?" (f.commands/btw-title "how does X work?"))))
+  (testing "truncates long questions"
+    (is (= (str "btw: " (apply str (repeat 40 "a")) "...")
+           (f.commands/btw-title (apply str (repeat 41 "a")))))))
+
+(deftest drop-dangling-tool-calls-test
+  (let [user-msg {:role "user" :content [{:type :text :text "hey"}]}
+        tool-call {:role "tool_call" :content {:id "t1"}}
+        tool-output {:role "tool_call_output" :content {:id "t1"}}
+        dangling-tool-call {:role "tool_call" :content {:id "t2"}}
+        server-use {:role "server_tool_use" :content {:id "s1"}}
+        server-result {:role "server_tool_result" :content {:tool-use-id "s1"}}
+        dangling-server-use {:role "server_tool_use" :content {:id "s2"}}]
+    (testing "keeps paired tool calls and other messages"
+      (is (= [user-msg tool-call tool-output server-use server-result]
+             (f.commands/drop-dangling-tool-calls
+              [user-msg tool-call tool-output server-use server-result]))))
+    (testing "drops unpaired tool calls"
+      (is (= [user-msg tool-call tool-output]
+             (f.commands/drop-dangling-tool-calls
+              [user-msg tool-call tool-output dangling-tool-call dangling-server-use]))))))
+
+(deftest handle-btw-command-test
+  (testing "blank question returns usage notice without forking"
+    (h/reset-components!)
+    (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :messages []})
+    (let [result (f.commands/handle-command! "btw" []
+                                             (assoc (command-context "chat-1")
+                                                    :message "/btw"))]
+      (is (= :side-prompt (:type result)))
+      (is (nil? (:target-chat-id result)))
+      (is (re-find #"Usage: /btw" (:notice-text result)))
+      (is (empty? (:chat-opened (h/messages))))))
+
+  (testing "forks the chat copying history and settings"
+    (h/reset-components!)
+    (swap! (h/db*) assoc-in [:chats "chat-1"]
+           {:id "chat-1"
+            :title "My chat"
+            :model "openai/gpt-5.2"
+            :trust true
+            :variant "high"
+            :prompt-cache {:static "cached"}
+            :messages [{:role "user" :content [{:type :text :text "hello"}]}
+                       {:role "assistant" :content [{:type :text :text "hi!"}]}
+                       {:role "tool_call" :content {:id "dangling"}}]})
+    (with-redefs [db/save-chat! (fn [& _])]
+      (let [result (f.commands/handle-command! "btw" ["who" "is" "foo?"]
+                                               (assoc (command-context "chat-1")
+                                                      :message "/btw who is foo?"))
+            new-id (:target-chat-id result)
+            new-chat (get-in @(h/db*) [:chats new-id])]
+        (is (= :side-prompt (:type result)))
+        (is (= "who is foo?" (:message result)))
+        (is (= "btw: who is foo?" (:target-title result)))
+        (is (= "Side question forked to: btw: who is foo?" (:notice-text result)))
+        (is (not= "chat-1" new-id))
+        (is (= [{:role "user" :content [{:type :text :text "hello"}]}
+                {:role "assistant" :content [{:type :text :text "hi!"}]}]
+               (:messages new-chat)
+               (:target-messages result)))
+        (is (= "btw: who is foo?" (:title new-chat)))
+        (is (= "openai/gpt-5.2" (:model new-chat)))
+        (is (true? (:trust new-chat)))
+        (is (= "high" (:variant new-chat)))
+        (is (= {:static "cached"} (:prompt-cache new-chat)))
+        (is (= [{:chat-id new-id :title "btw: who is foo?"}]
+               (:chat-opened (h/messages))))))))
+
 (deftest all-commands-include-model-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]
     (is (some #(= {:name "model"

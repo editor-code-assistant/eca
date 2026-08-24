@@ -1671,6 +1671,10 @@ A client notification to steer the current running prompt by injecting a user me
 at the next LLM loop turn boundary (e.g. after tool calls complete).
 If the prompt finishes before the steer is consumed, the client should send it as a regular prompt.
 
+Messages matching commands that are safe to run while a prompt is in flight (currently `/btw`)
+are not queued: the server executes them immediately as a regular prompt, so e.g. a steered
+`/btw` forks the chat right away without waiting for the running turn.
+
 _Notification:_
 
 * method: `chat/promptSteer`
