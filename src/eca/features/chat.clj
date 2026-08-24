@@ -618,7 +618,7 @@
           (filter #({"preRequest" "prePrompt"} (:type (val %))))
           (sort-by key)))))
 
-(declare prompt prompt-messages!)
+(declare prompt prompt-messages! delete-chat)
 
 (defn ^:private tokenize-args [^String s]
   (if (string/blank? s)
@@ -1639,6 +1639,15 @@
                                                                               :title title)))))
                          (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
         :new-chat-status (lifecycle/finish-chat-prompt! (:status result) (assoc chat-ctx :skip-post-request-hooks? true))
+        :delete-chat (let [{:keys [target-chat-id text]} result
+                           {:keys [db* messenger config metrics]} chat-ctx]
+                       (when text
+                         (lifecycle/send-content! chat-ctx :system {:type :text :text text}))
+                       ;; Finish the turn BEFORE deleting: finish-chat-prompt!'s
+                       ;; status transition on a deleted chat would resurrect it
+                       ;; as a ghost record.
+                       (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true))
+                       (delete-chat {:chat-id target-chat-id} db* messenger config metrics))
         :side-prompt (let [{:keys [target-chat-id target-title target-messages message notice-text]} result
                            {:keys [chat-id db*]} chat-ctx]
                        (lifecycle/send-content! chat-ctx :system {:type :text :text notice-text})

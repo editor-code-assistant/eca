@@ -228,6 +228,10 @@
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
                        :arguments [{:name "chat-id"}]}
+                      {:name "delete-chat"
+                       :type :native
+                       :description "Permanently delete the current chat or a chat-id from the /resume list, asking confirmation. (Ex: /delete-chat, /delete-chat 2)"
+                       :arguments [{:name "chat-id"}]}
                       {:name "export"
                        :type :native
                        :description "Export the current chat to a file or directory to transfer/import it elsewhere. Ex: /export /tmp/chat.edn or /export ."
@@ -821,6 +825,51 @@
                       :chats {chat-id {:title (:title chat)
                                        :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
                                                          (:messages chat))}}})))
+      "delete-chat" (let [confirm? (= "confirm" (some-> (last args) string/lower-case))
+                          target-arg (first (remove #(= "confirm" (some-> % string/lower-case)) args))
+                          other-chats (into {}
+                                            (filter #(and (not= chat-id (first %))
+                                                          (not (:subagent (second %)))))
+                                            (:chats db))
+                          ;; Same ordering as /resume so its listed ids work here.
+                          chats-ids (vec (sort-by #(:created-at (get other-chats %)) (keys other-chats)))
+                          target-id (cond
+                                      (nil? target-arg) chat-id
+                                      (= target-arg chat-id) chat-id
+                                      (contains? other-chats target-arg) target-arg
+                                      :else (when-let [n (parse-long target-arg)]
+                                              (nth chats-ids (dec n) nil)))
+                          target-chat (get-in db [:chats target-id])
+                          current? (= target-id chat-id)
+                          chat-message-fn (fn [text]
+                                            {:type :chat-messages
+                                             :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+                          describe-fn (fn [chat]
+                                        (or (:title chat)
+                                            (format "No chat title (%s user messages)"
+                                                    (or (:user-message-count (db/chat-list-meta chat)) 0))))]
+                      (cond
+                        (nil? target-id)
+                        (chat-message-fn "Chat ID not found. Run `/resume` to list chats.")
+
+                        (and (not current?)
+                             (db/hydrated? target-chat)
+                             (contains? #{:running :stopping} (:status target-chat)))
+                        (chat-message-fn (format "Chat '%s' has a running prompt, stop it before deleting." (describe-fn target-chat)))
+
+                        (not confirm?)
+                        (chat-message-fn
+                         (multi-str
+                          (if current?
+                            "This will permanently delete the current chat."
+                            (format "This will permanently delete chat: %s" (describe-fn target-chat)))
+                          (str "Run `/delete-chat " (when target-arg (str target-arg " ")) "confirm` to proceed.")))
+
+                        :else
+                        {:type :delete-chat
+                         :target-chat-id target-id
+                         :text (when-not current?
+                                 (format "Deleted chat: %s" (describe-fn target-chat)))}))
       "costs" (let [total-input-tokens (get-in db [:chats chat-id :usage :total-input-tokens] 0)
                     total-input-cache-creation-tokens (get-in db [:chats chat-id :usage :total-input-cache-creation-tokens] nil)
                     total-input-cache-read-tokens (get-in db [:chats chat-id :usage :total-input-cache-read-tokens] nil)

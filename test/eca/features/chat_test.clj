@@ -1563,6 +1563,41 @@
         (is (string/includes? (:text @sent-content) "No response from prompt"))
         (is (= :idle @finished-status))))))
 
+(deftest delete-chat-command-test
+  (testing "/delete-chat asks confirmation and /delete-chat confirm deletes the chat"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "hi"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received]}]
+              (on-first-response-received {:type :text :text "hello"})
+              (on-message-received {:type :text :text "hello"})
+              (on-message-received {:type :finish}))})
+          llm-mock (fn [& _] (throw (ex-info "commands should not call the LLM" {})))]
+      (h/reset-messenger!)
+      (prompt! {:message "/delete-chat" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock llm-mock})
+      (is (match?
+           {:chat-content-received
+            (m/embeds [{:chat-id chat-id
+                        :role "system"
+                        :content {:type :text
+                                  :text #(string/includes? % "Run `/delete-chat confirm` to proceed.")}}])}
+           (h/messages)))
+      (is (some? (get-in (h/db) [:chats chat-id]))
+          "chat is kept until deletion is confirmed")
+      (h/reset-messenger!)
+      (prompt! {:message "/delete-chat confirm" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock llm-mock})
+      (is (match? {:chat-deleted [{:chat-id chat-id}]}
+                  (h/messages)))
+      (is (nil? (get-in (h/db) [:chats chat-id])))
+      (is (contains? (:deleted-chat-ids (h/db)) chat-id)))))
+
 (deftest message->decision-test
   (testing "plain prompt message"
     (is (= {:type :prompt-message

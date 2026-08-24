@@ -536,6 +536,62 @@
              (:config-updated (h/messages))))
       (is (= session-defaults (:last-config-notified (h/db)))))))
 
+(deftest delete-chat-command-test
+  (testing "no confirm asks for confirmation for the current chat"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
+    (let [result (f.commands/handle-command! "delete-chat" [] (command-context "chat-b"))]
+      (is (= :chat-messages (:type result)))
+      (is (string/includes? (get-in result [:chats "chat-b" :messages 0 :content 0 :text])
+                            "Run `/delete-chat confirm` to proceed."))))
+
+  (testing "confirm deletes the current chat"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
+    (is (= {:type :delete-chat :target-chat-id "chat-b" :text nil}
+           (f.commands/handle-command! "delete-chat" ["confirm"] (command-context "chat-b")))))
+
+  (testing "chat-id arg resolves like the /resume listing"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-a" {:id "chat-a" :created-at 1 :title "First" :messages []}
+                                 "chat-b" {:id "chat-b" :created-at 2 :messages []}
+                                 "chat-c" {:id "chat-c" :created-at 3 :title "Third" :messages []}})
+    (let [ask (f.commands/handle-command! "delete-chat" ["2"] (command-context "chat-b"))
+          result (f.commands/handle-command! "delete-chat" ["2" "confirm"] (command-context "chat-b"))]
+      (is (string/includes? (get-in ask [:chats "chat-b" :messages 0 :content 0 :text])
+                            "Run `/delete-chat 2 confirm` to proceed."))
+      (is (= {:type :delete-chat :target-chat-id "chat-c" :text "Deleted chat: Third"}
+             result))))
+
+  (testing "a literal chat id is accepted"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-a" {:id "chat-a" :created-at 1 :title "First" :messages []}
+                                 "chat-b" {:id "chat-b" :created-at 2 :messages []}})
+    (is (= {:type :delete-chat :target-chat-id "chat-a" :text "Deleted chat: First"}
+           (f.commands/handle-command! "delete-chat" ["chat-a" "confirm"] (command-context "chat-b")))))
+
+  (testing "unknown chat id"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
+    (let [result (f.commands/handle-command! "delete-chat" ["9" "confirm"] (command-context "chat-b"))]
+      (is (string/includes? (get-in result [:chats "chat-b" :messages 0 :content 0 :text])
+                            "Chat ID not found."))))
+
+  (testing "refuses deleting another chat with a running prompt"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-a" {:id "chat-a" :created-at 1 :title "Busy" :status :running :messages []}
+                                 "chat-b" {:id "chat-b" :created-at 2 :messages []}})
+    (let [result (f.commands/handle-command! "delete-chat" ["1" "confirm"] (command-context "chat-b"))]
+      (is (string/includes? (get-in result [:chats "chat-b" :messages 0 :content 0 :text])
+                            "has a running prompt"))))
+
+  (testing "stale running status of an index-only chat does not block deletion"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"chat-a" {:id "chat-a" :created-at 1 :title "Stale" :status :running :index-only? true}
+                                 "chat-b" {:id "chat-b" :created-at 2 :messages []}})
+    (is (= {:type :delete-chat :target-chat-id "chat-a" :text "Deleted chat: Stale"}
+           (f.commands/handle-command! "delete-chat" ["1" "confirm"] (command-context "chat-b"))))))
+
 (deftest rules-command-test
   (testing "/rules shows static and path-scoped rules separately with filter metadata"
     (with-redefs [f.rules/all-rules (fn [_config _roots agent full-model]

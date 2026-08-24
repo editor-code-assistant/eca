@@ -135,6 +135,7 @@ The built-in commands are:
 - `/fork`: Fork the current chat into a new chat with the same history and settings.
 - `/btw`: Ask a side question in a forked chat, keeping the current chat history clean. Ex: `/btw how does X work?`.
 - `/resume`: Resume a chat from previous session of this workspace folder.
+- `/delete-chat`: Permanently delete the current chat or a chat-id from the `/resume` list, asking confirmation. Ex: `/delete-chat`, `/delete-chat 2`.
 - `/costs`: Show costs about current session.
 - `/config`: Show ECA config for troubleshooting.
 - `/doctor`: Show information about ECA, useful for troubleshooting.
