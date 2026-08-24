@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.155.2
+
 - Discover model context limit from llama.cpp/llama-swap `/models` `meta.n_ctx`/`n_ctx_train`, enabling usage limit and auto-compaction for local providers. #577
 - Restore parallel function-call batching for ChatGPT OAuth models that advertise Responses Lite and parallel tool-call support. #572
 - Increase chatRetentionDays from 14 -> 30.
