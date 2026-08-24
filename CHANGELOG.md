@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Restore parallel function-call batching for ChatGPT OAuth models that advertise Responses Lite and parallel tool-call support. #572
+- Increase chatRetentionDays from 14 -> 30.
 
 ## 0.155.1
 

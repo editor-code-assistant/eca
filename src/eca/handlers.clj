@@ -187,7 +187,7 @@
         (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
     (future
       (send-progress! db* messenger {:type "start" :taskId "cleanup" :title "Cleaning up"})
-      (let [retention-days (get config :chatRetentionDays 14)]
+      (let [retention-days (:chatRetentionDays config)]
         (cache/cleanup-tool-call-outputs! retention-days)
         (db/cleanup-old-chats! db* metrics retention-days))
       (send-progress! db* messenger {:type "finish" :taskId "cleanup" :title "Cleaning up"}))))
