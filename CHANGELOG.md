@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.156.0
+
 - Add `/btw` command to ask a side question in a forked chat, keeping the current chat history clean. Runs immediately even while the chat is running (steered /btw is not queued).
 - Add `/delete-chat` command to permanently delete the current chat or a chat-id from the `/resume` list, asking confirmation first.
 
