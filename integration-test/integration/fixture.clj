@@ -47,6 +47,9 @@
 (defn chat-prompt-request [params]
   [:chat/prompt params])
 
+(defn chat-inline-prompt-request [params]
+  [:chat/inlinePrompt params])
+
 (defn chat-query-commands-request [params]
   [:chat/queryCommands params])
 

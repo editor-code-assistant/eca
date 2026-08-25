@@ -90,6 +90,7 @@
                         :model :string ;; last full model id used for this chat, e.g. "anthropic/claude-sonnet-4-6"
                         :last-api :keyword
                         :trust :boolean
+                        :kind (or :inline nil) ;; nil for regular chats
                         :prompt-id :uuid
                         :user-prompt-count :number
                         :subagent :boolean
@@ -433,7 +434,7 @@
    Everything else (notably :messages) lives only in the per-chat file and is
    loaded on demand via `hydrate-chat!`."
   [:id :title :title-custom? :status :created-at :updated-at :model :variant
-   :agent :trust :subagent :parent-chat-id :user-prompt-count])
+   :agent :trust :subagent :parent-chat-id :user-prompt-count :kind])
 
 (def ^:private chat-computed-meta-keys
   "Message-derived index fields, precomputed on save so chat listings never

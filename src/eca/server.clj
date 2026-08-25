@@ -136,6 +136,9 @@
 (defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
   (eventually (handlers/chat-prompt (with-config components) params)))
 
+(defmethod jsonrpc.server/receive-request "chat/inlinePrompt" [_ components params]
+  (eventually (handlers/chat-inline-prompt (with-config components) params)))
+
 (defmethod jsonrpc.server/receive-request "chat/queryContext" [_ components params]
   (eventually (handlers/chat-query-context (with-config components) params)))
 

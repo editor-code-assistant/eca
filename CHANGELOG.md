@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `chat/inlinePrompt` protocol method: inline editor prompts backed by regular chats, optionally forking an existing chat without replay. New `chatInline` config for model/agent/variant defaults.
+- Return the new `chatId` in the `chat/fork` response and tag inline chats with `kind` in `chat/list`.
+
 ## 0.156.0
 
 - Add `/btw` command to ask a side question in a forked chat, keeping the current chat history clean. Runs immediately even while the chat is running (steered /btw is not queued).

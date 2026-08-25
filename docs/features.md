@@ -179,6 +179,14 @@ For more details, check [hooks configuration](./config/hooks.md).
 
 You can add flags in between messages so you can fork from there in the future, flags are saved by chat.
 
+## Inline chat
+
+Inline chat allows editors to ask ECA from any buffer and render the answer inline (e.g. an overlay near the cursor), backed by a regular chat: tool calls, approvals and follow-ups work as usual, and the session can be opened as a full chat at any time. Optionally it can fork an existing chat, keeping its history as context without polluting it.
+
+For inline chat configuration, check [configuration](./config/chat-inline.md).
+
+![](./images/features/inline-chat.gif)
+
 ## Rewrite
 
 Rewrite allows user to select part of the text and ask ECA to rewrite it.

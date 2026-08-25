@@ -37,7 +37,14 @@
                       "c3" {:title "c" :messages [] :updated-at 1}}}
           {:keys [chats]} (f.chat/list-chats db {:limit 2})]
       (is (= 2 (count chats)))
-      (is (= ["c1" "c2"] (mapv :id chats))))))
+      (is (= ["c1" "c2"] (mapv :id chats)))))
+
+  (testing "tags inline chats with :kind"
+    (let [db {:chats {"c1" {:title "regular" :messages [] :updated-at 2}
+                      "c2" {:title "inline: q" :kind :inline :messages [] :updated-at 1}}}
+          {:keys [chats]} (f.chat/list-chats db {})]
+      (is (= [nil :inline] (mapv :kind chats)))
+      (is (not (contains? (first chats) :kind))))))
 
 (deftest prompt-steer-test
   (let [test-config (assoc (config/initial-config) :env "test")]
@@ -2545,6 +2552,250 @@
         (is (match? {:status :error} resp)
             (str "expected " (pr-str bad) " to be rejected"))
         (is (= {} (:chats (h/db))))))))
+
+(defn ^:private inline-prompt! [params mocks]
+  (with-redefs [llm-api/sync-or-async-prompt! (:api-mock mocks)
+                llm-api/sync-prompt! (constantly nil)
+                f.tools/call-tool! (:call-tool-mock mocks)
+                f.tools/all-tools (:all-tools-mock mocks)
+                f.tools/approval (constantly :allow)
+                config/await-plugins-resolved! (constantly true)]
+    (h/config! {:env "test"})
+    (swap! (h/db*) update :models
+           (fn [models]
+             (merge {"openai/gpt-5.2" {:tools true}}
+                    (or models {}))))
+    (f.chat/inline-prompt params (h/db*) (h/messenger) (h/config) (h/metrics))))
+
+(def ^:private inline-finish-mock
+  (fn [{:keys [on-first-response-received on-message-received]}]
+    (on-first-response-received {:type :text :text "ok"})
+    (on-message-received {:type :text :text "ok"})
+    (on-message-received {:type :finish})))
+
+(deftest inline-prompt-new-chat-test
+  (testing "new inline chat is seeded with kind, title and emits chat/opened"
+    (h/reset-components!)
+    (let [resp (inline-prompt! {:chat-id "inline-1" :message "what is foo?"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:chat-id "inline-1" :status :prompting} resp))
+      (is (match? {:kind :inline
+                   :title "inline: what is foo?"}
+                  (get-in (h/db) [:chats "inline-1"])))
+      (is (match? [{:chat-id "inline-1" :title "inline: what is foo?"}]
+                  (:chat-opened (h/messages))))))
+  (testing "long messages are truncated in the title"
+    (h/reset-components!)
+    (let [message (apply str (repeat 30 "abc"))
+          _ (inline-prompt! {:chat-id "inline-2" :message message}
+                            {:all-tools-mock (constantly [])
+                             :api-mock inline-finish-mock})]
+      (is (= (str "inline: " (subs message 0 40) "...")
+             (get-in (h/db) [:chats "inline-2" :title])))))
+  (testing "follow-up on the same id does not re-seed nor re-emit chat/opened"
+    (h/reset-components!)
+    (let [_ (inline-prompt! {:chat-id "inline-3" :message "first"}
+                            {:all-tools-mock (constantly [])
+                             :api-mock inline-finish-mock})
+          title-before (get-in (h/db) [:chats "inline-3" :title])
+          _ (h/reset-messenger!)
+          resp (inline-prompt! {:chat-id "inline-3" :message "second"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:chat-id "inline-3" :status :prompting} resp))
+      (is (= title-before (get-in (h/db) [:chats "inline-3" :title])))
+      (is (nil? (:chat-opened (h/messages))))
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}]}
+                             {:role "user" :content [{:type :text :text "second"}]}])
+                  (get-in (h/db) [:chats "inline-3" :messages]))))))
+
+(deftest inline-prompt-fork-test
+  (testing "fork copies source history server-side without replaying it to the client"
+    (h/reset-components!)
+    (swap! (h/db*) assoc-in [:chats "source-1"]
+           {:id "source-1"
+            :model "openai/gpt-5.2"
+            :variant "high"
+            :trust true
+            :messages [{:role "user" :content [{:type :text :text "original question"}]}
+                       {:role "assistant" :content [{:type :text :text "original answer"}]}
+                       ;; dangling tool call without output, as mid-run forks see
+                       {:role "tool_call" :content {:id "tc-1" :name "shell"}}]})
+    (let [resp (inline-prompt! {:chat-id "inline-fork-1"
+                                :source-chat-id "source-1"
+                                :message "btw what is bar?"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:chat-id "inline-fork-1" :status :prompting} resp))
+      (is (match? {:kind :inline
+                   :model "openai/gpt-5.2"
+                   :variant "high"
+                   :trust true}
+                  (get-in (h/db) [:chats "inline-fork-1"])))
+      (testing "copied history + new turn, dangling tool call dropped"
+        (is (match? (m/embeds [{:role "user" :content [{:type :text :text "original question"}]}
+                               {:role "assistant" :content [{:type :text :text "original answer"}]}
+                               {:role "user" :content [{:type :text :text "btw what is bar?"}]}])
+                    (get-in (h/db) [:chats "inline-fork-1" :messages])))
+        (is (not-any? #(= "tool_call" (:role %))
+                      (get-in (h/db) [:chats "inline-fork-1" :messages]))))
+      (testing "source chat untouched by the new turn"
+        (is (= 3 (count (get-in (h/db) [:chats "source-1" :messages])))))
+      (testing "copied history is not replayed via chat/contentReceived"
+        (is (not-any? (fn [{:keys [chat-id content]}]
+                        (and (= "inline-fork-1" chat-id)
+                             (= "original question" (:text content))))
+                      (:chat-content-received (h/messages)))))
+      (testing "copied trust emits per-chat select-trust"
+        (is (match? {:config-updated (m/embeds [{:chat {:select-trust true}
+                                                 :chat-id "inline-fork-1"}])}
+                    (h/messages))))
+      (testing "variant stays sticky on follow-ups"
+        (inline-prompt! {:chat-id "inline-fork-1" :message "follow up"}
+                        {:all-tools-mock (constantly [])
+                         :api-mock inline-finish-mock})
+        (is (= "high" (get-in (h/db) [:chats "inline-fork-1" :variant])))))))
+
+(deftest inline-prompt-model-resolution-test
+  (testing "chatInline.model config wins over the source chat's model"
+    (h/reset-components!)
+    (h/config! {:chatInline {:model "openai/inline-model"}})
+    (swap! (h/db*) assoc-in [:models "openai/inline-model"] {:tools true})
+    (swap! (h/db*) assoc-in [:chats "source-2"]
+           {:id "source-2" :model "openai/gpt-5.2" :messages []})
+    (let [resp (inline-prompt! {:chat-id "inline-model-1"
+                                :source-chat-id "source-2"
+                                :message "hi"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:model "openai/inline-model"} resp))))
+  (testing "explicit model param wins over chatInline.model"
+    (h/reset-components!)
+    (h/config! {:chatInline {:model "openai/inline-model"}})
+    (swap! (h/db*) assoc-in [:models "openai/explicit-model"] {:tools true})
+    (let [resp (inline-prompt! {:chat-id "inline-model-2"
+                                :message "hi"
+                                :model "openai/explicit-model"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:model "openai/explicit-model"} resp))))
+  (testing "fork keeps the source chat's model when no config is set"
+    (h/reset-components!)
+    (swap! (h/db*) assoc-in [:chats "source-3"]
+           {:id "source-3" :model "openai/gpt-5.2" :messages []})
+    (let [resp (inline-prompt! {:chat-id "inline-model-3"
+                                :source-chat-id "source-3"
+                                :message "hi"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:model "openai/gpt-5.2"} resp))))
+  (testing "chatInline.agent default drives model via the agent's defaultModel"
+    (h/reset-components!)
+    (h/config! {:chatInline {:agent "helper"}
+                :agent {"helper" {:defaultModel "openai/helper-model"}}})
+    (swap! (h/db*) assoc-in [:models "openai/helper-model"] {:tools true})
+    (let [resp (inline-prompt! {:chat-id "inline-agent-1" :message "hi"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:model "openai/helper-model"} resp))))
+  (testing "chatInline defaults do not apply to regular chats"
+    (h/reset-components!)
+    (h/config! {:chatInline {:model "openai/inline-model"}})
+    (swap! (h/db*) assoc-in [:chats "regular-1"] {:id "regular-1" :messages []})
+    (let [resp (inline-prompt! {:chat-id "regular-1" :message "hi"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:model "openai/gpt-5.2"} resp))
+      (is (nil? (get-in (h/db) [:chats "regular-1" :kind]))))))
+
+(deftest inline-prompt-trust-test
+  (testing "chat.defaultTrust seeds trust on new inline chats"
+    (h/reset-components!)
+    (h/config! {:chat {:defaultTrust true}})
+    (let [_ (inline-prompt! {:chat-id "inline-trust-1" :message "hi"}
+                            {:all-tools-mock (constantly [])
+                             :api-mock inline-finish-mock})]
+      (is (true? (get-in (h/db) [:chats "inline-trust-1" :trust])))
+      (is (match? {:config-updated (m/embeds [{:chat {:select-trust true}
+                                               :chat-id "inline-trust-1"}])}
+                  (h/messages)))))
+  (testing "explicit trust param wins over chat.defaultTrust"
+    (h/reset-components!)
+    (h/config! {:chat {:defaultTrust true}})
+    (let [_ (inline-prompt! {:chat-id "inline-trust-2" :message "hi" :trust false}
+                            {:all-tools-mock (constantly [])
+                             :api-mock inline-finish-mock})]
+      (is (false? (get-in (h/db) [:chats "inline-trust-2" :trust]))))))
+
+(deftest inline-prompt-invalid-params-test
+  (testing "missing chatId is rejected without seeding state"
+    (h/reset-components!)
+    (let [resp (f.chat/inline-prompt {:message "hi"}
+                                     (h/db*) (h/messenger) (h/config) (h/metrics))]
+      (is (match? {:status :error :model "error"} resp))
+      (is (= {} (:chats (h/db))))
+      (is (nil? (:chat-opened (h/messages))))))
+  (testing "invalid chatId is rejected"
+    (h/reset-components!)
+    (let [resp (f.chat/inline-prompt {:chat-id "subagent-foo" :message "hi"}
+                                     (h/db*) (h/messenger) (h/config) (h/metrics))]
+      (is (match? {:chat-id "subagent-foo" :status :error} resp))
+      (is (= {} (:chats (h/db))))))
+  (testing "invalid sourceChatId is rejected"
+    (h/reset-components!)
+    (let [resp (f.chat/inline-prompt {:chat-id "inline-x" :source-chat-id "a b" :message "hi"}
+                                     (h/db*) (h/messenger) (h/config) (h/metrics))]
+      (is (match? {:status :error} resp))
+      (is (= {} (:chats (h/db))))))
+  (testing "blank message is rejected without seeding state"
+    (h/reset-components!)
+    (doseq [message [nil "" "   "]]
+      (let [resp (f.chat/inline-prompt {:chat-id "inline-y" :message message}
+                                       (h/db*) (h/messenger) (h/config) (h/metrics))]
+        (is (match? {:status :error} resp))
+        (is (= {} (:chats (h/db))))
+        (is (nil? (:chat-opened (h/messages))))))))
+
+(deftest inline-prompt-source-not-found-test
+  (testing "nonexistent sourceChatId starts an empty inline chat"
+    (h/reset-components!)
+    (let [resp (inline-prompt! {:chat-id "inline-orphan"
+                                :source-chat-id "gone-1"
+                                :message "hi"}
+                               {:all-tools-mock (constantly [])
+                                :api-mock inline-finish-mock})]
+      (is (match? {:chat-id "inline-orphan" :status :prompting} resp))
+      (is (match? {:kind :inline} (get-in (h/db) [:chats "inline-orphan"])))
+      ;; no copied history: the first message is the new question itself
+      (is (match? {:role "user" :content [{:text "hi"}]}
+                  (first (get-in (h/db) [:chats "inline-orphan" :messages])))))))
+
+(deftest inline-prompt-variant-config-test
+  (testing "chatInline.variant config seeds the new inline chat's variant"
+    (h/reset-components!)
+    (h/config! {:chatInline {:variant "high"}})
+    (let [_ (inline-prompt! {:chat-id "inline-variant-1" :message "hi"}
+                            {:all-tools-mock (constantly [])
+                             :api-mock inline-finish-mock})]
+      (is (= "high" (get-in (h/db) [:chats "inline-variant-1" :variant]))))))
+
+(deftest fork-chat-response-test
+  (h/reset-components!)
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :title "Orig"
+          :messages [{:role "user"
+                      :content [{:type :text :text "q"}]
+                      :content-id "m1"}]})
+  (testing "returns the new chat id"
+    (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "c1" :content-id "m1"}
+                                              (h/db*) (h/messenger) (h/metrics))]
+      (is (string? chat-id))
+      (is (some? (get-in (h/db) [:chats chat-id])))))
+  (testing "unknown content-id returns an empty map"
+    (is (= {} (f.chat/fork-chat {:chat-id "c1" :content-id "nope"}
+                                (h/db*) (h/messenger) (h/metrics))))))
 
 (deftest tool-call-approve-on-unknown-chat-is-noop-test
   (testing "Approving a tool-call against an unknown chat does not throw or mutate state"

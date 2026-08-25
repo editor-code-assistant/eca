@@ -196,6 +196,7 @@
    :chat {:title true
           :defaultTrust false
           :autoSyncSystemPrompt false}
+   :chatInline {}
    :chatRetentionDays 30
    :rewrite {:fullFileMaxLines 2000}
    :hooks {}

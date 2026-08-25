@@ -364,6 +364,42 @@
         }
       }
     },
+    "chatInline": {
+      "type": "object",
+      "description": "Inline chat feature configuration (chat/inlinePrompt), used by editors to render answers inline in buffers backed by regular chats.",
+      "markdownDescription": "Inline chat feature configuration (`chat/inlinePrompt`), used by editors to render answers inline in buffers backed by regular chats.",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Model to use for new inline chats. Defaults to the source chat's model when forking, otherwise the same model selection as chat.",
+          "markdownDescription": "Model to use for new inline chats. Defaults to the source chat's model when forking, otherwise the same model selection as chat.",
+          "examples": [
+            "openai/gpt-4.1",
+            "github-copilot/gpt-4.1"
+          ]
+        },
+        "agent": {
+          "type": "string",
+          "description": "Agent to use for inline chats when the client does not specify one.",
+          "markdownDescription": "Agent to use for inline chats when the client does not specify one.",
+          "examples": [
+            "code",
+            "plan"
+          ]
+        },
+        "variant": {
+          "type": "string",
+          "description": "Model variant to use for inline chats when the client does not specify one.",
+          "markdownDescription": "Model variant to use for inline chats when the client does not specify one.",
+          "examples": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      }
+    },
     "plugins": {
       "type": "object",
       "description": "Plugin system for loading external configuration from git repos or local paths. Each key (except 'install') is a named plugin source with a 'source' URL or path. 'install' lists plugin names to install from any registered source.",

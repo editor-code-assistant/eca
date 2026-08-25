@@ -2018,6 +2018,97 @@
                :model "error"
                :status :error})))))))
 
+(defn ^:private inline-title [message]
+  (let [message (-> (or message "")
+                    (string/replace #"\s+" " ")
+                    (string/trim))]
+    (str "inline: " (if (> (count message) 40)
+                      (str (subs message 0 40) "...")
+                      message))))
+
+(defn inline-prompt
+  "Handles `chat/inlinePrompt`: a prompt whose answer is rendered inline in
+   the editor (overlay/inlay) while backed by a regular chat session.
+
+   The client mints `chat-id`. On first use, the chat record is seeded with
+   `:kind :inline` and, when `source-chat-id` is given, a server-side copy of
+   that chat's history (never replayed to the client - only new turns are
+   streamed). Model and variant precedence at creation: `chatInline` config >
+   source chat > default resolution; both stick to the chat record afterwards.
+   Agent defaults from `chatInline.agent` on every call when not provided.
+   Delegates to `prompt`, so streaming, tool calls and follow-ups behave
+   like any other chat."
+  [{:keys [chat-id source-chat-id message trust] :as params} db* messenger config metrics]
+  (let [invalid-reason (or (when-not chat-id "chatId is required")
+                           (validate-client-chat-id chat-id)
+                           (when source-chat-id (validate-client-chat-id source-chat-id))
+                           (when (string/blank? message) "message is required"))]
+    (if invalid-reason
+      (do (logger/warn logger-tag "Rejected chat/inlinePrompt with invalid params"
+                       {:chat-id chat-id :source-chat-id source-chat-id :reason invalid-reason})
+          {:chat-id chat-id
+           :model "error"
+           :status :error})
+      (let [chat-inline-config (:chatInline config)
+            _ (db/hydrate-chat! db* chat-id metrics)
+            new-chat (when-not (get-in @db* [:chats chat-id])
+                       (let [source-chat (when source-chat-id
+                                           (db/hydrate-chat! db* source-chat-id metrics)
+                                           (get-in @db* [:chats source-chat-id]))
+                             _ (when (and source-chat-id (not source-chat))
+                                 (logger/warn logger-tag "chat/inlinePrompt source chat not found, starting empty"
+                                              {:chat-id chat-id :source-chat-id source-chat-id}))
+                             copied (when source-chat
+                                      (merge {:last-api (:last-api source-chat)
+                                              :messages (f.commands/drop-dangling-tool-calls
+                                                         (vec (:messages source-chat)))}
+                                             (select-keys source-chat [:trust :prompt-cache :startup-context])))
+                             ;; Mirror prompt's default-trust seeding for brand-new
+                             ;; chats: explicit trust param wins, then the source
+                             ;; chat's trust, then chat.defaultTrust.
+                             default-trust? (and (nil? trust)
+                                                 (nil? (:trust copied))
+                                                 (boolean (-> config :chat :defaultTrust)))
+                             now (System/currentTimeMillis)]
+                         (cond-> (merge (assoc-some {:id chat-id
+                                                     :kind :inline
+                                                     :title (inline-title message)
+                                                     :status :idle
+                                                     :created-at now
+                                                     :updated-at now
+                                                     :prompt-finished? true}
+                                                    :model (or (:model chat-inline-config)
+                                                               (:model source-chat))
+                                                    :variant (or (:variant chat-inline-config)
+                                                                 (:variant source-chat)))
+                                        copied)
+                           default-trust? (assoc :trust true))))
+            ;; Atomically seed the record; swap-vals! tells us whether we won
+            ;; a race with a concurrent first prompt for the same id.
+            [old-db _] (when new-chat
+                         (swap-vals! db* update-in [:chats chat-id] #(or % new-chat)))
+            created? (and new-chat (nil? (get-in old-db [:chats chat-id])))
+            _ (when created?
+                (db/save-chat! @db* chat-id metrics)
+                (messenger/chat-opened messenger {:chat-id chat-id :title (:title new-chat)})
+                (when (:trust new-chat)
+                  (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id)))
+            ;; chatInline defaults only steer inline-kind chats; calling this
+            ;; method on a regular chat behaves exactly like chat/prompt.
+            inline-kind? (= :inline (get-in @db* [:chats chat-id :kind]))
+            params (cond-> (-> params
+                               (dissoc :source-chat-id)
+                               (assoc :chat-id chat-id))
+                     inline-kind?
+                     (-> (update :agent #(or % (:agent chat-inline-config)))
+                         ;; Variant is sticky per inline session: prompt
+                         ;; persists the in-use variant on the record every
+                         ;; turn, so reading it back here keeps the seeded
+                         ;; (config/source) variant across follow-ups and
+                         ;; respects switches made in the opened chat UI.
+                         (update :variant #(or % (get-in @db* [:chats chat-id :variant])))))]
+        (prompt params db* messenger config metrics)))))
+
 (defn tool-call-approve
   [{:keys [chat-id tool-call-id save]} db* messenger config metrics]
   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
@@ -2324,7 +2415,8 @@
   (let [chat (get-in @db* [:chats chat-id])
         messages (vec (:messages chat))
         target-idx (find-last-message-idx messages content-id)]
-    (when target-idx
+    (if-not target-idx
+      {}
       (let [new-id (str (random-uuid))
             now (System/currentTimeMillis)
             new-title (f.commands/fork-title (:title chat))
@@ -2348,8 +2440,8 @@
                                  (assoc-some {:type :metadata} :title new-title))
         (lifecycle/send-content! {:messenger messenger :chat-id chat-id}
                                  :system
-                                 {:type :text :text (str "Chat forked to: " new-title)})))
-    {}))
+                                 {:type :text :text (str "Chat forked to: " new-title)})
+        {:chat-id new-id}))))
 
 (defn list-chats
   "Pure projection over `(:chats db)`: returns a summary list intended for the
@@ -2367,7 +2459,7 @@
                    (remove (fn [[_ v]] (:subagent v)))
                    (sort-by (fn [[_ v]] (or (get v primary) (get v secondary) 0)) >)
                    (mapv (fn [[k chat]]
-                           (let [{:keys [title status created-at updated-at model message-count]}
+                           (let [{:keys [title status created-at updated-at model message-count kind]}
                                  (db/chat-list-meta chat)]
                              (assoc-some
                               {:id k
@@ -2376,7 +2468,8 @@
                                :message-count (or message-count 0)}
                               :created-at created-at
                               :updated-at updated-at
-                              :model model)))))]
+                              :model model
+                              :kind kind)))))]
     {:chats (if (and limit (pos? (long limit)))
               (vec (take (long limit) chats))
               chats)}))

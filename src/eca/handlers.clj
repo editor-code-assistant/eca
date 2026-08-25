@@ -226,6 +226,12 @@
       :login (f.login/handle-step params db* messenger config metrics)
       (f.chat/prompt params db* messenger config metrics))))
 
+(defn chat-inline-prompt [{:keys [messenger db* config metrics]} params]
+  (metrics/task metrics :eca/chat-inline-prompt
+    (case (get-in @db* [:chats (:chat-id params) :status])
+      :login (f.login/handle-step params db* messenger config metrics)
+      (f.chat/inline-prompt params db* messenger config metrics))))
+
 (defn chat-query-context [{:keys [db* config metrics]} params]
   (metrics/task metrics :eca/chat-query-context
     (f.chat/query-context params db* config)))

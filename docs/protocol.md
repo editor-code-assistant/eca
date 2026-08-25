@@ -625,6 +625,67 @@ interface ChatPromptResponse {
 }
 ```
 
+### Chat Inline Prompt (↩️)
+
+A request sent from client to server for prompts whose answer is rendered inline
+in the editor (e.g. an overlay or inlay near the cursor) while being backed by a
+regular chat session. The response streams via the usual `chat/contentReceived`
+notifications for the given `chatId`; tool calls, approvals, stop and follow-ups
+all behave like any other chat.
+
+Differences from `chat/prompt`:
+
+- `chatId` is required and client-minted, so the client always knows the session id.
+- When the id is new and `sourceChatId` is given, the server seeds the new chat with
+  a copy of the source chat's history (a fork). The copied history is **not** replayed
+  to the client - only new turns are streamed. This works even while the source chat
+  is running a prompt.
+- The created chat is marked with `kind: "inline"` (see `chat/list`) and emits a
+  `chat/opened` notification with a title derived from the message.
+- Model and variant defaults for new inline chats resolve as: explicit param >
+  `chatInline` config > source chat > default chat selection, and stick to the
+  chat afterwards. `agent` defaults from `chatInline.agent` on every request
+  when not provided. When `chatId` belongs to an existing regular (non-inline)
+  chat, the `chatInline` defaults do not apply and the request behaves exactly
+  like `chat/prompt`.
+
+_Request:_
+
+* method: `chat/inlinePrompt`
+* params: `ChatInlinePromptParams` defined as follows:
+
+```typescript
+interface ChatInlinePromptParams {
+    /**
+     * The chat session identifier, minted by the client (e.g. a UUID).
+     * Reuse it across requests for follow-ups on the same inline session.
+     */
+    chatId: string;
+
+    /**
+     * Optional chat to fork from when this inline session is created.
+     * Ignored when `chatId` already exists.
+     */
+    sourceChatId?: string;
+
+    /**
+     * The message from the user in native language
+     */
+    message: string;
+
+    /**
+     * Same as in `chat/prompt`.
+     */
+    model?: Model;
+    agent?: ChatAgent;
+    contexts?: ChatContext[];
+    variant?: string;
+    trust?: boolean;
+}
+```
+
+_Response:_ `ChatPromptResponse`
+
 ### Chat Content Received (⬅️)
 
 A server notification with a new content returned from the LLM or server.
@@ -1882,7 +1943,13 @@ interface ChatForkParams {
 _Response:_
 
 ```typescript
-interface ChatForkResponse {}
+interface ChatForkResponse {
+    /**
+     * The chat session identifier of the newly created chat.
+     * Absent when the given contentId was not found.
+     */
+    chatId?: string;
+}
 ```
 
 ### Chat cleared (⬅️)
@@ -2116,6 +2183,12 @@ interface ChatSummary {
 
     /** Number of persisted messages. */
     messageCount: number;
+
+    /**
+     * The chat kind, when not a regular chat.
+     * 'inline' marks chats created via `chat/inlinePrompt`.
+     */
+    kind?: 'inline';
 }
 ```
 
