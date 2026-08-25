@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.157.0
+
 - Add `chat/inlinePrompt` protocol method: inline editor prompts backed by regular chats, optionally forking an existing chat without replay. New `chatInline` config for model/agent/variant defaults.
 - Return the new `chatId` in the `chat/fork` response and tag inline chats with `kind` in `chat/list`.
 
