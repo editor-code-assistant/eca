@@ -4,6 +4,7 @@
    [clojure.string :as str]
    [eca.config :as config]
    [eca.features.tools.util :as tools.util]
+   [eca.llm-providers.errors :as llm-providers.errors]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
@@ -66,8 +67,16 @@
   (or (extract-final-assistant-text messages)
       "Agent completed without producing output."))
 
+(defn ^:private failure-guidance
+  "Actionable next-step hint for the parent agent based on the error type."
+  [error-type]
+  (when error-type
+    (if (contains? llm-providers.errors/retryable-error-types error-type)
+      "This is a transient provider error. Prefer spawning this agent again for the same task (optionally with a different `model`) instead of performing the task yourself."
+      "Retrying this agent the same way is unlikely to help. Consider spawning it again with a different `model` or handling the task yourself.")))
+
 (defn ^:private failed-agent-result [agent-name prompt-error partial-output]
-  (let [{:keys [message error-type status code request-id response-id]} prompt-error]
+  (let [{:keys [message error-type status code request-id response-id rate-limit-resets-at]} prompt-error]
     {:error true
      :contents [{:type :text
                  :text (str "## Agent '" agent-name "' Failed\n\n"
@@ -82,6 +91,10 @@
                               (str "\nRequest ID: " request-id))
                             (when response-id
                               (str "\nResponse ID: " response-id))
+                            (when rate-limit-resets-at
+                              (str "\nRate limit resets at: " (java.time.Instant/ofEpochMilli (long rate-limit-resets-at))))
+                            (when-let [guidance (failure-guidance error-type)]
+                              (str "\n\n" guidance))
                             (when partial-output
                               (str "\n\n## Partial result\n\n" partial-output)))}]}))
 

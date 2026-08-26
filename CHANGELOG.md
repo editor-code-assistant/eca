@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve subagent failure result: rate-limit reset time, parsed Anthropic error code, and retry guidance so the parent agent can re-spawn or switch model.
+
 ## 0.157.0
 
 - Add `chat/inlinePrompt` protocol method: inline editor prompts backed by regular chats, optionally forking an existing chat without replay. New `chatInline` config for model/agent/variant defaults.

@@ -13,6 +13,43 @@
       (is (nil? (llm-providers.errors/recover-error!
                  {:provider "unknown" :error-data error-data :db {}}))))))
 
+(deftest enrich-anthropic-provider-error-test
+  (let [body "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your rate limit\"},\"request_id\":\"req_123\"}"]
+    (testing "structured error body populates code, message and request-id, keeping raw body"
+      (is (= {:status 429
+              :body body
+              :message "Anthropic rate_limit_error: This request would exceed your rate limit"
+              :code "rate_limit_error"
+              :request-id "req_123"}
+             (llm-providers.errors/enrich-provider-error
+              {:provider "anthropic"
+               :model "m"
+               :error-data {:status 429
+                            :body body
+                            :message "Anthropic response status: 429 body: ..."}}))))
+
+    (testing "enriched error still classifies as rate-limited"
+      (is (= {:error/type :rate-limited}
+             (llm-providers.errors/classify-error
+              (llm-providers.errors/enrich-provider-error
+               {:provider "anthropic"
+                :model "m"
+                :error-data {:status 429
+                             :body body
+                             :message "Anthropic response status: 429 body: ..."}})))))
+
+    (testing "non-JSON body keeps error untouched"
+      (let [error-data {:status 502
+                        :body "<html>bad gateway</html>"
+                        :message "Anthropic response status: 502 body: <html>bad gateway</html>"}]
+        (is (= error-data (llm-providers.errors/enrich-provider-error
+                           {:provider "anthropic" :model "m" :error-data error-data})))))
+
+    (testing "missing body keeps error untouched"
+      (let [error-data {:message "Anthropic error response: something went wrong"}]
+        (is (= error-data (llm-providers.errors/enrich-provider-error
+                           {:provider "anthropic" :model "m" :error-data error-data})))))))
+
 (deftest classify-error-context-overflow-test
   (testing "Anthropic prompt too long"
     (is (= {:error/type :context-overflow}

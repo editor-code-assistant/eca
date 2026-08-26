@@ -215,6 +215,31 @@
 
 (defmethod enrich-provider-error :default [{:keys [error-data]}] error-data)
 
+(defn ^:private anthropic-structured-error
+  "Parses Anthropic's structured error body, e.g.
+   {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"...\"},\"request_id\":\"...\"}.
+   Returns {:code .. :message .. :request-id ..} or nil when not parseable."
+  [body]
+  (when (string? body)
+    (let [parsed (try (json/parse-string body) (catch Exception _ nil))
+          error (when (map? parsed) (get parsed "error"))
+          code (when (map? error) (get error "type"))
+          message (when (map? error) (get error "message"))]
+      (when (or code message)
+        (cond-> {}
+          code (assoc :code code)
+          message (assoc :message message)
+          (get parsed "request_id") (assoc :request-id (get parsed "request_id")))))))
+
+(defmethod enrich-provider-error "anthropic"
+  [{:keys [error-data]}]
+  (if-let [{:keys [code message request-id]} (anthropic-structured-error (:body error-data))]
+    (cond-> error-data
+      code (assoc :code code)
+      message (assoc :message (str "Anthropic " (or code "error") ": " message))
+      request-id (assoc :request-id request-id))
+    error-data))
+
 (defmulti recoverable-error?
   "Pure predicate: true when the provider offers an interactive recovery for
    this terminal error (e.g. Copilot per-model policy consent). Dispatches on

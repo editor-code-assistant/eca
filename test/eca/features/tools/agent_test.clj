@@ -305,6 +305,64 @@
                                    :text #"(?s)Failed.*servers are currently overloaded.*Error type: overloaded.*Request ID: req_overloaded.*Partial result.*Partial findings"}]}
                       result))))))
 
+  (testing "rate-limited error includes reset time and retry guidance"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-rate-limited"]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [_params _db* _messenger _config _metrics]
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :prompt-error]
+                                 {:message "Anthropic rate_limit_error: This request would exceed your rate limit"
+                                  :error-type :rate-limited
+                                  :status 429
+                                  :code "rate_limit_error"
+                                  :rate-limit-resets-at 1756204800000}))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "find files"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-rate-limited"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error true
+                       :contents [{:type :text
+                                   :text #"(?s)Failed.*rate limit.*Error type: rate-limited.*Status: 429.*Code: rate_limit_error.*Rate limit resets at: 2025-08-26T10:40:00Z.*transient provider error\. Prefer spawning this agent again"}]}
+                      result))))))
+
+  (testing "non-retryable error advises against retrying the same way"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-auth"]
+      (with-redefs [requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [_params _db* _messenger _config _metrics]
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+                          (swap! db* assoc-in [:chats subagent-chat-id :prompt-error]
+                                 {:message "Invalid API key"
+                                  :error-type :auth
+                                  :status 401}))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "explorer" "task" "find files"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-auth"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error true
+                       :contents [{:type :text
+                                   :text #"(?s)Failed.*Invalid API key.*Error type: auth.*Status: 401.*unlikely to help"}]}
+                      result))))))
+
   (testing "an error status without structured details still returns failure"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
           subagent-chat-id "subagent-tc-error-status"]
