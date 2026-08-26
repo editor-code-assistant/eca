@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.157.1
+
 - Improve subagent failure result: rate-limit reset time, parsed Anthropic error code, and retry guidance so the parent agent can re-spawn or switch model.
 
 ## 0.157.0
