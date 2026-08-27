@@ -292,6 +292,18 @@ Placeholders in the format `{{argument_name}}` within the `command` string will 
     }
     ```
 
+## Spawned command environment
+
+Processes spawned by ECA (`shell_command` foreground and background commands, the `git` tool, custom tools, and [hooks](hooks.md)) run with these extra environment variables, so external tooling (shell history, wrappers, audit scripts) can tell agent-spawned commands from human ones:
+
+| Variable | Value | When |
+|----------|-------|------|
+| `ECA_AGENT` | `1` | Always |
+| `ECA_CHAT_ID` | The id of the chat that triggered the command | When triggered from a chat (`shell_command`, `git`, custom tools) |
+| `ECA_EXECUTABLE` | The launch command of the running ECA process | Always |
+
+Detection contract: a non-empty `ECA_AGENT` means the command was spawned by ECA.
+
 ## Disabled tools
 
 You can completely disable tools so they are never available to the LLM. This is configured via the `disabledTools` config, which accepts a list of strings matched against each tool, in this order:

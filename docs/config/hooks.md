@@ -172,6 +172,8 @@ Every hook receives these fields on stdin:
 
 **Chat-scoped hooks** (everything except `sessionStart`/`sessionEnd`) additionally receive `chat_id`, `agent`, `behavior` (deprecated alias of `agent`), `full_model`, and `variant`.
 
+Hook processes also run with the `ECA_AGENT=1` and `ECA_EXECUTABLE` environment variables set — see [Spawned command environment](tools.md#spawned-command-environment).
+
 Each hook below lists any further fields it adds.
 
 ## Session hooks

@@ -53,9 +53,13 @@
    - :out-mode    Output capture mode — :string (default) or :stream
    - :shell-path  Custom shell executable path (optional, overrides platform default)
    - :shell-args  Custom shell args placed before the script/file arg (optional)
+   - :chat-id     Chat id exported as ECA_CHAT_ID env var (optional)
+
+   The spawned process env always includes ECA_AGENT=1 so external tooling
+   can detect ECA-spawned commands.
 
    Returns: babashka.process process object (deref-able)"
-  [{:keys [cwd script file input out-mode shell-path shell-args]
+  [{:keys [cwd script file input out-mode shell-path shell-args chat-id]
     :or {out-mode :string}}]
   {:pre [(some? cwd)
          (or (some? script) (some? file))
@@ -80,7 +84,10 @@
                         :out out-mode
                         :err out-mode
                         :continue true
-                        :extra-env {"ECA_EXECUTABLE" @shared/eca-executable*}}
+                        :extra-env (shared/assoc-some
+                                    {"ECA_EXECUTABLE" @shared/eca-executable*
+                                     "ECA_AGENT" "1"}
+                                    "ECA_CHAT_ID" chat-id)}
                  input (assoc :in input)))))
 
 (def ^:private initial-output-wait-ms 2000)
@@ -126,7 +133,8 @@
       (try
         (let [proc (start-shell-process! {:cwd work-dir
                                           :script command
-                                          :out-mode :stream})
+                                          :out-mode :stream
+                                          :chat-id chat-id})
               on-exit (fn [completed-job]
                         (try
                           (let [output-lines (:lines @(:output* completed-job))
@@ -178,7 +186,7 @@
 
 (defn ^:private foreground-shell-command
   "Run a shell command synchronously, blocking until completion or timeout."
-  [arguments {:keys [db config tool-call-id call-state-fn state-transition-fn]}]
+  [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn]}]
   (let [command-args (get arguments "command")
         user-work-dir (get arguments "working_directory")
         timeout (min (or (get arguments "timeout") default-timeout) max-timeout)
@@ -190,7 +198,8 @@
         result (try
                  (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
                                  (start-shell-process! (cond-> {:cwd work-dir
-                                                                :script command-args}
+                                                                :script command-args
+                                                                :chat-id chat-id}
                                                          shell-path (assoc :shell-path shell-path)
                                                          shell-args (assoc :shell-args shell-args))))]
                    (do

@@ -31,8 +31,9 @@
       (with-redefs [f.tools.shell/start-shell-process! (fn [opts]
                                                          (reset! captured* opts)
                                                          (future {:exit 0 :out "ok"}))]
-        (run-git! {"command" "git status"} {})
-        (is (match? {:script "git status"} @captured*))
+        (run-git! {"command" "git status"} {:chat-id "chat-123"})
+        (is (match? {:script "git status"
+                     :chat-id "chat-123"} @captured*))
         (is (nil? (:shell-path @captured*)))
         (is (nil? (:shell-args @captured*))))))
   (testing "honors toolCall shellCommand path/args config"

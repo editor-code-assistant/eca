@@ -82,6 +82,37 @@
              :call-state-fn call-state-fn
              :state-transition-fn state-transition-fn}))))))
 
+(deftest shell-env-injection-test
+  (testing "spawned process env marks ECA-spawned commands with chat id"
+    (let [captured-opts (atom nil)]
+      (with-redefs [fs/exists? (constantly true)
+                    p/process (fn [opts]
+                                (reset! captured-opts opts)
+                                (future {:exit 0 :out "ok"}))]
+        ((get-in f.tools.shell/definitions ["shell_command" :handler])
+         {"command" "ls -lh"}
+         {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+          :chat-id "chat-123"
+          :call-state-fn call-state-fn
+          :state-transition-fn state-transition-fn}))
+      (is (match?
+           {:extra-env {"ECA_AGENT" "1"
+                        "ECA_CHAT_ID" "chat-123"}}
+           @captured-opts))))
+  (testing "ECA_CHAT_ID is omitted when there is no chat id"
+    (let [captured-opts (atom nil)]
+      (with-redefs [fs/exists? (constantly true)
+                    p/process (fn [opts]
+                                (reset! captured-opts opts)
+                                (future {:exit 0 :out "ok"}))]
+        ((get-in f.tools.shell/definitions ["shell_command" :handler])
+         {"command" "ls -lh"}
+         {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+          :call-state-fn call-state-fn
+          :state-transition-fn state-transition-fn}))
+      (is (= "1" (get-in @captured-opts [:extra-env "ECA_AGENT"])))
+      (is (not (contains? (:extra-env @captured-opts) "ECA_CHAT_ID"))))))
+
 (deftest shell-stores-process-test
   (testing "Shell command stores the process as a resource in the tool call state"
     (let [call-state (atom nil)

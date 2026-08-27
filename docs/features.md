@@ -70,7 +70,7 @@ ECA support built-in tools to avoid user extra installation and configuration, t
 
     Provides access to run shell commands, useful to run build tools, tests, and other common commands, supports exclude/include commands. 
 
-    - `shell_command`: run shell command. Command exclusion can be configured using toolCall approval configuration with regex patterns.
+    - `shell_command`: run shell command. Command exclusion can be configured using toolCall approval configuration with regex patterns. Spawned commands run with `ECA_AGENT=1` and `ECA_CHAT_ID` env vars set, see [spawned command environment](./config/tools.md#spawned-command-environment).
 
 === "Editor"
 

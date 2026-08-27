@@ -57,11 +57,13 @@
                       (delay {:out "" :exit 0}))]
         (let [custom-defs (f.tools.custom/definitions {:customTools mock-custom-tools})
               handler (get-in custom-defs ["ls" :handler])
-              ctx {:config {:toolCall {:shellCommand {:path "/custom/sh" :args ["-lc"]}}}}]
+              ctx {:config {:toolCall {:shellCommand {:path "/custom/sh" :args ["-lc"]}}}
+                   :chat-id "chat-123"}]
           (handler {} ctx)
           (is (= "/custom/sh" (:shell-path @captured)))
           (is (= ["-lc"] (:shell-args @captured)))
-          (is (= "ls" (:script @captured)))))))
+          (is (= "ls" (:script @captured)))
+          (is (= "chat-123" (:chat-id @captured)))))))
 
   (testing "when the custom tools config is empty or missing"
     (testing "with an empty map"

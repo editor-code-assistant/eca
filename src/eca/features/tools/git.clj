@@ -33,7 +33,7 @@
          "git commit -F - <<'EOF'\n<message>\nEOF\n"
          "gh pr create --body-file - <<'EOF'\n<body>\nEOF")))
 
-(defn ^:private git-command [arguments {:keys [db config tool-call-id call-state-fn state-transition-fn]}]
+(defn ^:private git-command [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn]}]
   (let [command (get arguments "command")]
     (or (tools.util/invalid-arguments
          arguments
@@ -59,7 +59,8 @@
               result (try
                        (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
                                        (shell/start-shell-process! (cond-> {:cwd work-dir
-                                                                            :script command}
+                                                                            :script command
+                                                                            :chat-id chat-id}
                                                                      shell-path (assoc :shell-path shell-path)
                                                                      shell-args (assoc :shell-args shell-args))))]
                          (do

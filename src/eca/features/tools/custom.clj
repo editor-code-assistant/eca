@@ -14,7 +14,7 @@
   "Creates a function that safely executes the command from a custom tool config.
   It substitutes {{placeholders}} in the command vector with LLM-provided arguments."
   [{:keys [command]}]
-  (fn [args {:keys [db config]}]
+  (fn [args {:keys [db config chat-id]}]
     (let [resolved-command (reduce
                             (fn [s [arg-name arg-value]]
                               (string/replace s (str "{{" arg-name "}}") (str arg-value)))
@@ -32,7 +32,8 @@
           result (try
                    @(f.tools.shell/start-shell-process!
                      (cond-> {:cwd work-dir
-                              :script resolved-command}
+                              :script resolved-command
+                              :chat-id chat-id}
                        shell-path (assoc :shell-path shell-path)
                        shell-args (assoc :shell-args shell-args)))
                    (catch Exception e
