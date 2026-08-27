@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.157.2
+
 - Set `ECA_AGENT=1` and `ECA_CHAT_ID` env vars on commands spawned by shell, git, custom tools and hooks so external tooling can detect ECA-spawned commands.
 
 ## 0.157.1
