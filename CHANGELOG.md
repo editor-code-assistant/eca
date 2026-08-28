@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.157.3
+
 - Add built-in effort variants for Claude models on `openai-chat` providers like OpenRouter, using the `verbosity` param which maps to Anthropic's `output_config.effort`.
 
 ## 0.157.2
