@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add built-in effort variants for Claude models on `openai-chat` providers like OpenRouter, using the `verbosity` param which maps to Anthropic's `output_config.effort`.
+
 ## 0.157.2
 
 - Set `ECA_AGENT=1` and `ECA_CHAT_ID` env vars on commands spawned by shell, git, custom tools and hooks so external tooling can detect ECA-spawned commands.

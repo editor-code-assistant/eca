@@ -727,6 +727,29 @@
         (is (= anthropic-variants
                (config/effective-model-variants default-config "anthropic" "claude-sonnet-4-6" nil nil)))))
 
+    (testing "Default config: Claude models on openai-chat providers (e.g. OpenRouter) get verbosity-based variants"
+      (let [default-config (assoc-in (config/initial-config) [:providers "openrouter" :api] "openai-chat")]
+        (is (= {"low" {:verbosity "low" :reasoning {:enabled true}}
+                "medium" {:verbosity "medium" :reasoning {:enabled true}}
+                "high" {:verbosity "high" :reasoning {:enabled true}}
+                "max" {:verbosity "max" :reasoning {:enabled true}}}
+               (config/effective-model-variants default-config "openrouter" "anthropic/claude-opus-4.5" nil nil)))
+        (is (= {"low" {:verbosity "low"}
+                "medium" {:verbosity "medium"}
+                "high" {:verbosity "high"}
+                "xhigh" {:verbosity "xhigh"}
+                "max" {:verbosity "max"}}
+               (config/effective-model-variants default-config "openrouter" "anthropic/claude-opus-4.7" nil nil)))
+        (is (= {"low" {:verbosity "low"}
+                "medium" {:verbosity "medium"}
+                "high" {:verbosity "high"}
+                "xhigh" {:verbosity "xhigh"}
+                "max" {:verbosity "max"}}
+               (config/effective-model-variants default-config "openrouter" "anthropic/claude-fable-5" nil nil)))
+        ;; Copilot Claude models on the chat API keep discovery-only behavior
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-opus-4.5"
+                                                   {:api :openai-chat} nil)))))
+
     (testing "User variant set to {} removes it from result"
       (is (= (dissoc anthropic-variants "high" "max")
              (config/effective-model-variants config "anthropic" "claude-sonnet-4-6"

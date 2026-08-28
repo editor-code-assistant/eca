@@ -40,6 +40,29 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `xhigh`    | `{"output_config": {"effort": "xhigh"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
     | `max`      | `{"output_config": {"effort": "max"}, "thinking": {"type": "adaptive", "display": "summarized"}}` |
 
+=== "Anthropic (openai-chat gateways, e.g. OpenRouter)"
+
+    Applies to the same Claude models when served through providers using the `openai-chat` API (e.g. OpenRouter). The top-level `verbosity` param is mapped by OpenRouter to Anthropic's `output_config.effort` upstream. Excluded for `github-copilot` provider (variants come from Copilot's `/models` discovery).
+
+    For `sonnet-4-6`, `opus-4-5`, `opus-4-6` (thinking is opt-in via the unified `reasoning` param):
+
+    | Variant    | Payload |
+    | ---------- | ------- |
+    | `low`      | `{"verbosity": "low", "reasoning": {"enabled": true}}` |
+    | `medium`   | `{"verbosity": "medium", "reasoning": {"enabled": true}}` |
+    | `high`     | `{"verbosity": "high", "reasoning": {"enabled": true}}` |
+    | `max`      | `{"verbosity": "max", "reasoning": {"enabled": true}}` |
+
+    For `opus-4-7`, `opus-4-8`, `opus-5`, `sonnet-5`, `fable-5`, `mythos-5` (thinking always on, `verbosity` is the only effort lever):
+
+    | Variant    | Payload |
+    | ---------- | ------- |
+    | `low`      | `{"verbosity": "low"}` |
+    | `medium`   | `{"verbosity": "medium"}` |
+    | `high`     | `{"verbosity": "high"}` |
+    | `xhigh`    | `{"verbosity": "xhigh"}` |
+    | `max`      | `{"verbosity": "max"}` |
+
 === "OpenAI"
 
     Applies to models matching `gpt-5-3-codex`, `gpt-5-2`, `gpt-5-4`, `gpt-5-5`. Excluded for `github-copilot` provider.

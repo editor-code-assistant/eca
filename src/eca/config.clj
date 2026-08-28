@@ -89,6 +89,27 @@
    "xhigh" {:output_config {:effort "xhigh"} :thinking {:type "adaptive" :display "summarized"}}
    "max" {:output_config {:effort "max"} :thinking {:type "adaptive" :display "summarized"}}})
 
+(def ^:private openai-chat-claude-variants
+  "Claude 4.5/4.6 models served through OpenAI-compatible gateways (e.g.
+   OpenRouter). The top-level `verbosity` param is mapped by OpenRouter to
+   Anthropic's output_config.effort; thinking is opt-in via the unified
+   `reasoning` param."
+  {"low" {:verbosity "low" :reasoning {:enabled true}}
+   "medium" {:verbosity "medium" :reasoning {:enabled true}}
+   "high" {:verbosity "high" :reasoning {:enabled true}}
+   "max" {:verbosity "max" :reasoning {:enabled true}}})
+
+(def ^:private openai-chat-claude-v2-variants
+  "Adaptive-thinking Claude models (Opus 4.7+, Opus/Sonnet/Fable/Mythos 5)
+   served through OpenAI-compatible gateways (e.g. OpenRouter). Thinking is
+   always on, and `verbosity` is the only effort lever: OpenRouter ignores
+   `reasoning.effort` for these models."
+  {"low" {:verbosity "low"}
+   "medium" {:verbosity "medium"}
+   "high" {:verbosity "high"}
+   "xhigh" {:verbosity "xhigh"}
+   "max" {:verbosity "max"}})
+
 (def ^:private deepseek-variants
   {"none" {:thinking {:type "disabled"}}
    "high" {:reasoning_effort "high"}
@@ -223,10 +244,18 @@
               :shellCommand {:summaryMaxLength 35}
               :editorNav {:enabled true}
               :outputTruncation {:lines 2000 :sizeKb 50}}
+   ;; Same Claude regexes appear twice with different payload dialects per API;
+   ;; the (?:...) wrapper only keeps the map keys unique.
    :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants
                                                                  :api ["anthropic" "bedrock"]}
                      ".*opus[-._]4[-._][78]|.*opus[-._]5|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants
                                                                                                        :api ["anthropic" "bedrock"]}
+                     "(?:.*sonnet[-._]4[-._]6|opus[-._]4[-._][56])" {:variants openai-chat-claude-variants
+                                                                     :api "openai-chat"
+                                                                     :excludeProviders ["github-copilot"]}
+                     "(?:.*opus[-._]4[-._][78]|.*opus[-._]5|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5)" {:variants openai-chat-claude-v2-variants
+                                                                                                           :api "openai-chat"
+                                                                                                           :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
                                                                               :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants
