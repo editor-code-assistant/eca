@@ -285,6 +285,66 @@
              :api-key "k"
              :api-type "openai-chat"}))))))
 
+(deftest fetch-provider-native-models-effort-variants-test
+  (testing "OpenRouter and Synthetic shaped efforts become discovered effort variants"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data
+                                     [{:id "tencent/hy4-preview"
+                                       :reasoning {:supported_efforts ["high" "low" 1]}}
+                                      {:id "syn:small:text"
+                                       :reasoning_parameters {:efforts ["none" "low"]}}
+                                      {:id "bad-efforts"
+                                       :reasoning {:supported_efforts 1}}
+                                      {:id "plain-model"}]}})]
+      (is (match?
+           (m/equals
+            {"tencent/hy4-preview"
+             (m/equals {:discovered-effort-variants
+                        {"high" {:reasoning_effort "high"}
+                         "low" {:reasoning_effort "low"}}})
+             "syn:small:text"
+             (m/equals {:discovered-effort-variants
+                        {"none" {:reasoning_effort "none"}
+                         "low" {:reasoning_effort "low"}}})
+             "bad-efforts" (m/equals {})
+             "plain-model" (m/equals {})})
+           (#'models/fetch-provider-native-models
+            {:provider "openrouter"
+             :api-url "https://openrouter.ai/api/v1"
+             :auth-type nil
+             :api-key "k"
+             :api-type "openai-chat"})))))
+
+  (testing "other APIs build no effort variants from the same metadata"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data [{:id "claude-x"
+                                             :reasoning {:supported_efforts ["low" "high"]}}]}})]
+      (is (match?
+           {"claude-x" {}}
+           (#'models/fetch-provider-native-models
+            {:provider "my-proxy"
+             :api-url "https://api.anthropic.com"
+             :auth-type nil
+             :api-key "k"
+             :api-type "anthropic"}))))))
+
+(deftest synthetic-provider-effort-variants-build-model-capabilities-test
+  (testing "Effort variants from a synthetic /v1/models flow into model capabilities"
+    (let [config {:providers {"synthetic" {:api "openai-chat"
+                                           :url "https://api.synthetic.new/v1"
+                                           :key "sk-test"
+                                           :models {"hf:Qwen/Qwen3-235B" {}}}}}]
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200
+                                :body {:data [{:id "hf:Qwen/Qwen3-235B"
+                                               :reasoning_parameters {:efforts ["high" "low"]}}]}})]
+        (is (= {"high" {:reasoning_effort "high"}
+                "low" {:reasoning_effort "low"}}
+               (get-in (build-supported-models config {} {})
+                       ["synthetic/hf:Qwen/Qwen3-235B" :effort-variants])))))))
+
 (deftest fetch-provider-native-llamacpp-models-limits-test
   (testing "llama.cpp/llama-swap-shaped entries keep meta n_ctx (falling back to n_ctx_train) as discovered context limit"
     (with-redefs [http/get (fn [_url _opts]

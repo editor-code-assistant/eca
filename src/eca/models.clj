@@ -427,6 +427,26 @@
                       :discovered-reason? (when reason? true)
                       :discovered-variants (not-empty variants))])))
 
+(def ^:private effort-list-paths
+  [[:reasoning :supported_efforts]     ; OpenRouter
+   [:reasoning_parameters :efforts]])  ; Synthetic
+
+(defn ^:private native-reasoning-effort-variants
+  "Builds openai-chat variants from a /models entry's advertised reasoning
+   efforts. Nil for other APIs or when no efforts are advertised."
+  [api-type entry]
+  (when (= "openai-chat" api-type)
+    (let [advertised (some (fn [path]
+                             (let [efforts (get-in entry path)]
+                               (when (sequential? efforts) efforts)))
+                           effort-list-paths)]
+      (not-empty
+       (into {}
+             (keep (fn [effort]
+                     (when (string? effort)
+                       [effort {:reasoning_effort effort}]))
+             advertised))))))
+
 (defn ^:private parse-native-model-entry
   "Parses a generic /models entry. OpenRouter-shaped entries expose
    `context_length` and `top_provider.max_completion_tokens`; llama.cpp /
@@ -435,17 +455,19 @@
    provider-reported data wins over models.dev catalogs. Entries without that
    metadata (e.g. plain OpenAI/Anthropic) keep an empty config, preserving the
    previous id-only behavior."
-  [{:keys [id context_length top_provider] entry-meta :meta}]
+  [{:keys [id context_length top_provider] entry-meta :meta :as entry} api-type]
   (when (and (string? id) (not (string/blank? id)))
     (let [context (or (pos-num context_length)
                       (pos-num (:n_ctx entry-meta))
                       (pos-num (:n_ctx_train entry-meta)))
-          output (sane-output-limit context (pos-num (:max_completion_tokens top_provider)))]
+          output (sane-output-limit context (pos-num (:max_completion_tokens top_provider)))
+          effort-variants (native-reasoning-effort-variants api-type entry)]
       [id (assoc-some {}
                       :discovered-limit (not-empty
                                          (assoc-some {}
                                                      :context context
-                                                     :output output)))])))
+                                                     :output output))
+                      :discovered-effort-variants effort-variants)])))
 
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
@@ -481,7 +503,7 @@
                   (not-empty
                    (if (= "github-copilot" provider)
                      (into {} (keep parse-copilot-model-entry) models-data)
-                     (into {} (keep parse-native-model-entry) models-data))))))))
+                     (into {} (keep #(parse-native-model-entry % api-type) models-data)))))))))
         (catch Exception e
           (logger/warn logger-tag
                        (format "Provider '%s': Failed to fetch models from %s: %s"
@@ -577,8 +599,9 @@
 (defn ^:private config-overrides->capabilities
   "Translate per-model config and discovered provider metadata into internal
    capability keys. User limits, costs, and image support override catalog
-   values; provider discovery contributes API routing, reasoning variants, and
-   token limits (user config > provider-discovered > models.dev catalog)."
+   values; provider discovery contributes API routing, reasoning variants,
+   effort variants, and token limits (user config > provider-discovered >
+   models.dev catalog)."
   [model-config]
   (let [limit (:limit model-config)
         cost (:cost model-config)
@@ -592,6 +615,7 @@
                 :reason? (:discovered-reason? model-config)
                 :api (:discovered-api model-config)
                 :variants (:discovered-variants model-config)
+                :effort-variants (:discovered-effort-variants model-config)
                 ;; Opaque provider-specific model metadata, interpreted only by
                 ;; the provider adapter that discovered it.
                 :provider-data (not-empty (:discovered-provider-data model-config))

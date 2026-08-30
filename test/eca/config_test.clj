@@ -699,6 +699,19 @@
                :variants {"low" {:source "endpoint"}}}
               {"high" {:source "user"}}))))
 
+    (testing "Effort variants from /models are the last fallback"
+      (let [effort-variants {"low" {:reasoning_effort "low"}
+                             "high" {:reasoning_effort "high"}}
+            caps {:api :openai-chat :effort-variants effort-variants}]
+        (is (= effort-variants
+               (config/effective-model-variants {} "synthetic" "qwen3" caps nil)))
+        (is (= anthropic-variants
+               (config/effective-model-variants config "my-proxy" "claude-opus-4-6"
+                                                (assoc caps :api :anthropic) nil)))
+        (is (= {"low" {:reasoning_effort "low"}}
+               (config/effective-model-variants {} "synthetic" "qwen3" caps
+                                                {"high" {}})))))
+
     (testing "User variant set to {} removes a discovered variant"
       (is (= {"low" {:source "endpoint"}}
              (config/effective-model-variants
