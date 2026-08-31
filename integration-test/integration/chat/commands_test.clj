@@ -116,6 +116,13 @@
     (is (match? {:type "mcp"
                  :name "mcpServerSample"}
                 (eca/client-awaits-server-notification :tool/serverUpdated))))
+  (testing "Mcp prompts fetched"
+    ;; Prompts are listed after the server reports running, in a second
+    ;; notification. Await it before querying commands.
+    (is (match? {:type "mcp"
+                 :name "mcpServerSample"
+                 :prompts [{:name "my-prompt" :arguments [{:name "some-arg-1"}]}]}
+                (eca/client-awaits-server-notification :tool/serverUpdated))))
 
   (testing "MCP prompts available when querying commands"
     (let [resp (eca/request! (fixture/chat-query-commands-request
