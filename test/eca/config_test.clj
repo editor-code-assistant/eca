@@ -759,6 +759,12 @@
                 "xhigh" {:verbosity "xhigh"}
                 "max" {:verbosity "max"}}
                (config/effective-model-variants default-config "openrouter" "anthropic/claude-fable-5" nil nil)))
+        (is (= {"low" {:verbosity "low"}
+                "medium" {:verbosity "medium"}
+                "high" {:verbosity "high"}
+                "xhigh" {:verbosity "xhigh"}
+                "max" {:verbosity "max"}}
+               (config/effective-model-variants default-config "openrouter" "anthropic/claude-mythos-5-1" nil nil)))
         ;; Copilot Claude models on the chat API keep discovery-only behavior
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-opus-4.5"
                                                    {:api :openai-chat} nil)))))

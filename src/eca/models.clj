@@ -219,7 +219,9 @@
     "anthropic/claude-opus-5"
     "anthropic/claude-sonnet-5"
     "anthropic/claude-fable-5"
+    "anthropic/claude-fable-5-1"
     "anthropic/claude-mythos-5"
+    "anthropic/claude-mythos-5-1"
     "anthropic/claude-haiku-4-5-20251001"})
 
 (def ^:private models-with-mid-conversation-system-support

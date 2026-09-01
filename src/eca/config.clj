@@ -141,7 +141,9 @@
                                      "claude-opus-4-8" {}
                                      "claude-opus-5" {}
                                      "claude-fable-5" {}
-                                     "claude-mythos-5" {}}}
+                                     "claude-fable-5-1" {}
+                                     "claude-mythos-5" {}
+                                     "claude-mythos-5-1" {}}}
                "github-copilot" {:api "openai-chat"
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth

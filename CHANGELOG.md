@@ -4,6 +4,7 @@
 
 - Build fallback variants from `/v1/models` advertised reasoning efforts (OpenRouter, Synthetic) when no built-in or user variants exist.
 - Add `/chats` command listing chats from all workspaces grouped by workspace path, with optional title filter. Workspace roots are persisted in the chats index or hash-recovered.
+- Add Claude Fable 5.1 and Mythos 5.1 support.
 
 ## 0.157.3
 

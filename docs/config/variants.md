@@ -29,7 +29,7 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
 
 === "Anthropic (opus 4.7+, opus/sonnet/fable/mythos 5)"
 
-    Applies to models matching `opus-4-7`, `opus-4-8`, `opus-5`, `sonnet-5`, `fable-5`, `mythos-5` (any separator: `-`, `.`, `_`).
+    Applies to models matching `opus-4-7`, `opus-4-8`, `opus-5`, `sonnet-5`, `fable-5`, `fable-5-1`, `mythos-5`, `mythos-5-1` (any separator: `-`, `.`, `_`).
 
     | Variant    | Payload |
     | ---------- | ------- |
@@ -53,7 +53,7 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `high`     | `{"verbosity": "high", "reasoning": {"enabled": true}}` |
     | `max`      | `{"verbosity": "max", "reasoning": {"enabled": true}}` |
 
-    For `opus-4-7`, `opus-4-8`, `opus-5`, `sonnet-5`, `fable-5`, `mythos-5` (thinking always on, `verbosity` is the only effort lever):
+    For `opus-4-7`, `opus-4-8`, `opus-5`, `sonnet-5`, `fable-5`, `fable-5-1`, `mythos-5`, `mythos-5-1` (thinking always on, `verbosity` is the only effort lever):
 
     | Variant    | Payload |
     | ---------- | ------- |
