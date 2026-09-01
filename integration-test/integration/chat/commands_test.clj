@@ -35,6 +35,7 @@
                        {:name "fork" :arguments []}
                        {:name "btw" :arguments [{:name "prompt" :required true}]}
                        {:name "resume" :arguments [{:name "chat-id"}]}
+                       {:name "chats" :arguments [{:name "title-filter"}]}
                        {:name "delete-chat" :arguments [{:name "chat-id"}]}
                        {:name "export" :arguments [{:name "filepath"}]}
                        {:name "import" :arguments [{:name "filepath"}]}
