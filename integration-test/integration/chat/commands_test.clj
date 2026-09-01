@@ -35,6 +35,7 @@
                        {:name "fork" :arguments []}
                        {:name "btw" :arguments [{:name "prompt" :required true}]}
                        {:name "resume" :arguments [{:name "chat-id"}]}
+                       {:name "delete-chat" :arguments [{:name "chat-id"}]}
                        {:name "export" :arguments [{:name "filepath"}]}
                        {:name "import" :arguments [{:name "filepath"}]}
                        {:name "remote" :arguments []}
@@ -67,6 +68,7 @@
                        {:name "costs" :arguments []}
                        {:name "context" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
+                       {:name "delete-chat" :arguments [{:name "chat-id"}]}
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "subagents" :arguments []}
@@ -113,6 +115,13 @@
   (testing "Mcp started"
     (is (match? {:type "mcp"
                  :name "mcpServerSample"}
+                (eca/client-awaits-server-notification :tool/serverUpdated))))
+  (testing "Mcp prompts fetched"
+    ;; Prompts are listed after the server reports running, in a second
+    ;; notification. Await it before querying commands.
+    (is (match? {:type "mcp"
+                 :name "mcpServerSample"
+                 :prompts [{:name "my-prompt" :arguments [{:name "some-arg-1"}]}]}
                 (eca/client-awaits-server-notification :tool/serverUpdated))))
 
   (testing "MCP prompts available when querying commands"

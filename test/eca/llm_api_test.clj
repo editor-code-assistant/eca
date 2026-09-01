@@ -1125,7 +1125,10 @@
           final-error* (atom nil)
           error {:status 503
                  :body "{\"error\":{\"message\":\"auth_unavailable: no auth available (providers=codex, model=gpt-5.6-sol)\",\"type\":\"server_error\",\"code\":\"internal_server_error\"}}"
-                 :message "OpenAI response status: 503 body: auth_unavailable"}]
+                 :message "OpenAI response status: 503 body: auth_unavailable"}
+          delivered-error (assoc error
+                                 :message "Anthropic server_error: auth_unavailable: no auth available (providers=codex, model=gpt-5.6-sol)"
+                                 :code "server_error")]
       (with-redefs [eca.llm-api/prompt! (fn [_]
                                           (swap! attempt* inc)
                                           {:error error})
@@ -1154,7 +1157,7 @@
               :backoff-multiplier 3.0
               :max-delay-ms 250}
              (:policy (first @retry-events*))))
-      (is (= error @final-error*)))))
+      (is (= delivered-error @final-error*)))))
 
 (deftest sync-retry-cancelled-test
   (testing "stops retrying when cancelled"

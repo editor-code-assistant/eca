@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Build fallback variants from `/v1/models` advertised reasoning efforts (OpenRouter, Synthetic) when no built-in or user variants exist.
+
 ## 0.157.3
 
 - Add built-in effort variants for Claude models on `openai-chat` providers like OpenRouter, using the `verbosity` param which maps to Anthropic's `output_config.effort`.

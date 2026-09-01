@@ -98,6 +98,12 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `high`     | `{"reasoning_effort": "high"}` |
     | `max`      | `{"reasoning_effort": "max"}}` |
 
+## Discovered Variants
+
+Some providers (GitHub Copilot, OpenAI OAuth, and gateways like OpenRouter or Synthetic) tell ECA which reasoning effort levels a model supports, and ECA builds the variants for you. Nothing to configure: just pick an effort from the model's variant list.
+
+Discovered variants are only used when nothing else defines variants for the model. Your custom variants always win.
+
 ## Custom Variants
 
 You can define your own variants per model under `providers.<provider>.models.<model>.variants`. Custom variants are merged with built-in ones — if names clash, your definition wins.

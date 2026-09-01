@@ -319,9 +319,10 @@
       false)))
 
 (defn effective-model-variants
-  "Returns effective variants for a model. Built-in regex variants are the
-   fallback, discovered provider variants override them, and user variants have
-   final priority. A variant set to {} is removed from the result."
+  "Returns effective variants for a model. Discovered provider variants
+   override built-in regex variants, effort variants parsed from the provider
+   /models response are the last fallback, and user variants have final
+   priority. A variant set to {} is removed from the result."
   ([config provider model-name user-variants]
    (effective-model-variants config provider model-name nil user-variants))
   ([config provider model-name model-capabilities user-variants]
@@ -338,7 +339,9 @@
                                       (api-match? provider-api api))
                              variants))
                          (:variantsByModel config)))
-         merged (merge (or (not-empty (:variants model-capabilities)) builtin)
+         merged (merge (or (not-empty (:variants model-capabilities))
+                           builtin
+                           (not-empty (:effort-variants model-capabilities)))
                        user-variants)]
      (when (seq merged)
        (let [filtered (into {} (remove (fn [[_ v]] (= {} v))) merged)]
