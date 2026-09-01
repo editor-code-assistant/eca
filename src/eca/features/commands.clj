@@ -228,6 +228,10 @@
                        :type :native
                        :description "Resume the specified chat-id. Blank to list chats or 'latest'."
                        :arguments [{:name "chat-id"}]}
+                      {:name "chats"
+                       :type :native
+                       :description "List chats from all workspaces to find where a chat lives (Ex: /chats, /chats <title-filter>)"
+                       :arguments [{:name "title-filter"}]}
                       {:name "delete-chat"
                        :type :native
                        :description "Permanently delete the current chat or a chat-id from the /resume list, asking confirmation. (Ex: /delete-chat, /delete-chat 2)"
@@ -825,6 +829,48 @@
                       :chats {chat-id {:title (:title chat)
                                        :messages (concat [{:role "system" :content [{:type :text :text (str "Resuming chat: " selected-chat-id)}]}]
                                                          (:messages chat))}}})))
+      "chats" (let [title-filter (string/lower-case (string/trim (string/join " " args)))
+                    matches? (fn [{:keys [title]}]
+                               (or (string/blank? title-filter)
+                                   (string/includes? (string/lower-case (or title "")) title-filter)))
+                    groups (->> (db/list-all-workspaces-chats db metrics)
+                                (keep (fn [group]
+                                        (let [chats (->> (:chats group)
+                                                         (remove #(= chat-id (:id %)))
+                                                         (filterv matches?))]
+                                          (when (seq chats)
+                                            (assoc group :chats chats)))))
+                                (vec))
+                    chat-line (fn [{:keys [title updated-at created-at user-message-count message-count model id]}]
+                                (format "- %s - %s (%s msgs%s) `%s`"
+                                        (if-let [ms (or updated-at created-at)]
+                                          (shared/ms->presentable-date ms "dd/MM/yyyy HH:mm")
+                                          "unknown date")
+                                        (or title (format "No chat title (%s user messages)" (or user-message-count 0)))
+                                        (or message-count 0)
+                                        (if model (str ", " model) "")
+                                        id))
+                    group-section (fn [{:keys [workspaces current?] approx-name :name :as group}]
+                                    (str "**" (if workspaces (string/join ", " workspaces) (str "~" approx-name)) "**"
+                                         (when current? " (current)")
+                                         ":\n"
+                                         (string/join "\n" (map chat-line (:chats group)))))
+                    chat-message-fn (fn [text]
+                                      {:type :chat-messages
+                                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})]
+                (if (empty? groups)
+                  (chat-message-fn (if (string/blank? title-filter)
+                                     "No chats found in any workspace."
+                                     (format "No chats found matching '%s'." title-filter)))
+                  (chat-message-fn
+                   (multi-str
+                    "Chats by workspace:"
+                    ""
+                    (string/join "\n\n" (map group-section groups))
+                    ""
+                    (when (some #(nil? (:workspaces %)) groups)
+                      "`~name` means approximate workspace name: exact paths are recorded once that workspace is opened again with this ECA version.")
+                    "Open the workspace and run `/resume` to continue a chat."))))
       "delete-chat" (let [confirm? (= "confirm" (some-> (last args) string/lower-case))
                           target-arg (first (remove #(= "confirm" (some-> % string/lower-case)) args))
                           other-chats (into {}

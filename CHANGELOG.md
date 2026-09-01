@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Build fallback variants from `/v1/models` advertised reasoning efforts (OpenRouter, Synthetic) when no built-in or user variants exist.
+- Add `/chats` command listing chats from all workspaces grouped by workspace path, with optional title filter. Workspace roots are persisted in the chats index or hash-recovered.
 
 ## 0.157.3
 

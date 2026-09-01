@@ -93,7 +93,7 @@
   [workspaces uri->filename-fn]
   (map #(str (fs/absolutize (fs/file (uri->filename-fn (:uri %))))) workspaces))
 
-(defn ^:private sorted-workspace-paths
+(defn sorted-workspace-paths
   "Absolute canonical workspace paths, de-duplicated and sorted, so the result
    is stable regardless of the order the editor reports its workspace folders."
   [workspaces uri->filename-fn]
@@ -119,6 +119,19 @@
    worktree of a repository shares the same hash as the repository itself."
   [workspaces uri->filename-fn]
   (paths-hash (sorted-workspace-paths workspaces uri->filename-fn)))
+
+(defn workspace-paths-hash
+  "Returns the cache hash key for plain filesystem `paths`, applying the same
+   absolutization, worktree canonicalization, de-duplication and sorting as
+   `workspaces-hash` does for editor workspace folders. Useful to verify
+   whether candidate paths are the workspace set behind a cache dir name."
+  [paths]
+  (->> paths
+       (map #(str (fs/absolutize (fs/file (str %)))))
+       (map canonicalize-workspace-path)
+       (distinct)
+       (sort)
+       (paths-hash)))
 
 (def ^:private logger-tag "[CACHE]")
 
@@ -185,6 +198,21 @@
 
 (def ^:private tool-call-outputs-dir-name "toolCallOutputs")
 (def ^:private plugins-dir-name "plugins")
+
+(defn workspace-cache-dirs
+  "Returns the workspace cache directories living under `global-dir`,
+   excluding the global non-workspace dirs (tool call outputs, plugins)."
+  []
+  (let [base (global-dir)]
+    (if (fs/exists? base)
+      (->> (fs/list-dir base)
+           (filter fs/directory?)
+           (map fs/file)
+           (remove (fn [^File f]
+                     (contains? #{tool-call-outputs-dir-name plugins-dir-name}
+                                (.getName f))))
+           (vec))
+      [])))
 
 (defn tool-call-outputs-dir
   "Returns the File object for the tool call outputs cache directory."

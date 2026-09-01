@@ -846,3 +846,48 @@
     (testing "marks the threshold cell in the grid plus the legend swatch"
       ;; one 🔲 in the grid (the threshold cell) + one in the legend line
       (is (= 2 (count (re-seq #"🔲" text)))))))
+
+(deftest chats-command-test
+  (let [groups [{:name "proj-a"
+                 :workspaces ["/home/user/proj-a"]
+                 :current? true
+                 :chats [{:id "chat-b" :title "Current chat" :updated-at 300
+                          :message-count 2 :user-message-count 1}
+                         {:id "a-1" :title "Fix login bug" :updated-at 250 :message-count 4
+                          :user-message-count 2 :model "anthropic/claude-sonnet-4-6"}]}
+                {:name "proj-b"
+                 :workspaces nil
+                 :current? false
+                 :chats [{:id "b-1" :title "Improve docs" :updated-at 200
+                          :message-count 6 :user-message-count 3}]}]
+        run-cmd (fn [args]
+                  (h/reset-components!)
+                  (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
+                  (with-redefs [db/list-all-workspaces-chats (fn [_ _] groups)]
+                    (f.commands/handle-command! "chats" args (command-context "chat-b"))))
+        text-of (fn [result] (get-in result [:chats "chat-b" :messages 0 :content 0 :text]))]
+    (testing "lists all chats grouped by workspace"
+      (let [result (run-cmd [])
+            text (text-of result)]
+        (is (= :chat-messages (:type result)))
+        (is (string/includes? text "**/home/user/proj-a** (current):"))
+        (is (string/includes? text "Fix login bug"))
+        (is (string/includes? text "anthropic/claude-sonnet-4-6"))
+        (is (string/includes? text "`a-1`"))
+        (is (string/includes? text "**~proj-b**:"))
+        (is (string/includes? text "Improve docs"))
+        (is (not (string/includes? text "Current chat")) "current chat is excluded")
+        (is (string/includes? text "approximate workspace name"))))
+    (testing "case-insensitive title filter joins all args"
+      (let [text (text-of (run-cmd ["improve" "DOCS"]))]
+        (is (string/includes? text "Improve docs"))
+        (is (not (string/includes? text "Fix login bug")))))
+    (testing "filter matching nothing"
+      (is (string/includes? (text-of (run-cmd ["nope-xyz"]))
+                            "No chats found matching 'nope-xyz'.")))
+    (testing "no chats at all"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
+      (with-redefs [db/list-all-workspaces-chats (fn [_ _] [])]
+        (is (string/includes? (text-of (f.commands/handle-command! "chats" [] (command-context "chat-b")))
+                              "No chats found in any workspace."))))))

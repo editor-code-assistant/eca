@@ -6,7 +6,8 @@
    [cognitect.transit :as transit]
    [eca.cache :as cache]
    [eca.db :as db]
-   [eca.shared :as shared])
+   [eca.shared :as shared]
+   [eca.test-helper :as h])
   (:import
    [java.io File]))
 
@@ -710,3 +711,98 @@
            (db/stamp-chat-ids {"a" {:id "wrong"}}))))
   (testing "nil chats normalize to an empty map"
     (is (= {} (db/stamp-chat-ids nil)))))
+
+(deftest chats-index-persists-workspaces-test
+  (testing "the chats index records the workspace root paths so offline readers can tell which workspace the chats belong to"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [workspaces [{:uri (h/file-uri "file:///home/user/my-proj")}]
+                db {:workspace-folders workspaces
+                    :chats {"a" {:id "a" :title "A" :updated-at 100 :messages []}}}]
+            (db/save-chat! db "a" nil)
+            (is (= [(h/file-path "/home/user/my-proj")]
+                   (:workspaces (read-transit-file (chats-index-file workspaces))))))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest list-all-workspaces-chats-test
+  (let [tmpdir (str (fs/create-temp-dir))]
+    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (try
+        (let [workspaces [{:uri (h/file-uri "file:///home/user/proj-a")}]
+              db {:workspace-folders workspaces
+                  :chats {"cur-1" {:id "cur-1" :title "Current work" :updated-at 300
+                                   :messages [{:role "user" :content "hi"}]}
+                          "sub-1" {:id "sub-1" :subagent true :updated-at 400 :messages []}}}]
+          ;; another workspace on the current per-chat layout, with persisted paths
+          (write-transit! (io/file tmpdir "projb_hash1111" "chats" "index.transit.json")
+                          {:version db/chats-version
+                           :workspaces ["/home/user/proj-b"]
+                           :chats {"b-1" {:id "b-1" :title "B newest" :updated-at 200
+                                          :message-count 3 :user-message-count 2 :flags []}
+                                   "b-sub" {:id "b-sub" :subagent true :updated-at 500}}})
+          ;; stale duplicate of b-1 in another dir (legacy duplicate dirs, #558)
+          (write-transit! (io/file tmpdir "projbold_hash4444" "chats" "index.transit.json")
+                          {:version db/chats-version
+                           :chats {"b-1" {:id "b-1" :title "B stale" :updated-at 100}}})
+          ;; workspace never reopened since v7: legacy whole-workspace blob only
+          (write-transit! (io/file tmpdir "legacy_hash2222" "db.transit.json")
+                          {:version db/version
+                           :chats {"l-1" {:title "Legacy chat" :updated-at 150
+                                          :messages [{:role "user" :content "hi"}]}}})
+          ;; unreadable index is skipped without aborting the scan
+          (let [corrupt (io/file tmpdir "corrupt_hash3333" "chats" "index.transit.json")]
+            (io/make-parents corrupt)
+            (spit corrupt "not-transit{{{"))
+          (let [groups (db/list-all-workspaces-chats db nil)]
+            (testing "groups sorted by recency, current workspace flagged, approximate names from dir prefix"
+              (is (= [["proj-a" true] ["projb" false] ["legacy" false]]
+                     (map (juxt :name :current?) groups))))
+            (testing "current workspace chats come from memory with exact paths, excluding subagents"
+              (is (= [(h/file-path "/home/user/proj-a")] (:workspaces (nth groups 0))))
+              (is (= ["cur-1"] (mapv :id (:chats (nth groups 0))))))
+            (testing "persisted :workspaces paths are exposed and duplicated ids keep the most recent copy"
+              (is (= ["/home/user/proj-b"] (:workspaces (nth groups 1))))
+              (is (= [{:id "b-1" :title "B newest"}]
+                     (mapv #(select-keys % [:id :title]) (:chats (nth groups 1))))))
+            (testing "legacy blob workspaces have no exact paths and metas are projected"
+              (is (nil? (:workspaces (nth groups 2))))
+              (is (= [{:id "l-1" :title "Legacy chat" :message-count 1}]
+                     (mapv #(select-keys % [:id :title :message-count]) (:chats (nth groups 2))))))))
+        (finally (fs/delete-tree tmpdir))))))
+
+(deftest workspace-dir-name-parts-test
+  (let [parts @#'db/workspace-dir-name-parts]
+    (testing "name and hash split positionally, so a '_' inside the base64url hash is not a separator"
+      (is (= ["eca" "ab_c1234"] (parts "eca_ab_c1234")))
+      (is (= ["my_proj" "abcd1234"] (parts "my_proj_abcd1234"))))
+    (testing "legacy hash-only dir names label as the hash itself"
+      (is (= ["abcd1234" "abcd1234"] (parts "abcd1234"))))
+    (testing "unknown formats yield no hash"
+      (is (= ["short" nil] (parts "short")))
+      (is (= ["noseparator123" nil] (parts "noseparator123"))))))
+
+(deftest list-all-workspaces-chats-recovers-workspaces-test
+  (testing "unknown workspace paths are recovered by hash-verifying sibling dirs of known roots"
+    (let [tmpdir (str (fs/create-temp-dir))
+          projects (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [proj-b (io/file projects "proj-b")
+                _ (fs/create-dirs proj-b)
+                proj-b-workspaces [{:uri (shared/filename->uri (str proj-b))}]
+                workspaces [{:uri (shared/filename->uri (str (io/file projects "proj-a")))}]
+                db {:workspace-folders workspaces
+                    :chats {"cur-1" {:id "cur-1" :title "Cur" :updated-at 300 :messages []}}}]
+            ;; proj-b's index was written by an older ECA: no :workspaces recorded
+            (write-transit! (io/file (cache/workspace-cache-dir proj-b-workspaces shared/uri->filename)
+                                     "chats" "index.transit.json")
+                            {:version db/chats-version
+                             :chats {"b-1" {:id "b-1" :title "B" :updated-at 200}}})
+            (let [groups (db/list-all-workspaces-chats db nil)
+                  b-group (first (filter #(= ["b-1"] (mapv :id (:chats %))) groups))]
+              (is (= [(str (fs/absolutize proj-b))] (:workspaces b-group))
+                  "exact path recovered by matching the dir hash, not guessed")))
+          (finally
+            (fs/delete-tree tmpdir)
+            (fs/delete-tree projects)))))))

@@ -500,16 +500,18 @@
   (stamp-chat-ids (update-vals (:chats db) chat-list-meta)))
 
 (defn ^:private write-chats-index!
-  "Persists `entries` ({chat-id meta}) to the workspace chats index.
+  "Persists `entries` ({chat-id meta}) to the workspace chats index, stamping
+   the workspace root paths (`workspace-paths`) so offline readers can tell
+   which workspace the chats belong to (the cache dir hash is one-way).
 
    Safe across processes sharing one cache dir (#558): when the index changed
    on disk since this process last wrote it, on-disk entries are merged in
    (newest recency wins per chat, ties keep this process's copy). Ids in
    `deleted-ids` are never resurrected by the merge. Runs under a
    cross-process file lock; if locking fails, falls back to a plain overwrite."
-  [entries deleted-ids dest metrics]
+  [entries deleted-ids workspace-paths dest metrics]
   (let [write! (fn [entries]
-                 (upsert-cache! {:version chats-version :chats entries} dest metrics)
+                 (upsert-cache! {:version chats-version :workspaces workspace-paths :chats entries} dest metrics)
                  (record-workspace-write-attrs! dest))]
     (try
       (with-os-file-lock-fn
@@ -534,16 +536,18 @@
   "Derives the chats index from the in-memory `db` and persists it. Skips the
    write when nothing changed since this process's last index write."
   [db metrics]
-  (let [dest (chats-index-file (db-workspaces db))
+  (let [workspaces (db-workspaces db)
+        dest (chats-index-file workspaces)
         k (.getAbsolutePath dest)
         entries (db->index-entries db)
         deleted-ids (not-empty (:deleted-chat-ids db))
+        workspace-paths (vec (cache/sorted-workspace-paths workspaces shared/uri->filename))
         state [entries deleted-ids]]
     ;; Skip only when nothing changed AND the file is still there, so a
     ;; deleted/lost index is always recreated.
     (when-not (and (= state (.get last-index-state k))
                    (fs/exists? dest))
-      (write-chats-index! entries deleted-ids dest metrics)
+      (write-chats-index! entries deleted-ids workspace-paths dest metrics)
       (.put last-index-state k state))))
 
 (defn save-chat!
@@ -718,8 +722,9 @@
                 ;; (only a strictly newer legacy chat overwrote the file).
                 (let [disk-entries (:chats (read-cache index-file chats-version metrics))
                       entries (merge-chats [disk-entries
-                                            (stamp-chat-ids (update-vals legacy-chats chat-list-meta))])]
-                  (upsert-cache! {:version chats-version :chats entries} index-file metrics)
+                                            (stamp-chat-ids (update-vals legacy-chats chat-list-meta))])
+                      workspace-paths (vec (cache/sorted-workspace-paths workspaces shared/uri->filename))]
+                  (upsert-cache! {:version chats-version :workspaces workspace-paths :chats entries} index-file metrics)
                   (record-workspace-write-attrs! index-file))
                 (when (fs/exists? canonical)
                   (atomic-move! canonical (io/file (str (.getPath canonical) ".bak"))))
@@ -832,3 +837,144 @@
           (doseq [chat-id removed-ids]
             (delete-chat-file! workspaces chat-id))
           (update-chats-index! db metrics))))))
+
+(def ^:private workspaces-hash-length 8)
+
+(defn ^:private workspace-dir-name-parts
+  "Splits a workspace cache dir name into [approx-name hash]. The dir name is
+   '<sanitized-project-name>_<hash>' or just '<hash>'; the 8-char base64url
+   hash may itself contain '_', so it is parsed positionally (last 8 chars)
+   rather than by splitting on '_'. Unknown formats yield a nil hash."
+  [^String dir-name]
+  (let [n (count dir-name)]
+    (cond
+      (= n workspaces-hash-length)
+      [dir-name dir-name]
+
+      (and (> n (inc workspaces-hash-length))
+           (= \_ (.charAt dir-name (- n (inc workspaces-hash-length)))))
+      [(subs dir-name 0 (- n (inc workspaces-hash-length)))
+       (subs dir-name (- n workspaces-hash-length))]
+
+      :else [dir-name nil])))
+
+(defn ^:private read-workspace-dir-chats
+  "Reads the persisted chats of one workspace cache `dir`: the v7 chats index
+   when present, falling back to the legacy pre-v7 whole-workspace blob
+   (workspaces never reopened since v7). Returns
+   {:workspaces [path...]-or-nil :chats {chat-id meta}} or nil when the dir
+   has no readable chats."
+  [^java.io.File dir metrics]
+  (try
+    (let [index-file (io/file dir "chats" "index.transit.json")
+          legacy-file (io/file dir "db.transit.json")]
+      (cond
+        (fs/exists? index-file)
+        (when-let [index (read-cache index-file chats-version metrics)]
+          {:workspaces (not-empty (vec (:workspaces index)))
+           :chats (stamp-chat-ids (:chats index))})
+
+        (fs/exists? legacy-file)
+        (when-let [chats (read-legacy-workspace-cache legacy-file metrics)]
+          {:workspaces nil
+           :chats (update-vals chats chat-list-meta)})))
+    (catch Throwable e
+      (logger/warn logger-tag (str "Could not read chats from workspace cache dir " dir) e)
+      nil)))
+
+(defn ^:private recover-unknown-workspaces
+  "Fills `:workspaces` of groups lacking persisted paths by *verifying*
+   candidates against the group's one-way dir `:hash`: sibling directories of
+   known workspace roots (`extra-roots` plus the groups' own persisted paths)
+   are hashed with the same fn that named the cache dir, so a match recovers
+   the exact original root. Guess-free (no match, no label) and single-root
+   workspaces only: multi-root sets are combinatorial."
+  [groups extra-roots]
+  (let [unresolved (filter (every-pred (comp nil? :workspaces) :hash) groups)
+        known-roots (into (set extra-roots) (mapcat :workspaces) groups)]
+    (if (or (empty? unresolved) (empty? known-roots))
+      groups
+      (let [candidate-dirs (into #{}
+                                 (comp (keep #(try (some-> (fs/parent (fs/file %)) str)
+                                                   (catch Throwable _ nil)))
+                                       (distinct)
+                                       (mapcat (fn [parent]
+                                                 (try
+                                                   (->> (fs/list-dir parent)
+                                                        (filter fs/directory?)
+                                                        (map str))
+                                                   (catch Throwable _ nil)))))
+                                 known-roots)
+            hash->path (reduce (fn [m path]
+                                 (assoc m (cache/workspace-paths-hash [path]) path))
+                               {}
+                               candidate-dirs)]
+        (mapv (fn [{:keys [workspaces hash] :as group}]
+                (if-let [path (and (nil? workspaces) (get hash->path hash))]
+                  (assoc group :workspaces [path])
+                  group))
+              groups)))))
+
+(defn list-all-workspaces-chats
+  "Lists persisted chats across ALL workspace cache dirs under the global
+   cache dir, so a chat can be located without opening each workspace. The
+   current workspace's chats come from memory (freshest); other dirs are read
+   from disk, tolerating unreadable ones. Subagent chats are excluded and a
+   chat id duplicated across dirs (legacy duplicate dirs, #558) keeps only
+   its most recent copy. Groups without persisted paths get a hash-verified
+   recovery attempt (see `recover-unknown-workspaces`).
+
+   Returns workspace groups sorted by most recent chat activity:
+   [{:name string            ;; dir-name derived label, approximate
+     :hash string-or-nil     ;; dir-name hash key
+     :workspaces [path ...]  ;; exact roots when known (persisted, current or recovered)
+     :current? boolean
+     :chats [chat-meta ...]} ;; sorted by recency desc
+    ...]"
+  [db metrics]
+  (let [workspaces (db-workspaces db)
+        current-dir (cache/workspace-cache-dir workspaces shared/uri->filename)
+        current-dir-path (.getAbsolutePath current-dir)
+        current-paths (not-empty (vec (cache/sorted-workspace-paths workspaces shared/uri->filename)))
+        [current-name current-hash] (workspace-dir-name-parts (.getName current-dir))
+        current-group {:name current-name
+                       :hash current-hash
+                       :workspaces current-paths
+                       :current? true
+                       :chats (vec (vals (db->index-entries db)))}
+        other-groups (keep (fn [^java.io.File dir]
+                             (when (not= (.getAbsolutePath dir) current-dir-path)
+                               (when-let [{:keys [workspaces chats]} (read-workspace-dir-chats dir metrics)]
+                                 (let [[approx-name hash] (workspace-dir-name-parts (.getName dir))]
+                                   {:name approx-name
+                                    :hash hash
+                                    :workspaces workspaces
+                                    :current? false
+                                    :chats (vec (vals chats))}))))
+                           (cache/workspace-cache-dirs))
+        groups (mapv #(update % :chats (fn [chats] (vec (remove :subagent chats))))
+                     (cons current-group other-groups))
+        ;; Duplicated chat ids across dirs keep only the most recent copy.
+        winners (reduce (fn [acc idx]
+                          (reduce (fn [acc chat]
+                                    (let [id (:id chat)
+                                          existing (get acc id)]
+                                      (if (or (nil? existing)
+                                              (> (chat-recency chat) (chat-recency (:chat existing))))
+                                        (assoc acc id {:idx idx :chat chat})
+                                        acc)))
+                                  acc
+                                  (:chats (nth groups idx))))
+                        {}
+                        (range (count groups)))]
+    (-> (->> groups
+             (keep-indexed (fn [idx group]
+                             (let [chats (->> (:chats group)
+                                              (filter #(= idx (:idx (get winners (:id %)))))
+                                              (sort-by chat-recency #(compare %2 %1))
+                                              (vec))]
+                               (when (seq chats)
+                                 (assoc group :chats chats)))))
+             (sort-by #(chat-recency (first (:chats %))) #(compare %2 %1))
+             (vec))
+        (recover-unknown-workspaces current-paths))))
