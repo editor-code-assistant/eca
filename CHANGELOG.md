@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Echo user prompt and show a "Loading config" progress before resolving config, so slow `${cmd:...}` keys no longer delay the chat UI.
+- Fix config cache thrashing on unrelated db changes, which re-ran `${cmd:...}` commands on every request and poll; cache successful `${cmd:...}` results for 5 minutes.
+
 ## 0.158.0
 
 - Build fallback variants from `/v1/models` advertised reasoning efforts (OpenRouter, Synthetic) when no built-in or user variants exist.

@@ -93,6 +93,7 @@
 (defn initialize [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/initialize
     (reset! config/initialization-config* (shared/map->camel-cased-map (:initialization-options params)))
+    (config/clear-cache!)
     (let [config (config/all @db*)]
       (swap! db* assoc
              :client-info (:client-info params)
@@ -164,7 +165,8 @@
       (try
         (let [plugins-config (:plugins config)]
           (when (seq plugins-config)
-            (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))))
+            (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))
+            (config/clear-cache!)))
         (catch Exception e
           (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
       (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
@@ -220,11 +222,14 @@
     (f.mcp/shutdown! db*)
     nil))
 
-(defn chat-prompt [{:keys [messenger db* config metrics]} params]
+(defn chat-prompt
+  "Config is resolved lazily by f.chat/prompt (not by the server layer) so it
+   can echo the user prompt before paying the config resolution cost."
+  [{:keys [messenger db* metrics]} params]
   (metrics/task metrics :eca/chat-prompt
     (case (get-in @db* [:chats (:chat-id params) :status])
-      :login (f.login/handle-step params db* messenger config metrics)
-      (f.chat/prompt params db* messenger config metrics))))
+      :login (f.login/handle-step params db* messenger (config/all @db*) metrics)
+      (f.chat/prompt params db* messenger #(config/all @db*) metrics))))
 
 (defn chat-inline-prompt [{:keys [messenger db* config metrics]} params]
   (metrics/task metrics :eca/chat-inline-prompt

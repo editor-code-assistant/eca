@@ -733,7 +733,25 @@
                   config)))
         (update :agent resolve-agent-inheritance))))
 
-(def all (memoize/ttl all* :ttl/threshold ttl-cache-config-ms))
+(def ^:private all-memo
+  (memoize/ttl (fn [workspace-folders]
+                 (all* {:workspace-folders workspace-folders}))
+               :ttl/threshold ttl-cache-config-ms))
+
+(defn all
+  "Returns the merged config from all sources, cached for a few seconds.
+   The cache is keyed on workspace-folders (the only db field `all*` reads)
+   instead of the whole db, otherwise any unrelated db change would miss it
+   and re-run every config source, including `${cmd:...}` commands.
+   Writers of the other inputs `all*` reads (config files,
+   `initialization-config*`, `plugin-components*`) must call `clear-cache!`."
+  [db]
+  (all-memo (:workspace-folders db)))
+
+(defn clear-cache!
+  "Drops the cached config so the next `all` call re-reads all sources."
+  []
+  (memoize/memo-clear! all-memo))
 
 (defn read-file-configs
   "Reads and merges config from file-based sources only (initial config,
@@ -962,4 +980,5 @@
                      (flatten-to-paths config))
         root (rj/assoc-in root ["$schema"] config-schema-url)]
     (io/make-parents file)
-    (spit file (rj/to-string root))))
+    (spit file (rj/to-string root))
+    (clear-cache!)))

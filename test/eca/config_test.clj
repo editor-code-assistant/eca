@@ -15,6 +15,29 @@
 
 (h/reset-components-before-test)
 
+(deftest all-cache-test
+  (testing "resolves once for different db values sharing the same workspace-folders"
+    (let [calls* (atom 0)
+          folders [{:uri "file:///ws"}]]
+      (config/clear-cache!)
+      (try
+        (with-redefs-fn {#'config/all* (fn [db]
+                                         (swap! calls* inc)
+                                         {:resolved-for (:workspace-folders db)})}
+          (fn []
+            (is (= {:resolved-for folders}
+                   (config/all {:workspace-folders folders :chats {"a" {}}})))
+            (is (= {:resolved-for folders}
+                   (config/all {:workspace-folders folders :chats {"b" {}} :config-hash 1})))
+            (is (= 1 @calls*))
+            (config/all {:workspace-folders [{:uri "file:///other"}]})
+            (is (= 2 @calls*))
+            (config/clear-cache!)
+            (config/all {:workspace-folders folders})
+            (is (= 3 @calls*))))
+        (finally
+          (config/clear-cache!))))))
+
 (deftest all-test
   (testing "Default config"
     (reset! config/initialization-config* {:pureConfig true})

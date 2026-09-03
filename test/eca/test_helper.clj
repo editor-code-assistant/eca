@@ -98,6 +98,7 @@
 (defn reset-components! []
   (reset! config/initialization-config* {})
   (reset! config/plugin-components* nil)
+  (config/clear-cache!)
   (reset! components* (make-components))
   ;; Set default workspace folder for tests
   (swap! (db*) assoc :workspace-folders [{:uri (shared/filename->uri (System/getProperty "user.dir"))}]))

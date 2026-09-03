@@ -1875,10 +1875,6 @@
                              :provider provider
                              :model model
                              :messenger messenger})]
-        ;; Show original prompt to user, but LLM receives the modified version
-        (lifecycle/send-content! chat-ctx :user {:type :text
-                                                 :content-id (:user-content-id chat-ctx)
-                                                 :text (str message "\n")})
         ;; Clear prompt-finished? so finish-chat-prompt! can properly terminate
         ;; this prompt cycle. prompt-messages! already does this for regular
         ;; prompts, but commands and mcp-prompts go through different paths.
@@ -1930,6 +1926,11 @@
     (str "chatId must be " max-client-chat-id-length " characters or fewer")))
 
 (defn prompt
+  "`config` is either the config map or a 0-arity fn resolving it. The fn is
+   only called after the user prompt was echoed to the client and a
+   \"Loading config\" progress was sent, since resolving config may be slow
+   (e.g. `${cmd:...}` keys spawning commands). Callers that already hold the
+   config should pass the map."
   [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
   (let [provided-chat-id chat-id
         invalid-id-reason (when (and (some? provided-chat-id)
@@ -1941,11 +1942,8 @@
           {:chat-id provided-chat-id
            :model "error"
            :status :error})
-      (let [raw-agent (or agent
-                          behavior ;; backward compat: accept old 'behavior' param
-                          (-> config :chat :defaultAgent) ;; legacy
-                          (-> config :defaultAgent))
-            chat-id (or provided-chat-id (str (random-uuid)))
+      (let [chat-id (or provided-chat-id (str (random-uuid)))
+            message (string/trim message)
             ;; Atomically seed the chat record if absent and remember whether
             ;; we were the ones to create it. swap-vals! returns [old new] so
             ;; chat-just-created? is true iff the chat was missing pre-swap.
@@ -1958,62 +1956,93 @@
             ;; A chat from a previous session may be index-only in memory;
             ;; load its message history before prompting on it.
             _ (db/hydrate-chat! db* chat-id metrics)
-            ;; A freshly-created chat with no client-provided trust inherits
-            ;; the server default (chat.defaultTrust), so every editor gets
-            ;; trust-by-default without having to send anything.
-            seeded-default-trust? (and chat-just-created?
-                                       (nil? trust)
-                                       (boolean (-> config :chat :defaultTrust)))
-            effective-trust (if seeded-default-trust? true trust)
             ;; Notify observers (other clients, remote SSE viewers) about a
             ;; new client-initiated chat. Skipped on the legacy null-id path
             ;; because the prompting client learns its id from the response.
             _ (when (and provided-chat-id chat-just-created?)
                 (messenger/chat-opened messenger {:chat-id chat-id}))
-            selected-agent (config/validate-agent-name raw-agent config)
-            agent-config (get-in config [:agent selected-agent])
-            base-chat-ctx (assoc-some {:metrics metrics
-                                       :config config
-                                       :contexts contexts
-                                       :db* db*
-                                       :messenger messenger
-                                       :user-content-id (lifecycle/new-content-id)
-                                       :message (string/trim message)
-                                       :chat-id chat-id
-                                       :agent selected-agent
-                                       :agent-config agent-config
-                                       :trust effective-trust
-                                       :variant (or variant (:variant agent-config))
-                                       :on-follow-up (fn [follow-up-text chat-ctx]
-                                                       (prompt-messages!
-                                                        [{:role "user"
-                                                          :content [{:type :text
-                                                                     :text follow-up-text}]}]
-                                                        :follow-up
-                                                        chat-ctx))}
-                                      :parent-chat-id (db/parent-chat-id @db* chat-id))
-            _ (when (some? effective-trust)
-                (swap! db* assoc-in [:chats chat-id :trust] effective-trust))
-            ;; When we seeded the default (the client didn't ask), align the
-            ;; client's per-chat trust indicator with the auto-approval the
-            ;; server is about to apply.
-            _ (when (and seeded-default-trust? provided-chat-id)
-                (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
-        (logger/with-chat-context chat-id (:parent-chat-id base-chat-ctx)
-          (when-let [cleared-details (f.tools.task/auto-clear-completed! db* chat-id)]
-            (logger/info logger-tag "Auto-cleared completed task list" {:chat-id chat-id})
-            (lifecycle/send-content! base-chat-ctx :assistant
-                                     {:type :toolCalled
-                                      :server "eca"
-                                      :name "task"
-                                      :details cleared-details}))
+            parent-chat-id (db/parent-chat-id @db* chat-id)
+            user-content-id (lifecycle/new-content-id)
+            early-chat-ctx (assoc-some {:messenger messenger
+                                        :chat-id chat-id}
+                                       :parent-chat-id parent-chat-id)
+            ;; Show original prompt to user right away, LLM receives the
+            ;; modified version later.
+            _ (lifecycle/send-content! early-chat-ctx :user {:type :text
+                                                              :content-id user-content-id
+                                                              :text (str message "\n")})
+            resolve-config? (fn? config)
+            _ (when resolve-config?
+                (lifecycle/send-content! early-chat-ctx :system {:type :progress
+                                                                  :state :running
+                                                                  :text "Loading config"}))]
+        (logger/with-chat-context chat-id parent-chat-id
           (try
-            (prompt* params base-chat-ctx)
+            (let [config (if resolve-config? (config) config)
+                  raw-agent (or agent
+                                behavior ;; backward compat: accept old 'behavior' param
+                                (-> config :chat :defaultAgent) ;; legacy
+                                (-> config :defaultAgent))
+                  ;; A freshly-created chat with no client-provided trust inherits
+                  ;; the server default (chat.defaultTrust), so every editor gets
+                  ;; trust-by-default without having to send anything.
+                  seeded-default-trust? (and chat-just-created?
+                                             (nil? trust)
+                                             (boolean (-> config :chat :defaultTrust)))
+                  effective-trust (if seeded-default-trust? true trust)
+                  selected-agent (config/validate-agent-name raw-agent config)
+                  agent-config (get-in config [:agent selected-agent])
+                  base-chat-ctx (assoc-some {:metrics metrics
+                                             :config config
+                                             :contexts contexts
+                                             :db* db*
+                                             :messenger messenger
+                                             :user-content-id user-content-id
+                                             :message message
+                                             :chat-id chat-id
+                                             :agent selected-agent
+                                             :agent-config agent-config
+                                             :trust effective-trust
+                                             :variant (or variant (:variant agent-config))
+                                             :on-follow-up (fn [follow-up-text chat-ctx]
+                                                             (prompt-messages!
+                                                              [{:role "user"
+                                                                :content [{:type :text
+                                                                           :text follow-up-text}]}]
+                                                              :follow-up
+                                                              chat-ctx))}
+                                            :parent-chat-id parent-chat-id)
+                  _ (when (some? effective-trust)
+                      (swap! db* assoc-in [:chats chat-id :trust] effective-trust))
+                  ;; When we seeded the default (the client didn't ask), align the
+                  ;; client's per-chat trust indicator with the auto-approval the
+                  ;; server is about to apply.
+                  _ (when (and seeded-default-trust? provided-chat-id)
+                      (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
+              (when-let [cleared-details (f.tools.task/auto-clear-completed! db* chat-id)]
+                (logger/info logger-tag "Auto-cleared completed task list" {:chat-id chat-id})
+                (lifecycle/send-content! base-chat-ctx :assistant
+                                         {:type :toolCalled
+                                          :server "eca"
+                                          :name "task"
+                                          :details cleared-details}))
+              (try
+                (prompt* params base-chat-ctx)
+                (catch Exception e
+                  (logger/error e)
+                  (lifecycle/send-content! base-chat-ctx :system {:type :text
+                                                                  :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+                  (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks base-chat-ctx))
+                  {:chat-id chat-id
+                   :model "error"
+                   :status :error})))
+            ;; Failure before we have a full chat-ctx (e.g. config resolution):
+            ;; report it and close the progress we already sent.
             (catch Exception e
               (logger/error e)
-              (lifecycle/send-content! base-chat-ctx :system {:type :text
-                                                              :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
-              (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks base-chat-ctx))
+              (lifecycle/send-content! early-chat-ctx :system {:type :text
+                                                                :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
+              (lifecycle/send-content! early-chat-ctx :system {:type :progress :state :finished})
               {:chat-id chat-id
                :model "error"
                :status :error})))))))

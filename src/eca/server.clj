@@ -134,7 +134,8 @@
   (async-notify (handlers/workspace-did-change-folders (with-config components) params)))
 
 (defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
-  (eventually (handlers/chat-prompt (with-config components) params)))
+  ;; No with-config: the handler resolves config after echoing the prompt.
+  (eventually (handlers/chat-prompt components params)))
 
 (defmethod jsonrpc.server/receive-request "chat/inlinePrompt" [_ components params]
   (eventually (handlers/chat-inline-prompt (with-config components) params)))

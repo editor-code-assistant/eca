@@ -2,7 +2,6 @@
   (:require
    [cheshire.core :as json]
    [cheshire.factory :as json.factory]
-   [clojure.core.memoize :as memoize]
    [clojure.java.browse :as browse]
    [clojure.java.io :as io]
    [clojure.string :as string]
@@ -837,7 +836,7 @@
         config-file (resolve-config-file server-name db)]
     (update-config-file! config-file
                          #(rj-assoc-server-entry % server-name new-server-config))
-    (memoize/memo-clear! config/all)
+    (config/clear-cache!)
     (let [fresh-config (config/all @db*)]
       (restart-server! server-name db* fresh-config metrics on-server-updated))))
 
@@ -849,7 +848,7 @@
         server-config (get-in config [:mcpServers server-name])]
     (update-config-file! config-file
                          #(rj/assoc-in % ["mcpServers" server-name "disabled"] true))
-    (memoize/memo-clear! config/all)
+    (config/clear-cache!)
     (when (get-in db [:mcp-clients server-name :client])
       (stop-server! server-name db* config {:on-server-updated on-server-updated}))
     (on-server-updated (->server server-name (assoc server-config :disabled true) :disabled @db*))))
@@ -861,7 +860,7 @@
         config-file (resolve-config-file server-name db)]
     (update-config-file! config-file
                          #(rj/dissoc-in % ["mcpServers" server-name "disabled"]))
-    (memoize/memo-clear! config/all)
+    (config/clear-cache!)
     (let [fresh-config (config/all @db*)]
       (start-server! server-name db* fresh-config metrics {:on-server-updated on-server-updated}))))
 
@@ -908,7 +907,7 @@
           config-file (resolve-target-config-file scope workspace-uri @db*)]
       (update-config-file! config-file
                            #(rj-assoc-server-entry % server-name normalized))
-      (memoize/memo-clear! config/all)
+      (config/clear-cache!)
       (let [fresh-config (config/all @db*)
             fresh-server-config (get-in fresh-config [:mcpServers server-name])]
         (if (get fresh-server-config :disabled false)
@@ -933,7 +932,7 @@
     (swap! db* update :mcp-auth dissoc (mcp-auth-key server-name server-config db))
     (update-config-file! config-file
                          #(rj/dissoc-in % ["mcpServers" server-name]))
-    (memoize/memo-clear! config/all)
+    (config/clear-cache!)
     (on-server-removed {:name server-name})
     {:name server-name :removed true}))
 

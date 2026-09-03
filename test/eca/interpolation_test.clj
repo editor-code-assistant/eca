@@ -13,10 +13,48 @@
   (fn [t]
     (interpolation/reset-shell-path-cache!)
     (interpolation/reset-plugin-dirs!)
+    (interpolation/clear-cmd-cache!)
     (try
       (t)
       (finally
-        (interpolation/reset-plugin-dirs!)))))
+        (interpolation/reset-plugin-dirs!)
+        (interpolation/clear-cmd-cache!)))))
+
+(deftest cmd-cache-test
+  (testing "same command is executed once within the TTL"
+    (let [calls* (atom 0)]
+      (with-redefs [interpolation/resolve-cmd (fn [_] (swap! calls* inc) "token-1")]
+        (is (= "token-1 token-1"
+               (interpolation/replace-dynamic-strings "${cmd:get token} ${cmd:get token}" "/tmp" {})))
+        (is (= "token-1" (interpolation/replace-dynamic-strings "${cmd:get token}" "/tmp" {})))
+        (is (= 1 @calls*)))))
+
+  (testing "different commands are cached independently"
+    (let [calls* (atom [])]
+      (with-redefs [interpolation/resolve-cmd (fn [cmd] (swap! calls* conj cmd) (str "out:" cmd))]
+        (is (= "out:a out:b"
+               (interpolation/replace-dynamic-strings "${cmd:a} ${cmd:b}" "/tmp" {})))
+        (is (= "out:b out:a"
+               (interpolation/replace-dynamic-strings "${cmd:b} ${cmd:a}" "/tmp" {})))
+        (is (= ["a" "b"] @calls*)))))
+
+  (testing "empty results are not cached so failures are retried"
+    (let [calls* (atom 0)]
+      (with-redefs [interpolation/resolve-cmd (fn [_]
+                                                (swap! calls* inc)
+                                                (if (= 1 @calls*) "" "recovered"))]
+        (is (= "" (interpolation/replace-dynamic-strings "${cmd:flaky}" "/tmp" {})))
+        (is (= "recovered" (interpolation/replace-dynamic-strings "${cmd:flaky}" "/tmp" {})))
+        (is (= "recovered" (interpolation/replace-dynamic-strings "${cmd:flaky}" "/tmp" {})))
+        (is (= 2 @calls*)))))
+
+  (testing "clear-cmd-cache! forces re-execution"
+    (let [calls* (atom 0)]
+      (with-redefs [interpolation/resolve-cmd (fn [_] (swap! calls* inc) "v")]
+        (interpolation/replace-dynamic-strings "${cmd:x}" "/tmp" {})
+        (interpolation/clear-cmd-cache!)
+        (interpolation/replace-dynamic-strings "${cmd:x}" "/tmp" {})
+        (is (= 2 @calls*))))))
 
 (deftest plugin-root-interpolation-test
   (let [tmp-dir (fs/create-temp-dir)

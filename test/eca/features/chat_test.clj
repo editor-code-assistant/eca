@@ -137,6 +137,55 @@
           (catch InterruptedException _))
         (recur (- deadline (System/currentTimeMillis)))))))
 
+(deftest prompt-lazy-config-test
+  (testing "user prompt is echoed and progress sent before config is resolved"
+    (h/reset-components!)
+    (let [messages-at-resolve* (atom nil)
+          {:keys [chat-id]}
+          (with-redefs [llm-api/sync-or-async-prompt! (fn [{:keys [on-first-response-received on-message-received]}]
+                                                        (on-first-response-received {:type :text :text "Hey"})
+                                                        (on-message-received {:type :text :text "Hey"})
+                                                        (on-message-received {:type :finish}))
+                        llm-api/sync-prompt! (constantly nil)
+                        f.tools/all-tools (constantly [])
+                        f.tools/approval (constantly :allow)
+                        config/await-plugins-resolved! (constantly true)]
+            (h/config! {:env "test"})
+            (swap! (h/db*) update :models
+                   (fn [models] (merge {"openai/gpt-5.2" {:tools true}} (or models {}))))
+            (f.chat/prompt {:message "Hey!"}
+                           (h/db*)
+                           (h/messenger)
+                           (fn []
+                             (reset! messages-at-resolve* (:chat-content-received (h/messages)))
+                             (h/config))
+                           (h/metrics)))]
+      (is (match? [{:chat-id chat-id :role :user :content {:type :text :text "Hey!\n"}}
+                   {:chat-id chat-id :role :system :content {:type :progress :state :running :text "Loading config"}}]
+                  @messages-at-resolve*))
+      (is (match? {:chat-content-received
+                   [{:role :user :content {:type :text :text "Hey!\n"}}
+                    {:role :system :content {:type :progress :state :running :text "Loading config"}}
+                    {:role :system :content {:type :progress :state :running :text "Waiting model"}}
+                    {:role :system :content {:type :progress :state :running :text "Generating"}}
+                    {:role :assistant :content {:type :text :text "Hey"}}
+                    {:role :system :content {:type :progress :state :finished}}]}
+                  (h/messages)))))
+  (testing "config resolution failure reports the error and finishes the progress"
+    (h/reset-components!)
+    (let [resp (f.chat/prompt {:message "Hey!"}
+                              (h/db*)
+                              (h/messenger)
+                              (fn [] (throw (ex-info "boom" {})))
+                              (h/metrics))]
+      (is (match? {:chat-id string? :model "error" :status :error} resp))
+      (is (match? {:chat-content-received
+                   [{:role :user :content {:type :text :text "Hey!\n"}}
+                    {:role :system :content {:type :progress :state :running :text "Loading config"}}
+                    {:role :system :content {:type :text :text #"^Error: boom"}}
+                    {:role :system :content {:type :progress :state :finished}}]}
+                  (h/messages))))))
+
 (deftest prompt-basic-test
   (testing "Simple hello"
     (h/reset-components!)

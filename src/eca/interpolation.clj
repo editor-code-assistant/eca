@@ -59,6 +59,7 @@
 (defn get-env [env] (System/getenv env))
 
 (def ^:private cmd-default-timeout-ms 30000)
+(def ^:private cmd-cache-ttl-ms (* 5 60 1000))
 (def ^:private shell-query-timeout-ms 5000)
 (def ^:private shell-query-delim "__ECA_PATH_DELIM__")
 
@@ -231,6 +232,29 @@
                    {:cmd cmd-string :error (.getMessage e)})
       "")))
 
+(defonce ^:private cmd-cache* (atom {}))
+
+(defn clear-cmd-cache!
+  "Drops all cached `${cmd:...}` results. Test helper."
+  []
+  (reset! cmd-cache* {}))
+
+(defn ^:private resolve-cmd-cached
+  "Like `resolve-cmd`, but reuses the result of the same command string for
+  `cmd-cache-ttl-ms`. Config is re-read often (every request, polling loop),
+  so without this every read would respawn slow commands like secret
+  managers or token fetchers. Empty results (failures) are not cached so a
+  transient failure is retried on the next read."
+  [cmd-string]
+  (let [now (System/currentTimeMillis)
+        {:keys [value at]} (get @cmd-cache* cmd-string)]
+    (if (and value (< (- now at) cmd-cache-ttl-ms))
+      value
+      (let [result (resolve-cmd cmd-string)]
+        (when-not (string/blank? result)
+          (swap! cmd-cache* assoc cmd-string {:value result :at now}))
+        result))))
+
 (defn replace-dynamic-strings
   "Given a string and a current working directory, look for patterns replacing its content:
   - `${env:SOME-ENV:default-value}`: Replace with a env falling back to a optional default value
@@ -280,7 +304,7 @@
           (string/replace #"\$\{cmd:([^}]+)\}"
                           (fn [[_match cmd-string]]
                             (try
-                              (or (resolve-cmd cmd-string) "")
+                              (or (resolve-cmd-cached cmd-string) "")
                               (catch Exception e
                                 (logger/warn logger-tag "Error executing cmd:" (.getMessage e))
                                 ""))))))

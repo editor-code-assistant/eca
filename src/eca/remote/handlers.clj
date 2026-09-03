@@ -209,18 +209,17 @@
         (json-response (camel-keys base))))
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))))
 
-(defn handle-prompt [{:keys [db*] :as components} request chat-id]
+(defn handle-prompt [components request chat-id]
   (let [body (parse-body request)]
     (if-not (:message body)
       (error-response 400 "invalid_request" "Missing required field: message")
-      (let [config (config/all @db*)
-            params (cond-> {:chat-id chat-id
+      (let [params (cond-> {:chat-id chat-id
                             :message (:message body)}
                      (:model body) (assoc :model (:model body))
                      (:agent body) (assoc :agent (:agent body))
                      (:variant body) (assoc :variant (:variant body))
                      (:trust body) (assoc :trust (:trust body)))
-            result (handlers/chat-prompt (assoc components :config config) params)]
+            result (handlers/chat-prompt components params)]
         (json-response (camel-keys result))))))
 
 (defn handle-stop [{:keys [db*] :as components} _request chat-id]

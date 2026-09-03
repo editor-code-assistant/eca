@@ -85,7 +85,7 @@ It's possible to retrieve content of any configs with a string value using the `
 - `env`: `${env:MY_ENV}` to get a system env value with support for default values: `${env:MY_ENV:foo}`
 - `classpath`: `${classpath:path/to/eca/file}` to get a file content from [ECA's classpath](https://github.com/editor-code-assistant/eca/tree/master/resources)
 - `netrc`: Support Unix RC [credential files](./models.md#credential-file-authentication)
-- `cmd`: `${cmd:some command}` to run a command via the platform shell (`bash -c` on POSIX, PowerShell on Windows) and use its trimmed stdout — useful for password managers like `${cmd:pass show eca/api-key}` or `${cmd:op read op://vault/Item/credential}`. On non-zero exit/timeout the value falls back to an empty string and a warning is logged. The command itself cannot contain `}` (the closing brace ends the placeholder); for commands like `awk '{print $1}' …`, wrap them in a small script or shell function.
+- `cmd`: `${cmd:some command}` to run a command via the platform shell (`bash -c` on POSIX, PowerShell on Windows) and use its trimmed stdout — useful for password managers like `${cmd:pass show eca/api-key}` or `${cmd:op read op://vault/Item/credential}`. On non-zero exit/timeout the value falls back to an empty string and a warning is logged. Since config is re-read frequently, a successful (non-empty) result is cached for 5 minutes per command, so slow commands like token fetchers are not respawned on every read; failures are not cached and are retried on the next read. The command itself cannot contain `}` (the closing brace ends the placeholder); for commands like `awk '{print $1}' …`, wrap them in a small script or shell function.
 
 !!! info "macOS GUI launches"
 

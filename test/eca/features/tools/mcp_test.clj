@@ -2,7 +2,6 @@
   (:require
    [babashka.fs :as fs]
    [cheshire.core :as json]
-   [clojure.core.memoize :as memoize]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
@@ -328,7 +327,6 @@
       (try
         (with-redefs [config/global-config-file (constantly config-file)
                       config/all (fn [_] {:mcpServers {"s" {:command "bin" :disabled true}}})]
-          (memoize/memo-clear! config/all)
           (let [result (mcp/add-server! "s"
                                         {:command "bin" :disabled true}
                                         {:scope :global}
