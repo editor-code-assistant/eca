@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `gpt-6-astra` support: built-in variants `low`, `medium`, `high`, `xhigh`, `max` (no `none`), Codex Lite/context fallbacks, web search and image generation.
+
 ## 0.158.1
 
 - Echo user prompt and show a "Loading config" progress before resolving config, so slow `${cmd:...}` keys no longer delay the chat UI.

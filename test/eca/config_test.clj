@@ -792,6 +792,25 @@
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-opus-4.5"
                                                    {:api :openai-chat} nil)))))
 
+    (testing "Default config: gpt-6 models get effort variants without none"
+      (let [default-config (config/initial-config)
+            gpt-6-variants {"low" {:reasoning {:effort "low" :summary "auto"}}
+                            "medium" {:reasoning {:effort "medium" :summary "auto"}}
+                            "high" {:reasoning {:effort "high" :summary "auto"}}
+                            "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}
+                            "max" {:reasoning {:effort "max" :summary "auto"}}}]
+        (is (= gpt-6-variants
+               (config/effective-model-variants default-config "openai" "gpt-6-astra" nil nil)))
+        (is (= gpt-6-variants
+               (config/effective-model-variants default-config "custom" "gpt_6_astra" nil nil)))
+        ;; gpt-5.6 keeps its own set, including none
+        (is (contains? (config/effective-model-variants default-config "openai" "gpt-5.6-sol" nil nil)
+                       "none"))
+        ;; point releases and Copilot are not matched
+        (is (nil? (config/effective-model-variants default-config "openai" "gpt-6.1" nil nil)))
+        (is (nil? (config/effective-model-variants default-config "openai" "gpt-60" nil nil)))
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-6-astra" nil nil)))))
+
     (testing "User variant set to {} removes it from result"
       (is (= (dissoc anthropic-variants "high" "max")
              (config/effective-model-variants config "anthropic" "claude-sonnet-4-6"

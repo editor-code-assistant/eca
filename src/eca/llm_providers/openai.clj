@@ -39,13 +39,16 @@
    "gpt-5.6-sol" 272000
    "gpt-5.6-terra" 272000
    "gpt-5.6-luna" 272000
+   "gpt-6-astra" 272000
    "gpt-5" 272000})
 
 ;; ChatGPT subscription requests go through the Codex backend, which requires
 ;; the Codex CLI request identity and supports a Responses Lite payload shape
 ;; for some models. All Codex specifics live in the `codex-` fns below.
 
-(def ^:private codex-compatibility-version "0.146.0")
+;; Keep >= the `minimal_client_version` of the newest model we want the Codex
+;; /models endpoint to list (gpt-6-astra requires 0.153.0).
+(def ^:private codex-compatibility-version "0.153.1")
 
 (def ^:private codex-responses-url "https://chatgpt.com/backend-api/codex/responses")
 
@@ -117,7 +120,9 @@
    "gpt-5.6-terra" {:default-reasoning-effort "medium"
                     :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}
    "gpt-5.6-luna" {:default-reasoning-effort "medium"
-                   :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}})
+                   :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}
+   "gpt-6-astra" {:default-reasoning-effort "low"
+                  :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}})
 
 (defn ^:private codex-model-fallback-discovery
   "Static discovery data for known Responses Lite models, used when the live

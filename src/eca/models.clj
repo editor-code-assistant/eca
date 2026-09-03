@@ -175,6 +175,7 @@
     "openai/gpt-5.6-luna"
     "openai/gpt-5.6-terra"
     "openai/gpt-5.6-sol"
+    "openai/gpt-6-astra"
     "openai/o3"})
 
 (def ^:private models-with-web-search-support
@@ -197,6 +198,7 @@
     "openai/gpt-5.6-luna"
     "openai/gpt-5.6-terra"
     "openai/gpt-5.6-sol"
+    "openai/gpt-6-astra"
     "openai/o3"
     "openai/o3-mini"
     "openai/o4-mini"

@@ -1473,10 +1473,19 @@
                         [:discovered-provider-data :responses-lite?])))))
 
 (deftest codex-model-fallback-discovery-test
-  (testing "all current GPT-5.6 Codex models retain Lite metadata without /models"
-    (doseq [model ["gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna"]]
+  (testing "all current Lite Codex models retain Lite metadata without /models"
+    (doseq [model ["gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra"]]
       (is (true? (get-in (#'llm-providers.openai/codex-model-fallback-discovery model)
                          [:discovered-provider-data :responses-lite?])))))
+  (testing "gpt-6-astra defaults to low effort and has no none variant"
+    (let [discovery (#'llm-providers.openai/codex-model-fallback-discovery "gpt-6-astra")]
+      (is (= "low" (get-in discovery [:discovered-provider-data :default-reasoning-effort])))
+      (is (= #{"low" "medium" "high" "xhigh" "max"}
+             (set (keys (:discovered-variants discovery)))))))
+  (testing "gpt-6-astra keeps the Codex context cap without /models"
+    (is (= 272000
+           (get-in (#'llm-providers.openai/fetch-oauth-models nil {})
+                   ["gpt-6-astra" :limit :context]))))
   (testing "model matching is case-insensitive"
     (is (true? (get-in (#'llm-providers.openai/codex-model-fallback-discovery "GPT-5.6-SOL")
                        [:discovered-provider-data :responses-lite?])))))

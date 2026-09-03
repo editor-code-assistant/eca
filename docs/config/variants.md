@@ -88,6 +88,18 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `xhigh`    | `{"reasoning": {"effort": "xhigh", "summary": "auto"}}` |
     | `max`      | `{"reasoning": {"effort": "max", "summary": "auto"}}` |
 
+=== "OpenAI (gpt-6)"
+
+    Applies to models matching `gpt-6` (e.g. `gpt-6-astra`; any separator: `-`, `.`, `_`), but not `gpt-6.x` point releases. Excluded for `github-copilot` provider. There is no `none` variant: GPT-6 Astra rejects that effort level. For Fast mode, add a custom variant with `"service_tier": "fast"` alongside the effort.
+
+    | Variant    | Payload |
+    | ---------- | ------- |
+    | `low`      | `{"reasoning": {"effort": "low", "summary": "auto"}}` |
+    | `medium`   | `{"reasoning": {"effort": "medium", "summary": "auto"}}` |
+    | `high`     | `{"reasoning": {"effort": "high", "summary": "auto"}}` |
+    | `xhigh`    | `{"reasoning": {"effort": "xhigh", "summary": "auto"}}` |
+    | `max`      | `{"reasoning": {"effort": "max", "summary": "auto"}}` |
+
 === "DeepSeek"
 
     Applies to models matching `deepseek-v4-pro` and `deepseek-v4-flash`. Only for providers using the `openai-chat` API.
