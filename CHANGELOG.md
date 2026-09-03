@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.158.1
+
 - Echo user prompt and show a "Loading config" progress before resolving config, so slow `${cmd:...}` keys no longer delay the chat UI.
 - Fix config cache thrashing on unrelated db changes, which re-ran `${cmd:...}` commands on every request and poll; cache successful `${cmd:...}` results for 5 minutes.
 
