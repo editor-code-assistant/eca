@@ -77,6 +77,7 @@
 
       ;; User message
       (match-content chat-id "user" {:type "text" :text "Call the echo tool\n"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
 
       ;; Title notification
       (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
@@ -165,6 +166,7 @@
 
       ;; Consume notifications so the chat completes
       (match-content chat-id "user" {:type "text"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
       (match-content chat-id "system" {:type "metadata"})
       (match-content chat-id "system" {:type "progress" :state "running"})
       (match-content chat-id "system" {:type "progress" :state "running"})
@@ -209,6 +211,7 @@
 
       ;; User message
       (match-content chat-id "user" {:type "text" :text "Add the multiply tool\n"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
 
       ;; Title + progress
       (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})

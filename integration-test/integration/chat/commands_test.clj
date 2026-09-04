@@ -87,6 +87,7 @@
            resp))
 
       (match-content chat-id "user" {:type "text" :text "/prompt-show\n"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
       (match-content chat-id "system" {:type "text" :text (m/pred #(and (string/includes? % "# Instructions (System prompt)")
                                                                         (string/includes? % "You are ECA")
                                                                         (not (string/includes? % "# Chat (User prompt)"))
@@ -148,6 +149,7 @@
                                  :message "Tell me a joke!"}))
             chat-id (reset! chat-id* (:chatId resp))]
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -171,6 +173,7 @@
 
         ;; User message
         (match-content chat-id "user" {:type "text" :text "/compact\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         ;; Progress
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -242,6 +245,7 @@
                                  :message "Tell me a joke!"}))
             chat-id (reset! chat-id* (:chatId resp))]
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Knock"})
@@ -269,6 +273,7 @@
 
         ;; Origin chat shows the command and the fork notice only.
         (match-content chat-id "user" {:type "text" :text "/btw Who's there?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "text" :text "Side question forked to: btw: Who's there?"})
         ;; Forked chat replays the copied history and gets its title.
         (match-content btw-chat-id "user" {:type "text" :text "\nTell me a joke!"})
@@ -299,6 +304,7 @@
             chat-id @chat-id*]
         (is (match? {:chatId chat-id :status "prompting"} resp))
         (match-content chat-id "user" {:type "text" :text "What foo?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})

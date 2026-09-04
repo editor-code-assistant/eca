@@ -49,6 +49,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -79,6 +80,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "Who's there?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
@@ -108,6 +110,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "What foo?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -165,6 +168,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -192,6 +196,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "Who's there?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
@@ -218,6 +223,7 @@
              resp))
 
         (match-content chat-id "user" {:type "text" :text "What foo?\n"})
+        (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
