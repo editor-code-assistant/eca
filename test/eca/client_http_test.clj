@@ -4,7 +4,11 @@
             [eca.client-test-helpers :refer [with-proxy *proxy-host* *proxy-port*]]
             [eca.config :as config]
             [hato.client :as hato])
-  (:import [java.io IOException]))
+  (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
+           [java.io IOException]
+           [java.net InetSocketAddress Proxy ProxySelector URI]))
+
+(set! *warn-on-reflection* true)
 
 (deftest hato-client-make-test
   (testing "proxy http setup"
@@ -216,3 +220,86 @@
           (System/clearProperty prop))
         (alter-var-root #'client/*hato-http-client* (constantly nil))))))
 #_(hato-client-global-setup-tests)
+
+(defn- loopback-server
+  "Start a loopback HTTP endpoint that records requests and identifies its route."
+  ^HttpServer [route requests]
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.createContext server "/"
+                    (reify HttpHandler
+                      (handle [_ exchange]
+                        (with-open [^HttpExchange exchange exchange]
+                          (swap! requests conj [route (str (.getRequestURI exchange))])
+                          (let [body (.getBytes ^String route java.nio.charset.StandardCharsets/UTF_8)]
+                            (.sendResponseHeaders exchange 200 (alength body))
+                            (.write (.getResponseBody exchange) body))))))
+    (.start server)
+    server))
+
+(deftest no-proxy-loopback-test
+  (let [requests (atom [])
+        destination (loopback-server "destination" requests)
+        proxy-server (loopback-server "proxy" requests)
+        destination-url (str "http://127.0.0.1:" (.getPort (.getAddress destination)) "/route")
+        proxy-url (str "http://127.0.0.1:" (.getPort (.getAddress proxy-server)))
+        original client/*hato-http-client*]
+    (try
+      (doseq [[label env route host]
+              [["absent" {} "proxy"]
+               ["nonmatching" {"no_proxy" "other.example"} "proxy"]
+               ["matching hostname" {"no_proxy" "LOCALHOST"} "destination" "localhost"]
+               ["matching IP" {"no_proxy" "127.0.0.1"} "destination"]
+               ["uppercase fallback" {"NO_PROXY" "127.0.0.1"} "destination"]
+               ["lowercase wins" {"no_proxy" "other.example" "NO_PROXY" "127.0.0.1"} "proxy"]
+               ["lowercase matching wins" {"no_proxy" "127.0.0.1" "NO_PROXY" "other.example"} "destination"]
+               ["empty lowercase wins" {"no_proxy" "" "NO_PROXY" "*"} "proxy"]
+               ["trim entries" {"no_proxy" " , other.example, 127.0.0.1 , "} "destination"]
+               ["wildcard" {"no_proxy" "*"} "destination"]
+               ["port qualifier unsupported" {"no_proxy" (str "127.0.0.1:" (.getPort (.getAddress destination)))} "proxy"]
+               ["CIDR unsupported" {"no_proxy" "127.0.0.0/8"} "proxy"]]]
+        (testing label
+          (reset! requests [])
+          (with-redefs [config/get-env (merge {"http_proxy" proxy-url} env)]
+            (client/hato-client-global-setup! {:connect-timeout 2000})
+            (let [url (if host
+                        (str "http://" host ":" (.getPort (.getAddress destination)) "/route")
+                        destination-url)
+                  response (hato/get url {:http-client client/*hato-http-client* :timeout 2000})]
+              (is (= 200 (:status response)))
+              (is (= route (:body response)))
+              (is (= [[route (if (= route "proxy") url "/route")]] @requests))))))
+      (finally
+        (alter-var-root #'client/*hato-http-client* (constantly original))
+        (.stop proxy-server 0)
+        (.stop destination 0)))))
+
+(deftest no-proxy-host-matching-test
+  ;; These select a route without resolving the synthetic hostnames or using TLS.
+  (doseq [scheme ["http" "https"]
+          [no-proxy host direct?]
+          [["internal.example" "internal.example" true]
+           ["internal.example" "api.internal.example" true]
+           [".internal.example" "internal.example" true]
+           [".internal.example" "api.internal.example" true]
+           ["INTERNAL.EXAMPLE" "API.INTERNAL.EXAMPLE" true]
+           ["internal.example" "notinternal.example" false]
+           ["internal.example" "internal.example.evil.test" false]
+           ["internal.example:8443" "internal.example" false]
+           ["*.internal.example" "api.internal.example" false]
+           ["*" "any.example" true]
+           ["other.example,*" "any.example" false]
+           ["" "internal.example" false]
+           ["0.0.1" "127.0.0.1" false]
+           ["::1" "[::1]" true]]]
+    (testing (str scheme " " no-proxy " -> " host)
+      (let [original client/*hato-http-client*]
+        (try
+          (with-redefs [config/get-env {"http_proxy" "http://127.0.0.1:8888"
+                                        "https_proxy" "http://127.0.0.1:8888"
+                                        "no_proxy" no-proxy}]
+            (client/hato-client-global-setup! {})
+            (let [selector ^ProxySelector (:proxy client/*hato-http-client*)
+                  proxies (.select selector (URI. (str scheme "://" host ":8443/path")))]
+              (is (= direct? (= [Proxy/NO_PROXY] proxies)))))
+          (finally
+            (alter-var-root #'client/*hato-http-client* (constantly original))))))))
