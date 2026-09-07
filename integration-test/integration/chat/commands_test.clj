@@ -25,6 +25,7 @@
             :commands [{:name "init" :arguments []}
                        {:name "login" :arguments [{:name "provider-id"}]}
                        {:name "model" :arguments [{:name "full-model"}]}
+                       {:name "agent" :arguments [{:name "agent-name"}]}
                        {:name "skills" :arguments []}
                        {:name "skill-create"
                         :arguments [{:name "name" :description "The skill name" :required true}

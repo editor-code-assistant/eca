@@ -129,6 +129,7 @@ The built-in commands are:
 - `/init`: Create/update the AGENTS.md file with details about the workspace for best LLM output quality.
 - `/login`: Log into a provider. Ex: `github-copilot`, `anthropic`.
 - `/model`: Select model for current chat directly from chat. Ex: `anthropic/claude-sonnet-4-6`.
+- `/agent`: Select a primary agent for the current chat. Ex: `plan`.
 - `/skills`: List known skills that ECA can load.
 - `/hooks`: List active hooks grouped by type, showing name, description, and matcher.
 - `/compact`: Compact/summarize conversation helping reduce context window.

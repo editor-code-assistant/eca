@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `/agent` to switch a chat's primary agent without resetting its established model or variant. #428
 - Add `gpt-6-astra` support: built-in variants `low`, `medium`, `high`, `xhigh`, `max` (no `none`), Codex Lite/context fallbacks, web search and image generation.
 
 ## 0.158.1

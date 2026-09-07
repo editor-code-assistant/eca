@@ -195,6 +195,10 @@
                        :type :native
                        :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
                        :arguments [{:name "full-model"}]}
+                      {:name "agent"
+                       :type :native
+                       :description "Select agent for current chat (Ex: /agent plan)"
+                       :arguments [{:name "agent-name"}]}
                       {:name "skills"
                        :type :native
                        :description "List available skills"
@@ -733,6 +737,43 @@
                     (chat-message
                      (multi-str (str "Selected model: `" selected-model "`")
                                 "Using model defaults.")))))
+      "agent" (let [selected-agent (first args)
+                    available-agents (sort (config/primary-agent-names config))
+                    current-agent (or (get-in db [:chats chat-id :agent]) agent)
+                    chat-message (fn [text]
+                                   {:type :chat-messages
+                                    :chats {chat-id {:messages [{:role "system"
+                                                                 :content [{:type :text
+                                                                            :text text}]}]}}})]
+                (cond
+                  (string/blank? selected-agent)
+                  (if (seq available-agents)
+                    (chat-message
+                     (multi-str (str "Current agent: `" current-agent "`")
+                                ""
+                                "Available agents:"
+                                (string/join "\n" (map #(str "- `" % "`") available-agents))
+                                ""
+                                "Run `/agent <agent-name>` to switch chat agent."))
+                    (chat-message "No primary agents are available."))
+
+                  (not (some #{selected-agent} available-agents))
+                  (chat-message
+                   (multi-str (str "Unknown agent: `" selected-agent "`")
+                              ""
+                              (when (seq available-agents)
+                                (str "Available agents:\n"
+                                     (string/join "\n" (map #(str "- `" % "`") available-agents))))))
+
+                  :else
+                  (do
+                    ;; Reuse the client-selection handler so command selection
+                    ;; persists per-chat, preserves existing model/variant policy,
+                    ;; and refreshes tools exactly like a client-side agent change.
+                    ((requiring-resolve 'eca.handlers/chat-selected-agent-changed)
+                     (select-keys chat-ctx [:db* :messenger :config :metrics])
+                     {:chat-id chat-id :agent selected-agent})
+                    (chat-message (str "Selected agent: `" selected-agent "`.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
                    {new-id :id new-title :title new-messages :messages}
                    (fork-chat! chat (fork-title (:title chat)) [] chat-ctx)]
