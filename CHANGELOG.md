@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stop retrying provider 429 errors that report exhausted usage or billing quota. #405
 - Add `gpt-6-astra` support: built-in variants `low`, `medium`, `high`, `xhigh`, `max` (no `none`), Codex Lite/context fallbacks, web search and image generation.
 
 ## 0.158.1
