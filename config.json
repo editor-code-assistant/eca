@@ -222,6 +222,12 @@
       "maximum": 100,
       "default": 75
     },
+    "autoCompactTokensLeft": {
+      "type": "integer",
+      "description": "Remaining context tokens (model context limit minus used tokens) at or below which auto-compact triggers. Takes precedence over autoCompactPercentage, which is only used as fallback when this value is not smaller than the model context limit. Useful when switching between models with very different context sizes.",
+      "markdownDescription": "Remaining context tokens (model context limit minus used tokens) at or below which auto-compact triggers. Takes precedence over `autoCompactPercentage`, which is only used as fallback when this value is not smaller than the model context limit. Useful when switching between models with very different context sizes.",
+      "minimum": 1
+    },
     "includeParentAgentsFiles": {
       "type": "boolean",
       "description": "When true, also include AGENTS.md files from each workspace folder's parent directories, ordered outermost parent first, then the workspace's own AGENTS.md.",
@@ -999,6 +1005,12 @@
           "markdownDescription": "Context window usage percentage at which auto-compact triggers for this agent.",
           "minimum": 0,
           "maximum": 100
+        },
+        "autoCompactTokensLeft": {
+          "type": "integer",
+          "description": "Remaining context tokens at or below which auto-compact triggers for this agent. Takes precedence over autoCompactPercentage.",
+          "markdownDescription": "Remaining context tokens at or below which auto-compact triggers for this agent. Takes precedence over `autoCompactPercentage`.",
+          "minimum": 1
         },
         "toolCall": {
           "$ref": "#/definitions/toolCallConfig"
