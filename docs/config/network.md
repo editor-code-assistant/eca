@@ -21,6 +21,30 @@ https_proxy="http://user:pass@host:port"
 
 Lowercase wins if both are set. Credentials (if used) must match for HTTP and HTTPS.
 
+### Bypassing the proxy
+
+For ECA's Hato HTTP client (including LLM API requests), set `no_proxy` or `NO_PROXY`:
+
+```bash
+export no_proxy="localhost,127.0.0.1,.internal.example"
+```
+
+Lowercase takes precedence even when it is empty. Entries are comma-separated;
+whitespace and empty entries are ignored. Matching is case-insensitive and uses
+the URL hostname without resolving DNS:
+
+- `internal.example` or `.internal.example` matches that host and its subdomains,
+  such as `api.internal.example`, but not `notinternal.example`.
+- IP literals match exactly; write IPv6 addresses without brackets, such as `::1`.
+- A value of `*` bypasses the configured proxy for every host.
+- Host entries apply to all ports and both HTTP and HTTPS. Port-qualified entries
+  (`internal.example:8443`), CIDR ranges and partial wildcards (`*.example`) are
+  not supported and do not match.
+
+When the variable is absent or empty, or no entry matches, the configured proxy
+continues to be used. This bypass list applies to ECA's environment-configured
+Hato proxies; it does not change JVM proxy properties or other HTTP clients.
+
 ## Custom CA certificates
 
 When behind a corporate firewall that uses its own root CA, you will see errors like `PKIX path building failed`. To fix this, point ECA to a PEM file containing the additional CA certificates:
