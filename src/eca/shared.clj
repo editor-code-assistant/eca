@@ -231,6 +231,18 @@
          (or (= path root)
              (fs/starts-with? path root)))))
 
+(def ^:private image-ext->media-type
+  {"png"  "image/png"
+   "jpg"  "image/jpeg"
+   "jpeg" "image/jpeg"
+   "gif"  "image/gif"
+   "webp" "image/webp"})
+
+(defn image-media-type
+  "Media type for `path` when its extension is a supported image format, else nil."
+  [path]
+  (get image-ext->media-type (string/lower-case (or (fs/extension path) ""))))
+
 (defn workspaces-as-str [db]
   (string/join ", " (map (comp uri->filename :uri) (:workspace-folders db))))
 

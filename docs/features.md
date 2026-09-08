@@ -60,6 +60,7 @@ ECA support built-in tools to avoid user extra installation and configuration, t
 
     - `directory_tree`: list a directory as a tree (can be recursive).
     - `read_file`: read a file content.
+    - `view_image`: load a png/jpg/gif/webp file into the chat as an image the model can see (only available to models with image input).
     - `write_file`: write content to a new file.
     - `edit_file`: replace lines of a file with a new content.
     - `preview_edit_file`: Only used in plan mode, showing what changes will happen after user decides to execute the plan.

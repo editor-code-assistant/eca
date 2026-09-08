@@ -110,21 +110,18 @@
 
 (defn ^:private file->refined-context [path lines-range]
   (if (fs/readable? path)
-    (let [ext (string/lower-case (or (fs/extension path) ""))]
-      (if (contains? #{"png" "jpg" "jpeg" "gif" "webp"} ext)
-        {:type :image
-         :media-type (case ext
-                       "jpg" "image/jpeg"
-                       (str "image/" ext))
-         :base64 (.encodeToString (Base64/getEncoder)
-                                  (fs/read-all-bytes (fs/file path)))
-         :path path}
-        (when-let [content (llm-api/refine-file-context path lines-range)]
-          (assoc-some
-           {:type :file
-            :path path
-            :content content}
-           :lines-range lines-range))))
+    (if-let [media-type (shared/image-media-type path)]
+      {:type :image
+       :media-type media-type
+       :base64 (.encodeToString (Base64/getEncoder)
+                                (fs/read-all-bytes (fs/file path)))
+       :path path}
+      (when-let [content (llm-api/refine-file-context path lines-range)]
+        (assoc-some
+         {:type :file
+          :path path
+          :content content}
+         :lines-range lines-range)))
     (logger/warn logger-tag "File not found or unreadable at" path)))
 
 (defn raw-contexts->refined [contexts db]

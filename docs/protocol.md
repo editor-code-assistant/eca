@@ -3004,7 +3004,7 @@ interface EcaServerUpdatedParams {
     /**
      * The built-in tools supported by eca.
      *
-     * Built-in tools include: read_file, write_file, edit_file, move_file,
+     * Built-in tools include: read_file, view_image, write_file, edit_file, move_file,
      * directory_tree, shell_command, editor_diagnostics, editor_definition,
      * editor_references, compact_chat, skill, spawn_agent, and task.
      *

@@ -12,7 +12,8 @@
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]])
   (:import
-   [java.io ByteArrayInputStream]))
+   [java.io ByteArrayInputStream]
+   [java.util Base64]))
 
 (deftest directory-tree-test
   (testing "Invalid path"
@@ -165,6 +166,87 @@
            ((get-in f.tools.filesystem/definitions ["read_file" :handler])
             {"path" (h/file-path "/foo/qux") "line_offset" 2 "limit" 2}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}}))))))
+
+(deftest view-image-test
+  (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-view-image-test"}))
+        png-bytes (byte-array [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A 1 2 3])
+        write! (fn [name ^bytes data]
+                 (let [f (fs/path dir name)]
+                   (fs/write-bytes f data)
+                   (str f)))
+        png-path (write! "shot.png" png-bytes)
+        fake-png-path (write! "fake.png" (.getBytes "not really a png" "UTF-8"))
+        txt-path (write! "notes.txt" (.getBytes "hello" "UTF-8"))
+        view-image (get-in f.tools.filesystem/definitions ["view_image" :handler])
+        read-file (get-in f.tools.filesystem/definitions ["read_file" :handler])
+        enabled? (get-in f.tools.filesystem/definitions ["view_image" :enabled-fn])
+        db (fn [image-input?]
+             {:workspace-folders [{:uri (shared/filename->uri (str dir)) :name "root"}]
+              :chats {"chat-1" {:model "foo/bar"}}
+              :models {"foo/bar" {:image-input? image-input?}}})
+        ctx (fn [image-input?] {:db (db image-input?) :chat-id "chat-1" :config {}})]
+    (try
+      (testing "returns the image as image content for a model with image input"
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text (format "Image %s (image/png, 11 B)" png-path)}
+                         {:type :image
+                          :media-type "image/png"
+                          :base64 (.encodeToString (Base64/getEncoder) png-bytes)}]}
+             (view-image {"path" png-path} (ctx true)))))
+      (testing "model without image input"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"Model foo/bar does not support image input.*imageInput: true"}]}
+             (view-image {"path" png-path} (ctx false)))))
+      (testing "not an image extension"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"is not a supported image"}]}
+             (view-image {"path" txt-path} (ctx true)))))
+      (testing "image extension but not image bytes"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"not a valid image/png file"}]}
+             (view-image {"path" fake-png-path} (ctx true)))))
+      (testing "above the size limit"
+        (with-redefs [f.tools.filesystem/view-image-max-bytes 4]
+          (is (match?
+               {:error true
+                :contents [{:type :text
+                            :text (format "Image %s is 11 B, above the 4 B limit. Downscale or compress it before viewing." png-path)}]}
+               (view-image {"path" png-path} (ctx true))))))
+      (testing "missing file"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text (str (fs/path dir "missing.png") " is not a valid path")}]}
+             (view-image {"path" (str (fs/path dir "missing.png"))} (ctx true)))))
+      (testing "read_file refuses images, pointing to view_image when the model can see them"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"is an image \(image/png\), not a text file\. Use view_image"}]}
+             (read-file {"path" png-path} (ctx true))))
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"is an image \(image/png\), not a text file\. Use shell_command"}]}
+             (read-file {"path" png-path} (ctx false)))))
+      (testing "enabled only when the model is not known to lack image input"
+        (is (true? (enabled? {:db (db true) :chat-id "chat-1"})))
+        (is (false? (enabled? {:db (db false) :chat-id "chat-1"})))
+        (is (true? (enabled? {:db (db false) :chat-id nil})))
+        (is (true? (enabled? {:db {:chats {"chat-1" {:model "foo/unknown"}}} :chat-id "chat-1"}))))
+      (testing "summary"
+        (is (= "Viewing shot.png"
+               ((get-in f.tools.filesystem/definitions ["view_image" :summary-fn]) {:args {"path" png-path}}))))
+      (finally
+        (fs/delete-tree dir)))))
 
 (deftest write-file-test
   (testing "Approval required outside workspace"

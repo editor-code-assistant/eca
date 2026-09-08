@@ -9,6 +9,7 @@
 - Stop retrying provider 429 errors that report exhausted usage or billing quota. #405
 - Add `/agent` to switch a chat's primary agent without resetting its established model or variant. #428
 - Add `autoCompactTokensLeft` to auto-compact when a fixed number of context tokens remain instead of a percentage. #582
+- Add `view_image` tool so the agent can load png/jpg/gif/webp files from disk into context as images for models with image input.
 
 ## 0.158.1
 

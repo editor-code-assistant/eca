@@ -11,14 +11,52 @@
    [eca.features.tools.text-match :as text-match]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.shared :as shared]))
+   [eca.shared :as shared])
+  (:import
+   [java.util Base64]))
 
 (set! *warn-on-reflection* true)
 
 (defn ^:private path-validations []
   [["path" fs/exists? "$path is not a valid path"]])
 
+(defn ^:private file-validations []
+  (concat (path-validations)
+          [["path" fs/readable? "File $path is not readable"]
+           ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
+
 (def ^:private directory-tree-max-depth 10)
+
+(def ^:private view-image-max-bytes (* 5 1024 1024))
+
+(def ^:private image-signatures
+  "Byte offsets and expected bytes that a file of each media type must start with."
+  {"image/png"  [[0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A]]]
+   "image/jpeg" [[0 [0xFF 0xD8 0xFF]]]
+   "image/gif"  [[0 [0x47 0x49 0x46 0x38]]]
+   "image/webp" [[0 [0x52 0x49 0x46 0x46]]
+                 [8 [0x57 0x45 0x42 0x50]]]})
+
+(defn ^:private bytes-at? [^bytes data offset expected]
+  (and (>= (alength data) (+ offset (count expected)))
+       (every? (fn [[i b]] (= b (bit-and (aget data (+ offset i)) 0xFF)))
+               (map-indexed vector expected))))
+
+(defn ^:private image-signature-matches? [^bytes data media-type]
+  (every? (fn [[offset expected]] (bytes-at? data offset expected))
+          (get image-signatures media-type)))
+
+(defn ^:private human-size [bytes]
+  (cond
+    (>= bytes 1048576) (str (quot bytes 1048576) " MB")
+    (>= bytes 1024) (str (quot bytes 1024) " KB")
+    :else (str bytes " B")))
+
+(defn ^:private chat-model-image-input?
+  "The chat model's image input capability, nil when the model is unknown."
+  [db chat-id]
+  (when-let [full-model (get-in db [:chats chat-id :model])]
+    (get-in db [:models full-model :image-input?])))
 
 (defn ^:private path->root-filename [db path]
   (let [path (shared/normalize-path path)]
@@ -96,11 +134,16 @@
                 summary (format "%d directories, %d files" @dir-count* @file-count*)]
             (tools.util/single-text-content (str body "\n\n" summary)))))))
 
-(defn ^:private read-file [{:strs [path] :as arguments} {:keys [config] :as ctx}]
-  (or (tools.util/invalid-arguments arguments (concat (path-validations)
-                                                      [["path" fs/readable? "File $path is not readable"]
-                                                       ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
+(defn ^:private read-file [{:strs [path] :as arguments} {:keys [db chat-id config] :as ctx}]
+  (or (tools.util/invalid-arguments arguments (file-validations))
       (f.tools.path-rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (when-let [media-type (shared/image-media-type path)]
+        (tools.util/single-text-content
+         (str path " is an image (" media-type "), not a text file. "
+              (if (chat-model-image-input? db chat-id)
+                "Use view_image to see it, or shell_command (file, identify, exiftool) to inspect it."
+                "Use shell_command (file, identify, exiftool) to inspect it."))
+         :error))
       (let [line-offset                   (or (get arguments "line_offset") 0)
             limit                         (->> [(get arguments "limit")
                                                 (get-in config [:toolCall :readFile :maxLines])]
@@ -135,6 +178,56 @@
                          line-offset
                          (+ line-offset limit))))))
     "Reading file"))
+
+(defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
+  (or (tools.util/invalid-arguments arguments (file-validations))
+      (f.tools.path-rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (let [media-type (shared/image-media-type path)
+            file (fs/file (fs/canonicalize path))
+            size (when media-type (fs/size file))]
+        (cond
+          (not media-type)
+          (tools.util/single-text-content
+           (str path " is not a supported image (png, jpg, jpeg, gif, webp). "
+                "Use read_file for text files or shell_command to inspect binary files.")
+           :error)
+
+          (> size view-image-max-bytes)
+          (tools.util/single-text-content
+           (format "Image %s is %s, above the %s limit. Downscale or compress it before viewing."
+                   path (human-size size) (human-size view-image-max-bytes))
+           :error)
+
+          (not (chat-model-image-input? db chat-id))
+          (tools.util/single-text-content
+           (str "Model " (get-in db [:chats chat-id :model]) " does not support image input, so " path " cannot be viewed. "
+                "If the model does support images, set `imageInput: true` in its config. "
+                "Otherwise use shell_command (file, identify, exiftool) to inspect it.")
+           :error)
+
+          :else
+          (let [data (fs/read-all-bytes file)]
+            (if (image-signature-matches? data media-type)
+              {:error false
+               :contents [{:type :text
+                           :text (format "Image %s (%s, %s)" path media-type (human-size size))}
+                          {:type :image
+                           :media-type media-type
+                           :base64 (.encodeToString (Base64/getEncoder) data)}]}
+              (tools.util/single-text-content
+               (str path " has an image extension but its content is not a valid " media-type " file. "
+                    "Use shell_command (file, xxd) to inspect it.")
+               :error)))))))
+
+(defn ^:private view-image-enabled?
+  "Hidden only when the chat model is known to lack image input."
+  [{:keys [db chat-id]}]
+  (not (false? (chat-model-image-input? db chat-id))))
+
+(defn ^:private view-image-summary [{:keys [args]}]
+  (if-let [path (get args "path")]
+    (str "Viewing " (fs/file-name (fs/file path)))
+    "Viewing image"))
 
 (defn ^:private write-file [arguments ctx]
   (let [path (get arguments "path")
@@ -435,6 +528,16 @@
     :handler #'read-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'read-file-summary}
+   "view_image"
+   {:description (tools.util/read-tool-description "view_image")
+    :parameters {:type "object"
+                 :properties {"path" {:type "string"
+                                      :description "The absolute path to the image file (png, jpg, jpeg, gif, webp)."}}
+                 :required ["path"]}
+    :handler #'view-image
+    :enabled-fn #'view-image-enabled?
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :summary-fn #'view-image-summary}
    "write_file"
    {:description (tools.util/read-tool-description "write_file")
     :parameters {:type "object"
