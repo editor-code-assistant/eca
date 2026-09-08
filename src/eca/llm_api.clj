@@ -552,7 +552,8 @@
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
                             policy (retry-policy provider-config error-type)
                             max-retries (:max-retries policy)
-                            rl-wait (when (= :rate-limited error-type)
+                            ;; Quota exhaustion is not retried, but its reset time is still surfaced to the user.
+                            rl-wait (when (#{:rate-limited :quota-exhausted} error-type)
                                       (llm-providers.errors/rate-limit-wait (:headers error-data)
                                                                             (:body error-data)
                                                                             (System/currentTimeMillis)))

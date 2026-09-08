@@ -929,7 +929,7 @@
         (is (number? (:resets-at event)))))))
 
 (deftest sync-quota-exhausted-skips-reset-wait-test
-  (testing "quota exhaustion does not retry even when the provider supplies a reset time"
+  (testing "quota exhaustion does not retry but still surfaces the provider reset time"
     (let [attempt* (atom 0)
           error* (atom nil)
           slept* (atom [])]
@@ -950,7 +950,7 @@
            :on-message-received identity})))
       (is (= 1 @attempt*))
       (is (empty? @slept*))
-      (is (nil? (:rate-limit-resets-at @error*))))))
+      (is (number? (:rate-limit-resets-at @error*))))))
 
 (deftest rate-limit-default-max-wait-buffer-boundary-test
   (testing "59-second provider reset is allowed because the buffered delay is exactly 60 seconds"
