@@ -27,6 +27,9 @@
   both are present, they must be identical, otherwise an exception is
   thrown.
 
+  `:eca.client-http/no-proxy-hosts` optionally bypasses these proxies for
+  the hosts described by `eca.network/proxy-bypass?`.
+
   Each proxy map includes:
   :host     - the proxy host
   :port     - the proxy port
@@ -34,11 +37,11 @@
   :password - optional password for proxy authentication
 
   Returns a map suitable for passing to `hato.client-http/build-http-client`."
-  [{:eca.client-http/keys [proxy-http proxy-https] :as opts}]
+  [{:eca.client-http/keys [proxy-http proxy-https no-proxy-hosts] :as opts}]
   (logger/debug "[HATO]" "client-config:" opts)
   (let [{http-host :host http-port :port http-user :username http-pass :password} proxy-http
         {https-host :host https-port :port https-user :username https-pass :password} proxy-https
-        opts (apply dissoc opts [:eca.client-http/proxy-http :eca.client-http/proxy-https])
+        opts (apply dissoc opts [:eca.client-http/proxy-http :eca.client-http/proxy-https :eca.client-http/no-proxy-hosts])
         proxy-http-addr (and http-host http-port (InetSocketAddress. ^String http-host ^int http-port))
         proxy-https-addr (and https-host https-port (InetSocketAddress. ^String https-host ^int https-port))
         proxy-selector (when (or proxy-http-addr proxy-https-addr)
@@ -46,6 +49,8 @@
                            (select [^URI uri]
                              (let [scheme (.getScheme uri)]
                                (cond
+                                 (network/proxy-bypass? (.getHost uri) no-proxy-hosts)
+                                 [Proxy/NO_PROXY]
                                  (and proxy-http-addr (= scheme "http"))
                                  [(Proxy. Proxy$Type/HTTP proxy-http-addr)]
                                  (and proxy-https-addr (= scheme "https"))
@@ -114,6 +119,7 @@
   settings are present in the environment
   variables (`http_proxy`/`HTTP_PROXY` and `https_proxy`/`HTTPS_PROXY`),
   the corresponding proxy configuration is added to the build.
+  `no_proxy`/`NO_PROXY` supplies the bypass hosts, preferring lowercase.
 
   When a custom SSL context has been set up via `eca.network/setup!`,
   it is included so that custom CA certificates and mTLS are honoured."
@@ -121,7 +127,9 @@
   (enable-stale-connection-retry!)
   (let [{:keys [http https] :as _env-proxies} (network/env-proxy-urls-parse)
         ssl-ctx network/*ssl-context*
-        opts (cond-> (assoc hato-opts :executor ^java.util.concurrent.ExecutorService @shared-executor*)
+        opts (cond-> (assoc hato-opts
+                            :executor ^java.util.concurrent.ExecutorService @shared-executor*
+                            :eca.client-http/no-proxy-hosts (network/env-no-proxy-hosts))
                http
                (assoc :eca.client-http/proxy-http http)
                https

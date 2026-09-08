@@ -143,6 +143,38 @@
            (llm-providers.errors/classify-error
             {:message "rate limit exceeded, please retry"})))))
 
+(deftest classify-error-quota-exhausted-test
+  (testing "OpenAI quota and billing codes in 429 response bodies are not transient rate limits"
+    (doseq [code ["usage_limit_reached" "insufficient_quota" "billing_hard_limit_reached"]]
+      (is (= {:error/type :quota-exhausted}
+             (llm-providers.errors/classify-error
+              {:status 429
+               :body {:error {:type code}}
+               :message "OpenAI response status: 429"}))
+          code)))
+
+  (testing "quota code in an unstructured stream error is not retried"
+    (let [error-data {:message "OpenAI error: insufficient_quota"}]
+      (is (= {:error/type :quota-exhausted}
+             (llm-providers.errors/classify-error error-data)))
+      (is (false? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "OpenAI Responses quota code is not retried"
+    (let [error-data {:error/source :openai-responses
+                      :code "usage_limit_reached"
+                      :message "Request failed"}]
+      (is (= {:error/type :quota-exhausted}
+             (llm-providers.errors/classify-error error-data)))
+      (is (false? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "ordinary rate_limit_exceeded remains retryable"
+    (let [error-data {:status 429
+                      :body {:error {:type "rate_limit_exceeded"}}
+                      :message "OpenAI response status: 429"}]
+      (is (= {:error/type :rate-limited}
+             (llm-providers.errors/classify-error error-data)))
+      (is (true? (llm-providers.errors/retryable? error-data))))))
+
 (deftest classify-error-auth-test
   (testing "401 unauthorized"
     (is (= {:error/type :auth}

@@ -40,6 +40,12 @@
    #"(?i)throttl"
    #"(?i)overloaded_error"])
 
+(def ^:private quota-exhausted-patterns
+  "Provider error codes that indicate an exhausted usage or billing quota, not a transient rate limit."
+  [#"(?i)usage_limit_reached"
+   #"(?i)insufficient_quota"
+   #"(?i)billing_hard_limit_reached"])
+
 (def ^:private overloaded-patterns
   "Regex patterns matching transient connection/infrastructure errors across providers."
   [#"(?i)remote host terminated the handshake"
@@ -59,8 +65,11 @@
 (def ^:private openai-transient-message-pattern
   #"(?i)an error occurred while processing your request\.\s+you can retry your request\b")
 
-(defn ^:private matches-any-pattern? [^String text patterns]
-  (when text
+(defn ^:private matches-any-pattern? [text patterns]
+  (when-let [text (cond
+                    (string? text) text
+                    (map? text) (pr-str text)
+                    :else nil)]
     (some #(re-find % text) patterns)))
 
 (defn ^:private classify-by-status-and-body
@@ -76,6 +85,10 @@
 
     (= 413 status)
     {:error/type :context-overflow}
+
+    (and (= 429 status)
+         (matches-any-pattern? body quota-exhausted-patterns))
+    {:error/type :quota-exhausted}
 
     (= 429 status)
     {:error/type :rate-limited}
@@ -98,6 +111,9 @@
     (cond
       (some #{"server_error" "server_is_overloaded"} [code type])
       {:error/type :overloaded}
+
+      (some #{"usage_limit_reached" "insufficient_quota" "billing_hard_limit_reached"} [code type])
+      {:error/type :quota-exhausted}
 
       (some #{"rate_limit_exceeded"} [code type])
       {:error/type :rate-limited}
@@ -122,6 +138,9 @@
 
       (matches-any-pattern? message invalid-image-patterns)
       {:error/type :invalid-image}
+
+      (matches-any-pattern? message quota-exhausted-patterns)
+      {:error/type :quota-exhausted}
 
       (matches-any-pattern? message rate-limited-patterns)
       {:error/type :rate-limited}
@@ -186,7 +205,8 @@
      :retryable-custom  — matched a user-configured retry rule (with optional :error/label)
      :context-overflow  — prompt exceeds model context window
      :invalid-image     — provider rejected an image in the request (e.g. too small)
-     :rate-limited      — 429 or rate limit pattern in body/message
+     :quota-exhausted   — exhausted usage or billing quota reported by a provider
+     :rate-limited      — transient 429 or rate limit pattern in body/message
      :overloaded        — provider overloaded (503, 529, etc.)
      :network           — connection-level failure (DNS, connect refused/timeout, dropped)
      :auth              — authentication/authorization failure (401, 403)

@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-- Add `/agent` to switch a chat's primary agent without resetting its established model or variant. #428
+- Fix `spawn_agent` details to include the agent's configured `variant`; it was only sent when the LLM passed the `variant` argument explicitly.
 - Add `gpt-6-astra` support: built-in variants `low`, `medium`, `high`, `xhigh`, `max` (no `none`), Codex Lite/context fallbacks, web search and image generation.
+- Fix `directory_tree` hiding gitignored files but not their directories (e.g. `.git`, `target`); listing an ignored dir directly now shows its contents.
+- Honor `no_proxy`/`NO_PROXY` when routing HTTP and HTTPS requests through environment-configured proxies. #583
+- Stop retrying provider 429 errors that report exhausted usage or billing quota. #405
+- Add `/agent` to switch a chat's primary agent without resetting its established model or variant. #428
 
 ## 0.158.1
 

@@ -36,6 +36,7 @@
                  {:name agent-name
                   :description (:description agent-config)
                   :model (:defaultModel agent-config)
+                  :variant (:variant agent-config)
                   :max-steps (:maxSteps agent-config)
                   :system-prompt (:systemPrompt agent-config)
                   :tool-call (:toolCall agent-config)})))
@@ -220,9 +221,10 @@
                                         user-variant subagent-model (str/join ", " valid-variants))
                                 {:variant user-variant
                                  :model subagent-model
-                                 :available valid-variants})))))]
+                                 :available valid-variants})))))
+        variant (or user-variant (:variant subagent))]
 
-    (logger/info logger-tag (format "Spawning agent '%s' for task: %s (model: %s, variant: %s)" agent-name task subagent-model (or user-variant "default")))
+    (logger/info logger-tag (format "Spawning agent '%s' for task: %s (model: %s, variant: %s)" agent-name task subagent-model (or variant "default")))
 
     (let [max-steps-limit (max-steps subagent)]
       (swap! db* assoc-in [:chats subagent-chat-id]
@@ -247,7 +249,7 @@
                     :agent agent-name
                     :contexts []
                     :trust trust}
-             user-variant (assoc :variant user-variant))
+             variant (assoc :variant variant))
            db*
            messenger
            config
@@ -268,7 +270,7 @@
                 ;; Send step progress when step advances
                 (when (> current-step last-step)
                   (send-step-progress! messenger chat-id tool-call-id agent-name activity
-                                       subagent-chat-id current-step max-steps-limit subagent-model user-variant arguments))
+                                       subagent-chat-id current-step max-steps-limit subagent-model variant arguments))
                 (cond
                   ;; Parent chat stopped — propagate stop to subagent
                   (= :stopping (:status (call-state-fn)))
@@ -366,6 +368,7 @@
                    (get-agent agent-name config parent-agent-name))
         parent-model (get-in db [:chats chat-id :model])
         subagent-model (or user-model (:model subagent) parent-model)
+        variant (or user-variant (:variant subagent))
         subagent-chat-id (when tool-call-id
                            (->subagent-chat-id tool-call-id))]
     (cond-> {:type :subagent
@@ -374,7 +377,7 @@
              :agent-name agent-name
              :step (get-in db [:chats subagent-chat-id :current-step] 1)
              :max-steps (max-steps subagent)}
-      user-variant (assoc :variant user-variant))))
+      variant (assoc :variant variant))))
 
 (defmethod tools.util/tool-call-details-after-invocation :spawn_agent
   [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]

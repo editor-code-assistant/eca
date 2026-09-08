@@ -6,6 +6,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.tools :as f.tools]
    [eca.features.tools.agent :as f.tools.agent]
+   [eca.features.tools.util :as tools.util]
    [eca.llm-api :as llm-api]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -19,6 +20,9 @@
                        :systemPrompt "You are an explorer."}
            "general" {:mode "subagent"
                       :description "General purpose agent"}
+           "variant-worker" {:mode "subagent"
+                             :description "Worker with a configured variant"
+                             :variant "high"}
            "code" {:mode "primary"
                    :description "Code agent"}
            "swiss-knife" {:mode ["primary" "subagent"]
@@ -54,6 +58,19 @@
 (defn ^:private spawn-description [parent-agent-name]
   (get-in (f.tools.agent/definitions test-config test-db parent-agent-name)
           ["spawn_agent" :description]))
+
+(defn ^:private stub-requiring-resolve
+  [db* subagent-chat-id chat-prompt-called*]
+  (fn [sym]
+    (case sym
+      eca.features.chat/prompt
+      (fn [params _db* _messenger _config _metrics]
+        (deliver chat-prompt-called* params)
+        (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
+        (swap! db* assoc-in [:chats subagent-chat-id :messages]
+               [{:role "assistant"
+                 :content [{:type :text :text "Done."}]}]))
+      (clojure.lang.RT/var (namespace sym) (name sym)))))
 
 (deftest spawn-agent-parent-visibility-test
   (testing "unrestricted subagents are visible to every primary agent and without a parent"
@@ -639,6 +656,54 @@
           :tool-call-id "tc-1"
           :call-state-fn (constantly {:status :executing})})
         (is (nil? (:variant @chat-prompt-called*)))))))
+
+(deftest spawn-agent-configured-variant-test
+  (testing "falls back to the agent's configured variant when the argument is absent"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "anthropic/claude-sonnet-4-6"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}}})
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve (stub-requiring-resolve db* "subagent-tc-1" chat-prompt-called*)]
+        (let [result ((spawn-handler)
+                      {"agent" "variant-worker" "task" "work" "activity" "working"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "high" (:variant @chat-prompt-called*)))))))
+
+  (testing "user-specified variant wins over the agent's configured variant"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "anthropic/claude-sonnet-4-6"}}
+                     :models {"anthropic/claude-sonnet-4-6" {}}})
+          chat-prompt-called* (promise)]
+      (with-redefs [requiring-resolve (stub-requiring-resolve db* "subagent-tc-1" chat-prompt-called*)]
+        (let [result ((spawn-handler)
+                      {"agent" "variant-worker" "task" "work" "activity" "working"
+                       "variant" "medium"}
+                      {:db* db*
+                       :config test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error false} result))
+          (is (= "medium" (:variant @chat-prompt-called*)))))))
+
+  (testing "details-before-invocation includes the agent's configured variant"
+    (let [db {:chats {"chat-1" {:id "chat-1" :agent "code"
+                                :model "anthropic/claude-sonnet-4-6"}}
+              :models {"anthropic/claude-sonnet-4-6" {}}}]
+      (is (match? {:type :subagent
+                   :model "anthropic/claude-sonnet-4-6"
+                   :variant "high"
+                   :agent-name "variant-worker"}
+                  (tools.util/tool-call-details-before-invocation
+                   :spawn_agent {"agent" "variant-worker" "task" "work"} nil
+                   {:db db :config test-config :chat-id "chat-1" :tool-call-id "tc-1"}))))))
 
 (deftest spawn-agent-invalid-variant-test
   (testing "throws when user specifies a variant not valid for the resolved model"
