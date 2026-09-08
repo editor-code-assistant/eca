@@ -986,7 +986,7 @@
                                    (lifecycle/send-content! chat-ctx :system
                                                             (merge {:type :usage} usage
                                                                    (when breakdown {:context-breakdown breakdown})
-                                                                   (when-let [pct (lifecycle/auto-compact-percentage config agent)]
+                                                                   (when-let [pct (lifecycle/auto-compact-threshold config agent (get-in usage [:limit :context]))]
                                                                      {:auto-compact-percentage pct}))))))
             prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
             retitle? (= prompt-count 3)

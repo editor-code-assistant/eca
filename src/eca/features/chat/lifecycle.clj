@@ -22,18 +22,41 @@
   (or (get-in config [:agent agent-name :autoCompactPercentage])
       (get-in config [:autoCompactPercentage])))
 
+(defn ^:private auto-compact-tokens-left
+  "Remaining-tokens threshold (`autoCompactTokensLeft`) at which the
+   conversation is auto-compacted. Per-agent value wins over the global one;
+   nil when unset or not applicable to a model with `context-limit` tokens
+   (it must be smaller than the limit, otherwise every turn would compact)."
+  [config agent-name context-limit]
+  (let [tokens-left (or (get-in config [:agent agent-name :autoCompactTokensLeft])
+                        (get-in config [:autoCompactTokensLeft]))]
+    (when (and (number? tokens-left)
+               (pos? tokens-left)
+               (number? context-limit)
+               (< tokens-left context-limit))
+      tokens-left)))
+
+(defn auto-compact-threshold
+  "Effective auto-compaction threshold as a percentage of `context-limit`, as
+   sent to clients: derived from `autoCompactTokensLeft` when applicable,
+   otherwise `autoCompactPercentage`. nil when auto-compact is disabled."
+  [config agent-name context-limit]
+  (if-let [tokens-left (auto-compact-tokens-left config agent-name context-limit)]
+    (double (* 100 (/ (- context-limit tokens-left) context-limit)))
+    (auto-compact-percentage config agent-name)))
+
 (defn auto-compact? [chat-id agent-name full-model config db]
   (when (and (not (get-in db [:chats chat-id :compacting?]))
              (not (get-in db [:chats chat-id :auto-compacting?])))
-    (let [compact-threshold (auto-compact-percentage config agent-name)
-          {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
+    (let [{:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
           context-limit (:context limit)]
-      (when (and compact-threshold
-                 session-tokens
+      (when (and session-tokens
                  (number? context-limit)
                  (pos? context-limit))
-        (let [current-percentage (* (/ session-tokens context-limit) 100)]
-          (>= current-percentage compact-threshold))))))
+        (if-let [tokens-left (auto-compact-tokens-left config agent-name context-limit)]
+          (<= (- context-limit session-tokens) tokens-left)
+          (when-let [compact-threshold (auto-compact-percentage config agent-name)]
+            (>= (* (/ session-tokens context-limit) 100) compact-threshold)))))))
 
 (defn send-content! [{:keys [messenger chat-id parent-chat-id]} role content]
   (messenger/chat-content-received

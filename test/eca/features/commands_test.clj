@@ -904,6 +904,19 @@
       ;; one 🔲 in the grid (the threshold cell) + one in the legend line
       (is (= 2 (count (re-seq #"🔲" text)))))))
 
+(deftest context-usage-text-fractional-compaction-threshold-test
+  (let [text (#'f.commands/context-usage-text
+              "anthropic/claude-sonnet-4-6"
+              {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}]
+               :used-tokens 5300
+               :free-tokens 194700
+               :free-emoji "⬜"
+               :context-limit 200000}
+              87.5)]
+    (testing "renders the effective threshold derived from autoCompactTokensLeft"
+      (is (string/includes? text "Auto-compaction at 87.5%"))
+      (is (string/includes? text "175.0k tokens")))))
+
 (deftest chats-command-test
   (let [groups [{:name "proj-a"
                  :workspaces ["/home/user/proj-a"]

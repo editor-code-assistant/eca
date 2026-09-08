@@ -980,7 +980,7 @@
       "context" (let [messages (get-in db [:chats chat-id :messages] [])
                       usage (shared/usage-sumary chat-id full-model db)
                       context-limit (get-in db [:models full-model :limit :context])
-                      compact-percentage (lifecycle/auto-compact-percentage config agent)
+                      compact-percentage (lifecycle/auto-compact-threshold config agent context-limit)
                       breakdown (shared/context-breakdown
                                  {:system-prompt (f.prompt/instructions->str instructions)
                                   :tools all-tools

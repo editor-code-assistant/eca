@@ -162,6 +162,49 @@
                                     :autoCompactPercentage 99}
                                    db)))))
 
+(deftest auto-compact?-with-tokens-left
+  (let [config {:autoCompactPercentage 75 :autoCompactTokensLeft 20000}
+        big-model {:limit {:context 1000000 :output 32000}}]
+    (testing "ignores the percentage while more than the configured tokens remain"
+      (let [db (db-with {:last-input-tokens 800000 :last-output-tokens 0} big-model)]
+        (is (false? (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+
+    (testing "triggers once the remaining tokens reach the configured value"
+      (let [db (db-with {:last-input-tokens 980000 :last-output-tokens 0} big-model)]
+        (is (lifecycle/auto-compact? chat-id agent-name full-model config db)))
+      (let [db (db-with {:last-input-tokens 985000 :last-output-tokens 0} big-model)]
+        (is (lifecycle/auto-compact? chat-id agent-name full-model config db))))
+
+    (testing "respects per-agent autoCompactTokensLeft override"
+      (let [db (db-with {:last-input-tokens 900000 :last-output-tokens 0} big-model)]
+        (is (lifecycle/auto-compact? chat-id agent-name full-model
+                                     (assoc config :agent {agent-name {:autoCompactTokensLeft 150000}})
+                                     db))))
+
+    (testing "falls back to autoCompactPercentage when the value is not below the context limit"
+      (let [small-model {:limit {:context 128000 :output 16000}}
+            config (assoc config :autoCompactTokensLeft 200000)]
+        (is (false? (lifecycle/auto-compact? chat-id agent-name full-model config
+                                             (db-with {:last-input-tokens 50000 :last-output-tokens 0} small-model))))
+        (is (lifecycle/auto-compact? chat-id agent-name full-model config
+                                     (db-with {:last-input-tokens 100000 :last-output-tokens 0} small-model)))))))
+
+(deftest auto-compact-threshold-test
+  (testing "returns the configured percentage when no absolute value is set"
+    (is (= 75 (lifecycle/auto-compact-threshold config agent-name 1000000))))
+
+  (testing "derives the effective percentage from autoCompactTokensLeft"
+    (is (= 98.0 (lifecycle/auto-compact-threshold {:autoCompactTokensLeft 20000} agent-name 1000000)))
+    (is (= 87.5 (lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 25000}
+                                                  agent-name 200000))))
+
+  (testing "falls back to the percentage when the absolute value is not below the context limit"
+    (is (= 75 (lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 200000}
+                                                agent-name 128000))))
+
+  (testing "nil when auto-compact is disabled"
+    (is (nil? (lifecycle/auto-compact-threshold {} agent-name 1000000)))))
+
 (deftest auto-compact?-respects-in-progress-flags
   (testing "returns nil when chat is already compacting"
     (let [db (-> (db-with {:last-input-tokens 800 :last-output-tokens 0}

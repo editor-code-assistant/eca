@@ -978,8 +978,9 @@ interface ChatUsageContent {
     /**
      * The percentage of the model context window at which the server will
      * automatically compact (summarize) the conversation. Absent when
-     * auto-compaction is disabled. Clients can render it as a threshold
-     * marker on the usage bar.
+     * auto-compaction is disabled. When `autoCompactTokensLeft` is configured
+     * this is its equivalent percentage for the current model. Clients can
+     * render it as a threshold marker on the usage bar.
      */
     autoCompactPercentage?: number;
 

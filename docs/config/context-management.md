@@ -63,9 +63,20 @@ This can also be set per-agent:
 }
 ```
 
+If you switch between models with very different context sizes (e.g. 128k and 1M), a percentage leaves a very different amount of free space on each. Use `autoCompactTokensLeft` instead to compact when a fixed number of tokens remain, regardless of the model:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "autoCompactTokensLeft": 20000
+}
+```
+
+When set (globally or per-agent), it takes precedence over `autoCompactPercentage`, which is only used as a fallback for models whose context window is not larger than that value.
+
 | Property                | Default | Description                                                       |
 |-------------------------|---------|-------------------------------------------------------------------|
 | `autoCompactPercentage` | `75`    | Percentage of context window usage that triggers auto-compaction. |
+| `autoCompactTokensLeft` | -       | Remaining context tokens at or below which auto-compaction triggers. Takes precedence over `autoCompactPercentage`. |
 
 ## Context overflow recovery
 
