@@ -254,36 +254,43 @@
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers.
    Removes denied tools.
-   When chat is a subagent (has :subagent), filters tools based on agent definition."
-  [chat-id agent-name db config]
-  (let [disabled-tools (get-disabled-tools config agent-name)
-        subagent (get-in db [:chats chat-id :subagent])
-        all-tools (->> (concat
-                        (mapv #(assoc % :origin :native) (native-tools chat-id agent-name db config))
-                        (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
-                       (mapv #(update % :parameters tools.util/reorder-schema-required-first))
-                       (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
-                       (mapv (fn [tool]
-                               (update tool :description
-                                       (fn [desc]
-                                         (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
-                                             (get-in config [:prompts :tools (:full-name tool)])
-                                             desc)))))
-                       (filterv (fn [tool]
-                                  (and (not (tool-disabled? tool disabled-tools))
-                                       ;; check for enabled-fn if present
-                                       ((or (:enabled-fn tool) (constantly true))
-                                        {:agent agent-name
-                                         :db db
-                                         :chat-id chat-id
-                                         :config config})))))
-        ;; Apply subagent tool filtering if applicable
-        all-tools (if subagent
-                    (filter-subagent-tools all-tools)
-                    all-tools)]
-    (remove (fn [tool]
-              (= :deny (approval all-tools tool {} db config agent-name)))
-            all-tools)))
+   When chat is a subagent (has :subagent), filters tools based on agent definition.
+   `full-model` is the model the prompt runs with; it defaults to the chat's stored
+   model, which is not set yet when the first prompt of a chat computes its tools,
+   so prompt code passes the resolved model to keep the tool set stable across turns."
+  ([chat-id agent-name db config]
+   (all-tools chat-id agent-name db config nil))
+  ([chat-id agent-name db config {:keys [full-model]}]
+   (let [disabled-tools (get-disabled-tools config agent-name)
+         subagent (get-in db [:chats chat-id :subagent])
+         full-model (or full-model (get-in db [:chats chat-id :model]))
+         all-tools (->> (concat
+                         (mapv #(assoc % :origin :native) (native-tools chat-id agent-name db config))
+                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
+                        (mapv #(update % :parameters tools.util/reorder-schema-required-first))
+                        (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
+                        (mapv (fn [tool]
+                                (update tool :description
+                                        (fn [desc]
+                                          (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
+                                              (get-in config [:prompts :tools (:full-name tool)])
+                                              desc)))))
+                        (filterv (fn [tool]
+                                   (and (not (tool-disabled? tool disabled-tools))
+                                        ;; check for enabled-fn if present
+                                        ((or (:enabled-fn tool) (constantly true))
+                                         {:agent agent-name
+                                          :db db
+                                          :chat-id chat-id
+                                          :config config
+                                          :full-model full-model})))))
+         ;; Apply subagent tool filtering if applicable
+         all-tools (if subagent
+                     (filter-subagent-tools all-tools)
+                     all-tools)]
+     (remove (fn [tool]
+               (= :deny (approval all-tools tool {} db config agent-name)))
+             all-tools))))
 
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk

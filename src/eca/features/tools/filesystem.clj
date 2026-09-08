@@ -52,11 +52,14 @@
     (>= bytes 1024) (str (quot bytes 1024) " KB")
     :else (str bytes " B")))
 
-(defn ^:private chat-model-image-input?
-  "The chat model's image input capability, nil when the model is unknown."
-  [db chat-id]
-  (when-let [full-model (get-in db [:chats chat-id :model])]
+(defn ^:private model-image-input?
+  "The model's image input capability, nil when the model is unknown."
+  [db full-model]
+  (when full-model
     (get-in db [:models full-model :image-input?])))
+
+(defn ^:private chat-model-image-input? [db chat-id]
+  (model-image-input? db (get-in db [:chats chat-id :model])))
 
 (defn ^:private path->root-filename [db path]
   (let [path (shared/normalize-path path)]
@@ -220,9 +223,9 @@
                :error)))))))
 
 (defn ^:private view-image-enabled?
-  "Hidden only when the chat model is known to lack image input."
-  [{:keys [db chat-id]}]
-  (not (false? (chat-model-image-input? db chat-id))))
+  "Hidden only when the prompt's model is known to lack image input."
+  [{:keys [db full-model]}]
+  (not (false? (model-image-input? db full-model))))
 
 (defn ^:private view-image-summary [{:keys [args]}]
   (if-let [path (get args "path")]

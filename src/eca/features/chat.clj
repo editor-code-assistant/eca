@@ -937,7 +937,7 @@
             db @db*
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
-            all-tools (f.tools/all-tools chat-id agent @db* config)
+            all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
             auto-continue-limit (provider-max-auto-continues config provider)
             received-msgs* (atom "")
             reasonings* (atom {})
@@ -1776,7 +1776,7 @@
                               (f.context/agents-file-contexts db config)
                               (f.context/raw-contexts->refined contexts db))
             {static-rules :static path-scoped-rules :path-scoped} (f.rules/all-rules config (:workspace-folders db) agent full-model)
-            all-tools (f.tools/all-tools chat-id agent @db* config)
+            all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
             skills (->> (f.skills/all config (:workspace-folders db))
                         (remove
                          (fn [skill]

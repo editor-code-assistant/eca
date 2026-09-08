@@ -238,10 +238,10 @@
                           :text #"is an image \(image/png\), not a text file\. Use shell_command"}]}
              (read-file {"path" png-path} (ctx false)))))
       (testing "enabled only when the model is not known to lack image input"
-        (is (true? (enabled? {:db (db true) :chat-id "chat-1"})))
-        (is (false? (enabled? {:db (db false) :chat-id "chat-1"})))
-        (is (true? (enabled? {:db (db false) :chat-id nil})))
-        (is (true? (enabled? {:db {:chats {"chat-1" {:model "foo/unknown"}}} :chat-id "chat-1"}))))
+        (is (true? (enabled? {:db (db true) :full-model "foo/bar"})))
+        (is (false? (enabled? {:db (db false) :full-model "foo/bar"})))
+        (is (true? (enabled? {:db (db false) :full-model nil})))
+        (is (true? (enabled? {:db (db false) :full-model "foo/unknown"}))))
       (testing "summary"
         (is (= "Viewing shot.png"
                ((get-in f.tools.filesystem/definitions ["view_image" :summary-fn]) {:args {"path" png-path}}))))
