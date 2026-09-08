@@ -4,10 +4,11 @@
    [clojure.java.shell :as shell]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.features.index :as f.index]
    [eca.features.tools.filesystem :as f.tools.filesystem]
    [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.util :as tools.util]
-   [eca.shared :refer [multi-str]]
+   [eca.shared :as shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]])
   (:import
@@ -29,29 +30,71 @@
           args {"path" (h/file-path "/foo/qux")}
           db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}]
       (is (true? (require-approval-fn args {:db db})))))
-  (testing "allowed dir"
-    (is (match?
-         {:error false
-          :contents [{:type :text
-                      :text (multi-str (h/file-path "/foo/bar/baz")
-                                       " qux"
-                                       ""
-                                       "1 directories, 0 files")}]}
-         (with-redefs [fs/exists? (constantly true)
-                       fs/starts-with? (constantly true)
-                       fs/list-dir (fn [path]
-                                     (let [p (str path)]
-                                       (cond
-                                         (= p (h/file-path "/foo/bar/baz"))
-                                         [(fs/path (h/file-path "/foo/bar/baz/some.clj"))
-                                          (fs/path (h/file-path "/foo/bar/baz/qux"))]
-                                         (= p (h/file-path "/foo/bar/baz/qux"))
-                                         []))) ; make "qux" an empty directory
-                       fs/directory? (fn [path] (not (string/ends-with? (str path) ".clj")))
-                       fs/canonicalize (constantly (h/file-path "/foo/bar/baz"))]
-           ((get-in f.tools.filesystem/definitions ["directory_tree" :handler])
-            {"path" (h/file-path "/foo/bar/baz")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}}))))))
+  (let [root (fs/canonicalize (fs/create-temp-dir {:prefix "eca-directory-tree-test"}))
+        root-str (str root)
+        touch! (fn [& segments]
+                 (let [f (apply fs/path root segments)]
+                   (fs/create-dirs (fs/parent f))
+                   (fs/create-file f)
+                   (str f)))
+        handler (get-in f.tools.filesystem/definitions ["directory_tree" :handler])
+        tree (fn [path db]
+               (-> (handler {"path" path} {:db db :config {:index {:ignoreFiles [{:type :gitignore}]}}})
+                   :contents first :text))
+        in-workspace {:workspace-folders [{:uri (shared/filename->uri root-str) :name "root"}]}]
+    (try
+      (let [allowed [(touch! "README.md")
+                     (touch! ".hidden.txt")
+                     (touch! "src" "a.clj")]]
+        (touch! "src" "b.log")
+        (touch! "target" "classes" "Foo.class")
+        (touch! ".git" "HEAD")
+        (touch! ".git" "hooks" "pre-commit")
+        (fs/create-dirs (fs/path root "empty"))
+        (fs/create-dirs (fs/path root "nested" "inner"))
+        (with-redefs [f.index/allowed-files (constantly allowed)]
+          (testing "ignored files and dirs are hidden alike, empty dirs kept, dot entries skipped"
+            (is (= (multi-str root-str
+                              " README.md"
+                              " empty"
+                              " nested"
+                              "  inner"
+                              " src"
+                              "  a.clj"
+                              ""
+                              "4 directories, 2 files")
+                   (tree root-str in-workspace))))
+          (testing "requesting an ignored dir directly lists it unfiltered"
+            (is (= (multi-str (str (fs/path root ".git"))
+                              " HEAD"
+                              " hooks"
+                              "  pre-commit"
+                              ""
+                              "1 directories, 2 files")
+                   (tree (str (fs/path root ".git")) in-workspace)))
+            (is (= (multi-str (str (fs/path root "target"))
+                              " classes"
+                              "  Foo.class"
+                              ""
+                              "1 directories, 1 files")
+                   (tree (str (fs/path root "target")) in-workspace))))
+          (testing "outside workspace only dot entries are skipped"
+            (is (= (multi-str root-str
+                              " README.md"
+                              " empty"
+                              " nested"
+                              "  inner"
+                              " src"
+                              "  a.clj"
+                              "  b.log"
+                              " target"
+                              "  classes"
+                              "   Foo.class"
+                              ""
+                              "6 directories, 4 files")
+                   (tree root-str {:workspace-folders []}))))))
+      (finally
+        (fs/delete-tree root)))))
 
 (deftest read-file-test
   (testing "Not readable path"

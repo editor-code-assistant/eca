@@ -29,6 +29,36 @@
          (sort-by count >)
          first)))
 
+(defn ^:private visible-paths
+  "Path strings under `path` visible in the tree: the files allowed by the
+   `:index :ignoreFiles` config of the workspace `root-filename` plus the
+   directories leading to them, since the allowed enumeration returns only
+   files. Nil when nothing under `path` is allowed (e.g. `path` itself is
+   ignored, like `.git` or a gitignored dir) so callers list it unfiltered."
+  [path root-filename config]
+  (let [root-str (str path)
+        prefix (str root-str fs/file-separator)
+        files (->> (f.index/allowed-files root-filename config)
+                   (map str)
+                   (filter #(string/starts-with? % prefix)))]
+    (when (seq files)
+      (into (set files)
+            (mapcat (fn [file]
+                      (->> (iterate fs/parent (fs/parent file))
+                           (take-while #(and % (not= (str %) root-str)))
+                           (map str))))
+            files))))
+
+(defn ^:private contains-file?
+  "Whether any file exists below `dir`, stopping at the first one found."
+  [dir]
+  (let [found* (volatile! false)]
+    (try
+      (fs/walk-file-tree dir {:visit-file (fn [_ _] (vreset! found* true) :terminate)
+                              :visit-file-failed (fn [_ _] :continue)})
+      (catch Exception _ nil))
+    @found*))
+
 (defn ^:private directory-tree [arguments {:keys [db config]}]
   (let [path (delay (fs/canonicalize (get arguments "path")))]
     (or (tools.util/invalid-arguments arguments (path-validations))
@@ -36,18 +66,17 @@
               dir-count* (atom 0)
               file-count* (atom 0)
               lines* (atom [(str @path)])
-              root-filename (path->root-filename db @path)
-              all-paths (fs/glob @path "**")
-              allowed-files (if root-filename
-                              (set (f.index/filter-allowed all-paths root-filename config))
-                              (set (map fs/canonicalize all-paths)))
+              root-filename (some-> (path->root-filename db @path) shared/normalize-path)
+              visible (when root-filename (visible-paths @path root-filename config))
+              visible? (if visible
+                         (fn [p] (or (contains? visible (str p))
+                                     (and (fs/directory? p) (not (contains-file? p)))))
+                         (constantly true))
               walk (fn walk [dir depth]
-                     (let [files (fs/list-dir dir)
-                           names (->> files
-                                      (filter #(or (fs/directory? %)
-                                                   (contains? allowed-files (fs/canonicalize %))))
+                     (let [names (->> (fs/list-dir dir)
+                                      (remove #(string/starts-with? (fs/file-name %) "."))
+                                      (filter visible?)
                                       (map fs/file-name)
-                                      (remove #(string/starts-with? % "."))
                                       sort
                                       vec)
                            indent (apply str (repeat depth " "))]

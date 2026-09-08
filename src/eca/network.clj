@@ -105,6 +105,30 @@
   []
   (proxy-urls-parse (proxy-urls-system-env-get)))
 
+(defn env-no-proxy-hosts
+  "Reads comma-separated no_proxy/NO_PROXY hosts; lowercase wins, including an empty value."
+  []
+  (->> (string/split (or (config/get-env "no_proxy") (config/get-env "NO_PROXY") "") #",")
+       (map (comp string/lower-case string/trim))
+       (remove string/blank?)
+       vec))
+
+(defn proxy-bypass?
+  "Matches a URI host against no_proxy hosts without DNS lookups.
+  Hostnames match themselves and subdomains; IP literals match exactly.
+  A single * bypasses all hosts. Ports, CIDR and partial wildcards are unsupported."
+  [host no-proxy-hosts]
+  (when host
+    (let [host (-> host string/lower-case (string/replace #"^\[|\]$" ""))
+          ip? (or (string/includes? host ":") (re-matches #"[0-9.]+" host))]
+      (or (= ["*"] no-proxy-hosts)
+          (some (fn [entry]
+                  (let [entry (string/replace entry #"^\." "")]
+                    (and (not (string/blank? entry))
+                         (or (= host entry)
+                             (and (not ip?) (string/ends-with? host (str "." entry)))))))
+                no-proxy-hosts)))))
+
 (defn ^:private non-blank [^String s]
   (when-not (or (nil? s) (string/blank? s)) s))
 
