@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.159.0
+
 - Fix `spawn_agent` details to include the agent's configured `variant`; it was only sent when the LLM passed the `variant` argument explicitly.
 - Add `gpt-6-astra` support: built-in variants `low`, `medium`, `high`, `xhigh`, `max` (no `none`), Codex Lite/context fallbacks, web search and image generation.
 - Fix `directory_tree` hiding gitignored files but not their directories (e.g. `.git`, `target`); listing an ignored dir directly now shows its contents.
