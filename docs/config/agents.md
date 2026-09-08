@@ -6,7 +6,7 @@ description: "Configure ECA agents and subagents: custom system prompts, model s
 
 ![](../images/features/chat-agents.png)
 
-When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, skills and more.
+When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, default variant, skills and more.
 
 Agents have a `mode` field that controls where they can be used. It accepts either a single string or a list:
 
@@ -57,9 +57,13 @@ This is useful when you want a variant of a built-in or custom agent with small 
     ---
     inherit: explorer
     description: Explorer with a custom model
-    defaultModel: google/gemini-2.5-pro
+    model: google/gemini-2.5-pro
     ---
     ```
+
+## Default model and variant
+
+Agents can set a default model and variant, used when the chat or the spawned subagent has no explicit selection: JSON config uses `defaultModel` + `variant`, markdown frontmatter uses `model` + `variant` (`model` follows the Claude Code / OpenCode agent format, so their agent files work as is). Unavailable variants are ignored. See [Variants](variants.md#agent-default-variant) for examples.
 
 ## Custom agents and prompts
 
