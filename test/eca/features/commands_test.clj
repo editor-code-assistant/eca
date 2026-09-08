@@ -375,6 +375,15 @@
                   %)
               commands))))
 
+(deftest all-commands-include-agent-command-test
+  (let [commands (f.commands/all-commands {:workspace-folders []} {})]
+    (is (some #(= {:name "agent"
+                   :type :native
+                   :description "Select agent for current chat (Ex: /agent plan)"
+                   :arguments [{:name "agent-name"}]}
+                 %)
+              commands))))
+
 (deftest handle-sync-system-prompt-command-test
   (testing "clears the chat prompt cache and confirms"
     (swap! (h/db*) assoc-in [:chats "chat-1" :prompt-cache] {:static "old"
@@ -466,6 +475,54 @@
                                               :metrics (h/metrics)})]
       (is (re-find #"Unknown model: `bad/model`"
                    (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))))
+
+(deftest handle-agent-command-test
+  (testing "lists the current and selectable primary agents"
+    (h/reset-components!)
+    (h/config! {:agent {"code" {}
+                        "plan" {:mode "primary"}
+                        "reviewer" {:mode "subagent"}}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :agent "code"}})
+    (let [result (f.commands/handle-command! "agent" [] (command-context "chat-1"))
+          text (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
+      (is (string/includes? text "Current agent: `code`"))
+      (is (string/includes? text "- `plan`"))
+      (is (not (string/includes? text "reviewer")))))
+
+  (testing "selecting an agent delegates to chat/selectedAgentChanged policy"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:models {"gpt-4.1" {:variants {"low" {:effort "low"}
+                                                                         "high" {:effort "high"}}}}}}
+                :agent {"code" {}
+                        "plan" {:defaultModel "anthropic/claude-sonnet-4-5"
+                                :variant "high"}}})
+    (swap! (h/db*) assoc
+           :chats {"chat-1" {:id "chat-1"
+                              :agent "code"
+                              :model "openai/gpt-4.1"
+                              :variant "low"}})
+    (let [result (f.commands/handle-command! "agent" ["plan"] (command-context "chat-1"))]
+      (is (= "plan" (get-in (h/db) [:chats "chat-1" :agent])))
+      (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "chat-1" :model]))
+          "keeps an established model instead of applying the new agent default")
+      (is (= "high" (get-in (h/db) [:chats "chat-1" :variant])))
+      (is (= "chat-1" (get-in (h/messages) [:config-updated 0 :chat-id])))
+      (is (= "openai/gpt-4.1" (get-in (h/messages) [:config-updated 0 :chat :select-model])))
+      (is (= ["high" "low"] (get-in (h/messages) [:config-updated 0 :chat :variants])))
+      (is (= "high" (get-in (h/messages) [:config-updated 0 :chat :select-variant])))
+      (is (= "Selected agent: `plan`."
+             (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))
+
+  (testing "unknown and subagent-only names do not change chat state"
+    (h/reset-components!)
+    (h/config! {:agent {"code" {}
+                        "worker" {:mode "subagent"}}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :agent "code"}})
+    (let [result (f.commands/handle-command! "agent" ["worker"] (command-context "chat-1"))]
+      (is (= "code" (get-in (h/db) [:chats "chat-1" :agent])))
+      (is (empty? (:config-updated (h/messages))))
+      (is (string/includes? (get-in result [:chats "chat-1" :messages 0 :content 0 :text])
+                            "Unknown agent: `worker`"))))))
 
 (deftest restore-command-selection-scoping-test
   (testing "/resume scopes restored selection to the current chat"
