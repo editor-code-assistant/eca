@@ -1168,6 +1168,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Proxy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bypassing-the-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Bypassing the proxy
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1389,6 +1404,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Proxy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bypassing-the-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Bypassing the proxy
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1457,6 +1487,25 @@
 <span class="nv">https_proxy</span><span class="o">=</span><span class="s2">&quot;http://user:pass@host:port&quot;</span>
 </code></pre></div>
 <p>Lowercase wins if both are set. Credentials (if used) must match for HTTP and HTTPS.</p>
+<h3 id="bypassing-the-proxy">Bypassing the proxy<a class="headerlink" href="#bypassing-the-proxy" title="Permanent link">#</a></h3>
+<p>For ECA's Hato HTTP client (including LLM API requests), set <code>no_proxy</code> or <code>NO_PROXY</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">no_proxy</span><span class="o">=</span><span class="s2">&quot;localhost,127.0.0.1,.internal.example&quot;</span>
+</code></pre></div>
+<p>Lowercase takes precedence even when it is empty. Entries are comma-separated;
+whitespace and empty entries are ignored. Matching is case-insensitive and uses
+the URL hostname without resolving DNS:</p>
+<ul>
+<li><code>internal.example</code> or <code>.internal.example</code> matches that host and its subdomains,
+  such as <code>api.internal.example</code>, but not <code>notinternal.example</code>.</li>
+<li>IP literals match exactly; write IPv6 addresses without brackets, such as <code>::1</code>.</li>
+<li>A value of <code>*</code> bypasses the configured proxy for every host.</li>
+<li>Host entries apply to all ports and both HTTP and HTTPS. Port-qualified entries
+  (<code>internal.example:8443</code>), CIDR ranges and partial wildcards (<code>*.example</code>) are
+  not supported and do not match.</li>
+</ul>
+<p>When the variable is absent or empty, or no entry matches, the configured proxy
+continues to be used. This bypass list applies to ECA's environment-configured
+Hato proxies; it does not change JVM proxy properties or other HTTP clients.</p>
 <h2 id="custom-ca-certificates">Custom CA certificates<a class="headerlink" href="#custom-ca-certificates" title="Permanent link">#</a></h2>
 <p>When behind a corporate firewall that uses its own root CA, you will see errors like <code>PKIX path building failed</code>. To fix this, point ECA to a PEM file containing the additional CA certificates:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="config-file" name="__tabbed_1" type="radio" /><input id="environment-variable" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="config-file">Config file</label><label for="environment-variable">Environment variable</label></div>
@@ -1572,7 +1621,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 8, 2026 13:10:38 UTC">September 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 8, 2026 13:28:18 UTC">September 8, 2026</span>
   </span>
 
     
