@@ -973,6 +973,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#default-model-and-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      Default model and variant
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-agents-and-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom agents and prompts
@@ -1407,6 +1416,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#default-model-and-variant" class="md-nav__link">
+    <span class="md-ellipsis">
+      Default model and variant
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-agents-and-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       Custom agents and prompts
@@ -1460,7 +1478,7 @@
 
 <h1 id="agents-subagents">Agents / Subagents<a class="headerlink" href="#agents-subagents" title="Permanent link">#</a></h1>
 <p><img alt="" src="../../images/features/chat-agents.png" /></p>
-<p>When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, skills and more.</p>
+<p>When using ECA chat, you can choose which agent it will use, each allows you to customize its system prompt, tool call approvals, disabled tools, default model, default variant, skills and more.</p>
 <p>Agents have a <code>mode</code> field that controls where they can be used. It accepts either a single string or a list:</p>
 <ul>
 <li><code>primary</code>: main agent, used in chat, can spawn subagents.</li>
@@ -1526,12 +1544,14 @@
 <div class="highlight"><span class="filename">.eca/agents/my-explorer.md</span><pre><span></span><code>---
 inherit: explorer
 description: Explorer with a custom model
-<span class="gu">defaultModel: google/gemini-2.5-pro</span>
+<span class="gu">model: google/gemini-2.5-pro</span>
 <span class="gu">---</span>
 </code></pre></div>
 </div>
 </div>
 </div>
+<h2 id="default-model-and-variant">Default model and variant<a class="headerlink" href="#default-model-and-variant" title="Permanent link">#</a></h2>
+<p>Agents can set a default model and variant, used when the chat or the spawned subagent has no explicit selection: JSON config uses <code>defaultModel</code> + <code>variant</code>, markdown frontmatter uses <code>model</code> + <code>variant</code> (<code>model</code> follows the Claude Code / OpenCode agent format, so their agent files work as is). Unavailable variants are ignored. See <a href="../variants/#agent-default-variant">Variants</a> for examples.</p>
 <h2 id="custom-agents-and-prompts">Custom agents and prompts<a class="headerlink" href="#custom-agents-and-prompts" title="Permanent link">#</a></h2>
 <p>You can create an agent and define its prompt, tool call approval and default model. Custom prompts can use <a href="../introduction/#templates">template variables</a>.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="example-my-agent" name="__tabbed_2" type="radio" /><input id="example-overriding-a-tool-description" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="example-my-agent">Example: my-agent</label><label for="example-overriding-a-tool-description">Example: Overriding a tool description</label></div>
@@ -1718,7 +1738,7 @@ You should run sleep 1 and return &quot;I slept 1 second&quot;
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 12:50:48 UTC">September 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 8, 2026 09:19:05 UTC">September 8, 2026</span>
   </span>
 
     
