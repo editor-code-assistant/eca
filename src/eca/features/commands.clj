@@ -10,6 +10,7 @@
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
@@ -338,6 +339,20 @@
   (when-let [raw-content (:content (first (filter #(= command (:name %))
                                                   custom-cmds)))]
     (substitute-args raw-content args)))
+
+(defn ^:private file-context-arg [arg]
+  (when (and (string/starts-with? arg "@")
+             (< 1 (count arg)))
+    (f.context/parse-context-reference (subs arg 1))))
+
+(defn ^:private add-file-context [prompt args db]
+  (if-let [contexts-str (some-> (keep file-context-arg args)
+                                (f.context/raw-contexts->refined db)
+                                seq
+                                (f.prompt/contexts-str nil nil))]
+    [{:type :text :text prompt}
+     {:type :text :text contexts-str}]
+    prompt))
 
 (defn ^:private format-tool-permissions [{:keys [toolCall]}]
   (when-let [approval (:approval toolCall)]
@@ -1152,7 +1167,7 @@
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
         {:type :send-prompt
-         :prompt custom-command-prompt}
+         :prompt (add-file-context custom-command-prompt args db)}
         (if-let [skill (first (filter #(= command (:name %)) skills))]
           {:type :send-prompt
            :prompt (cond
@@ -1163,7 +1178,7 @@
                      (str "Load skill: " (:name skill))
 
                      (seq args)
-                     (substitute-args (:body skill) args)
+                     (add-file-context (substitute-args (:body skill) args) args db)
 
                      :else
                      (str "Load skill: " (:name skill)))}
