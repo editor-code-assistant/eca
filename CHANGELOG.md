@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `mcpToolSearch` config to keep MCP tool schemas out of context until the LLM loads them with the new `eca__search_tools` tool.
 - Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
 - BREAKING: `plugins.install` now appends across config layers. Set `plugins.installMode` to `replace` beside the list to exclude inherited plugins as before.
 

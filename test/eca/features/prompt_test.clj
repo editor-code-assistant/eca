@@ -28,6 +28,30 @@
       (is (string/includes? result "path='/tmp/has\"quote.clj'"))
       (is (string/includes? result "path=\"/tmp/has&quot;both'quotes.clj\"")))))
 
+(deftest deferred-tools-section-test
+  (let [static-for (fn [all-tools]
+                     (:static (build-instructions [] [] [] [] (delay "TREE") "code" {} nil all-tools (h/db))))]
+    (testing "no section when nothing is deferred"
+      (is (not (string/includes? (static-for [{:full-name "eca__read_file" :description "Read"}])
+                                 "<deferred-tools"))))
+    (testing "deferred tools are catalogued by name and short description"
+      (let [static (static-for [{:full-name "eca__read_file" :description "Read"}
+                                {:full-name "github__create_pull_request"
+                                 :description "Create a pull request.\n\nLots of extra detail the model does not need yet."
+                                 :deferrable true
+                                 :deferred true}])]
+        (is (string/includes? static "## Deferred Tools"))
+        (is (string/includes? static "<deferred-tool name=\"github__create_pull_request\" description=\"Create a pull request.\"/>"))
+        (is (not (string/includes? static "Lots of extra detail")))
+        (is (not (string/includes? static "eca__read_file")))))
+    (testing "long descriptions are truncated"
+      (let [static (static-for [{:full-name "some__tool"
+                                 :description (apply str (repeat 400 "a"))
+                                 :deferrable true
+                                 :deferred true}])]
+        (is (string/includes? static "…"))
+        (is (not (string/includes? static (apply str (repeat 300 "a")))))))))
+
 (deftest build-instructions-test
   (testing "Should return a map with :static and :dynamic keys"
     (let [result (build-instructions [] [] [] [] (delay "TREE") "code" {} nil [] (h/db))]

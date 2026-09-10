@@ -117,6 +117,7 @@ Subagents can be configured in config or markdown and support/require these fiel
 - `variant` (optional): default model variant; ignored when unavailable for the selected model. See [Variants](variants.md#agent-default-variant).
 - `tools` (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.
 - `disabledTools` (optional): tools to hide from this agent entirely. Same matching as the global [`disabledTools`](tools.md#disabled-tools): a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name `server__tool`.
+- `mcpToolSearch` (optional): MCP tools this agent loads on demand via `eca__search_tools` instead of keeping in context. See [MCP tool search](#mcp-tool-search) below.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.
 
 ### Parent-scoped subagents
@@ -134,6 +135,37 @@ spawnableBy:
 ```
 
 Matching uses exact resolved agent IDs. Markdown agent IDs and Markdown `spawnableBy` values are trimmed and lowercased during loading; JSON configuration values are matched against the configured agent keys exactly.
+
+### MCP tool search
+
+`mcpToolSearch` mirrors the [config object](tools.md#mcp-tool-search) as a YAML mapping, so an agent can keep MCP tools out of its context until it loads them with `eca__search_tools`:
+
+```yaml
+---
+description: Reviews pull requests
+mcpToolSearch:
+  deferAllWhenTotalTokensExceedPercentOfContext: 10
+  includePattern:
+    - ".*"
+  excludePattern:
+    - github__get_pull_request
+---
+```
+
+Since deferring without exclusions is the common case, a bare list (or a single string) is shorthand for `includePattern`:
+
+```yaml
+mcpToolSearch:
+  - ".*"
+```
+
+```yaml
+mcpToolSearch: some-mcp__.*
+```
+
+!!! note "Agent patterns add to the global ones"
+
+    Both lists are unioned with the global config rather than replacing it, so an agent can defer more tools or exclude more tools, but cannot re-load a tool the global `includePattern` deferred. Use `excludePattern` on the agent for that.
 
 When `spawnableBy` is omitted or empty, the subagent is unrestricted, preserving the default behavior. When it contains IDs:
 
