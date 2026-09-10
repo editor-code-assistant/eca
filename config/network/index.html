@@ -1186,6 +1186,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#connection-and-tls-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connection and TLS errors
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-ca-certificates" class="md-nav__link">
     <span class="md-ellipsis">
       Custom CA certificates
@@ -1422,6 +1431,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#connection-and-tls-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Connection and TLS errors
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#custom-ca-certificates" class="md-nav__link">
     <span class="md-ellipsis">
       Custom CA certificates
@@ -1506,6 +1524,15 @@ the URL hostname without resolving DNS:</p>
 <p>When the variable is absent or empty, or no entry matches, the configured proxy
 continues to be used. This bypass list applies to ECA's environment-configured
 Hato proxies; it does not change JVM proxy properties or other HTTP clients.</p>
+<h2 id="connection-and-tls-errors">Connection and TLS errors<a class="headerlink" href="#connection-and-tls-errors" title="Permanent link">#</a></h2>
+<p>A <code>Connection closed unexpectedly</code> message, including TLS record-layer alerts such as
+<code>bad_record_mac</code>, usually means an established streaming connection was interrupted by
+the provider, a proxy, a VPN, or the network. ECA treats these failures as transient and
+may automatically continue the response a limited number of times.</p>
+<p>Other TLS failures, such as <code>PKIX path building failed</code>, certificate errors, or mTLS
+handshake errors, can indicate a trust-store or client-certificate configuration problem.
+Those failures are not automatically retried. Configure a custom CA or mTLS below when
+the error points to a certificate or trust issue.</p>
 <h2 id="custom-ca-certificates">Custom CA certificates<a class="headerlink" href="#custom-ca-certificates" title="Permanent link">#</a></h2>
 <p>When behind a corporate firewall that uses its own root CA, you will see errors like <code>PKIX path building failed</code>. To fix this, point ECA to a PEM file containing the additional CA certificates:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="config-file" name="__tabbed_1" type="radio" /><input id="environment-variable" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="config-file">Config file</label><label for="environment-variable">Environment variable</label></div>
@@ -1621,7 +1648,7 @@ Hato proxies; it does not change JVM proxy properties or other HTTP clients.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 8, 2026 15:47:37 UTC">September 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 10, 2026 12:56:42 UTC">September 10, 2026</span>
   </span>
 
     
