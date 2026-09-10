@@ -41,6 +41,18 @@ flowchart TD
 4. ECA matches `install` names against the marketplace, expands their declared [**dependencies**](#plugin-dependencies) transitively, then **discovers components** from each resolved plugin directory.
 5. All components are **merged** into the config waterfall, in the order specified by the `install` key (later plugins override earlier plugins) — user config always takes precedence on conflicts.
 
+## Install lists from multiple config sources
+
+Normally, an array from a higher-priority [config source](introduction.md#merge-order) replaces the lower-priority one. Install lists are the exception: they combine. Your global config can hold your personal plugins while a project's `.eca/config.json` adds its own; an empty list `[]` simply adds nothing.
+
+To make a source ignore what the others install, add `"installMode": "replace"` next to its `install` list:
+
+```javascript title=".eca/config.json"
+{
+  "plugins": { "installMode": "replace", "install": ["my-plugin"] }
+}
+```
+
 ## Commands
 
 ### `/plugins`
@@ -63,6 +75,14 @@ Installs a plugin by adding it to the `install` list in your global config.
 Use `<plugin-name@marketplace>` to disambiguate when multiple sources provide a plugin with the same name. After installing, restart ECA for the plugin to take effect.
 
 If the plugin declares [dependencies](#plugin-dependencies), they are resolved and loaded automatically on startup — no need to install each one individually.
+
+### `/plugin-uninstall`
+
+```
+/plugin-uninstall <plugin-name>
+```
+
+Removes the plugin from the `install` list in your global config file. If it was installed by another config source, edit that source instead. Plugins that other installed plugins [depend on](#plugin-dependencies) stay loaded. Restart ECA to apply.
 
 ## Pointing to a plugin source / marketplace
 

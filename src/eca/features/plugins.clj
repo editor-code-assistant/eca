@@ -11,6 +11,7 @@
    [babashka.fs :as fs]
    [babashka.process :as p]
    [cheshire.core :as json]
+   [cheshire.factory :as json.factory]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
@@ -375,11 +376,11 @@
    components-list))
 
 (defn ^:private parse-sources
-  "Extracts plugin sources from config, filtering out the install key.
+  "Extracts plugin sources from config, filtering out reserved install keys.
    Returns a seq of [source-name source-url] pairs."
   [plugins-config]
   (->> plugins-config
-       (remove (fn [[k _]] (= "install" (name k))))
+       (remove (comp #{"install" "installMode"} name key))
        (keep (fn [[source-name source-config]]
                (when-let [source-url (if (map? source-config)
                                        (get source-config :source)
@@ -556,14 +557,38 @@
                     (str "Plugin `" plugin-name "` not found in any configured marketplace."))}))))
 
 (defn uninstall-plugin!
-  "Uninstalls a plugin by removing it from the global config install list.
+  "Removes an exact plugin reference from the global config install list only.
    Returns {:status :ok/:error, :message ...}."
   [plugins-config ^String plugin-name]
-  (let [current-install (set (get plugins-config "install" []))]
-    (if (contains? current-install plugin-name)
-      (let [new-install (vec (sort (disj current-install plugin-name)))]
-        (config/update-global-config! {:plugins {:install new-install}})
+  (let [file (config/global-config-file)
+        global-config (when (.exists file)
+                        (try
+                          (binding [json.factory/*json-factory* (json.factory/make-json-factory
+                                                                {:allow-comments true})]
+                            (json/parse-string (slurp file)))
+                          (catch Exception e
+                            (logger/warn logger-tag "Error reading global config file:" (ex-message e))
+                            ::unreadable)))
+        global-install (get-in global-config ["plugins" "install"])]
+    (cond
+      (= ::unreadable global-config)
+      {:status :error
+       :message (str "Could not read the global config file at `" file "`. "
+                     "Fix the JSON error, then retry.")}
+
+      (some #{plugin-name} global-install)
+      (do
+        (config/update-global-config!
+         {:plugins {:install (filterv #(not= plugin-name %) global-install)}})
         {:status :ok
-         :message (str "Plugin `" plugin-name "` uninstalled. Restart ECA to apply.")})
+         :message (str "Global install entry for plugin `" plugin-name "` removed. "
+                       "Other config sources can still install it; remove the entry there too. Restart ECA to apply.")})
+
+      (some #{plugin-name} (get plugins-config "install"))
+      {:status :error
+       :message (str "Plugin `" plugin-name "` has no global install entry. "
+                     "Remove it from plugins.install in its source config (for example, ECA_CONFIG, initialization options, or project config).")}
+
+      :else
       {:status :error
        :message (str "Plugin `" plugin-name "` is not installed.")})))

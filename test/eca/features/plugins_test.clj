@@ -9,6 +9,7 @@
    [eca.features.plugins :as plugins]
    [eca.features.rules :as rules]
    [eca.interpolation :as interpolation]
+   [eca.shared :as shared]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
@@ -19,6 +20,13 @@
       (t)
       (finally
         (interpolation/reset-plugin-dirs!)))))
+
+(deftest reserved-install-mode-test
+  (is (= [["company" "https://example.com/company.git"]]
+         (#'plugins/parse-sources
+          {"company" {:source "https://example.com/company.git"}
+           "install" {:source "not-a-source"}
+           "installMode" {:source "not-a-source"}}))))
 
 (deftest sanitize-source-url-test
   (testing "HTTPS URL"
@@ -508,24 +516,82 @@
         (fs/delete-tree tmp-dir)))))
 
 (deftest uninstall-plugin!-test
-  (testing "removes plugin from install list"
-    (let [updated (atom nil)]
-      (with-redefs [config/update-global-config! (fn [c] (reset! updated c))]
-        (let [result (plugins/uninstall-plugin!
-                      {"install" ["alpha" "beta" "gamma"]}
-                      "beta")]
-          (is (= :ok (:status result)))
-          (is (= ["alpha" "gamma"] (get-in @updated [:plugins :install])))))))
+  (doseq [[label source global-install expected-install status]
+          [["environment only" :env [] ["alpha" "inherited"] :error]
+           ["initialization only" :init [] ["alpha" "inherited"] :error]
+           ["global only" nil ["zeta" "alpha" "beta" "alpha@company"]
+            ["zeta" "beta" "alpha@company"] :ok]
+           ["global and project" :project ["alpha"] ["alpha" "inherited"] :ok]
+           ["not installed" nil ["beta"] ["beta"] :error]]]
+    (testing label
+      (let [dir (fs/create-temp-dir)
+            global-file (fs/file dir "config.json")
+            project-dir (fs/file dir "project")
+            project-config (fs/file project-dir ".eca" "config.json")
+            inherited {"plugins" {"install" ["alpha" "inherited"]}}
+            raw (str "{\n// Keep this comment\n\"plugins\": "
+                     (json/generate-string {"install" global-install
+                                            "installMode" "append"
+                                            "company" {"source" "unchanged"}})
+                     ", \"unrelated\": true\n}")
+            writes (atom [])
+            update-global! config/update-global-config!]
+        (try
+          (fs/create-dirs (fs/parent project-config))
+          (spit global-file raw)
+          (spit project-config (json/generate-string (if (= :project source) inherited {})))
+          (with-redefs [config/initialization-config* (atom (if (= :init source) inherited {}))
+                        config/plugin-components* (atom nil)
+                        shared/global-config-dir (constantly (str dir))
+                        config/update-global-config! (fn [c]
+                                                       (swap! writes conj c)
+                                                       (update-global! c))]
+            (with-redefs-fn {#'config/config-from-envvar (constantly (when (= :env source) inherited))
+                            #'config/config-from-custom (constantly nil)}
+              (fn []
+                (let [db {:workspace-folders [{:uri (str (.toURI project-dir))}]}
+                      before (:plugins (#'config/all* db))
+                      result (plugins/uninstall-plugin! before "alpha")
+                      after (:plugins (#'config/all* db))]
+                  (is (= status (:status result)))
+                  (is (= expected-install (get after "install")))
+                  (is (= "append" (get after "installMode")))
+                  (is (= {:source "unchanged"} (get after "company")))
+                  (is (true? (:unrelated (#'config/all* db))))
+                  (is (string/includes? (slurp global-file) "// Keep this comment"))
+                  (if (= :ok status)
+                    (do
+                      (is (= [{:plugins {:install (filterv #(not= "alpha" %) global-install)}}]
+                             @writes))
+                      (is (string/includes? (:message result) "Global install entry"))
+                      (is (string/includes? (:message result) "Other config sources can still install it")))
+                    (do
+                      (is (= [] @writes))
+                      (is (= raw (slurp global-file)))
+                      (is (= before after))
+                      (if source
+                        (do
+                          (is (string/includes? (:message result) "no global install entry"))
+                          (is (string/includes? (:message result) "source config")))
+                        (is (string/includes? (:message result) "not installed")))))))))
+          (finally
+            (config/clear-cache!)
+            (fs/delete-tree dir)))))))
 
-  (testing "returns error when plugin is not installed"
-    (let [result (plugins/uninstall-plugin!
-                  {"install" ["alpha"]}
-                  "beta")]
-      (is (= :error (:status result)))
-      (is (re-find #"not installed" (:message result)))))
-
-  (testing "returns error when install list is empty"
-    (let [result (plugins/uninstall-plugin!
-                  {"install" []}
-                  "beta")]
-      (is (= :error (:status result))))))
+(deftest uninstall-plugin!-invalid-global-config-test
+  (testing "returns an error without writing when the global config file is invalid"
+    (let [dir (fs/create-temp-dir)
+          global-file (fs/file dir "config.json")
+          raw "{ invalid json"
+          writes (atom [])]
+      (try
+        (spit global-file raw)
+        (with-redefs [shared/global-config-dir (constantly (str dir))
+                      config/update-global-config! (fn [c] (swap! writes conj c))]
+          (let [result (plugins/uninstall-plugin! {"install" ["alpha"]} "alpha")]
+            (is (= :error (:status result)))
+            (is (string/includes? (:message result) "Could not read the global config file"))
+            (is (= [] @writes))
+            (is (= raw (slurp global-file)))))
+        (finally
+          (fs/delete-tree dir))))))

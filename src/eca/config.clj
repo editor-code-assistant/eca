@@ -463,18 +463,28 @@
       (some-> (safe-read-json-string (slurp config-file) (var *global-config-error*))
               (parse-dynamic-string-values (shared/global-config-dir))))))
 
-(defn ^:private config-from-local-file [roots]
-  (reduce
-   (fn [final-config {:keys [uri]}]
-     (merge
-      final-config
-      (let [config-dir (io/file (shared/uri->filename uri) ".eca")
-            config-file (io/file config-dir "config.json")]
-        (when (.exists config-file)
-          (some-> (safe-read-json-string (slurp config-file) (var *local-config-error*))
-                  (parse-dynamic-string-values config-dir))))))
-   {}
-   roots))
+(declare merge-config)
+
+(defn ^:private merge-config-layers
+  "Merges file config layers into config. Non-plugin keys stay aggregated
+   across layers with aggregate-merge (historical per-source behavior: shallow
+   for workspace roots, deep for extraConfigs), then each layer's plugins merge
+   one by one so install lists combine across layers."
+  [aggregate-merge config layers]
+  (reduce merge-config
+          config
+          (cons (reduce aggregate-merge {} (map #(dissoc % "plugins") layers))
+                (map #(select-keys % ["plugins"]) layers))))
+
+(defn ^:private config-from-local-file [roots config]
+  (let [layers (mapv (fn [{:keys [uri]}]
+                       (let [config-dir (io/file (shared/uri->filename uri) ".eca")
+                             config-file (io/file config-dir "config.json")]
+                         (when (.exists config-file)
+                           (some-> (safe-read-json-string (slurp config-file) (var *local-config-error*))
+                                   (parse-dynamic-string-values config-dir)))))
+                     roots)]
+    (merge-config-layers merge config layers)))
 
 (def initialization-config* (atom {}))
 
@@ -517,24 +527,19 @@
    listed order (later entries win). Missing paths are logged and skipped;
    parse errors are logged, surfaced via `*extra-config-error*` and skipped.
    Non-recursive: an `:extraConfigs` declared inside an extra file is ignored."
-  [paths roots]
+  [paths roots config]
   (let [paths (cond
                 (string? paths) [paths]
                 (sequential? paths) paths
-                :else [])]
-    (reduce
-     (fn [final-config path]
-       (let [^File config-file (resolve-extra-config-file path roots)]
-         (if (.exists config-file)
-           (deep-merge final-config
-                       (or (some-> (safe-read-json-string (slurp config-file) (var *extra-config-error*))
+                :else [])
+        layers (mapv (fn [path]
+                       (let [^File config-file (resolve-extra-config-file path roots)]
+                         (if (.exists config-file)
+                           (some-> (safe-read-json-string (slurp config-file) (var *extra-config-error*))
                                    (parse-dynamic-string-values (fs/file (fs/parent config-file))))
-                           {}))
-           (do
-             (logger/warn logger-tag (format "extraConfigs path not found, skipping: %s" (.getPath config-file)))
-             final-config))))
-     {}
-     paths)))
+                           (logger/warn logger-tag (format "extraConfigs path not found, skipping: %s" (.getPath config-file))))))
+                     paths)]
+    (merge-config-layers deep-merge config layers)))
 
 (defn ^:private resolve-agent-inheritance
   "Resolves :inherit keys in agent configs. When an agent has :inherit \"other\",
@@ -703,11 +708,26 @@
     (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
         (update :chat dissoc :defaultBehavior))))
 
+(defn ^:private merge-config
+  "Deep-merges a normalized config layer into config. The plugins install
+   lists combine across layers: a layer's entries append unless its own
+   installMode is \"replace\"."
+  [config layer]
+  (let [layer (normalize-fields normalization-rules layer)
+        plugins (:plugins layer)
+        {:strs [install installMode]} plugins
+        merged (deep-merge config layer)]
+    (if (contains? plugins "install")
+      (assoc-in merged [:plugins "install"]
+                (->> (concat (when-not (= "replace" installMode)
+                               (get-in config [:plugins "install"]))
+                             install)
+                     reverse distinct reverse vec))
+      merged)))
+
 (defn ^:private all* [db]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
-        merge-config (fn [c1 c2]
-                       (deep-merge c1 (normalize-fields normalization-rules c2)))
         plugin-data (when-not pure-config? @plugin-components*)
         plugin-config (when plugin-data
                         (let [cfg (:config-fragment plugin-data)]
@@ -723,13 +743,14 @@
                             (config-from-envvar)))
           (if-let [custom-config (config-from-custom)]
             (merge-config $ (when-not pure-config? custom-config))
-            (-> $
-                (merge-config (when-not pure-config? (config-from-global-file)))
-                (merge-config (when-not pure-config? (config-from-local-file (:workspace-folders db))))))
+            (let [config (merge-config $ (when-not pure-config? (config-from-global-file)))]
+              (if pure-config?
+                config
+                (config-from-local-file (:workspace-folders db) config))))
           ;; Plugin config merges after all file configs (user local config wins via later merge)
           (merge-config $ plugin-config)
           ;; extraConfigs merge last, overriding all previous sources
-          (merge-config $ (config-from-extra-configs (:extraConfigs $) (:workspace-folders db))))
+          (config-from-extra-configs (:extraConfigs $) (:workspace-folders db) $))
         ;; Append plugin commands/rules (vector concat, not deep-merge replace)
         (cond->
          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
@@ -773,14 +794,12 @@
   needed before the server is fully initialized (e.g. network/TLS
   settings)."
   []
-  (let [merge-config (fn [c1 c2]
-                       (deep-merge c1 (normalize-fields normalization-rules c2)))]
-    (-> {}
-        (merge-config (initial-config))
-        (merge-config (config-from-envvar))
-        (merge-config (if (some? @custom-config-file-path*)
-                        (config-from-custom)
-                        (config-from-global-file))))))
+  (-> {}
+      (merge-config (initial-config))
+      (merge-config (config-from-envvar))
+      (merge-config (if (some? @custom-config-file-path*)
+                      (config-from-custom)
+                      (config-from-global-file)))))
 
 (defn validation-error []
   (cond

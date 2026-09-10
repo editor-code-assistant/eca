@@ -115,6 +115,153 @@
       (is (= "from-rel"
              (:defaultAgent (#'config/all* {:workspace-folders [{:uri (shared/filename->uri (str dir))}]})))))))
 
+(defn ^:private plugin-config-flow
+  [{:keys [global roots init env custom extras pure?]}]
+  (let [dir (fs/create-temp-dir)]
+    (try
+      (let [write-config! (fn [path config]
+                            (io/make-parents path)
+                            (spit path (json/generate-string config))
+                            path)
+            global-file (write-config! (fs/file dir "global.json") global)
+            custom-file (when custom (write-config! (fs/file dir "custom.json") custom))
+            folders (mapv (fn [i layer]
+                            (let [root (fs/file dir (str "root-" i))]
+                              (write-config! (fs/file root ".eca" "config.json") layer)
+                              {:uri (shared/filename->uri (str root))}))
+                          (range) roots)
+            extra-files (mapv (fn [i layer]
+                                (str (write-config! (fs/file dir (str "extra-" i ".json")) layer)))
+                              (range) extras)]
+        (with-redefs-fn {#'config/initialization-config* (atom (cond-> (or init {})
+                                                               pure? (assoc :pureConfig true)
+                                                               (seq extras) (assoc :extraConfigs extra-files)))
+                         #'config/custom-config-file-path* (atom (some-> custom-file str))
+                         #'config/plugin-components* (atom nil)
+                         #'config/global-config-file (constantly global-file)
+                         #'config/config-from-envvar (constantly env)
+                         ;; Read the actual custom file without its separate TTL cache.
+                         #'config/config-from-custom #'config/config-from-custom*}
+          (fn []
+            (config/clear-cache!)
+            {:all (config/all {:workspace-folders folders})
+             :files (config/read-file-configs)})))
+      (finally
+        (config/clear-cache!)
+        (fs/delete-tree dir)))))
+
+(deftest plugin-install-config-flow-test
+  (let [install #(get-in % [:all :plugins "install"])
+        p (fn [refs] {:plugins {:install refs}})]
+    (testing "global and multiple roots append; exact duplicates move to their last position"
+      (let [result (:all (plugin-config-flow
+                         {:global {:plugins {:company {:source "https://example.com/company.git"}
+                                             :install ["a" "b" "a" "same@company"]}
+                                   :disabledTools ["global"]
+                                   :chat {:global true}}
+                          :roots [{:plugins {:first {:source "https://example.com/first.git"}
+                                             :install ["c" "a"]}
+                                   :disabledTools ["first"]
+                                   :chat {:first true}}
+                                  {:plugins {:install ["b" "same" "same@other" "d" "d"]}
+                                   :disabledTools ["last"]
+                                   :chat {:last true}}]}))]
+        (is (= ["same@company" "c" "a" "b" "same" "same@other" "d"]
+               (get-in result [:plugins "install"])))
+        (is (= "https://example.com/company.git" (get-in result [:plugins "company" :source])))
+        (is (= "https://example.com/first.git" (get-in result [:plugins "first" :source])))
+        (is (some? (get-in result [:plugins "eca" :source])))
+        (is (= ["last"] (:disabledTools result)))
+        (is (true? (get-in result [:chat :global])))
+        (is (true? (get-in result [:chat :last])))
+        (is (nil? (get-in result [:chat :first])))))
+    (testing "empty append retains inherited plugins"
+      (is (= ["global"] (install (plugin-config-flow {:global (p ["global"])
+                                                     :roots [(p []) (p [])]})))))
+    (testing "replace with empty or populated list resets earlier layers, not sources"
+      (doseq [refs [[] ["new" "new"]]]
+        (let [result (:all (plugin-config-flow
+                           {:global {:plugins {:company {:source "https://example.com/company.git"}
+                                               :install ["global"]}}
+                            :roots [(assoc-in (p refs) [:plugins :installMode] "replace")]}))]
+          (is (= (vec (distinct refs)) (get-in result [:plugins "install"])))
+          (is (some? (get-in result [:plugins "company" :source]))))))
+    (testing "a reset survives aggregation, but its mode does not apply to later roots"
+      (doseq [refs [[] ["reset"]]]
+        (is (= (conj refs "later")
+               (install (plugin-config-flow
+                         {:global (p ["global"])
+                          :roots [(assoc-in (p refs) [:plugins :installMode] "replace")
+                                  (p ["later"])]}))))))
+    (testing "mode without an install list does not reset or stick"
+      (is (= ["global" "later"] (install (plugin-config-flow
+                                         {:global (p ["global"])
+                                          :roots [{:plugins {:installMode "replace"}} (p ["later"])]})))))
+    (testing "existing order is initial config, init, env, global, roots, then extras"
+      (is (= ["init" "env" "global" "root" "extra-1" "extra-2"]
+             (install (plugin-config-flow {:init (p ["init"])
+                                           :env {"plugins" {"install" ["env"]}}
+                                           :global (p ["global"])
+                                           :roots [(p ["root"])]
+                                           :extras [(p ["extra-1"]) (p ["extra-2"])]})))))
+    (testing "extra resets apply to all earlier layers and later extras append"
+      (doseq [refs [[] ["reset"]]]
+        (is (= (conj refs "later")
+               (install (plugin-config-flow
+                         {:init (p ["init"])
+                          :global (p ["global"])
+                          :roots [(p ["root"])]
+                          :extras [(assoc-in (p refs) [:plugins :installMode] "replace")
+                                   (p ["later"])]})))))
+      (is (= [] (install (plugin-config-flow
+                         {:global (p ["global"])
+                          :extras [(assoc-in (p []) [:plugins :installMode] "replace")]})))))
+    (testing "custom file selection and layer-local resets, including early file config"
+      (doseq [[layers expected files]
+              [[{:env (p ["env"]) :custom (p ["custom"]) :extras [(p ["extra"])]}
+                ["init" "env" "custom" "extra"] ["env" "custom"]]
+               [{:env {"plugins" {"installMode" "replace" "install" ["env"]}}}
+                ["env" "global" "root"] ["env" "global"]]
+               [{:env (p ["env"])
+                 :custom (assoc-in (p []) [:plugins :installMode] "replace")
+                 :extras [(p ["extra"])]}
+                ["extra"] []]]]
+        (let [result (plugin-config-flow
+                      (merge {:init (p ["init"]) :global (p ["global"]) :roots [(p ["root"])]}
+                             layers))]
+          (is (= expected (install result)))
+          (is (= files (get-in result [:files :plugins "install"]))))))
+    (testing "explicit append after replace, with unrelated extra config behavior unchanged"
+      (let [hook {:type "command" :command "echo extra"}
+            result (:all (plugin-config-flow
+                          {:global {:plugins {:install ["global"]}
+                                    :chat {:retained true}
+                                    :hooks {:preToolCall [{:type "command" :command "echo global"}]}
+                                    :agent {"parent" {:disabledTools ["parent"]}
+                                            "child" {:inherit "parent" :disabledTools ["child"]}}}
+                           :extras [{:plugins {:installMode "replace" :install ["reset"]}
+                                     :chat false
+                                     :disabledTools ["first"]}
+                                    {:plugins {:installMode "append" :install ["extra"]}
+                                     :chat {:added true}
+                                     :disabledTools ["last"]
+                                     :hooks {:preToolCall [hook]}}]}))]
+        (is (= ["reset" "extra"] (get-in result [:plugins "install"])))
+        ;; Extras were already combined before merging with the global map.
+        (is (true? (get-in result [:chat :retained])))
+        (is (true? (get-in result [:chat :added])))
+        (is (= ["last"] (:disabledTools result)))
+        (is (= [hook] (get-in result [:hooks :preToolCall])))
+        (is (= ["child"] (get-in result [:agent "child" :disabledTools])))))
+    (testing "pureConfig still skips env and file layers, but applies extraConfigs"
+      (is (= ["init" "extra"] (install (plugin-config-flow
+                                       {:pure? true
+                                        :init (assoc-in (p ["init"]) [:plugins :installMode] "replace")
+                                        :env (p ["env"])
+                                        :global (p ["global"])
+                                        :roots [(p ["root"])]
+                                        :extras [(p ["extra"])]})))))))
+
 (deftest deep-merge-test
   (testing "basic merge"
     (is (match?

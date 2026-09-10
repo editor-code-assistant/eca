@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
+- BREAKING: `plugins.install` now appends across config layers. Set `plugins.installMode` to `replace` beside the list to exclude inherited plugins as before.
 
 ## 0.159.0
 
