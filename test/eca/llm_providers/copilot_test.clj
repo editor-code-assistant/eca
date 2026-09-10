@@ -120,6 +120,52 @@
                   :api-url    "https://copilot-proxy.ghe.example.com"}
                  result)))))))
 
+(deftest oauth-renew-token-retry-test
+  (testing "retries one transient server failure"
+    (let [requests* (atom 0)]
+      (with-client-proxied {}
+        (fn handler [_req]
+          (if (= 1 (swap! requests* inc))
+            {:status 503 :body "<html>temporary outage</html>"}
+            {:status 200
+             :body {:token "copilot-api-key"
+                    :expires_at 9999999999}}))
+
+        (is (= {:api-key "copilot-api-key"
+                :expires-at 9999999999}
+               (#'llm-providers.copilot/oauth-renew-token test-provider-settings "gh-access-123")))
+        (is (= 2 @requests*))))))
+
+(deftest oauth-renew-token-server-error-test
+  (testing "preserves the response body after retrying a gateway error"
+    (let [requests* (atom 0)
+          error (with-client-proxied {}
+                  (fn handler [_req]
+                    (swap! requests* inc)
+                    {:status 502 :body "<html>bad gateway</html>"})
+
+                  (try
+                    (#'llm-providers.copilot/oauth-renew-token test-provider-settings "gh-access-123")
+                    nil
+                    (catch Exception e e)))]
+      (is (= 2 @requests*))
+      (is (= "Error on copilot login: <html>bad gateway</html>" (ex-message error)))
+      (is (= {:status 502 :body "<html>bad gateway</html>"} (ex-data error)))))
+
+  (testing "does not retry other 5xx statuses"
+    (let [requests* (atom 0)
+          error (with-client-proxied {}
+                  (fn handler [_req]
+                    (swap! requests* inc)
+                    {:status 511 :body "network authentication required"})
+
+                  (try
+                    (#'llm-providers.copilot/oauth-renew-token test-provider-settings "gh-access-123")
+                    nil
+                    (catch Exception e e)))]
+      (is (= 1 @requests*))
+      (is (= {:status 511 :body "network authentication required"} (ex-data error))))))
+
 (deftest poll-device-authorization!-test
   (testing "completes with token data when github authorizes"
     (let [db* (atom {:auth {"github-copilot" {:step :login/waiting-user-confirmation
