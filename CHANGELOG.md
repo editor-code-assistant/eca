@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Send successful `preToolCall` hook `additionalContext` to the model with the tool result, including input repair notices and context-only warnings.
+
 ## 0.159.0
 
 - Fix `spawn_agent` details to include the agent's configured `variant`; it was only sent when the LLM passed the `variant` argument explicitly.

@@ -61,9 +61,9 @@
                (update-in messages [idx :content :output :contents] f)
                messages)))))
 
-(defn ^:private append-post-tool-additional-context!
-  "Append additionalContext (wrapped as XML) from a postToolCall hook to the
-   matching tool_call_output message so LLM sees it in the next round."
+(defn ^:private append-tool-additional-context!
+  "Append hook additionalContext (wrapped as XML) to the matching
+   tool_call_output message so LLM sees it in the next round."
   [db* chat-id tool-call-id additional-context]
   (when-not (string/blank? additional-context)
     (let [entry {:type :text :text (lifecycle/wrap-additional-context additional-context)}]
@@ -174,7 +174,7 @@
                                                  :value        replaced-output})))
                                ;; If hook provided additionalContext, append as XML to the tool output
                                (when-let [ac (shared/not-blank (get parsed "additionalContext"))]
-                                 (append-post-tool-additional-context!
+                                 (append-tool-additional-context!
                                   (:db* chat-ctx)
                                   (:chat-id chat-ctx)
                                   tool-call-id
@@ -661,6 +661,7 @@
    Returns a plan (data) with:
    - :decision (:ask | :allow | :deny)
    - :arguments (potentially modified by hooks)
+   - :additional-contexts (nonblank context from successful hooks, in execution order)
    - :approval-override (from hooks)
    - :tool-call-rejected-by-hook? (boolean, explicit hook rejection via exit 2 or approval:deny)
    - :tool-call-blocked-by-hook? (boolean, hook rejection or current-turn stop prevents execution)
@@ -783,6 +784,10 @@
     ;; Return the decision plan
     (cond-> {:decision final-decision
              :arguments final-arguments
+             :additional-contexts (into [] (keep (fn [{:keys [parsed exit]}]
+                                                   (when (zero? exit)
+                                                     (shared/not-blank (get parsed "additionalContext")))))
+                                        hook-results)
              :approval-override approval-override
              :tool-call-rejected-by-hook? tool-call-rejected-by-hook?
              :tool-call-blocked-by-hook? tool-call-blocked-by-hook?
@@ -795,6 +800,7 @@
 (defn on-tools-called! [{:keys [db* config chat-id agent messenger metrics] :as chat-ctx}
                         received-msgs* add-to-history! user-messages]
   (fn [tool-calls]
+    (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
     ;; postToolCall hooks report continue:false through the tool call state,
     ;; accumulated per-tool by the state machine action :trigger-post-tool-call-hook.
     (let [all-tools (f.tools/all-tools chat-id agent @db* config)
@@ -937,7 +943,11 @@
                                                                                                :reason        :user-stop :details
                                                                                                details
                                                                                                :summary       summary})
-                                            (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
+                                            (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status})))
+                                        ;; Append after post hooks so replacedOutput cannot erase
+                                        ;; pre-hook feedback. Rejected/unstarted calls skip this path.
+                                        (doseq [context (:additional-contexts decision-plan)]
+                                          (append-tool-additional-context! db* chat-id id context)))))]
                               (transition-tool-call! db*
                                                      chat-ctx
                                                      id
@@ -1063,4 +1073,4 @@
                         (continue-fn all-tools user-messages)
                         {:tools all-tools
                          :new-messages (shared/messages-after-last-compact-marker
-                                        (get-in @db* [:chats chat-id :messages]))}))))))))))))
+                                        (get-in @db* [:chats chat-id :messages]))})))))))))))))

@@ -315,10 +315,12 @@ Fires before a tool is invoked. Use for argument validation, security checks, or
 - **Honored output**:
   - `updatedInput` — merged into the tool arguments (across hooks, later keys win).
   - `approval` — `"allow"` / `"ask"` / `"deny"` override. Approvals merge by precedence `deny > ask > allow`; a hook `allow` never overrides a config `deny`/`ask`.
-  - `additionalContext` — with `approval: "deny"`, gives the LLM the rejection context so it can adapt.
+  - `additionalContext`: on exit `0`, nonblank context is appended to the executed tool's result for the model. With `approval: "deny"`, it supplies the rejection reason instead.
   - `systemMessage`, `suppressOutput`.
   - `continue: false` + `stopReason` stops the turn (the LLM sees a neutral placeholder in the tool result; `stopReason` reaches only the user).
 - **Exit 2** — rejects the tool call; the turn continues. stderr becomes the rejection reason sent to the LLM and shown in the hook's output.
+
+Context is appended in hook order after post hooks, so `replacedOutput` cannot erase it. `visible: false` and `suppressOutput` do not prevent model delivery. Calls rejected or stopped before execution receive no extra context.
 
 **Choosing a denial method:**
 

@@ -508,6 +508,71 @@
                  (:provider-auth result))
               "provider-auth must be returned so providers can reuse refreshed auth metadata"))))))
 
+(deftest on-tools-called!-pre-hook-feedback-test
+  (doseq [{:keys [label pre post expected-texts blocked?]}
+          [{:label "context-only warnings preserve hook order and ignore failed hooks"
+            :pre [{:exit 0 :parsed {"additionalContext" "Repair warning" "suppressOutput" true}}
+                  {:exit 1 :parsed {"additionalContext" "Ignored failure"}}
+                  {:exit 0 :parsed {"additionalContext" "Second warning"}}
+                  {:exit 0 :parsed {"additionalContext" "  "}}]
+            :expected-texts ["result" "Repair warning" "Second warning"]}
+           {:label "post context and replacement coexist with pre feedback"
+            :pre [{:exit 0 :parsed {"additionalContext" "Repair notice"}}]
+            :post [{:exit 0 :parsed {"replacedOutput" "replacement"
+                                    "additionalContext" "Post context"}}]
+            :expected-texts ["replacement" "Post context" "Repair notice"]}
+           {:label "exit 2 ignores stdout context and keeps stderr rejection once"
+            :pre [{:exit 2 :raw-error "Denied by stderr"
+                   :parsed {"additionalContext" "Ignored denial context"}}]
+            :blocked? true
+            :expected-texts ["Denied by stderr"]}
+           {:label "explicit denial context is not appended twice"
+            :pre [{:exit 0 :parsed {"approval" "deny" "additionalContext" "Denied by policy"}}]
+            :blocked? true
+            :expected-texts ["Denied by policy"]}]]
+    (testing label
+      (h/reset-components!)
+      (let [db* (h/db*)
+            chat-id "feedback-chat"
+            unrelated {:role "tool_call_output"
+                       :content {:id "other" :output {:contents [{:type :text :text "untouched"}]}}}
+            _ (swap! db* assoc-in [:chats chat-id]
+                     {:status :running :prompt-id "prompt-1" :messages [unrelated]
+                      :tool-calls {"call-1" {:status :preparing}}})
+            chat-ctx {:db* db* :chat-id chat-id :config (h/config)
+                      :prompt-id "prompt-1" :provider "openai" :agent :default
+                      :messenger (h/messenger) :metrics (h/metrics)}
+            all-tools [{:name "test_tool" :full-name "eca__test_tool"
+                        :origin :eca :server {:name "eca"}}]
+            add-to-history! #(swap! db* update-in [:chats chat-id :messages] conj %)]
+        (with-redefs [f.tools/all-tools (constantly all-tools)
+                      f.tools/approval (constantly :allow)
+                      f.hooks/trigger-if-matches!
+                      (fn [hook-type _ {:keys [on-after-action]} _ _]
+                        (doseq [result (case hook-type :preToolCall pre :postToolCall post nil)]
+                          (on-after-action (assoc result :name "feedback"))))
+                      f.tools/call-tool! (constantly {:contents [{:type :text :text "result"}]})
+                      f.tools/tool-call-details-before-invocation (constantly nil)
+                      f.tools/tool-call-details-after-invocation (constantly nil)
+                      f.tools/tool-call-summary (constantly "Test tool")
+                      lifecycle/maybe-renew-auth-token (constantly nil)
+                      lifecycle/send-content! (fn [& _])]
+          (let [result ((tc/on-tools-called! chat-ctx (atom "") add-to-history! [])
+                        [{:id "call-1" :full-name "eca__test_tool" :arguments {}}])
+                messages (get-in @db* [:chats chat-id :messages])
+                output (last (filter #(= "tool_call_output" (:role %)) messages))
+                texts (mapv :text (get-in output [:content :output :contents]))]
+            (is (= unrelated (first messages)) "only the matching tool output changes")
+            (if blocked?
+              (do
+                (is (= 1 (count texts)) "rejection has no duplicate context block")
+                (is (string/includes? (first texts) (first expected-texts))))
+              (is (= (into [(first expected-texts)]
+                           (map lifecycle/wrap-additional-context (rest expected-texts)))
+                     texts)))
+            (is (= messages (:new-messages result))
+                "hook feedback is present before the next provider request")))))))
+
 (deftest on-tools-called!-rejection-returns-fresh-auth-test
   (testing "rejected subagent path also propagates refreshed auth"
     ;; Previously rejection branches skipped maybe-renew-auth-token and
