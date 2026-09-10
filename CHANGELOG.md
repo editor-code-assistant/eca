@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
+
 ## 0.159.0
 
 - Fix `spawn_agent` details to include the agent's configured `variant`; it was only sent when the LLM passed the `variant` argument explicitly.

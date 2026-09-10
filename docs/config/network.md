@@ -45,6 +45,18 @@ When the variable is absent or empty, or no entry matches, the configured proxy
 continues to be used. This bypass list applies to ECA's environment-configured
 Hato proxies; it does not change JVM proxy properties or other HTTP clients.
 
+## Connection and TLS errors
+
+A `Connection closed unexpectedly` message, including TLS record-layer alerts such as
+`bad_record_mac`, usually means an established streaming connection was interrupted by
+the provider, a proxy, a VPN, or the network. ECA treats these failures as transient and
+may automatically continue the response a limited number of times.
+
+Other TLS failures, such as `PKIX path building failed`, certificate errors, or mTLS
+handshake errors, can indicate a trust-store or client-certificate configuration problem.
+Those failures are not automatically retried. Configure a custom CA or mTLS below when
+the error points to a certificate or trust issue.
+
 ## Custom CA certificates
 
 When behind a corporate firewall that uses its own root CA, you will see errors like `PKIX path building failed`. To fix this, point ECA to a PEM file containing the additional CA certificates:

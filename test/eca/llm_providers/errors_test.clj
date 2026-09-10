@@ -248,7 +248,14 @@
     (is (true? (llm-providers.errors/retryable?
                 {:exception (java.net.http.HttpConnectTimeoutException. "HTTP connect timed out")}))))
 
-  (testing "TLS errors are not network nor retryable"
+  (testing "TLS record-layer failures are network and retryable"
+    (let [error-data {:exception (javax.net.ssl.SSLException.
+                                 "(bad_record_mac) Received fatal alert: bad_record_mac")}]
+      (is (= {:error/type :network}
+             (llm-providers.errors/classify-error error-data)))
+      (is (true? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "TLS trust failures are not network nor retryable"
     (let [pkix {:exception (javax.net.ssl.SSLHandshakeException.
                             "PKIX path building failed: unable to find valid certification path")}]
       (is (= {:error/type :unknown} (llm-providers.errors/classify-error pkix)))

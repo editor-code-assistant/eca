@@ -213,6 +213,23 @@
       (is (re-find #"TLS error" message))
       (is (re-find #"docs/config/network\.md" message))))
 
+  (testing "TLS bad_record_mac alert -> :connection-closed"
+    (let [e (SSLException. "(bad_record_mac) Received fatal alert: bad_record_mac")
+          {:keys [kind message]} (llm-util/classify-connection-exception e)]
+      (is (= :connection-closed kind))
+      (is (re-find #"Connection closed unexpectedly" message))))
+
+  (testing "TLS bad_record_mac alert is detected in a wrapped cause"
+    (let [root (SSLException. "Received fatal alert: bad_record_mac")
+          wrapped (IOException. "request failed" root)
+          {:keys [kind]} (llm-util/classify-connection-exception wrapped)]
+      (is (= :connection-closed kind))))
+
+  (testing "Other TLS alerts remain :tls-other"
+    (let [e (SSLException. "Received fatal alert: handshake_failure")
+          {:keys [kind]} (llm-util/classify-connection-exception e)]
+      (is (= :tls-other kind))))
+
   (testing "UnknownHostException -> :dns"
     (let [e (UnknownHostException. "no-such-host.example")
           {:keys [kind message]} (llm-util/classify-connection-exception e)]

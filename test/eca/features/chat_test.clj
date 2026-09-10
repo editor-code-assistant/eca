@@ -313,6 +313,41 @@
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))
 
+(deftest transient-tls-record-failure-recovery-test
+  (testing "auto-continues after a partial response is interrupted by bad_record_mac"
+    (h/reset-components!)
+    (let [requests* (atom [])
+          api-mock (fn [{:keys [user-messages on-first-response-received on-message-received on-error]}]
+                     (let [attempt (count (swap! requests* conj user-messages))]
+                       (if (= 1 attempt)
+                         (do
+                           (on-first-response-received {:type :text :text "Partial"})
+                           (on-message-received {:type :text :text "Partial"})
+                           (on-error {:exception (javax.net.ssl.SSLException.
+                                                  "(bad_record_mac) Received fatal alert: bad_record_mac")
+                                      :message "Connection closed unexpectedly: (bad_record_mac) Received fatal alert: bad_record_mac"}))
+                         (do
+                           (on-first-response-received {:type :text :text "Recovered"})
+                           (on-message-received {:type :text :text "Recovered"})
+                           (on-message-received {:type :finish})))))
+          chat-id (:chat-id
+                   (prompt! {:message "Investigate the failure"}
+                            {:all-tools-mock (constantly [])
+                             :api-mock api-mock}))]
+    (is (= 2 (count @requests*)))
+    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+                 {:role "assistant" :content [{:type :text :text "Partial"}]}
+                 {:role "user"
+                  :content [{:type :text
+                             :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}
+                 {:role "assistant" :content [{:type :text :text "Recovered"}]}]
+                (get-in (h/db) [:chats chat-id :messages])))
+    (is (match? {:chat-content-received
+                 (m/embeds [{:role :system
+                             :content {:type :progress
+                                       :text #(string/includes? % "Connection closed unexpectedly")}}])}
+                (h/messages))))))
+
 (deftest prompt-multiple-text-interaction-test
   (testing "Chat history"
     (h/reset-components!)

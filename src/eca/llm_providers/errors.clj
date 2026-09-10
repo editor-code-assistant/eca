@@ -162,7 +162,9 @@
   "Classifies connection-level exceptions by their cause chain. Network
    failures (DNS, refused/timed-out connects, dropped connections) are
    transient from the client's perspective (e.g. VPN down, wifi flap) and
-   classify as :network. TLS errors are deterministic and stay unclassified."
+   classify as :network. Certificate and handshake TLS errors stay
+   unclassified; transient TLS record-layer failures are handled as dropped
+   connections."
   [exception]
   (when (contains? network-exception-kinds
                    (:kind (llm-util/classify-connection-exception exception)))

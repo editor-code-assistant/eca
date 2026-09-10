@@ -192,13 +192,22 @@
 (defn ^:private root-message [^Throwable e]
   (or (ex-message e) (.getName (class e))))
 
+(defn ^:private tls-record-layer-failure? [causes]
+  (some (fn [^Throwable c]
+          (when (instance? SSLException c)
+            (some-> (ex-message c)
+                    string/lower-case
+                    (string/replace "_" " ")
+                    (string/includes? "bad record mac"))))
+        causes))
+
 (defn classify-connection-exception
   "Walks the cause chain of `e` and classifies common HTTP/TLS failures
    into a user-friendly map: {:kind <keyword> :message <string>}.
 
    Recognized kinds:
    - :tls-untrusted     - PKIX path building failed (private/corporate CA not trusted)
-   - :connection-closed - connection dropped mid-request (EOF, reset, closed)
+   - :connection-closed - connection dropped mid-request (EOF, reset, closed, TLS record failure)
    - :tls-other         - other TLS/SSL handshake errors
    - :dns               - UnknownHostException
    - :connect-refused   - ConnectException (connection refused, etc.)
@@ -218,6 +227,7 @@
                                   (string/includes? m "connection reset")
                                   (= m "closed")))))
                       causes)
+        tls-record-failure? (tls-record-layer-failure? causes)
         ssl?  (some #(instance? SSLException %) causes)
         dns?  (some #(instance? UnknownHostException %) causes)
         connect-refused? (some #(instance? ConnectException %) causes)
@@ -234,7 +244,7 @@
                      "env var to a PEM bundle containing the missing CA. "
                      "See docs/config/network.md for details. Original error: " msg)}
 
-      closed?
+      (or closed? tls-record-failure?)
       {:kind :connection-closed
        :message (str "Connection closed unexpectedly: " msg
                      ". The server, a proxy or the network dropped the connection mid-request"
