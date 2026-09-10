@@ -408,8 +408,8 @@
     },
     "plugins": {
       "type": "object",
-      "description": "Plugin system for loading external configuration from git repos or local paths. Each key (except 'install') is a named plugin source with a 'source' URL or path. 'install' lists plugin names to install from any registered source.",
-      "markdownDescription": "Plugin system for loading external configuration from git repos or local paths. Each key (except `install`) is a named plugin source with a `source` URL or path. `install` lists plugin names to install from any registered source.",
+      "description": "Plugin system for loading external configuration from git repos or local paths. Each key except 'install' and 'installMode' is a named plugin source with a 'source' URL or path.",
+      "markdownDescription": "Plugin system for loading external configuration from git repos or local paths. Each key except `install` and `installMode` is a named plugin source with a `source` URL or path.",
       "examples": [
         {
           "my-org": {
@@ -419,10 +419,17 @@
         }
       ],
       "properties": {
+        "installMode": {
+          "type": "string",
+          "enum": ["append", "replace"],
+          "default": "append",
+          "description": "Use 'replace' so this file's 'install' list stands alone instead of combining with lists from other config sources. Applies only within the same file.",
+          "markdownDescription": "Use `replace` so this file's `install` list stands alone instead of combining with lists from other config sources. Applies only within the same file."
+        },
         "install": {
           "type": "array",
-          "description": "List of plugin names to install from registered sources.",
-          "markdownDescription": "List of plugin names to install from registered sources.",
+          "description": "List of plugins to install: 'name' or 'name@source'. Lists from all config sources are combined, not replaced.",
+          "markdownDescription": "List of plugins to install: `name` or `name@source`. Lists from all config sources are combined, not replaced.",
           "items": {
             "type": "string"
           }
