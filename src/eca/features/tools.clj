@@ -17,6 +17,7 @@
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.skill :as f.tools.skill]
    [eca.features.tools.task :as f.tools.task]
+   [eca.features.tools.tool-search :as f.tools.tool-search]
    [eca.features.tools.ask-user :as f.tools.ask-user]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -132,26 +133,45 @@
   ([all-tools tool args db config agent-name opts]
    (:decision (approval-decision all-tools tool args db config agent-name opts))))
 
+(defn ^:private get-tool-patterns
+  "Returns a set of tool patterns at `config-path`, merging global and agent-specific."
+  [config agent-name config-path]
+  (set (concat (get-in config config-path [])
+               (if agent-name
+                 (get-in config (into [:agent agent-name] config-path) [])
+                 []))))
+
 (defn ^:private get-disabled-tools
   "Returns a set of disabled tools, merging global and agent-specific."
   [config agent-name]
-  (set (concat (get config :disabledTools [])
-               (if agent-name
-                 (get-in config [:agent agent-name :disabledTools] [])
-                 []))))
+  (get-tool-patterns config agent-name [:disabledTools]))
 
-(defn ^:private disabled-entry-matches?
-  "Matches a `disabledTools` entry against a tool, checking in order:
+(def ^:private compile-tool-pattern
+  "Anchored regex for a tool pattern entry, or nil when it is not a valid regex
+   (the entry is then matched literally). Memoized: every entry is tested against
+   every tool on every turn, and it keeps the warning to once per bad entry."
+  (memoize
+   (fn [entry]
+     (try (re-pattern entry)
+          (catch PatternSyntaxException _
+            (logger/warn logger-tag
+                         (format "Tool pattern '%s' is not a valid regex, matching it literally instead. Use '.*' for a wildcard."
+                                 entry))
+            nil)))))
+
+(defn tool-entry-matches?
+  "Matches a tool pattern entry (`disabledTools`, `mcpToolSearch`) against a
+   tool, checking in order:
    1. Entry as anchored regex against a eca builtin tool name (no `eca__` prefix needed).
-   2. Entry as exact server name, disabling all tools of that server.
+   2. Entry as exact server name, matching all tools of that server.
    3. Entry as anchored regex against the tool full name `server__tool`.
    Invalid regexes fall back to literal equality."
   [entry tool]
-  (let [server-name (:name (:server tool))
+  (let [entry (str entry)
+        server-name (:name (:server tool))
         tool-name (:name tool)
         full-name (str server-name "__" tool-name)
-        pattern (try (re-pattern entry)
-                     (catch PatternSyntaxException _ nil))]
+        pattern (compile-tool-pattern entry)]
     (boolean
      (or (and (= "eca" server-name)
               (if pattern
@@ -162,8 +182,11 @@
            (re-matches pattern full-name)
            (= entry full-name))))))
 
+(defn ^:private tool-matches-any? [tool entries]
+  (boolean (some #(tool-entry-matches? % tool) entries)))
+
 (defn ^:private tool-disabled? [tool disabled-tools]
-  (boolean (some #(disabled-entry-matches? % tool) disabled-tools)))
+  (tool-matches-any? tool disabled-tools))
 
 (defn make-tool-status-fn
   "Returns a function that marks tools as disabled based on config and agent.
@@ -195,6 +218,7 @@
          f.tools.skill/definitions
          f.tools.task/definitions
          f.tools.background/definitions
+         f.tools.tool-search/definitions
          f.tools.ask-user/definitions))
 
 (defn tool-approval-keys
@@ -237,6 +261,78 @@
    - Excludes ask_user because subagents run non-interactively and cannot prompt the user."
   [tools]
   (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
+
+(defn ^:private get-defer-all-percent
+  "Percentage of the model context window the MCP tool definitions may take
+   before all of them are deferred without any pattern. The agent value overrides
+   the global one; nil (the default) leaves them unlimited."
+  [config agent-name]
+  (let [agent-config (get-in config [:agent agent-name :mcpToolSearch])]
+    (if (contains? agent-config :deferAllWhenTotalTokensExceedPercentOfContext)
+      (:deferAllWhenTotalTokensExceedPercentOfContext agent-config)
+      (get-in config [:mcpToolSearch :deferAllWhenTotalTokensExceedPercentOfContext]))))
+
+(defn ^:private tools-tokens
+  "Rough token cost of the tool definitions sent on every request, measured over
+   the same wire fields `shared/context-breakdown` reports as Tool definitions."
+  [tools]
+  (shared/estimate-tokens
+   (pr-str (mapv #(select-keys % [:name :description :parameters]) tools))))
+
+(defn ^:private defer-all-by-total-tokens?
+  "True when the MCP tool definitions as a whole outgrow
+   `deferAllWhenTotalTokensExceedPercentOfContext` of the model context window.
+   False without a percent or a known context window, so an unknown model never
+   silently hides its tools."
+  [mcp-tools config agent-name db full-model]
+  (let [percent (get-defer-all-percent config agent-name)
+        context-limit (get-in db [:models full-model :limit :context])]
+    (boolean (and (number? percent)
+                  (not (neg? percent))
+                  (number? context-limit)
+                  (pos? context-limit)
+                  (seq mcp-tools)
+                  (> (tools-tokens mcp-tools)
+                     (* context-limit (/ (double percent) 100.0)))))))
+
+(defn ^:private mark-deferred-tools
+  "Marks MCP tools kept out of the LLM context with `:deferrable`, and with
+   `:deferred` while the chat has not loaded them yet via `eca__search_tools`.
+   A tool is deferred when the MCP tool definitions as a whole outgrow
+   `mcpToolSearch.deferAllWhenTotalTokensExceedPercentOfContext` of the context
+   window, or when it matches `includePattern`, and in both cases only if it does
+   not match `excludePattern`.
+   Deferred tools stay resolvable and callable; they are simply kept out of the
+   tool schemas sent to the LLM.
+   Native ECA tools are never deferred: they are the agent's baseline capabilities,
+   and a catch-all pattern taking them away would break the agent. They are also
+   left out of the token count, so the limit tracks what MCP actually adds."
+  [tools {:keys [config agent-name activated db full-model]}]
+  (let [include-patterns (get-tool-patterns config agent-name [:mcpToolSearch :includePattern])
+        exclude-patterns (get-tool-patterns config agent-name [:mcpToolSearch :excludePattern])
+        mcp-tools (filterv #(not= :native (:origin %)) tools)
+        defer-all? (defer-all-by-total-tokens? mcp-tools config agent-name db full-model)]
+    (if-not (or defer-all? (seq include-patterns))
+      tools
+      (mapv (fn [tool]
+              (if (and (not= :native (:origin tool))
+                       (or defer-all? (tool-matches-any? tool include-patterns))
+                       (not (tool-matches-any? tool exclude-patterns)))
+                (assoc tool
+                       :deferrable true
+                       :deferred (not (contains? activated (:full-name tool))))
+                tool))
+            tools))))
+
+(defn deferrable-tools
+  "Tools kept out of the LLM context until loaded with `eca__search_tools`."
+  [all-tools]
+  (filterv :deferrable all-tools))
+
+(defn tools-for-llm
+  "Tools whose schemas should be sent to the LLM on this turn."
+  [all-tools]
+  (remove :deferred all-tools))
 
 (defn resolve-tool
   [tool-name all-tools]
@@ -287,10 +383,20 @@
          ;; Apply subagent tool filtering if applicable
          all-tools (if subagent
                      (filter-subagent-tools all-tools)
-                     all-tools)]
-     (remove (fn [tool]
-               (= :deny (approval all-tools tool {} db config agent-name)))
-             all-tools))))
+                     all-tools)
+         all-tools (remove (fn [tool]
+                             (= :deny (approval all-tools tool {} db config agent-name)))
+                           all-tools)
+         all-tools (mark-deferred-tools all-tools
+                                        {:config config
+                                         :agent-name agent-name
+                                         :activated (tools.util/activated-deferred-tools db chat-id)
+                                         :db db
+                                         :full-model full-model})]
+     ;; search_tools only earns its context slot when something is actually deferred.
+     (if (some :deferrable all-tools)
+       all-tools
+       (remove #(= f.tools.tool-search/tool-full-name (:full-name %)) all-tools)))))
 
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk

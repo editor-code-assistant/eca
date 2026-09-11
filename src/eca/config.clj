@@ -187,6 +187,7 @@
                                                  "eca__grep" {}
                                                  "eca__editor_diagnostics" {}
                                                  "eca__skill" {}
+                                                 "eca__search_tools" {}
                                                  "eca__task" {}
                                                  "eca__fetch_rule" {}
                                                  "eca__spawn_agent" {}}
@@ -210,6 +211,7 @@
                                                      "eca__grep" {}
                                                      "eca__editor_diagnostics" {}
                                                      "eca__skill" {}
+                                                     "eca__search_tools" {}
                                                      "eca__task" {}
                                                      "eca__fetch_rule" {}}
                                              :deny {"eca__shell_command"
@@ -238,6 +240,9 @@
    :skills []
    :extraConfigs []
    :disabledTools []
+   :mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext nil
+                   :includePattern []
+                   :excludePattern []}
    :toolCall {:approval {:byDefault "ask"
                          :allow {"eca__compact_chat" {}
                                  "eca__preview_file_change" {}
@@ -246,6 +251,7 @@
                                  "eca__grep" {}
                                  "eca__editor_diagnostics" {}
                                  "eca__skill" {}
+                                 "eca__search_tools" {}
                                  "eca__task" {}
                                  "eca__ask_user" {}
                                  "eca__fetch_rule" {}

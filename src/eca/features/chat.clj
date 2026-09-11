@@ -109,7 +109,10 @@
      :rules (sha {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
                   :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)})
      :skills (sha (mapv #(select-keys % [:name :description]) skills))
-     :tools (sha (sort (map :full-name all-tools)))}))
+     ;; Deferred tools are tracked separately because they render a catalog into
+     ;; the static prompt, unlike normal tools whose schemas are sent per turn.
+     :tools (sha {:names (sort (map :full-name all-tools))
+                  :deferrable (sort (map :full-name (filter :deferrable all-tools)))})}))
 
 (defn ^:private changed-system-prompt-categories
   "Names of system prompt categories that changed vs the cached signature.
@@ -976,7 +979,7 @@
                                  (let [breakdown (try
                                                    (shared/context-breakdown
                                                     {:system-prompt (f.prompt/instructions->str instructions)
-                                                     :tools all-tools
+                                                     :tools (f.tools/tools-for-llm all-tools)
                                                      :messages (get-in @db* [:chats chat-id :messages] [])
                                                      :context-limit (get-in usage [:limit :context])
                                                      :session-tokens (:session-tokens usage)})

@@ -255,6 +255,40 @@
   [path-scoped-rules]
   (path-scoped-rule-sections path-scoped-rules path-scoped-rule-catalog-entry))
 
+(def ^:private deferred-tool-description-max-length 250)
+
+(defn ^:private deferred-tool-summary
+  "First paragraph of the tool description, truncated: the catalog is routing
+   metadata, the full description arrives when the tool is loaded."
+  [description]
+  (let [summary (-> (str description)
+                    (string/split #"\R\s*\R" 2)
+                    first
+                    (string/replace #"\s+" " ")
+                    string/trim)]
+    (if (> (count summary) deferred-tool-description-max-length)
+      (str (string/trimr (subs summary 0 deferred-tool-description-max-length)) "…")
+      summary)))
+
+(defn ^:private deferred-tools-section
+  [all-tools]
+  (when-let [deferred-tools (seq (filter :deferrable all-tools))]
+    ["## Deferred Tools"
+     ""
+     (str (format "<deferred-tools%s>"
+                  (attr-str {:description (str "Tools that exist but are not loaded: their full descriptions and input schemas are unavailable and they cannot be called yet. "
+                                               "Load the ones you need with eca__search_tools, which makes them callable.")}))
+          "\n")
+     (reduce
+      (fn [tools-str {:keys [full-name description]}]
+        (str tools-str (format "<deferred-tool%s/>\n"
+                               (attr-str {:name full-name
+                                          :description (deferred-tool-summary description)}))))
+      ""
+      (sort-by :full-name deferred-tools))
+     "</deferred-tools>"
+     ""]))
+
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
@@ -307,6 +341,7 @@
          skills)
         "</skills>"
         ""])
+     (deferred-tools-section all-tools)
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
                                 selmer-ctx "additional-system-info")
      (workspace-roots-section db)
