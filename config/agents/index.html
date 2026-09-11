@@ -1009,6 +1009,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#mcp-tool-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP tool search
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1452,6 +1461,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#mcp-tool-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP tool search
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1603,6 +1621,7 @@ description: Explorer with a custom model
 <li><code>variant</code> (optional): default model variant; ignored when unavailable for the selected model. See <a href="../variants/#agent-default-variant">Variants</a>.</li>
 <li><code>tools</code> (optional): same as ECA tool approval logic to control what tools are allowed/askable/denied.</li>
 <li><code>disabledTools</code> (optional): tools to hide from this agent entirely. Same matching as the global <a href="../tools/#disabled-tools"><code>disabledTools</code></a>: a builtin tool name or regex (no <code>eca__</code> prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name <code>server__tool</code>.</li>
+<li><code>mcpToolSearch</code> (optional): MCP tools this agent loads on demand via <code>eca__search_tools</code> instead of keeping in context. See <a href="#mcp-tool-search">MCP tool search</a> below.</li>
 <li><code>maxSteps</code> (optional): set a max limit of turns/steps that his subagent must finish and return an answer.</li>
 </ul>
 <h3 id="parent-scoped-subagents">Parent-scoped subagents<a class="headerlink" href="#parent-scoped-subagents" title="Permanent link">#</a></h3>
@@ -1614,6 +1633,28 @@ description: Explorer with a custom model
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">another-orchestrator</span>
 </code></pre></div>
 <p>Matching uses exact resolved agent IDs. Markdown agent IDs and Markdown <code>spawnableBy</code> values are trimmed and lowercased during loading; JSON configuration values are matched against the configured agent keys exactly.</p>
+<h3 id="mcp-tool-search">MCP tool search<a class="headerlink" href="#mcp-tool-search" title="Permanent link">#</a></h3>
+<p><code>mcpToolSearch</code> mirrors the <a href="../tools/#mcp-tool-search">config object</a> as a YAML mapping, so an agent can keep MCP tools out of its context until it loads them with <code>eca__search_tools</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nn">---</span>
+<span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Reviews pull requests</span>
+<span class="nt">mcpToolSearch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">deferAllWhenTotalTokensExceedPercentOfContext</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">includePattern</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.*&quot;</span>
+<span class="w">  </span><span class="nt">excludePattern</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github__get_pull_request</span>
+<span class="nn">---</span>
+</code></pre></div>
+<p>Since deferring without exclusions is the common case, a bare list (or a single string) is shorthand for <code>includePattern</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">mcpToolSearch</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;.*&quot;</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="nt">mcpToolSearch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">some-mcp__.*</span>
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Agent patterns add to the global ones</p>
+<p>Both lists are unioned with the global config rather than replacing it, so an agent can defer more tools or exclude more tools, but cannot re-load a tool the global <code>includePattern</code> deferred. Use <code>excludePattern</code> on the agent for that.</p>
+</div>
 <p>When <code>spawnableBy</code> is omitted or empty, the subagent is unrestricted, preserving the default behavior. When it contains IDs:</p>
 <ul>
 <li>only a listed current primary agent sees the subagent in the <code>spawn_agent</code> tool description, <code>/subagents</code>, and contextual diagnostics such as the built-in <code>eca-info</code> skill;</li>
@@ -1738,7 +1779,7 @@ You should run sleep 1 and return &quot;I slept 1 second&quot;
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 11, 2026 14:49:45 UTC">September 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 11, 2026 20:13:37 UTC">September 11, 2026</span>
   </span>
 
     
