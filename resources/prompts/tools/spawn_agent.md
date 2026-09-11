@@ -2,7 +2,7 @@ Spawn an isolated sub-agent to handle complex, multi-step tasks without pollutin
 
 Use for: Codebase exploration, codebase editing and refactoring, focused research, or delegating specialized tasks.
 Proactive use: If the specific agent's description suggests proactive use, use it whenever the task complexity justifies delegation.
-Restrictions: Avoid sub-agents for simple tasks, file reading, or basic lookups. Delegate ONLY if the task is complex, requires multi-step processing, or benefits from summarization and token saving.
+Restrictions: Avoid sub-agents for simple tasks, file reading, or basic lookups, unless the user explicitly asks. Delegate ONLY if the task is complex, requires multi-step processing, or benefits from summarization and token saving.
 Agent Limits: Sub-agents cannot spawn other agents (no nesting) and have access only to their configured tools.
 
 Strict rules for arguments:
