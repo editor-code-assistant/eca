@@ -38,10 +38,9 @@ EOF
 
 4. Return the PR URL.
 
-# Rules
-- Never use interactive flags (`-i`, `--interactive`)
-- Never update git config
-- Do not push unless creating a PR
+# Rules when using this tool
+- Never use interactive flags (`-i`, `--interactive`): no interactive terminal, so they hang; use a non-interactive equivalent and say why
+- Push and git config changes only on explicit request; when asked, do it without re-asking
 - Do not create empty commits
 - Always pass multi-line messages via stdin HEREDOC (`-F -`, `--body-file -`) with a quoted delimiter (`<<'EOF'`); never embed heredocs inside `$(...)`, some shells fail to parse them
 - Use `gh` for all GitHub API interactions (issues, PRs, checks, releases)
