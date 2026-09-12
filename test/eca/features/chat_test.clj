@@ -1713,6 +1713,9 @@
             :command "login"
             :args ["foo bar" "baz" "qux bla blow"]}
            (#'f.chat/message->decision "/login \"foo bar\" baz \"qux bla blow\"" {} {}))))
+  (testing "quoted file arguments with spaces remain one token"
+    (is (= ["review" "@/dir/My File.clj"]
+           (#'f.chat/tokenize-args "review \"@/dir/My File.clj\""))))
   (with-redefs [f.mcp/all-prompts (constantly [{:name "prompt"
                                                 :server "server"}])]
     (testing "MCP prompt without args"
@@ -2924,5 +2927,4 @@
     (testing "a stored full model still wins over the agent defaultModel"
       (is (= "company-litellm/big"
              (resolve-model nil "main" {:defaultModel "explorer-small"}))))))
-
 

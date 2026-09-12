@@ -165,20 +165,28 @@
               nil))
           contexts))
 
+(defn parse-context-reference
+  "Parse a path with an optional `:L<start>-L<end>` suffix into a raw context map."
+  [reference]
+  (when (seq reference)
+    (let [[_ path start end] (re-matches #"(.+):L(\d+)-L(\d+)$" reference)
+          path (or path reference)
+          path (if (string/starts-with? path "~")
+                 (str (fs/expand-home path))
+                 path)]
+      (cond-> {:type (if (fs/directory? path) "directory" "file")
+               :path path}
+        (and start end) (assoc :lines-range {:start (parse-long start)
+                                             :end (parse-long end)})))))
+
 (defn contexts-str-from-prompt
   "Extract all contexts (@something) and refine them.
    Parse lines if present in contexts like @/path/to/file:L1-L4"
   [prompt db]
-  (let [ ;; Capture @<path> with optional :L<start>-L<end>
-        context-pattern #"@([/~\.][^\s:]+)(?::L(\d+)-L(\d+))?"
+  (let [;; Capture @<path> with optional :L<start>-L<end>
+        context-pattern #"@([/~\.][^\s:]+(?::L\d+-L\d+)?)"
         matches (re-seq context-pattern prompt)
-        raw-contexts (mapv (fn [[_ path s e]]
-                             (assoc-some {:type (if (fs/directory? path) "directory" "file")
-                                          :path path}
-                                         :lines-range (when (and s e)
-                                                        {:start (Integer/parseInt s)
-                                                         :end   (Integer/parseInt e)})))
-                           matches)]
+        raw-contexts (mapv (comp parse-context-reference second) matches)]
     (when (seq raw-contexts)
       (raw-contexts->refined raw-contexts db))))
 
