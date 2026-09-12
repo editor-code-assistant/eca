@@ -17,6 +17,12 @@
 
 (def ^:private default-client-id "Iv1.b507a08c87ecfe98")
 
+(def ^:private token-renew-max-attempts 2)
+
+(def ^:private token-renew-retry-delay-ms 250)
+
+(def ^:private token-renew-retry-statuses #{500 502 503 504})
+
 (defn ^:private github-base-url [provider-settings]
   (or (get-in provider-settings [:auth :url])
       "https://github.com"))
@@ -241,20 +247,29 @@
 
 (defn ^:private oauth-renew-token [provider-settings access-token]
   (let [token-url (str (github-api-base-url provider-settings) "/copilot_internal/v2/token")
-        {:keys [status body]} (http/get
-                               token-url
-                               {:headers (merge (auth-headers)
-                                                {"authorization" (str "token " access-token)})
-                                :throw-exceptions? false
-                                :http-client (client/merge-with-global-http-client {})
-                                :as :json})]
-    (if-let [token (:token body)]
-      (cond-> {:api-key token
-               :expires-at (:expires_at body)}
-        (get-in body [:endpoints :api]) (assoc :api-url (get-in body [:endpoints :api])))
-      (throw (ex-info (format "Error on copilot login: %s" body)
-                      {:status status
-                       :body body})))))
+        request-options {:headers (merge (auth-headers)
+                                         {"authorization" (str "token " access-token)})
+                         :throw-exceptions? false
+                         :http-client (client/merge-with-global-http-client {})
+                         :as :json}]
+    (loop [attempt 1]
+      (let [{:keys [status body]} (http/get token-url request-options)]
+        (cond
+          (:token body)
+          (cond-> {:api-key (:token body)
+                   :expires-at (:expires_at body)}
+            (get-in body [:endpoints :api]) (assoc :api-url (get-in body [:endpoints :api])))
+
+          (and (token-renew-retry-statuses status)
+               (< attempt token-renew-max-attempts))
+          (do
+            (Thread/sleep (long token-renew-retry-delay-ms))
+            (recur (inc attempt)))
+
+          :else
+          (throw (ex-info (format "Error on copilot login: %s" body)
+                          {:status status
+                           :body body})))))))
 
 ;; --- Settings-based login (providers/login flow) ---
 
