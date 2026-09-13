@@ -173,8 +173,8 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Knock "})
-        (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "assistant" {:type "text" :text "knock!"})
+        (match-content chat-id "system" {:type "usage" :sessionTokens 30})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
@@ -198,9 +198,9 @@
         (match-content chat-id "user" {:type "text" :text "Who's there?\n"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
-        (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
+        (match-content chat-id "system" {:type "usage" :sessionTokens 15})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -230,8 +230,8 @@
         (match-content chat-id "assistant" {:type "text" :text "Fo"})
         (match-content chat-id "assistant" {:type "text" :text "o "})
         (match-content chat-id "assistant" {:type "text" :text "bar"})
-        (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "assistant" {:type "text" :text "!\n\nHa!"})
+        (match-content chat-id "system" {:type "usage" :sessionTokens 20})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
