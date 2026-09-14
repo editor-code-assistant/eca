@@ -1737,6 +1737,11 @@ Messages matching commands that are safe to run while a prompt is in flight (cur
 are not queued: the server executes them immediately as a regular prompt, so e.g. a steered
 `/btw` forks the chat right away without waiting for the running turn.
 
+A steered `/compact [instructions]` is queued like a regular message, but at the turn boundary
+the server compacts the chat with those instructions (as a manual compaction) and then resumes
+the running task, instead of injecting the command text into the conversation.
+Other commands are injected as plain user text.
+
 _Notification:_
 
 * method: `chat/promptSteer`

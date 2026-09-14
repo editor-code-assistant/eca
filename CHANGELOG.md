@@ -8,6 +8,7 @@
 - Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
 - BREAKING: `plugins.install` now appends across config layers. Set `plugins.installMode` to `replace` beside the list to exclude inherited plugins as before.
 - Add `mcpToolSearch` config to keep MCP tool schemas out of context until the LLM loads them with the new `eca__search_tools` tool.
+- Fix `/compact` steered while the chat is running: compact with its instructions at the next turn boundary and resume the task, instead of sending it to the LLM as text. #600
 
 ## 0.159.0
 
