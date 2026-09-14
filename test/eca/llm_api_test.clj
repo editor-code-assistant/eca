@@ -241,13 +241,22 @@
              (:api (llm-api/provider->api-handler
                     "github-copilot" "claude-future" {:api "anthropic"} config)))))
 
-    (testing "Existing hardcoded routing remains the fallback without endpoint metadata"
-      (is (= :openai-responses
-             (:api (llm-api/provider->api-handler "github-copilot" "gpt-5.5" config))))
-      (is (= :openai-chat
-             (:api (llm-api/provider->api-handler "github-copilot" "gpt-5" config))))
-      (is (= :openai-chat
-             (:api (llm-api/provider->api-handler "github-copilot" "unknown-model" config)))))))
+    (testing "Without endpoint metadata, gpt models from 5.3 on route to Responses by name"
+      (doseq [model ["gpt-5.3-codex" "gpt-5.4" "gpt-5.4-mini" "gpt-5.5"
+                     "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra" "GPT-5.6-Sol"]]
+        (is (= :openai-responses
+               (:api (llm-api/provider->api-handler "github-copilot" model config)))
+            model)
+        (is (= :openai-responses
+               (:api (llm-api/provider->api-handler "github-copilot" model {:reason? true} config)))
+            model)))
+
+    (testing "Without endpoint metadata, older gpt and non-OpenAI models keep Chat Completions"
+      (doseq [model ["gpt-4.1" "gpt-4o" "gpt-4o-mini" "gpt-5" "gpt-5-mini" "gpt-5.1" "gpt-5.1-codex-max" "gpt-5.2"
+                     "o3" "claude-sonnet-5" "gemini-3.5-flash" "unknown-model"]]
+        (is (= :openai-chat
+               (:api (llm-api/provider->api-handler "github-copilot" model config)))
+            model)))))
 
 (deftest prompt-forwards-max-output-tokens-to-ollama-test
   (let [captured* (atom nil)]

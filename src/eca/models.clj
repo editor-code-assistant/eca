@@ -417,23 +417,24 @@
 
       nil)))
 
+(defn ^:private copilot-model-hidden?
+  "True for catalog entries VS Code's picker hides (#601): flagged
+   `model_picker_enabled: false` (embeddings, internal agents, the Auto router
+   entry) or with a `disabled` policy, which GitHub accepts but never enables
+   for plans that don't include the model. `unconfigured` policies are not
+   hidden: the model works once the user accepts its terms via the consent
+   flow. Entries without the flag or policy are not hidden."
+  [{:keys [model_picker_enabled policy]}]
+  (or (false? model_picker_enabled)
+      (= "disabled" (:state policy))))
+
 (defn ^:private parse-copilot-model-entry
-  "Parses a Copilot /models entry. The catalog returns every model the API
-   knows regardless of purpose or plan (embeddings, internal agents, the Auto
-   router entry, models hidden from the picker or outside the account's plan).
-   Skipped, like VS Code's picker (#601): entries flagged
-   `model_picker_enabled: false`, and entries whose `policy.state` is
-   `disabled`, which GitHub accepts but never enables for plans that don't
-   include the model. `unconfigured` policies are kept: the model works once
-   the user accepts its terms via the consent flow. Entries without the flag or
-   policy are kept. Hidden models can still be added explicitly under the
-   provider's `models` config. The picker category (versatile/powerful/
-   lightweight) is kept as provider data to choose a default model."
-  [{:keys [id supported_endpoints capabilities model_picker_enabled model_picker_category policy]}]
+  "Parses a Copilot /models entry into [id discovered-config]. The picker
+   category (versatile/powerful/lightweight) is kept as provider data to
+   choose a default model."
+  [{:keys [id supported_endpoints capabilities model_picker_category]}]
   (when (and (string? id)
-             (not (string/blank? id))
-             (not (false? model_picker_enabled))
-             (not= "disabled" (:state policy)))
+             (not (string/blank? id)))
     (let [supports (:supports capabilities)
           api (copilot-model-api supported_endpoints)
           variants (copilot-reasoning-variants id api supports)
@@ -448,14 +449,38 @@
                       :discovered-provider-data (when (shared/not-blank model_picker_category)
                                                   {:picker-category model_picker_category}))])))
 
+(defn ^:private configured-model-ids
+  "Model ids referenced by a provider's static `models` config: the keys plus
+   `modelName` aliases, without a `<provider>/` prefix."
+  [provider static-models]
+  (into (set (keys static-models))
+        (keep (fn [[_ {:keys [modelName]}]]
+                (when (string? modelName)
+                  (if (string/includes? modelName "/")
+                    (let [[alias-provider model] (shared/full-model->provider+model modelName)]
+                      (when (= provider alias-provider) model))
+                    modelName))))
+        static-models))
+
 (defn ^:private parse-copilot-models
-  "Parses the Copilot catalog entries. When the catalog has entries but none
-   is usable for the account (Copilot Free/Student only get auto model
+  "Parses the Copilot catalog entries. The catalog returns every model the API
+   knows regardless of purpose or plan; entries hidden from the picker (see
+   `copilot-model-hidden?`) are dropped unless the user lists them under the
+   provider's `models` config, keeping their discovered API and reasoning
+   variants so they aren't routed by model name. When the catalog has entries
+   but none is usable for the account (Copilot Free/Student only get auto model
    selection, which third-party clients can't use), returns an empty map
    rather than nil so callers don't fall back to models.dev and list models
    the account can't use."
-  [provider models-data]
-  (let [models (into {} (keep parse-copilot-model-entry) models-data)]
+  [provider models-data static-models]
+  (let [configured? (configured-model-ids provider static-models)
+        models (into {}
+                     (keep (fn [entry]
+                             (when-let [[id _ :as parsed] (parse-copilot-model-entry entry)]
+                               (when (or (not (copilot-model-hidden? entry))
+                                         (configured? id))
+                                 parsed))))
+                     models-data)]
     (when (and (seq models-data) (empty? models))
       (logger/warn logger-tag
                    (format "Provider '%s': /models returned %d models but none is available for this account's plan"
@@ -508,7 +533,7 @@
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> discovered model config on success, nil on failure."
-  [{:keys [api-url auth-type api-key api-type provider extra-headers]}]
+  [{:keys [api-url auth-type api-key api-type provider extra-headers static-models]}]
   (when-let [models-path (provider-models-endpoint-path api-type)]
     (let [url (shared/join-api-url api-url models-path)
           rid (llm-util/gen-rid)
@@ -537,7 +562,7 @@
                                 (format "[%s] Provider '%s': Received %d models from %s"
                                         rid provider (count models-data) url))
                   (if (= "github-copilot" provider)
-                    (parse-copilot-models provider models-data)
+                    (parse-copilot-models provider models-data static-models)
                     (not-empty (into {} (keep #(parse-native-model-entry % api-type) models-data)))))))))
         (catch Exception e
           (logger/warn logger-tag
@@ -572,7 +597,8 @@
                                 :auth-type auth-type
                                 :api-key api-key
                                 :api-type api-type
-                                :extra-headers (:extraHeaders provider-config)})))]
+                                :extra-headers (:extraHeaders provider-config)
+                                :static-models (:models provider-config)})))]
         (logger/debug logger-tag
                       (format "Provider '%s': Discovered %d models"
                               provider (count models)))
