@@ -19,7 +19,12 @@
            (when h/windows? (shared/uri->filename "file:///c:/c.clj")))))
   (testing "Spaces"
     (is (= (h/file-path "/Users/foo/Library/Some Document/comappleCloudDocs")
-           (shared/uri->filename (h/file-uri "file:///Users/foo/Library/Some Document/comappleCloudDocs"))))))
+           (shared/uri->filename (h/file-uri "file:///Users/foo/Library/Some Document/comappleCloudDocs")))))
+  (testing "Raw square brackets"
+    (is (= (h/file-path "/path/[workspace")
+           (shared/uri->filename (h/file-uri "file:///path/[workspace"))))
+    (is (= (h/file-path "/path/workspace]")
+           (shared/uri->filename (h/file-uri "file:///path/workspace]"))))))
 
 (deftest assoc-some-test
   (testing "single association"

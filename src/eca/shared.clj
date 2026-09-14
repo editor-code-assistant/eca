@@ -203,9 +203,19 @@
       (string/blank? path) base
       :else (str base "/" path))))
 
+(defn ^:private escape-raw-file-uri-path-brackets [uri]
+  (let [[_ prefix path] (re-matches #"(?is)(file:(?://[^/]*)?)(/.*)" uri)
+        escape-brackets #(-> %
+                             (string/replace "[" "%5B")
+                             (string/replace "]" "%5D"))]
+    (if path
+      (str prefix (escape-brackets path))
+      (escape-brackets uri))))
+
 (defn uri->filename [uri]
   (let [^URI uri (-> uri
                      (string/replace " " "%20")
+                     escape-raw-file-uri-path-brackets
                      (URI.))]
     (-> (Paths/get uri) .toString
         ;; WINDOWS drive letters
