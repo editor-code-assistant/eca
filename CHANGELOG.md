@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix answering pending questions from the remote UI without SSE subscribers; the first editor or HTTP answer wins.
+
 ## 0.160.0
 
 - Fix context usage counting only output tokens on anthropic-compatible providers that report input usage in `message_delta` (e.g. Z.AI). #604
