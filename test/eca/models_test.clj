@@ -303,6 +303,44 @@
                "unflagged-model" {:discovered-api :openai-chat}})
              (fetch)))))
 
+    (testing "Hidden entries listed in the provider models config keep their discovered metadata, by id or modelName alias"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200
+                                :body {:data [{:id "gpt-5.6-sol"
+                                               :model_picker_enabled true
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/responses" "ws:/responses"]
+                                               :capabilities {:supports {:reasoning_effort ["low" "max"]}}}
+                                              {:id "claude-opus-5"
+                                               :model_picker_enabled true
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/v1/messages"]}
+                                              {:id "exec-agent-a"
+                                               :model_picker_enabled false
+                                               :supported_endpoints ["/chat/completions"]}
+                                              {:id "gpt-6-astra"
+                                               :model_picker_enabled true
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/responses"]}]}})]
+        (is (match?
+             (m/equals
+              {"gpt-5.6-sol" {:discovered-api :openai-responses
+                              :discovered-reason? true
+                              :discovered-variants {"low" {:reasoning {:effort "low" :summary "auto"}}
+                                                    "max" {:reasoning {:effort "max" :summary "auto"}}}}
+               "claude-opus-5" {:discovered-api :anthropic}
+               "exec-agent-a" {:discovered-api :openai-chat}})
+             (#'models/fetch-provider-native-models
+              {:provider "github-copilot"
+               :api-url "https://api.githubcopilot.com"
+               :auth-type :auth/oauth
+               :api-key "tok"
+               :api-type "openai-chat"
+               :static-models {"gpt-5.6-sol" {}
+                               "opus" {:modelName "github-copilot/claude-opus-5"}
+                               "agent" {:modelName "exec-agent-a"}
+                               "other-provider-alias" {:modelName "openai/gpt-6-astra"}}})))))
+
     (testing "A catalog with entries but none usable is an empty map, not nil, so models.dev is not used as fallback"
       (let [warnings* (atom [])]
         (with-redefs [http/get (fn [_url _opts]
@@ -800,7 +838,31 @@
                     logger/warn (fn [& _] nil)]
         (let [config (assoc-in config [:providers "github-copilot" :models] {})
               supported (build-supported-models config db models-dev-data)]
-          (is (empty? (filter #(re-find #"^github-copilot/" %) (keys supported)))))))))
+          (is (empty? (filter #(re-find #"^github-copilot/" %) (keys supported)))))))
+
+    (testing "A hidden model added explicitly to the config keeps its catalog API and variants"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200 :body {:data [{:id "gpt-5.6-sol"
+                                                           :model_picker_enabled true
+                                                           :policy {:state "disabled"}
+                                                           :supported_endpoints ["/responses" "ws:/responses"]
+                                                           :capabilities {:supports {:reasoning_effort ["low" "high"]}}}
+                                                          {:id "claude-sonnet-5"
+                                                           :model_picker_enabled true
+                                                           :policy {:state "enabled"}
+                                                           :supported_endpoints ["/v1/messages"]}
+                                                          {:id "gpt-5.5"
+                                                           :model_picker_enabled true
+                                                           :policy {:state "disabled"}
+                                                           :supported_endpoints ["/responses"]}]}})]
+        (let [config (assoc-in config [:providers "github-copilot" :models] {"gpt-5.6-sol" {}})
+              supported (build-supported-models config db models-dev-data)]
+          (is (= #{"github-copilot/gpt-5.6-sol" "github-copilot/claude-sonnet-5"}
+                 (set (filter #(re-find #"^github-copilot/" %) (keys supported)))))
+          (is (= :openai-responses (get-in supported ["github-copilot/gpt-5.6-sol" :api])))
+          (is (= {"low" {:reasoning {:effort "low" :summary "auto"}}
+                  "high" {:reasoning {:effort "high" :summary "auto"}}}
+                 (get-in supported ["github-copilot/gpt-5.6-sol" :variants]))))))))
 
 (deftest fetch-provider-models-sends-provider-extra-headers-test
   (testing "Provider-level extraHeaders are sent on the native /models fetch"
