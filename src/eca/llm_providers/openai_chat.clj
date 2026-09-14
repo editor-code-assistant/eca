@@ -115,7 +115,7 @@
 
 (defn ^:private base-chat-request!
   [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream
-           on-tools-called-wrapper http-client cancelled? stream-idle-timeout-seconds]}]
+           on-usage-updated on-tools-called-wrapper http-client cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path chat-completions-path))
         extra-headers (if (fn? extra-headers)
                         (extra-headers {:body body})
@@ -152,14 +152,32 @@
                                                      {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))]
               (try
                 (with-open [rdr (io/reader body)]
-                  (doseq [[event data] (llm-util/event-data-seq rdr)]
-                    (set-reading-fn false)
-                    (touch-fn)
-                    (llm-util/log-response logger-tag rid event data)
-                    (on-stream event data)
-                    (set-reading-fn true))
-                  (set-reading-fn false)
-                  (on-stream "stream-end" {}))
+                  ;; Usage is cumulative. Keep it outside reduce so a read failure
+                  ;; still reports the latest counts, once, before error handling.
+                  (let [last-usage* (atom nil)
+                        finish-reason (try
+                                        (reduce (fn [finish-reason [event data]]
+                                                  (set-reading-fn false)
+                                                  (touch-fn)
+                                                  (llm-util/log-response logger-tag rid event data)
+                                                  (when-let [usage (:usage data)]
+                                                    (reset! last-usage* (parse-usage usage)))
+                                                  (on-stream event data)
+                                                  (set-reading-fn true)
+                                                  (or (some :finish_reason (:choices data))
+                                                      finish-reason))
+                                                nil
+                                                ;; Final usage can follow finish_reason. Stop at [DONE]
+                                                ;; without waiting for the connection to close;
+                                                ;; normal EOF also ends streams that omit [DONE].
+                                                (llm-util/event-data-seq rdr :stop-on-done? true))
+                                        (finally
+                                          (set-reading-fn false)
+                                          (when-let [usage @last-usage*]
+                                            (on-usage-updated usage))))]
+                    ;; Usage must precede completion and synchronous tool rounds.
+                    ;; Never execute pending tools after a failed read.
+                    (on-stream "stream-end" {:finish-reason finish-reason})))
                 (catch java.io.IOException e
                   (let [reason @reason*]
                     (cond
@@ -640,6 +658,7 @@
                                         :cancelled? cancelled?
                                         :stream-idle-timeout-seconds stream-idle-timeout-seconds
                                         :on-error wrapped-on-error
+                                        :on-usage-updated on-usage-updated
                                         :on-stream (when stream? (fn [event data] (handle-response event data tool-calls*)))}))))
 
         handle-response (fn handle-response [event data tool-calls*]
@@ -648,11 +667,13 @@
                               ;; Flush any leftover buffered content and finish reasoning if needed
                               (flush-content-buffer)
                               (finish-reasoning! reasoning-state* on-reason)
-                              (when (and had-tool-calls?
-                                         (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response)))
-                                ;; The stream ended with tool_calls, but none were executable (e.g. invalid JSON args).
-                                ;; Emit :finish so the UI does not hang waiting for the next turn.
-                                (on-message-received {:type :finish :finish-reason "stop"})))
+                              (if had-tool-calls?
+                                (when (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
+                                  ;; No executable tools (e.g. invalid JSON args): finish so the UI does not hang.
+                                  (on-message-received {:type :finish :finish-reason "stop"}))
+                                (when-let [finish-reason (:finish-reason data)]
+                                  (when (not= finish-reason "tool_calls")
+                                    (on-message-received {:type :finish :finish-reason finish-reason})))))
                             (when (seq (:choices data))
                               (doseq [choice (:choices data)]
                                 (let [delta (:delta choice)
@@ -734,21 +755,11 @@
                                                 (on-prepare-tool-call
                                                  (assoc updated-tool-call
                                                         :arguments-text (or args ""))))))))))
-                                  ;; Process finish reason if present (but not tool_calls which is handled above)
+                                  ;; Flush content now, but defer :finish until stream-end
+                                  ;; so final usage is recorded before the chat is saved.
                                   (when finish-reason
-                                    ;; Flush any leftover buffered content before finishing
                                     (flush-content-buffer)
-                                    ;; Handle reasoning completion
-                                    (finish-reasoning! reasoning-state* on-reason)
-                                    ;; Handle regular finish
-                                    ;; Some OpenAI-compatible providers (e.g. Google's) may emit finish_reason "stop"
-                                    ;; even when the turn contains tool_calls. In that case, defer :finish until after
-                                    ;; the tool loop completes, otherwise chat-level side effects may run too early.
-                                    (when (and (not= finish-reason "tool_calls")
-                                               (empty? @tool-calls*))
-                                      (on-message-received {:type :finish :finish-reason finish-reason})))))))
-                          (when-let [usage (:usage data)]
-                            (on-usage-updated (parse-usage usage))))
+                                    (finish-reasoning! reasoning-state* on-reason)))))))
         rid (llm-util/gen-rid)]
     (base-chat-request!
      {:rid rid
@@ -763,5 +774,6 @@
       :cancelled? cancelled?
       :stream-idle-timeout-seconds stream-idle-timeout-seconds
       :on-error wrapped-on-error
+      :on-usage-updated on-usage-updated
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls*)))})))

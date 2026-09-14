@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix inflated costs for OpenAI-compatible providers (e.g. Synthetic); count usage once per request before completion and retain received usage on stream errors.
 - Tool prompts: push, git config, shell search/read and sub-agents run on explicit request; rule headings are tool-scoped.
 - Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
 - BREAKING: `plugins.install` now appends across config layers. Set `plugins.installMode` to `replace` beside the list to exclude inherited plugins as before.
