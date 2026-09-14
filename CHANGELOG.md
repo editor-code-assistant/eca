@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.160.1
+
 - Fix answering pending questions from the remote UI without SSE subscribers; the first editor or HTTP answer wins.
 - Fix GitHub Copilot `gpt-5.6-*`/`gpt-6-*` models sent to Chat Completions (`unsupported_api_for_model`) when the `/models` catalog is unavailable: gpt >= 5.3 route to Responses by name.
 - Keep the catalog API and reasoning variants of hidden GitHub Copilot models (e.g. `disabled` policy) that are listed explicitly under the provider `models` config.
