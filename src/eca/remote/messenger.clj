@@ -11,6 +11,53 @@
 (defn ^:private ->camel [data]
   (shared/map->camel-cased-map data))
 
+(defn ^:private cancel-handle! [handle]
+  (when (future? handle)
+    ;; PendingRequest cancellation sends $/cancelRequest; a transport failure
+    ;; must not prevent cleanup of the other handle or completion of the caller.
+    (try (future-cancel handle) (catch Exception _ nil))))
+
+(defn ^:private question-result [result]
+  ;; Keep the registry promise raw: late handle attachment must wait for
+  ;; publication without rethrowing a winning editor error.
+  (let [unwrap (fn [response]
+                 (if (instance? Exception response)
+                   (throw response)
+                   response))
+        timeout-sentinel (Object.)]
+    (reify
+      clojure.lang.IDeref
+      (deref [_] (unwrap @result))
+      clojure.lang.IBlockingDeref
+      (deref [_ timeout-ms timeout-value]
+        (let [response (deref result timeout-ms timeout-sentinel)]
+          (if (identical? timeout-sentinel response)
+            timeout-value
+            (unwrap response))))
+      clojure.lang.IPending
+      (isRealized [_] (realized? result)))))
+
+(defn ^:private resolve-question! [pending-questions* request-id response cancel-handles?]
+  (let [[old _] (swap-vals! pending-questions* dissoc request-id)]
+    (when-let [{:keys [promise inner-result watcher]} (get old request-id)]
+      (deliver promise response)
+      (when cancel-handles?
+        (cancel-handle! inner-result)
+        (cancel-handle! watcher))
+      true)))
+
+(defn ^:private attach-handle! [pending-questions* request-id result key handle]
+  (let [[old _] (swap-vals! pending-questions*
+                           (fn [pending]
+                             (if (identical? result (get-in pending [request-id :promise]))
+                               (assoc-in pending [request-id key] handle)
+                               pending)))]
+    (when-not (identical? result (get-in old [request-id :promise]))
+      ;; A winner may have claimed the entry but not yet published its result.
+      ;; Don't interrupt that watcher until delivery is complete.
+      @result
+      (cancel-handle! handle))))
+
 (defrecord BroadcastMessenger [inner sse-connections* pending-questions*]
   messenger/IMessenger
 
@@ -72,26 +119,29 @@
   (editor-references [_this uri position include-declaration]
     (messenger/editor-references inner uri position include-declaration))
   (ask-question [_this params]
-    ;; No SSE clients: delegate to inner. Otherwise ask both the editor (inner)
-    ;; and SSE clients; the first answer wins.
-    (if (empty? @sse-connections*)
-      (messenger/ask-question inner params)
-      (let [request-id (or (:request-id params) (str (random-uuid)))
-            result (promise)
-            inner-result (messenger/ask-question inner params)
-            wire-params (-> params (dissoc :request-id) (assoc :requestId request-id))
-            ;; Watch the editor's answer and forward it; deliver is idempotent
-            ;; so the first answer (editor or SSE) wins.
-            watcher (future
-                      (try
-                        (deliver result (deref inner-result))
-                        (catch Throwable _ nil)
-                        (finally
-                          (swap! pending-questions* dissoc request-id))))]
-        (swap! pending-questions* assoc request-id
-               {:promise result :inner-result inner-result :watcher watcher})
-        (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params))
-        result))))
+    (let [request-id (or (:request-id params) (str (random-uuid)))
+          result (promise)
+          wire-params (-> params (dissoc :request-id) (assoc :requestId request-id))]
+      ;; HTTP answers don't depend on SSE subscriptions. Register before asking
+      ;; the editor, which may answer immediately.
+      (swap! pending-questions* assoc request-id {:promise result})
+      (try
+        (let [inner-result (messenger/ask-question inner params)]
+          (attach-handle! pending-questions* request-id result :inner-result inner-result)
+          (let [watcher (future
+                          (let [response (try
+                                           (deref inner-result)
+                                           (catch Exception e e))]
+                            ;; Never cancel the currently executing watcher.
+                            (resolve-question! pending-questions* request-id response false)))]
+            (attach-handle! pending-questions* request-id result :watcher watcher)))
+        (catch Exception e
+          (resolve-question! pending-questions* request-id e true)))
+      ;; Skip questions already claimed during dispatch or handle attachment.
+      ;; This check does not serialize broadcasting with concurrent resolution.
+      (when (identical? result (get-in @pending-questions* [request-id :promise]))
+        (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params)))
+      (question-result result))))
 
 (defn make-broadcast-messenger
   "Creates a BroadcastMessenger with a fresh pending-questions registry.
@@ -110,9 +160,5 @@
    Uses `swap-vals!` so claiming the entry is a single atomic op: under
    concurrent calls for the same request-id only the swap winner delivers."
   [{:keys [pending-questions*]} request-id answer cancelled]
-  (let [[old _new] (swap-vals! pending-questions* dissoc request-id)]
-    (when-let [{:keys [promise inner-result watcher]} (get old request-id)]
-      (deliver promise {:answer answer :cancelled (boolean cancelled)})
-      (when (future? inner-result) (future-cancel inner-result))
-      (when watcher (future-cancel watcher))
-      true)))
+  (resolve-question! pending-questions* request-id
+                     {:answer answer :cancelled (boolean cancelled)} true))

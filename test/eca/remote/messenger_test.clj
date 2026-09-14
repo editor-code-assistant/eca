@@ -109,8 +109,8 @@
       (is (= {:answer "ok" :cancelled false} @p))
       (sse/close-all! sse-connections*))))
 
-(deftest ask-question-falls-back-to-inner-when-no-sse-clients-test
-  (testing "ask-question delegates to inner messenger when no SSE clients are connected"
+(deftest ask-question-editor-answer-with-no-sse-clients-test
+  (testing "an editor answer also resolves a question without SSE clients"
     (let [inner (h/messenger)
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)]
@@ -118,7 +118,7 @@
       (let [result (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Why?"})]
         (is (= {:answer "from-inner" :cancelled false} @result))
         (is (empty? @(:pending-questions* broadcast-messenger))
-            "no SSE-side registration should occur when delegating to inner")))))
+            "editor resolution should remove the pending registration")))))
 
 (deftest answer-question-returns-nil-for-unknown-id-test
   (testing "answer-question! returns nil when the request-id is unknown"
@@ -126,6 +126,256 @@
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)]
       (is (nil? (remote.messenger/answer-question! broadcast-messenger "nonexistent" "x" false))))))
+
+(deftest question-remains-remotely-answerable-without-subscribers-test
+  (let [editor-result (java.util.concurrent.CompletableFuture.)
+        inner (reify messenger/IMessenger
+                (ask-question [_ _] editor-result))
+        connections (sse/create-connections)
+        m (remote.messenger/make-broadcast-messenger inner connections)
+        result (messenger/ask-question m {:request-id "offline"})]
+    (try
+      (is (contains? @(:pending-questions* m) "offline"))
+      (is (true? (remote.messenger/answer-question! m "offline" "remote" false)))
+      (is (= {:answer "remote" :cancelled false} (deref result 1000 :timeout)))
+      (is (future-cancelled? editor-result))
+      (is (nil? (remote.messenger/answer-question! m "offline" "late" false)))
+      (finally (.cancel editor-result true)))))
+
+(deftest remote-answer-during-editor-attachment-test
+  (let [editor-result (java.util.concurrent.CompletableFuture.)
+        m* (atom nil)
+        inner (reify messenger/IMessenger
+                (ask-question [_ _]
+                  (is (true? (remote.messenger/answer-question! @m* "early" "remote" false)))
+                  editor-result))
+        m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+        broadcasts* (atom [])]
+    (reset! m* m)
+    (with-redefs [sse/broadcast! (fn [& args] (swap! broadcasts* conj args))]
+      (let [result (messenger/ask-question m {:request-id "early"})]
+        (try
+          (is (= {:answer "remote" :cancelled false} (deref result 1000 :timeout)))
+          (is (empty? @broadcasts*) "an early HTTP claim must suppress the ask event")
+          (is (future-cancelled? editor-result))
+          (is (empty? @(:pending-questions* m)))
+          (finally
+            (remote.messenger/answer-question! m "early" nil true)
+            (.cancel editor-result true)))))))
+
+(deftest editor-completes-before-watcher-attachment-test
+  (doseq [fails? [false true]]
+    (let [editor-result (reify clojure.lang.IDeref
+                          (deref [_]
+                            (if fails?
+                              (throw (ex-info "editor failed" {}))
+                              {:answer "editor" :cancelled false})))
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _] editor-result))
+          m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+          watcher (java.util.concurrent.CompletableFuture.)
+          broadcasts* (atom [])]
+      ;; Force the watcher to finish before future-call returns its handle.
+      (with-redefs [sse/broadcast! (fn [& args] (swap! broadcasts* conj args))
+                    clojure.core/future-call (fn [f] (f) watcher)]
+        (try
+          (let [result (messenger/ask-question m {:request-id "immediate"})]
+            (if fails?
+              (is (thrown-with-msg? clojure.lang.ExceptionInfo #"editor failed"
+                                    (deref result 1000 :timeout)))
+              (is (= {:answer "editor" :cancelled false} (deref result 1000 :timeout))))
+            (is (empty? @(:pending-questions* m)))
+            (is (empty? @broadcasts*)
+                (str "immediate editor " (if fails? "error" "success") " must suppress the ask event"))
+            (is (nil? (remote.messenger/answer-question! m "immediate" "late" false)))
+            (is (future-cancelled? watcher)))
+          (finally
+            (remote.messenger/answer-question! m "immediate" nil true)
+            (.cancel watcher true)))))))
+
+(deftest editor-dispatch-error-completes-question-test
+  (let [inner (reify messenger/IMessenger
+                (ask-question [_ _] (throw (ex-info "dispatch failed" {}))))
+        m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+        broadcasts* (atom [])]
+    (with-redefs [sse/broadcast! (fn [& args] (swap! broadcasts* conj args))]
+      (let [result (messenger/ask-question m {:request-id "error"})]
+        (is (realized? result))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"dispatch failed" @result))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"dispatch failed"
+                              (deref result 0 :timeout))))
+      (is (empty? @broadcasts*) "a synchronous dispatch throw must suppress the ask event")
+      (is (empty? @(:pending-questions* m))))))
+
+(deftest pending-question-invokes-broadcast-test
+  (let [editor-result (java.util.concurrent.CompletableFuture.)
+        inner (reify messenger/IMessenger
+                (ask-question [_ _] editor-result))
+        connections (sse/create-connections)
+        m (remote.messenger/make-broadcast-messenger inner connections)
+        broadcasts* (atom [])]
+    (with-redefs [sse/broadcast! (fn [& args] (swap! broadcasts* conj args))]
+      (try
+        (let [result (messenger/ask-question m {:request-id "pending" :chat-id "c1" :question "Why?"})]
+          (is (not (realized? result)))
+          (let [registered (get-in @(:pending-questions* m) ["pending" :promise])]
+            (is (not (realized? registered)))
+            (doseq [timeout-value [nil :timeout (Object.) (ex-info "timeout value" {})]]
+              (is (identical? timeout-value (deref result 0 timeout-value))))
+            (is (= [[connections "chat:ask-question"
+                     {:requestId "pending" :chatId "c1" :question "Why?"}]]
+                   @broadcasts*))
+            (is (true? (remote.messenger/answer-question! m "pending" nil true)))
+            (is (realized? result))
+            (is (= {:answer nil :cancelled true} @registered @result (deref result 0 :timeout)))))
+        (finally
+          (remote.messenger/answer-question! m "pending" nil true)
+          (.cancel editor-result true))))))
+
+(deftest asynchronous-editor-error-or-cancellation-test
+  (doseq [response [(ex-info "editor failed asynchronously" {}) {:cancelled true}]]
+    (let [release (promise)
+          editor-result (reify clojure.lang.IDeref
+                          (deref [_]
+                            @release
+                            (if (instance? Exception response)
+                              (throw response)
+                              response)))
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _] editor-result))
+          m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+          result (messenger/ask-question m {:request-id "async"})
+          watcher (get-in @(:pending-questions* m) ["async" :watcher])]
+      (try
+        (is (not (realized? result)))
+        (deliver release true)
+        (is (true? (deref watcher 1000 :timeout)))
+        (is (realized? result))
+        (if (instance? Exception response)
+          (do
+            (is (identical? response (try @result (catch Exception e e))))
+            (is (identical? response (try (deref result 0 :timeout) (catch Exception e e)))))
+          (is (= response @result (deref result 0 :timeout))))
+        (is (empty? @(:pending-questions* m)))
+        (finally
+          (deliver release true)
+          (remote.messenger/answer-question! m "async" nil true)
+          (future-cancel watcher))))))
+
+(deftest remote-answer-survives-losing-editor-dispatch-error-test
+  (let [m* (atom nil)
+        inner (reify messenger/IMessenger
+                (ask-question [_ _]
+                  (is (true? (remote.messenger/answer-question! @m* "dispatch-race" "remote" false)))
+                  (throw (ex-info "late dispatch failure" {}))))
+        m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))]
+    (reset! m* m)
+    (let [result (messenger/ask-question m {:request-id "dispatch-race"})]
+      (is (= {:answer "remote" :cancelled false} (deref result 1000 :timeout)))
+      (is (empty? @(:pending-questions* m))))))
+
+(deftest question-resolution-is-first-claim-wins-test
+  (doseq [[editor-first? fails?] [[true false] [false false] [false true]]]
+    (let [editor-result (promise)
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _]
+                    (reify clojure.lang.IDeref
+                      (deref [_]
+                        (let [response @editor-result]
+                          (if fails?
+                            (throw (ex-info "losing editor failure" {}))
+                            response))))))
+          m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+          result (messenger/ask-question m {:request-id "race"})
+          watcher (get-in @(:pending-questions* m) ["race" :watcher])
+          claimed (promise)
+          publish (promise)]
+      ;; Pause the atomic winner after removal, before it can deliver.
+      (add-watch (:pending-questions* m) ::claim
+                 (fn [_ _ old new]
+                   (when (and (contains? old "race") (not (contains? new "race")))
+                     (deliver claimed true)
+                     @publish)))
+      (let [remote-result (when-not editor-first?
+                            (future (remote.messenger/answer-question! m "race" "remote" false)))]
+        (try
+          (when editor-first? (deliver editor-result {:answer "editor" :cancelled false}))
+          (is (= true (deref claimed 1000 :timeout)))
+          (if editor-first?
+            (is (nil? (remote.messenger/answer-question! m "race" "remote" false)))
+            (do
+              (deliver editor-result {:answer "editor" :cancelled false})
+              (is (nil? (deref watcher 1000 :timeout)))))
+          (is (not (realized? result)) "the losing transport must not deliver")
+          (deliver publish true)
+          (is (= {:answer (if editor-first? "editor" "remote") :cancelled false}
+                 (deref result 1000 :timeout)))
+          (when remote-result (is (true? (deref remote-result 1000 :timeout))))
+          (is (empty? @(:pending-questions* m)))
+          (finally
+            (deliver publish true)
+            (remove-watch (:pending-questions* m) ::claim)
+            (future-cancel watcher)
+            (when remote-result (future-cancel remote-result))))))))
+
+(deftest watcher-attachment-waits-for-winning-publication-test
+  (let [inner (reify messenger/IMessenger
+                (ask-question [_ _] (doto (promise) (deliver {:answer "editor" :cancelled false}))))
+        m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+        claimed (promise)
+        attaching (promise)
+        publish (promise)
+        watcher* (atom nil)
+        start-future clojure.core/future-call]
+    (add-watch (:pending-questions* m) ::publication
+               (fn [_ _ old new]
+                 (cond
+                   (and (contains? old "publication") (empty? new))
+                   (do (deliver claimed true) @publish)
+
+                   (and (empty? old) (empty? new))
+                   (deliver attaching true))))
+    (let [caller (start-future
+                  (fn []
+                    (with-redefs [clojure.core/future-call
+                                  (fn [f]
+                                    (let [watcher (start-future f)]
+                                      (reset! watcher* watcher)
+                                      @claimed
+                                      watcher))]
+                      (messenger/ask-question m {:request-id "publication"}))))]
+      (try
+        (is (= true (deref attaching 1000 :timeout)))
+        (is (not (future-cancelled? @watcher*)))
+        (deliver publish true)
+        (let [result (deref caller 1000 nil)]
+          (is (some? result))
+          (when result
+            (is (= {:answer "editor" :cancelled false} (deref result 1000 :timeout)))))
+        (is (empty? @(:pending-questions* m)))
+        (finally
+          (deliver publish true)
+          (deliver claimed true)
+          (remove-watch (:pending-questions* m) ::publication)
+          (future-cancel caller)
+          (when-let [watcher @watcher*] (future-cancel watcher)))))))
+
+(deftest cancellation-error-does-not-prevent-watcher-cleanup-test
+  (let [editor-result (proxy [java.util.concurrent.CompletableFuture] []
+                        (cancel [_] (throw (ex-info "cancel failed" {}))))
+        inner (reify messenger/IMessenger
+                (ask-question [_ _] editor-result))
+        m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+        result (messenger/ask-question m {:request-id "cancel-error"})
+        watcher (get-in @(:pending-questions* m) ["cancel-error" :watcher])]
+    (try
+      (is (true? (remote.messenger/answer-question! m "cancel-error" "remote" false)))
+      (is (= {:answer "remote" :cancelled false} (deref result 1000 :timeout)))
+      (is (future-cancelled? watcher))
+      (is (empty? @(:pending-questions* m)))
+      (finally
+        (.complete editor-result {:cancelled true})
+        (future-cancel watcher)))))
 
 ;;; ask-question dual-dispatch: with both an SSE client and the editor (inner)
 ;;; connected, the question reaches both and the first answer wins.
