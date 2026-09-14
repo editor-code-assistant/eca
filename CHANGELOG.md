@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix context usage counting only output tokens on anthropic-compatible providers that report input usage in `message_delta` (e.g. Z.AI). #604
 - Accept unescaped square brackets in workspace file URI paths. #594
 - Fix inflated costs for OpenAI-compatible providers (e.g. Synthetic); count usage once per request before completion and retain received usage on stream errors.
 - Tool prompts: push, git config, shell search/read and sub-agents run on explicit request; rule headings are tool-scoped.

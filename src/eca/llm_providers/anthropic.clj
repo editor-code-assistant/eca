@@ -399,6 +399,17 @@
       "tool_use")
     stop-reason))
 
+(defn ^:private start-or-delta-tokens
+  "Prefers the count reported at message_start, which reflects the context sent,
+   over the message_delta one, which is cumulative across server tool sub-requests
+   (web search) and inflates the context counter (#307).
+   Falls back to the message_delta count when message_start reported it as missing
+   or zero, as anthropic-compatible endpoints like Z.AI do (#604)."
+  [start-tokens delta-tokens]
+  (if (and start-tokens (pos? start-tokens))
+    start-tokens
+    (or delta-tokens start-tokens)))
+
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
@@ -530,9 +541,9 @@
                                 (when-let [usage (and (-> data :delta :stop_reason)
                                                       (:usage data))]
                                   (let [ctx @context-usage*]
-                                    (on-usage-updated {:input-tokens (or (:input-tokens ctx) (:input_tokens usage))
-                                                       :input-cache-creation-tokens (or (:cache-creation-input-tokens ctx) (:cache_creation_input_tokens usage))
-                                                       :input-cache-read-tokens (or (:cache-read-input-tokens ctx) (:cache_read_input_tokens usage))
+                                    (on-usage-updated {:input-tokens (start-or-delta-tokens (:input-tokens ctx) (:input_tokens usage))
+                                                       :input-cache-creation-tokens (start-or-delta-tokens (:cache-creation-input-tokens ctx) (:cache_creation_input_tokens usage))
+                                                       :input-cache-read-tokens (start-or-delta-tokens (:cache-read-input-tokens ctx) (:cache_read_input_tokens usage))
                                                        :output-tokens (:output_tokens usage)})))
                                 (case (normalize-stop-reason (-> data :delta :stop_reason) @content-block*)
                                   "tool_use" (let [tool-calls (keep
