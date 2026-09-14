@@ -98,6 +98,25 @@
   [db]
   (some->> (:models db) keys sort first))
 
+(def ^:private copilot-picker-category-rank
+  {"versatile" 0 "powerful" 1 "lightweight" 2})
+
+(defn ^:private copilot-default-model
+  "Picks the GitHub Copilot default among the models discovered for the
+   account (models hidden from the picker or outside the plan never reach db),
+   preferring the catalog's `versatile` picker category, then `powerful`, then
+   `lightweight`, then uncategorized ones; alphabetical within a category so
+   the choice is deterministic. Nil when the account has no usable model."
+  [db]
+  (->> (:models db)
+       (filter (fn [[full-model _]] (string/starts-with? full-model "github-copilot/")))
+       (sort-by (fn [[full-model capabilities]]
+                  [(get copilot-picker-category-rank
+                        (get-in capabilities [:provider-data :picker-category])
+                        (count copilot-picker-category-rank))
+                   full-model]))
+       ffirst))
+
 (defn refine-file-context [path lines-range]
   (cond
     (not (fs/exists? path))
@@ -118,7 +137,7 @@
   - defaultModel set
   - Anthropic api key set
   - Openai api key set
-  - Github copilot login done
+  - Github copilot login done, picking from the account's models by picker category
   - Ollama first model if running
   - Anthropic default model.
 
@@ -131,8 +150,9 @@
               [:api-key-found "anthropic/claude-sonnet-4-6"])
             (when (llm-util/provider-api-key "openai" (get-in db [:auth "openai"]) config)
               [:api-key-found "openai/gpt-5.2"])
-            (when (get-in db [:auth "github-copilot" :api-key])
-              [:api-key-found "github-copilot/gpt-5.5"])
+            (when-let [copilot-model (when (get-in db [:auth "github-copilot" :api-key])
+                                       (copilot-default-model db))]
+              [:api-key-found copilot-model])
             (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
               [:ollama-running ollama-model])
             [:default "anthropic/claude-sonnet-4-6"])

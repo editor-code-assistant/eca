@@ -171,6 +171,8 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
 
     If your instance uses a custom OAuth application, also set `auth.clientId`.
 
+    ECA lists the models Copilot's catalog marks as usable for your account (shown in the model picker and not disabled for your plan), and defaults to the first `versatile` one. Copilot Free and Student plans only offer auto model selection, which is restricted to GitHub's own clients, so they are not usable from ECA. A hidden model can still be added explicitly under `providers.github-copilot.models`.
+
     _Tip: check [Your Copilot plan](https://github.com/settings/copilot/features) to enable models to your account._
 
 === "Google / Gemini"

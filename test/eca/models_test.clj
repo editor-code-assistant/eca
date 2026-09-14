@@ -257,6 +257,69 @@
            :api-key "tok"
            :api-type "openai-chat"})))))
 
+(deftest fetch-provider-native-copilot-models-picker-filter-test
+  (let [fetch (fn []
+                (#'models/fetch-provider-native-models
+                 {:provider "github-copilot"
+                  :api-url "https://api.githubcopilot.com"
+                  :auth-type :auth/oauth
+                  :api-key "tok"
+                  :api-type "openai-chat"}))]
+    (testing "Skips entries hidden from the picker or with a disabled policy, keeps enabled, unconfigured and unflagged ones"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200
+                                :body {:data [{:id "gpt-5.4"
+                                               :model_picker_enabled true
+                                               :model_picker_category "powerful"
+                                               :policy {:state "enabled"}
+                                               :supported_endpoints ["/responses"]}
+                                              {:id "claude-sonnet-5"
+                                               :model_picker_enabled true
+                                               :model_picker_category "versatile"
+                                               :policy {:state "unconfigured" :terms "Enable access"}
+                                               :supported_endpoints ["/v1/messages"]}
+                                              {:id "unflagged-model"
+                                               :supported_endpoints ["/chat/completions"]}
+                                              {:id "claude-opus-5"
+                                               :model_picker_enabled true
+                                               :model_picker_category "powerful"
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/v1/messages"]}
+                                              {:id "auto-model-3"
+                                               :model_picker_enabled false
+                                               :supported_endpoints ["/chat/completions"]}
+                                              {:id "text-embedding-3-small"
+                                               :model_picker_enabled false}
+                                              {:id "exec-agent-a"
+                                               :model_picker_enabled false
+                                               :policy {:state "enabled"}
+                                               :supported_endpoints ["/chat/completions"]}]}})]
+        (is (match?
+             (m/equals
+              {"gpt-5.4" {:discovered-api :openai-responses
+                          :discovered-provider-data {:picker-category "powerful"}}
+               "claude-sonnet-5" {:discovered-api :anthropic
+                                  :discovered-provider-data {:picker-category "versatile"}}
+               "unflagged-model" {:discovered-api :openai-chat}})
+             (fetch)))))
+
+    (testing "A catalog with entries but none usable is an empty map, not nil, so models.dev is not used as fallback"
+      (let [warnings* (atom [])]
+        (with-redefs [http/get (fn [_url _opts]
+                                 {:status 200
+                                  :body {:data [{:id "gpt-5.5"
+                                                 :model_picker_enabled true
+                                                 :policy {:state "disabled"}}
+                                                {:id "auto-model-3"
+                                                 :model_picker_enabled false}]}})
+                      logger/warn (fn [& args] (swap! warnings* conj (apply str args)) nil)]
+          (is (= {} (fetch)))
+          (is (some #(re-find #"none is available for this account's plan" %) @warnings*)))))
+
+    (testing "An empty catalog stays nil so callers can fall back"
+      (with-redefs [http/get (fn [_url _opts] {:status 200 :body {:data []}})]
+        (is (nil? (fetch)))))))
+
 (deftest fetch-provider-native-openrouter-models-limits-test
   (testing "OpenRouter-shaped entries keep context_length and top_provider max_completion_tokens as discovered limits"
     (with-redefs [http/get (fn [_url _opts]
@@ -727,7 +790,17 @@
         (let [supported (build-supported-models config db models-dev-data)]
           (is (contains? supported "github-copilot/claude-sonnet-4-6"))
           (is (nil? (get-in supported ["github-copilot/claude-sonnet-4-6" :variants])))
-          (is (nil? (get-in supported ["github-copilot/gpt-5.6-sol" :variants]))))))))
+          (is (nil? (get-in supported ["github-copilot/gpt-5.6-sol" :variants]))))))
+
+    (testing "Catalogs whose models are all outside the plan don't fall back to models.dev"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200 :body {:data [{:id "gpt-5.5"
+                                                           :model_picker_enabled true
+                                                           :policy {:state "disabled"}}]}})
+                    logger/warn (fn [& _] nil)]
+        (let [config (assoc-in config [:providers "github-copilot" :models] {})
+              supported (build-supported-models config db models-dev-data)]
+          (is (empty? (filter #(re-find #"^github-copilot/" %) (keys supported)))))))))
 
 (deftest fetch-provider-models-sends-provider-extra-headers-test
   (testing "Provider-level extraHeaders are sent on the native /models fetch"
