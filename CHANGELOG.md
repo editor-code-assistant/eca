@@ -12,6 +12,7 @@
 - Fix `/compact` steered while the chat is running: compact with its instructions at the next turn boundary and resume the task, instead of sending it to the LLM as text. #600
 - Hide GitHub Copilot models the account can't use (`model_picker_enabled: false` or a `disabled` policy) instead of listing the whole catalog, and don't fall back to models.dev when none is usable. #601
 - Pick the GitHub Copilot default model from the account's catalog (`versatile`, then `powerful`, then `lightweight` category) instead of hardcoding `gpt-5.5`, which some plans don't include.
+- Fix remote MCP servers whose SSE events omit the space after `event:` (e.g. Z.AI) hanging on initialize; bump plumcp to 0.2.3. #586
 
 ## 0.159.0
 
