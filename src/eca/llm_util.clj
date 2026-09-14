@@ -26,7 +26,9 @@
   ;; Returns the index of the last :role "user" message, or nil if none.
   (find-last-msg-idx #(= "user" (:role %)) messages))
 
-(defn event-data-seq [^BufferedReader rdr]
+(defn event-data-seq
+  "Read stream events. With :stop-on-done? true, stop at [DONE] without another read."
+  [^BufferedReader rdr & {:keys [stop-on-done?]}]
   (letfn [(next-group []
             (loop [event-line nil]
               (let [line (.readLine rdr)]
@@ -47,7 +49,8 @@
                   (string/starts-with? line "data:")
                   (let [data-str (string/triml (subs line 5))]
                     (if (= data-str "[DONE]")
-                      (recur event-line) ; skip [DONE]
+                      (when-not stop-on-done?
+                        (recur event-line))
                       (let [event-type (if event-line
                                          ;; Handle both "event: foo" and "event:foo" formats
                                          (string/triml (subs event-line 6))

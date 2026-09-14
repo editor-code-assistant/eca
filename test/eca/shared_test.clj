@@ -19,7 +19,22 @@
            (when h/windows? (shared/uri->filename "file:///c:/c.clj")))))
   (testing "Spaces"
     (is (= (h/file-path "/Users/foo/Library/Some Document/comappleCloudDocs")
-           (shared/uri->filename (h/file-uri "file:///Users/foo/Library/Some Document/comappleCloudDocs"))))))
+           (shared/uri->filename (h/file-uri "file:///Users/foo/Library/Some Document/comappleCloudDocs")))))
+  (testing "Raw square brackets"
+    (is (= (h/file-path "/path/[workspace")
+           (shared/uri->filename (h/file-uri "file:///path/[workspace"))))
+    (is (= (h/file-path "/path/workspace]")
+           (shared/uri->filename (h/file-uri "file:///path/workspace]")))))
+  (testing "Raw non-ASCII"
+    (is (= (h/file-path "/home/user/Projets/thèse")
+           (shared/uri->filename (h/file-uri "file:///home/user/Projets/thèse"))))
+    (is (= (h/file-path "/home/user/Projets/thèse")
+           (shared/uri->filename (h/file-uri "file:///home/user/Projets/th%C3%A8se"))))
+    (is (= (h/file-path "/path/📁 docs")
+           (shared/uri->filename (h/file-uri "file:///path/📁 docs")))))
+  (testing "Raw reserved chars"
+    (is (= (h/file-path "/path/100%/c#")
+           (shared/uri->filename (h/file-uri "file:///path/100%/c#"))))))
 
 (deftest assoc-some-test
   (testing "single association"

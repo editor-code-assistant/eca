@@ -13,6 +13,7 @@
   (:import
    [java.lang ProcessHandle]
    [java.net URI]
+   [java.nio.charset StandardCharsets]
    [java.nio.file Paths]
    [java.time Instant ZoneId ZoneOffset]
    [java.time.format DateTimeFormatter]
@@ -203,9 +204,32 @@
       (string/blank? path) base
       :else (str base "/" path))))
 
+(def ^:private uri-path-allowed-chars
+  (set "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@/"))
+
+(defn ^:private percent-encode [^String s]
+  (->> (.getBytes s StandardCharsets/UTF_8)
+       (map #(format "%%%02X" (bit-and % 0xFF)))
+       (apply str)))
+
+(defn ^:private escape-raw-file-uri-path
+  "Percent-encodes chars in a file URI path that clients may send unescaped
+   (spaces, brackets, non-ASCII...), keeping existing valid escapes."
+  [uri]
+  (let [[_ prefix path] (re-matches #"(?is)(file:(?://[^/]*)?)(/.*)" uri)]
+    (if path
+      (->> (re-seq #"(?s)(%[0-9A-Fa-f]{2})|(.)" path)
+           (map (fn [[_ escape ch]]
+                  (cond
+                    escape escape
+                    (uri-path-allowed-chars (first ch)) ch
+                    :else (percent-encode ch))))
+           (apply str prefix))
+      uri)))
+
 (defn uri->filename [uri]
   (let [^URI uri (-> uri
-                     (string/replace " " "%20")
+                     escape-raw-file-uri-path
                      (URI.))]
     (-> (Paths/get uri) .toString
         ;; WINDOWS drive letters

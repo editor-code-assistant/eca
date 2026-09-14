@@ -166,6 +166,32 @@
                                 "openai" {:keyEnv "OPENAI_API_KEY"}}}]
         (is (= "openai/gpt-5.2" (llm-api/default-model db config))))))
 
+  (testing "GitHub Copilot login present picks from the account's models by picker category"
+    (with-redefs [config/get-env (constantly nil)
+                  secrets/credential-file-paths (constantly [])]
+      (let [config {:providers {"anthropic" {:key nil :keyEnv nil :keyRc nil}}}
+            auth {:auth {"github-copilot" {:api-key "copilot-token"}}}]
+        (testing "versatile wins over powerful and lightweight, alphabetical within the category"
+          (is (= "github-copilot/claude-sonnet-5"
+                 (llm-api/default-model
+                  (assoc auth :models {"github-copilot/gpt-5.4" {:provider-data {:picker-category "powerful"}}
+                                       "github-copilot/gpt-5.6-terra" {:provider-data {:picker-category "versatile"}}
+                                       "github-copilot/claude-sonnet-5" {:provider-data {:picker-category "versatile"}}
+                                       "github-copilot/claude-haiku-4.5" {:provider-data {:picker-category "lightweight"}}
+                                       "custom/a-model" {}})
+                  config))))
+        (testing "powerful before lightweight, uncategorized models last"
+          (is (= "github-copilot/kimi-k3"
+                 (llm-api/default-model
+                  (assoc auth :models {"github-copilot/claude-haiku-4.5" {:provider-data {:picker-category "lightweight"}}
+                                       "github-copilot/kimi-k3" {:provider-data {:picker-category "powerful"}}
+                                       "github-copilot/gpt-4.1" {}})
+                  config))))
+        (testing "no usable Copilot model falls through to the first available model"
+          (is (= "custom/zeta"
+                 (llm-api/default-model (assoc auth :models {"custom/zeta" {}}) config)))
+          (is (nil? (llm-api/default-model (assoc auth :models {}) config)))))))
+
   (testing "Fallback default (no keys anywhere)"
     (with-redefs [config/get-env (constantly nil)
                   secrets/credential-file-paths (constantly [])]

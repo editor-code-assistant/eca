@@ -1,9 +1,11 @@
 (ns eca.llm-providers.openai-chat-test
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.features.tools.util :as tools.util]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
+   [eca.llm-util :as llm-util]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -101,6 +103,165 @@
       (is (= "Stream cancelled" (ex-message (:exception (first @errors*)))))
       (is (true? (:silent? (ex-data (:exception (first @errors*))))))
       (is (empty? @messages*)))))
+
+(deftest chat-completion-stream-usage-reported-once-test
+  (let [stream (fn [text]
+                 (java.io.ByteArrayInputStream.
+                  (.getBytes ^String text java.nio.charset.StandardCharsets/UTF_8)))
+        base-opts {:model "test-model"
+                   :instructions "System prompt"
+                   :user-messages [{:role "user" :content "hello"}]
+                   :past-messages []
+                   :api-key "fake-key"
+                   :api-url "http://localhost:1"}]
+    (testing "Cumulative usage streamed on every chunk (e.g. Synthetic) is reported exactly once, with final values"
+      (let [usage* (atom [])
+            sse (str
+                 "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n"
+                 "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"He\"}}],\"usage\":{\"prompt_tokens\":18,\"prompt_tokens_details\":{\"cached_tokens\":12},\"completion_tokens\":1,\"total_tokens\":19}}\n\n"
+                 "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"llo\"}}],\"usage\":{\"prompt_tokens\":18,\"prompt_tokens_details\":{\"cached_tokens\":12},\"completion_tokens\":2,\"total_tokens\":20}}\n\n"
+                 "data: {\"id\":\"1\",\"choices\":[],\"usage\":{\"prompt_tokens\":18,\"prompt_tokens_details\":{\"cached_tokens\":12},\"completion_tokens\":2,\"total_tokens\":20}}\n\n"
+                 "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   :body (stream sse)})]
+          (llm-providers.openai-chat/chat-completion!
+           base-opts
+           {:on-message-received (fn [_])
+            :on-error (fn [_])
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_])
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage] (swap! usage* conj usage))}))
+        (is (= [{:input-tokens 6
+                 :output-tokens 2
+                 :input-cache-read-tokens 12}]
+               @usage*))))
+    (testing "Tool-call rounds report usage once per round"
+      (let [usage* (atom [])
+            events* (atom [])
+            requests* (atom 0)
+            tool-round (str
+                        "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"t\",\"arguments\":\"{}\"}}]}}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n"
+                        "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n"
+                        "data: [DONE]\n\n")
+            final-round (str
+                         "data: {\"id\":\"2\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23}}\n\n"
+                         "data: {\"id\":\"2\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23}}\n\n"
+                         "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   :body (stream (case (swap! requests* inc)
+                                                   1 tool-round
+                                                   final-round))})]
+          (llm-providers.openai-chat/chat-completion!
+           base-opts
+           {:on-message-received (fn [msg]
+                                   (when (= :finish (:type msg))
+                                     (swap! events* conj :finish)))
+            :on-error (fn [error] (swap! events* conj [:error error]))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_]
+                               (swap! events* conj :tools)
+                               {:new-messages [{:role "user" :content "tool result"}] :tools []})
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage]
+                                (swap! usage* conj usage)
+                                (swap! events* conj [:usage (:output-tokens usage)]))}))
+        (is (= [[:usage 5] :tools [:usage 3] :finish] @events*))
+        (is (= [{:input-tokens 10
+                 :output-tokens 5
+                 :input-cache-read-tokens nil}
+                {:input-tokens 20
+                 :output-tokens 3
+                 :input-cache-read-tokens nil}]
+               @usage*))))))
+
+(deftest chat-completion-stream-usage-before-finish-test
+  (doseq [[label early-usage? final-usage? finish-reason]
+          [["cumulative usage" true true "stop"]
+           ["OpenAI final-only usage" false true "stop"]
+           ["no usage" false false "stop"]
+           ["output limit" true false "length"]]]
+    (testing label
+      (let [events* (atom [])
+            usage-json "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}"
+            sse (str "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]"
+                     (when early-usage? (str "," usage-json)) "}\n\n"
+                     "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"" finish-reason "\"}]}\n\n"
+                     (when final-usage? (str "data: {\"choices\":[]," usage-json "}\n\n"))
+                     "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   ;; A complete response must not need another read after [DONE].
+                                   :body (java.io.SequenceInputStream.
+                                          (java.io.ByteArrayInputStream.
+                                           (.getBytes ^String sse java.nio.charset.StandardCharsets/UTF_8))
+                                          (proxy [java.io.InputStream] []
+                                            (read [& _]
+                                              (throw (java.io.IOException. "read after [DONE]")))))})]
+          (llm-providers.openai-chat/chat-completion!
+           {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+            :user-messages [{:role "user" :content "hello"}]}
+           {:on-message-received (fn [msg]
+                                   (when (= :finish (:type msg))
+                                     (swap! events* conj [:finish (:finish-reason msg)])))
+            :on-error (fn [error] (swap! events* conj [:error error]))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_] (swap! events* conj :tools))
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage] (swap! events* conj [:usage usage]))}))
+        (is (= (cond-> []
+                 (or early-usage? final-usage?)
+                 (conj [:usage {:input-tokens 10 :output-tokens 2 :input-cache-read-tokens nil}])
+                 true (conj [:finish finish-reason]))
+               @events*))))))
+
+(deftest chat-completion-stream-usage-before-error-test
+  (doseq [reason [nil :cancelled :idle-timeout]
+          tool-call? [true false]]
+    (testing (str "received usage survives a read failure before DONE: " reason ", tool call: " tool-call?)
+      (let [events* (atom [])
+            errors* (atom [])
+            lines* (atom ["data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}"
+                          (if tool-call?
+                            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"t\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}"
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}")])
+            reader (proxy [java.io.BufferedReader] [(java.io.StringReader. "")]
+                     (readLine []
+                       (if-let [line (first @lines*)]
+                         (do (swap! lines* rest) line)
+                         (throw (java.io.IOException. "test read failure")))))]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200 :body (java.io.ByteArrayInputStream. (byte-array 0))})
+                      io/reader (fn [_] reader)
+                      llm-util/start-stream-watchdog! (fn [& _]
+                                                       {:touch-fn (fn [])
+                                                        :set-reading-fn (fn [_])
+                                                        :stop-fn (fn [])
+                                                        :reason* (atom reason)})]
+          (llm-providers.openai-chat/chat-completion!
+           {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+            :user-messages [{:role "user" :content "hello"}]}
+           {:on-message-received (fn [msg]
+                                   (when (= :finish (:type msg))
+                                     (swap! events* conj :finish)))
+            :on-error (fn [error]
+                        (swap! errors* conj error)
+                        (swap! events* conj :error))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_] (swap! events* conj :tools))
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage] (swap! events* conj [:usage usage]))}))
+        (is (= [[:usage {:input-tokens 10 :output-tokens 5 :input-cache-read-tokens nil}]
+                :error]
+               @events*))
+        (is (= 1 (count @errors*)))
+        (case reason
+          :cancelled (is (true? (:silent? (ex-data (:exception (first @errors*))))))
+          :idle-timeout (is (= "Stream idle timeout: no data received for 120 seconds"
+                              (:message (first @errors*))))
+          (is (= "test read failure" (ex-message (:exception (first @errors*))))))))))
 
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"

@@ -72,6 +72,19 @@
             ["message_delta" {:type "message_delta"}]]
            (llm-util/event-data-seq r))))))
 
+(deftest event-data-seq-stop-on-done-test
+  (let [sse (str "data: {\"type\":\"before\"}\n\n"
+                 "data: [DONE]\n\n"
+                 "data: {\"type\":\"after\"}\n\n")]
+    (testing "default behavior still skips DONE and reads subsequent events"
+      (with-open [r (java.io.BufferedReader. (java.io.StringReader. sse))]
+        (is (= [["before" {:type "before"}] ["after" {:type "after"}]]
+               (vec (llm-util/event-data-seq r))))))
+    (testing "opt-in stops at DONE"
+      (with-open [r (java.io.BufferedReader. (java.io.StringReader. sse))]
+        (is (= [["before" {:type "before"}]]
+               (vec (llm-util/event-data-seq r :stop-on-done? true))))))))
+
 (deftest provider-api-key-with-key-rc-test
   (testing "provider-api-key uses keyRc when configured"
     (let [temp-file (java.io.File/createTempFile "netrc-test" ".netrc")
