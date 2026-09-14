@@ -18,9 +18,11 @@
   (contains? (set models) model))
 
 (defn ^:private built-in-providers-present?
+  "github-copilot is excluded: its models only come from the account's
+   catalog after login, so none is listed against the mock server."
   [models]
   (every? #(provider-model-present? models %)
-          ["anthropic" "github-copilot" "google" "openai"]))
+          ["anthropic" "google" "openai"]))
 
 (deftest default-initialize-and-shutdown
   (eca/start-process!)

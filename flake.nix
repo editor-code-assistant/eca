@@ -64,7 +64,9 @@
                 export jarPath=target/eca.jar
               '';
             doCheck = true;
-            checkPhase = "clojure -M:test";
+            # The sandbox has a POSIX locale, which makes the JVM's
+            # sun.jnu.encoding ASCII and garbles non-ASCII paths in tests.
+            checkPhase = "LC_ALL=C.UTF-8 clojure -M:test";
           };
 
           eca = cljpkgs.mkGraalBin {

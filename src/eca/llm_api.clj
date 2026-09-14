@@ -31,8 +31,20 @@
 
 (def no-available-model-error-msg "No available model found. Configure at least one provider model.")
 
-(def ^:private copilot-responses-api-models
-  #{"gpt-5.3-codex" "gpt-5.4" "gpt-5.4-mini" "gpt-5.5"})
+(def ^:private copilot-responses-api-min-gpt-version [5 3])
+
+(defn ^:private copilot-responses-api-model?
+  "Name-based routing for GitHub Copilot models whose API wasn't discovered
+   from the /models catalog (fetch failed, `fetchModels` disabled, model not
+   listed). Copilot serves OpenAI models from gpt-5.3-codex/gpt-5.4 on only
+   through the Responses API; older ones (gpt-4.1, gpt-5, gpt-5.1, gpt-5.2)
+   and non-OpenAI models take Chat Completions."
+  [model]
+  (boolean
+   (when (string? model)
+     (when-let [[_ major minor] (re-find #"(?i)^gpt-(\d+)(?:\.(\d+))?(?:$|[-._])" model)]
+       (<= 0 (compare [(parse-long major) (parse-long (or minor "0"))]
+                      copilot-responses-api-min-gpt-version))))))
 
 (def ^:private default-max-retries 10)
 (def ^:private premature-stop-max-retries 3)
@@ -191,7 +203,7 @@
        (cond
          (= "openai" provider) (api->handler :openai-responses)
          (= "anthropic" provider) (api->handler :anthropic)
-         (= "github-copilot" provider) (api->handler (if (copilot-responses-api-models model)
+         (= "github-copilot" provider) (api->handler (if (copilot-responses-api-model? model)
                                                        :openai-responses
                                                        :openai-chat))
          (= "google" provider) (api->handler :openai-chat)
@@ -284,6 +296,10 @@
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
         {:keys [handler] :as api-handler} (provider->api-handler provider model model-capabilities config)
+        _ (when (and (= "github-copilot" provider) (nil? (:api model-capabilities)))
+            (logger/info logger-tag
+                         (format "Copilot model '%s' has no API discovered from /models catalog, routing to %s by model name"
+                                 real-model (:api api-handler))))
         {past-messages :messages
          sanitized-dropped-count :dropped-count
          sanitized-dropped-apis :dropped-apis} (sanitize-past-messages-for-api (:api api-handler) past-messages)

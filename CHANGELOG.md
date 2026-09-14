@@ -4,6 +4,14 @@
 
 - Retry one transient GitHub Copilot token-renewal gateway/service failure. #551
 
+## 0.160.1
+
+- Fix answering pending questions from the remote UI without SSE subscribers; the first editor or HTTP answer wins.
+- Fix GitHub Copilot `gpt-5.6-*`/`gpt-6-*` models sent to Chat Completions (`unsupported_api_for_model`) when the `/models` catalog is unavailable: gpt >= 5.3 route to Responses by name.
+- Keep the catalog API and reasoning variants of hidden GitHub Copilot models (e.g. `disabled` policy) that are listed explicitly under the provider `models` config.
+
+## 0.160.0
+
 - Fix context usage counting only output tokens on anthropic-compatible providers that report input usage in `message_delta` (e.g. Z.AI). #604
 - Accept unescaped square brackets, non-ASCII and other reserved chars in workspace file URI paths. #594 #605
 - Fix inflated costs for OpenAI-compatible providers (e.g. Synthetic); count usage once per request before completion and retain received usage on stream errors.
@@ -14,6 +22,7 @@
 - Fix `/compact` steered while the chat is running: compact with its instructions at the next turn boundary and resume the task, instead of sending it to the LLM as text. #600
 - Hide GitHub Copilot models the account can't use (`model_picker_enabled: false` or a `disabled` policy) instead of listing the whole catalog, and don't fall back to models.dev when none is usable. #601
 - Pick the GitHub Copilot default model from the account's catalog (`versatile`, then `powerful`, then `lightweight` category) instead of hardcoding `gpt-5.5`, which some plans don't include.
+- Fix remote MCP servers whose SSE events omit the space after `event:` (e.g. Z.AI) hanging on initialize; bump plumcp to 0.2.3. #586
 
 ## 0.159.0
 
