@@ -91,36 +91,67 @@
             (logger/warn logger-tag (format "Ignoring malformed spawnableBy value: %s" (pr-str spawnable-by)))
             nil)))
 
-(defn ^:private normalize-disabled-tools
-  "Coerces the YAML `disabledTools:` value into a vector of strings.
+(defn ^:private normalize-tool-patterns
+  "Coerces a YAML tool pattern list (`disabledTools:`, `mcpToolSearch:` entries)
+   into a vector of strings.
    Accepts a single string or a list of strings; other shapes are ignored."
-  [disabled-tools]
+  [config-key patterns]
   (cond
-    (nil? disabled-tools) nil
-    (string? disabled-tools) (when-not (string/blank? disabled-tools)
-                               [disabled-tools])
-    (sequential? disabled-tools) (some->> disabled-tools
-                                          (keep (fn [entry]
-                                                  (let [s (str entry)]
-                                                    (when-not (string/blank? s) s))))
-                                          vec
-                                          not-empty)
+    (nil? patterns) nil
+    (string? patterns) (when-not (string/blank? patterns)
+                         [patterns])
+    (sequential? patterns) (some->> patterns
+                                    (keep (fn [entry]
+                                            (let [s (str entry)]
+                                              (when-not (string/blank? s) s))))
+                                    vec
+                                    not-empty)
     :else (do
-            (logger/warn logger-tag (format "Ignoring malformed disabledTools value: %s" (pr-str disabled-tools)))
+            (logger/warn logger-tag (format "Ignoring malformed %s value: %s" config-key (pr-str patterns)))
             nil)))
 
+(defn ^:private normalize-mcp-tool-search
+  "Coerces the YAML `mcpToolSearch:` value into the map form ECA expects.
+   - Map form mirrors the config: {deferAllWhenTotalTokensExceedPercentOfContext N
+     includePattern [...] excludePattern [...]}.
+     Nested YAML keys arrive as strings, so both string and keyword keys are read.
+   - A bare string or list is shorthand for `includePattern`, since deferring
+     tools without excluding any is the common case.
+   - Any other shape (number, boolean, malformed) is treated as absent."
+  [mcp-tool-search]
+  (when (some? mcp-tool-search)
+    (let [defer-all-key :deferAllWhenTotalTokensExceedPercentOfContext
+          as-map (if (map? mcp-tool-search)
+                   mcp-tool-search
+                   {"includePattern" mcp-tool-search})
+          has-entry? (fn [k] (or (contains? as-map (name k)) (contains? as-map k)))
+          entry (fn [k] (or (get as-map (name k)) (get as-map k)))
+          include (normalize-tool-patterns "mcpToolSearch.includePattern" (entry :includePattern))
+          exclude (normalize-tool-patterns "mcpToolSearch.excludePattern" (entry :excludePattern))
+          ;; Present but not a number (notably an explicit null) leaves it unlimited.
+          defer-all-percent (when-let [v (entry defer-all-key)]
+                              (when (number? v) v))]
+      (not-empty
+       (cond-> {}
+         (has-entry? defer-all-key) (assoc defer-all-key defer-all-percent)
+         include (assoc :includePattern include)
+         exclude (assoc :excludePattern exclude))))))
+
 (defn ^:private md->agent-config
-  [{:keys [description mode model variant maxSteps steps tools body inherit spawnableBy disabledTools]}]
+  [{:keys [description mode model variant maxSteps steps tools body inherit spawnableBy
+           disabledTools mcpToolSearch]}]
   (let [agent-variant (normalize-agent-variant variant)
         max-steps (or maxSteps steps)
         tools-map (normalize-tools tools)
         spawnable-by (normalize-spawnable-by spawnableBy)
-        disabled-tools (normalize-disabled-tools disabledTools)]
+        disabled-tools (normalize-tool-patterns "disabledTools" disabledTools)
+        mcp-tool-search (normalize-mcp-tool-search mcpToolSearch)]
     (cond-> {}
       inherit (assoc :inherit (str inherit))
       description (assoc :description description)
       spawnable-by (assoc :spawnableBy spawnable-by)
       disabled-tools (assoc :disabledTools disabled-tools)
+      mcp-tool-search (assoc :mcpToolSearch mcp-tool-search)
       mode (assoc :mode (if (sequential? mode)
                           (mapv str mode)
                           (str mode)))

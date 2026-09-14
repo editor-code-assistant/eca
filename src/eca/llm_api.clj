@@ -240,6 +240,12 @@
         (apply dissoc merged keys-to-strip))
       merged)))
 
+(defn ^:private tools-for-request
+  "Drops deferred tools from a request payload. They stay resolvable and callable;
+   only their schemas are withheld until the model loads them with eca__search_tools."
+  [tools]
+  (some->> tools (remove :deferred) vec))
+
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
@@ -247,7 +253,7 @@
            past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
-        tools (when (:tools model-capabilities) tools)
+        tools (when (:tools model-capabilities) (tools-for-request tools))
         reason? (:reason? model-capabilities)
         supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)
@@ -504,6 +510,15 @@
         emit-first-message-fn (fn [& args]
                                 (when (compare-and-set! first-response-received* false true)
                                   (apply on-first-response-received args)))
+        ;; Every provider rebuilds the next request of a tool-call loop from the
+        ;; tool list returned here, shadowing the one `prompt!` filtered, so it
+        ;; needs the same treatment or deferred schemas come back after the first
+        ;; tool call. Wrapped here rather than in `prompt!` because the sync path
+        ;; invokes the callback itself, without going through it.
+        on-tools-called-wrapper (fn [tool-calls]
+                                  (let [result (on-tools-called tool-calls)]
+                                    (cond-> result
+                                      (map? result) (update :tools tools-for-request))))
         on-message-received-wrapper (fn [& args]
                                       (apply emit-first-message-fn args)
                                       (apply on-message-received args))
@@ -637,7 +652,7 @@
                       (if-let [new-result (when (seq tools-to-call)
                                             (doseq [tool-to-call tools-to-call]
                                               (on-prepare-tool-call tool-to-call))
-                                            (call-tools-fn on-tools-called))]
+                                            (call-tools-fn on-tools-called-wrapper))]
                         (recur new-result)
                         (on-message-received-wrapper {:type :finish :finish-reason "stop"})))))))]
         (sync-prompt-with-retry* 0))
@@ -659,7 +674,7 @@
                 :cancelled? cancelled?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
-                :on-tools-called on-tools-called
+                :on-tools-called on-tools-called-wrapper
                 :on-usage-updated on-usage-updated
                 :on-server-web-search on-server-web-search-wrapper
                 :on-server-image-generation on-server-image-generation-wrapper

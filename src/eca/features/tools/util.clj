@@ -62,6 +62,16 @@
   [all-tools full-name]
   (boolean (some #(= full-name (:full-name %)) all-tools)))
 
+(defn activated-deferred-tools
+  "Full names of deferred tools the chat already loaded via `eca__search_tools`."
+  [db chat-id]
+  (get-in db [:chats chat-id :activated-tools] #{}))
+
+(defn activate-deferred-tools!
+  "Marks `full-names` as loaded for the chat, so they stop being deferred."
+  [db* chat-id full-names]
+  (swap! db* update-in [:chats chat-id :activated-tools] (fnil into #{}) full-names))
+
 (defn selector->string [selector]
   (cond
     (keyword? selector) (name selector)

@@ -3,9 +3,11 @@
 ## Unreleased
 
 - Accept unescaped square brackets in workspace file URI paths. #594
+- Fix inflated costs for OpenAI-compatible providers (e.g. Synthetic); count usage once per request before completion and retain received usage on stream errors.
 - Tool prompts: push, git config, shell search/read and sub-agents run on explicit request; rule headings are tool-scoped.
 - Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
 - BREAKING: `plugins.install` now appends across config layers. Set `plugins.installMode` to `replace` beside the list to exclude inherited plugins as before.
+- Add `mcpToolSearch` config to keep MCP tool schemas out of context until the LLM loads them with the new `eca__search_tools` tool.
 
 ## 0.159.0
 

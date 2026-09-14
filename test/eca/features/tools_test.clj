@@ -203,7 +203,146 @@
     (testing "server name works per agent"
       (let [names (full-names {:agent {"code" {:disabledTools ["clojureMCP"]}}})]
         (is (not (contains? names "clojureMCP__eval")))
-        (is (contains? names "eca__read_file"))))))
+        (is (contains? names "eca__read_file"))))
+    (testing "patterns are regexes, not globs"
+      (is (empty? (full-names {:disabledTools [".*"]})))
+      ;; A bare `*` is an invalid regex, so it falls back to literal equality
+      ;; and matches nothing, rather than being treated as a glob wildcard.
+      (is (= (full-names {}) (full-names {:disabledTools ["*"]}))))))
+
+(def ^:private deferred-db
+  {:mcp-clients {"clojureMCP"
+                 {:version "1.0.2"
+                  :tools [{:name "eval" :description "eval clojure code" :parameters {}}
+                          {:name "sync_deps" :description "sync deps" :parameters {}}]}}})
+
+(deftest mcp-tool-search-test
+  (let [tools-by-name (fn [config & [db]]
+                        (into {} (map (juxt :full-name identity))
+                              (f.tools/all-tools "123" "code" (or db deferred-db) config)))
+        include (fn [& patterns] {:mcpToolSearch {:includePattern (vec patterns)}})]
+    (testing "no mcpToolSearch config keeps every tool loaded and hides search_tools"
+      (let [tools (tools-by-name {})]
+        (is (not (contains? tools "eca__search_tools")))
+        (is (not-any? :deferrable (vals tools)))))
+    (testing "included tools are deferred and search_tools is offered"
+      (let [tools (tools-by-name (include "clojureMCP__.*"))]
+        (is (match? {:deferrable true :deferred true} (get tools "clojureMCP__eval")))
+        (is (match? {:deferrable true :deferred true} (get tools "clojureMCP__sync_deps")))
+        (is (contains? tools "eca__search_tools"))
+        (is (nil? (:deferrable (get tools "eca__read_file"))))))
+    (testing "excludePattern takes precedence over includePattern"
+      (let [tools (tools-by-name {:mcpToolSearch {:includePattern [".*"]
+                                                  :excludePattern ["clojureMCP__sync_deps"]}})]
+        (is (match? {:deferrable true} (get tools "clojureMCP__eval")))
+        (is (nil? (:deferrable (get tools "clojureMCP__sync_deps"))))))
+    (testing "patterns are regexes, not globs"
+      (let [tools (tools-by-name (include "clojureMCP__.*"))]
+        (is (match? {:deferrable true} (get tools "clojureMCP__eval"))))
+      ;; A bare `*` is an invalid regex: matched literally, so nothing defers.
+      (let [tools (tools-by-name (include "*"))]
+        (is (not-any? :deferrable (vals tools)))
+        (is (not (contains? tools "eca__search_tools")))))
+    (testing "native eca tools are never deferred, even by a catch-all pattern"
+      (let [tools (tools-by-name (include ".*"))]
+        (is (match? {:deferrable m/absent} (get tools "eca__search_tools")))
+        (is (match? {:deferrable m/absent} (get tools "eca__read_file")))
+        (is (match? {:deferrable m/absent} (get tools "eca__shell_command")))
+        (is (every? #(nil? (:deferrable %))
+                    (filter #(= :native (:origin %)) (vals tools))))))
+    (testing "explicitly naming a native tool still does not defer it"
+      (let [tools (tools-by-name (include "eca__read_file" "read_file"))]
+        (is (match? {:deferrable m/absent} (get tools "eca__read_file")))
+        (is (not (contains? tools "eca__search_tools")))))
+    (testing "search_tools is dropped when nothing actually matches"
+      (let [tools (tools-by-name (include "unknown-mcp__.*"))]
+        (is (not (contains? tools "eca__search_tools")))))
+    (testing "a catch-all includePattern with no MCP servers is a no-op"
+      (let [tools (tools-by-name (include ".*") {})]
+        (is (not (contains? tools "eca__search_tools")))
+        (is (contains? tools "eca__read_file"))
+        (is (not-any? :deferrable (vals tools)))))
+    (testing "agent patterns merge with the global ones"
+      (let [tools (tools-by-name {:mcpToolSearch {:includePattern ["clojureMCP__eval"]}
+                                  :agent {"code" {:mcpToolSearch {:includePattern ["clojureMCP__sync_deps"]}}}})]
+        (is (match? {:deferrable true} (get tools "clojureMCP__eval")))
+        (is (match? {:deferrable true} (get tools "clojureMCP__sync_deps")))))
+    (testing "an agent excludePattern applies to a global includePattern"
+      (let [tools (tools-by-name {:mcpToolSearch {:includePattern [".*"]}
+                                  :agent {"code" {:mcpToolSearch {:excludePattern ["clojureMCP__eval"]}}}})]
+        (is (nil? (:deferrable (get tools "clojureMCP__eval"))))
+        (is (match? {:deferrable true} (get tools "clojureMCP__sync_deps")))))
+    (testing "tools already loaded by the chat stop being deferred"
+      (let [db (assoc-in deferred-db [:chats "123" :activated-tools] #{"clojureMCP__eval"})
+            tools (tools-by-name (include "clojureMCP__.*") db)]
+        (is (match? {:deferrable true :deferred false} (get tools "clojureMCP__eval")))
+        (is (match? {:deferrable true :deferred true} (get tools "clojureMCP__sync_deps")))))
+    (testing "deferred tools stay resolvable and callable"
+      (let [tools (vals (tools-by-name (include "clojureMCP__.*")))]
+        (is (match? {:full-name "clojureMCP__eval"}
+                    (f.tools/resolve-tool "clojureMCP__eval" tools)))))
+    (testing "tools-for-llm drops only the not-yet-loaded ones"
+      (let [tools (vals (tools-by-name (include "clojureMCP__.*")))
+            sent (set (map :full-name (f.tools/tools-for-llm tools)))]
+        (is (not (contains? sent "clojureMCP__eval")))
+        (is (contains? sent "eca__search_tools"))
+        (is (contains? sent "eca__read_file"))))))
+
+(defn ^:private defer-all-db
+  "MCP catalog whose two tool descriptions are `description`, on a 10k context model."
+  [description]
+  {:chats {"123" {:model "prov/model"}}
+   :models {"prov/model" {:limit {:context 10000}}}
+   :mcp-clients {"bigMCP" {:version "1.0"
+                           :tools [{:name "one" :description description :parameters {}}
+                                   {:name "two" :description description :parameters {}}]}}})
+
+(deftest mcp-tool-search-defer-all-test
+  ;; ~4000 tokens of definitions against a 10k context: over 10%, under 90%.
+  (let [big (apply str (repeat 8000 "x"))
+        small "tiny"
+        tools-by-name (fn [db config]
+                        (into {} (map (juxt :full-name identity))
+                              (f.tools/all-tools "123" "code" db config)))
+        deferred-names (fn [db config]
+                         (set (map :full-name (filter :deferrable (vals (tools-by-name db config))))))]
+    (testing "no deferAllWhenTotalTokensExceedPercentOfContext leaves even a huge catalog loaded"
+      (is (empty? (deferred-names (defer-all-db big) {})))
+      (is (empty? (deferred-names (defer-all-db big) {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext nil}}))))
+    (testing "a catalog over the percent defers every MCP tool"
+      (let [tools (tools-by-name (defer-all-db big) {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}})]
+        (is (match? {:deferrable true :deferred true} (get tools "bigMCP__one")))
+        (is (match? {:deferrable true :deferred true} (get tools "bigMCP__two")))
+        (is (contains? tools "eca__search_tools"))
+        (is (nil? (:deferrable (get tools "eca__read_file"))))))
+    (testing "a catalog under the percent stays loaded"
+      (is (empty? (deferred-names (defer-all-db big) {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 90}})))
+      ;; Also proves native tools are left out of the total: ECA's own definitions
+      ;; are well past 10% of a 10k context, so counting them would defer here.
+      (is (empty? (deferred-names (defer-all-db small) {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}}))))
+    (testing "excludePattern still wins over the automatic limit"
+      (is (= #{"bigMCP__one"}
+             (deferred-names (defer-all-db big)
+                             {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10
+                                              :excludePattern ["bigMCP__two"]}}))))
+    (testing "includePattern still defers while under the limit"
+      (is (= #{"bigMCP__one"}
+             (deferred-names (defer-all-db small)
+                             {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10
+                                              :includePattern ["bigMCP__one"]}}))))
+    (testing "an unknown context window never defers automatically"
+      (is (empty? (deferred-names (update (defer-all-db big) :models dissoc "prov/model")
+                                  {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}}))))
+    (testing "percent 0 defers as soon as there is any MCP tool"
+      (is (= #{"bigMCP__one" "bigMCP__two"}
+             (deferred-names (defer-all-db small) {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 0}}))))
+    (testing "the agent percent overrides the global one"
+      (is (empty? (deferred-names (defer-all-db big)
+                                  {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}
+                                   :agent {"code" {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext nil}}}})))
+      (is (= #{"bigMCP__one" "bigMCP__two"}
+             (deferred-names (defer-all-db big)
+                             {:agent {"code" {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}}}}))))))
 
 (deftest approval-test
   (let [read-tool {:name "read" :server {:name "eca"} :origin :native}

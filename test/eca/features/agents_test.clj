@@ -217,6 +217,54 @@
            (:disabledTools (#'agents/md->agent-config {:description "a"
                                                        :disabledTools ["ok" "" nil]})))))
 
+  (testing "mcpToolSearch map form mirrors the config shape"
+    (let [md (str "---\n"
+                  "description: K8s agent\n"
+                  "mcpToolSearch:\n"
+                  "  deferAllWhenTotalTokensExceedPercentOfContext: 10\n"
+                  "  includePattern:\n"
+                  "    - \".*\"\n"
+                  "  excludePattern:\n"
+                  "    - k8s-mcp__get_.*\n"
+                  "---\n\n"
+                  "Body.")
+          config (#'agents/md->agent-config (shared/parse-md md))]
+      (is (= {:deferAllWhenTotalTokensExceedPercentOfContext 10
+              :includePattern [".*"]
+              :excludePattern ["k8s-mcp__get_.*"]}
+             (:mcpToolSearch config)))))
+
+  (testing "mcpToolSearch deferAllWhenTotalTokensExceedPercentOfContext set to null leaves it unlimited"
+    (let [md (str "---\n"
+                  "description: K8s agent\n"
+                  "mcpToolSearch:\n"
+                  "  deferAllWhenTotalTokensExceedPercentOfContext: null\n"
+                  "---\n\n"
+                  "Body.")
+          config (#'agents/md->agent-config (shared/parse-md md))]
+      (is (= {:deferAllWhenTotalTokensExceedPercentOfContext nil} (:mcpToolSearch config)))))
+
+  (testing "mcpToolSearch list shorthand means includePattern"
+    (let [md (str "---\n"
+                  "description: K8s agent\n"
+                  "mcpToolSearch:\n"
+                  "  - \".*\"\n"
+                  "  - other-mcp__.*\n"
+                  "---\n\n"
+                  "Body.")
+          config (#'agents/md->agent-config (shared/parse-md md))]
+      (is (= {:includePattern [".*" "other-mcp__.*"]} (:mcpToolSearch config)))))
+
+  (testing "mcpToolSearch string shorthand means includePattern"
+    (let [config (#'agents/md->agent-config {:description "a" :mcpToolSearch ".*"})]
+      (is (= {:includePattern [".*"]} (:mcpToolSearch config)))))
+
+  (testing "omitted, empty or malformed mcpToolSearch is ignored"
+    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a"}))))
+    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a" :mcpToolSearch 42}))))
+    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a" :mcpToolSearch []}))))
+    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a" :mcpToolSearch {}})))))
+
   (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
     (let [md (str "---\n"
                   "description: Reviewer\n"

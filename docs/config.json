@@ -119,6 +119,9 @@
         "type": "string"
       }
     },
+    "mcpToolSearch": {
+      "$ref": "#/definitions/mcpToolSearch"
+    },
     "commands": {
       "type": "array",
       "description": "Custom command prompt files.",
@@ -1006,6 +1009,9 @@
             "type": "string"
           }
         },
+        "mcpToolSearch": {
+          "$ref": "#/definitions/mcpToolSearch"
+        },
         "autoCompactPercentage": {
           "type": "integer",
           "description": "Context window usage percentage at which auto-compact triggers for this agent.",
@@ -1194,6 +1200,41 @@
             }
           },
           "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "mcpToolSearch": {
+      "type": "object",
+      "description": "Keeps matching MCP tools out of the LLM context until it loads them with the eca__search_tools tool. Deferred tools are still listed by name and short description in the system prompt. ECA native tools are never deferred.",
+      "markdownDescription": "Keeps matching MCP tools out of the LLM context until it loads them with the `eca__search_tools` tool. Deferred tools are still listed by name and short description in the system prompt. ECA native tools are never deferred.",
+      "properties": {
+        "deferAllWhenTotalTokensExceedPercentOfContext": {
+          "type": ["number", "null"],
+          "description": "Percentage of the model context window the MCP tool definitions may take before all of them are put behind the search tool. For example 10 defers them once they exceed 10% of the context window. Null (the default) never defers automatically, leaving includePattern in control.",
+          "markdownDescription": "Percentage of the model context window the MCP tool definitions may take before all of them are put behind the search tool. For example `10` defers them once they exceed 10% of the context window. `null` (the default) never defers automatically, leaving `includePattern` in control.",
+          "default": null,
+          "minimum": 0,
+          "maximum": 100,
+          "examples": [10, 5]
+        },
+        "includePattern": {
+          "type": "array",
+          "description": "MCP tools to put behind the search tool regardless of deferAllWhenTotalTokensExceedPercentOfContext. Each entry matches an exact MCP server name (all its tools) or an anchored regex against the tool full name server__tool.",
+          "markdownDescription": "MCP tools to put behind the search tool regardless of `deferAllWhenTotalTokensExceedPercentOfContext`. Each entry matches an exact MCP server name (all its tools) or an anchored regex against the tool full name `server__tool`.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [[".*"], ["some-mcp__.*"]]
+        },
+        "excludePattern": {
+          "type": "array",
+          "description": "MCP tools to keep loaded, taking precedence over both deferAllWhenTotalTokensExceedPercentOfContext and includePattern. Same matching as includePattern.",
+          "markdownDescription": "MCP tools to keep loaded, taking precedence over both `deferAllWhenTotalTokensExceedPercentOfContext` and `includePattern`. Same matching as `includePattern`.",
+          "items": {
+            "type": "string"
+          },
+          "examples": [["some-mcp"], ["some-mcp__.*"]]
         }
       },
       "additionalProperties": false

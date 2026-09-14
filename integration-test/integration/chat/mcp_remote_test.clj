@@ -15,13 +15,31 @@
 (def ^:private mcp-server-config
   {:mcpServers {"test-mcp" {:url (str "http://localhost:" mcp-mock/port "/mcp")}}})
 
-(defn ^:private init-with-mcp-remote! []
-  (eca/start-process!)
-  (mcp-mock/reset-requests!)
-  (eca/request! (fixture/initialize-request
-                 {:initializationOptions
-                  (merge fixture/default-init-options mcp-server-config)}))
-  (eca/notify! (fixture/initialized-notification)))
+(defn ^:private init-with-mcp-remote!
+  ([] (init-with-mcp-remote! nil))
+  ([extra-config]
+   (eca/start-process!)
+   (mcp-mock/reset-requests!)
+   (eca/request! (fixture/initialize-request
+                  {:initializationOptions
+                   (merge fixture/default-init-options mcp-server-config extra-config)}))
+   (eca/notify! (fixture/initialized-notification))))
+
+(defn ^:private await-mcp-running! []
+  (eca/client-awaits-server-notification :tool/serverUpdated)  ;; native
+  (eca/client-awaits-server-notification :tool/serverUpdated)  ;; mcp starting
+  (eca/client-awaits-server-notification :tool/serverUpdated)) ;; mcp running
+
+(defn ^:private drain-chat-until-finished!
+  "Consumes chat notifications until the turn finishes. Used when a test asserts
+  on what reached the LLM rather than on the notification sequence itself."
+  []
+  (loop [remaining 50]
+    (when (pos? remaining)
+      (let [{:keys [content]} (eca/client-awaits-server-notification :chat/contentReceived)]
+        (when-not (and (= "progress" (:type content))
+                       (= "finished" (:state content)))
+          (recur (dec remaining)))))))
 
 (deftest mcp-remote-server-connects
   (init-with-mcp-remote!)
@@ -55,11 +73,7 @@
 
 (deftest mcp-remote-tool-call-in-chat
   (init-with-mcp-remote!)
-
-  ;; Wait for MCP server to be ready
-  (eca/client-awaits-server-notification :tool/serverUpdated) ;; native
-  (eca/client-awaits-server-notification :tool/serverUpdated) ;; mcp starting
-  (eca/client-awaits-server-notification :tool/serverUpdated) ;; mcp running
+  (await-mcp-running!)
 
   (testing "LLM invokes an MCP tool and ECA processes it"
     (mcp-mock/reset-requests!)
@@ -148,6 +162,37 @@
                 :tools (m/embeds [{:name "testMcp__echo"}
                                   {:name "testMcp__add"}])}
                req-body)))))))
+
+(deftest mcp-deferred-tools-stay-deferred-across-the-tool-call-loop
+  ;; `echo` is excluded from deferral so the mocked tool call targets a tool the
+  ;; LLM can actually see; every other testMcp tool sits behind eca__search_tools.
+  (init-with-mcp-remote! {:mcpToolSearch {:includePattern ["testMcp__.*"]
+                                          :excludePattern ["testMcp__echo"]}})
+  (await-mcp-running!)
+
+  (testing "the continuation request withholds deferred tools, like the first one"
+    (mcp-mock/reset-requests!)
+    (llm.mocks/set-case! :mcp-tool-call-0)
+
+    (eca/request! (fixture/chat-prompt-request
+                   {:model "anthropic/claude-sonnet-4-6"
+                    :message "Call the echo tool"}))
+    (drain-chat-until-finished!)
+
+    ;; get-req-body keeps the last body, which here is the request ECA sent
+    ;; after running the tool - the one that used to re-send every tool.
+    (let [tool-names (->> (llm.mocks/get-req-body :mcp-tool-call-0)
+                          :tools
+                          (map :name)
+                          set)]
+      (is (contains? tool-names "testMcp__echo")
+          "excludePattern keeps echo loaded")
+      (is (contains? tool-names "eca__search_tools")
+          "search tool is offered while something is deferred")
+      (is (not (contains? tool-names "testMcp__add"))
+          "deferred tools must not come back in the tool-call loop")
+      (is (not (contains? tool-names "testMcp__add-tool"))
+          "deferred tools must not come back in the tool-call loop"))))
 
 (deftest mcp-remote-instructions-in-prompt
   (init-with-mcp-remote!)

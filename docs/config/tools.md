@@ -353,6 +353,98 @@ Regexes must match the whole name (anchored). It can be set globally, per agent 
 
     `disabledTools` removes the tool entirely from the LLM — it won't even know it exists. `toolCall.approval.deny` rules without `argsMatchers` also remove the tool from the LLM tool list, while rules with `argsMatchers` keep the tool visible and only block matching calls.
 
+## MCP tool search
+
+Every tool sent to the LLM costs context: its description and full input schema are part of each request. With a few MCP servers connected that easily adds up to thousands of tokens the model rarely needs.
+
+MCP tool search trades that upfront cost for an extra round trip. Matching tools are *deferred*: their schemas are **not** sent to the model, only a compact catalog of names and truncated descriptions in the system prompt. When the model needs one, it calls the `eca__search_tools` tool, which loads the matching tools — from then on they are sent as regular tools and can be called normally.
+
+Loading is per chat and sticks for the rest of it, including every follow-up request ECA makes while the model works through a chain of tool calls. Tools you never search for stay withheld for the whole conversation.
+
+This is configured via `mcpToolSearch`, and is off until you turn it on:
+
+- `deferAllWhenTotalTokensExceedPercentOfContext`: defer **all** MCP tools once their definitions outgrow this percentage of the model's context window. `null` by default, meaning never.
+- `includePattern`: MCP tools to put behind the search tool regardless of that limit.
+- `excludePattern`: MCP tools to keep loaded, taking precedence over both.
+
+So a tool is deferred when it is over the automatic limit **or** matches `includePattern`, and does not match `excludePattern`.
+
+The two patterns use the same matching as [`disabledTools`](#disabled-tools) — an exact MCP server name (all its tools) or an anchored regex against the tool full name `server__tool`.
+
+=== "Defer once MCP gets expensive"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpToolSearch": {
+        "deferAllWhenTotalTokensExceedPercentOfContext": 10
+      }
+    }
+    ```
+
+    On a 200k model this defers every MCP tool once their definitions pass ~20k tokens, and leaves them loaded below that. Percentage rather than a fixed token count so the same setting behaves sensibly on a 32k local model and a 1M model.
+
+=== "Defer all MCP tools"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpToolSearch": {
+        "includePattern": [".*"]
+      }
+    }
+    ```
+
+=== "Defer all but one MCP server"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpToolSearch": {
+        "includePattern": [".*"],
+        "excludePattern": ["clojure-mcp"]
+      }
+    }
+    ```
+
+=== "Defer one noisy MCP server"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpToolSearch": {
+        "includePattern": ["some-mcp__.*"]
+      }
+    }
+    ```
+
+=== "Per agent"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "agent": {
+        "plan": {
+          "mcpToolSearch": {
+            "includePattern": [".*"],
+            "excludePattern": ["some-mcp__read_.*"]
+          }
+        }
+      }
+    }
+    ```
+
+Both lists are merged from the global config and the agent config, and everything here can also be set in the [agent markdown frontmatter](agents.md#mcp-tool-search). `deferAllWhenTotalTokensExceedPercentOfContext` is a single value rather than a list, so an agent's value replaces the global one; set it to `null` on the agent to opt that agent out.
+
+!!! info "Native tools are never deferred"
+
+    Only MCP tools can be deferred. ECA's [native tools](../features.md#native-tools) are the agent's baseline capabilities, so a catch-all `".*"` never takes them away. Use [`disabledTools`](#disabled-tools) to remove a native tool. They are also left out of the `deferAllWhenTotalTokensExceedPercentOfContext` total, so the limit tracks what MCP actually adds.
+
+!!! note "Models without a known context window"
+
+    `deferAllWhenTotalTokensExceedPercentOfContext` needs the model's context window to compute a budget. When ECA does not know it, nothing is deferred automatically — use `includePattern` if you want deferral on such a model.
+
+`eca__search_tools` is only offered to the model when at least one tool is actually deferred.
+
+!!! tip "Disabled vs Deferred"
+
+    `disabledTools` makes a tool unusable. `mcpToolSearch` keeps it fully usable, it just costs the model one `eca__search_tools` call to load it.
+
 ## Approval / permissions
 
 By default, ECA asks to call any non read-only tool (check the [default rules](#default-approval-rules)), but that can easily be configured in several ways via the `toolCall.approval` config:

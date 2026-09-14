@@ -121,6 +121,11 @@ By default ECA consider the following as the base configuration:
       "commands" : [],
       "skills": [],
       "disabledTools": [],
+      "mcpToolSearch": {
+        "deferAllWhenTotalTokensExceedPercentOfContext": null,
+        "includePattern": [],
+        "excludePattern": []
+      },
       "toolCall": {
         "approval": {
           "byDefault": "ask",
