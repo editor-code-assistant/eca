@@ -2,11 +2,18 @@
 
 ## Unreleased
 
+- Retry one transient GitHub Copilot token-renewal gateway/service failure. #551
+
+- Fix context usage counting only output tokens on anthropic-compatible providers that report input usage in `message_delta` (e.g. Z.AI). #604
+- Accept unescaped square brackets, non-ASCII and other reserved chars in workspace file URI paths. #594 #605
+- Fix inflated costs for OpenAI-compatible providers (e.g. Synthetic); count usage once per request before completion and retain received usage on stream errors.
 - Tool prompts: push, git config, shell search/read and sub-agents run on explicit request; rule headings are tool-scoped.
 - Recover Anthropic streaming responses interrupted by transient TLS `bad_record_mac` failures.
 - BREAKING: `plugins.install` now appends across config layers. Set `plugins.installMode` to `replace` beside the list to exclude inherited plugins as before.
-- Add \`mcpToolSearch\` config to keep MCP tool schemas out of context until the LLM loads them with the new \`eca__search_tools\` tool.
-- Retry one transient GitHub Copilot token-renewal gateway/service failure. #551
+- Add `mcpToolSearch` config to keep MCP tool schemas out of context until the LLM loads them with the new `eca__search_tools` tool.
+- Fix `/compact` steered while the chat is running: compact with its instructions at the next turn boundary and resume the task, instead of sending it to the LLM as text. #600
+- Hide GitHub Copilot models the account can't use (`model_picker_enabled: false` or a `disabled` policy) instead of listing the whole catalog, and don't fall back to models.dev when none is usable. #601
+- Pick the GitHub Copilot default model from the account's catalog (`versatile`, then `powerful`, then `lightweight` category) instead of hardcoding `gpt-5.5`, which some plans don't include.
 
 ## 0.159.0
 

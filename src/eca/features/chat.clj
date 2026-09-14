@@ -666,22 +666,23 @@
   (when-not (string/blank? text)
     (odd? (count (re-seq #"(?m)^```" text)))))
 
-(defn ^:private auto-compact-finished-side-effect!
-  "on-finished-side-effect for auto-compaction: clear the auto-compacting flag,
-   apply the compact side effects and run postCompact hooks. When a postCompact
-   hook stops the turn (continue:false), surface the reason and finish here
-   (postRequest hooks were already skipped while auto-compacting), returning
-   {:stop-after-finish? true} so the resume continuation does not fire."
-  [{:keys [db* chat-id] :as chat-ctx}]
+(defn ^:private compact-finished-side-effect!
+  "on-finished-side-effect for a mid-turn compaction: clear the auto-compacting
+   flag, apply the compact side effects and run postCompact hooks for `trigger`
+   (\"auto\" or \"manual\"). When a postCompact hook stops the turn
+   (continue:false), surface the reason and finish here (postRequest hooks were
+   already skipped while auto-compacting), returning {:stop-after-finish? true}
+   so the resume continuation does not fire."
+  [{:keys [db* chat-id] :as chat-ctx} trigger]
   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-  (let [{:keys [stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx "auto")]
+  (let [{:keys [stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)]
     (when stop-turn?
       (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
     {:stop-after-finish? stop-turn?}))
 
-(defn ^:private resume-after-auto-compact!
-  "on-after-finish! for auto-compaction: resume the original user task."
+(defn ^:private resume-after-compact!
+  "on-after-finish! for a mid-turn compaction: resume the original user task."
   [chat-ctx user-messages]
   (prompt-messages!
    (concat [{:role "user"
@@ -691,38 +692,59 @@
    :auto-compact
    (assoc chat-ctx :auto-compacted? true)))
 
-(defn ^:private trigger-auto-compact!
-  "Trigger auto-compact: send compact prompt, then resume the original task."
+(defn ^:private trigger-compact!
+  "Compact the chat in the middle of a running turn, then resume the original
+   task (`user-messages`). `trigger` is \"auto\" (context threshold reached) or
+   \"manual\" (steered `/compact`, with `custom-instructions`).
+
+   Runs preCompact hooks first: continue:false stops the turn (reason from
+   stopReason, hook-name for provenance); exit 2 only blocks compaction, with no
+   user-facing reason, in which case `on-blocked` decides how the turn goes on
+   and its result is returned. Otherwise the compact prompt is sent under
+   :auto-compacting?, so finishing it does not end the turn: the finish
+   side-effect applies the compaction and the after-finish continuation resumes
+   the task. Returns nil when it took over the turn."
   [{:keys [db* config chat-id agent] :as chat-ctx}
    all-tools
-   user-messages]
-  (let [{:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "auto" "")]
+   user-messages
+   {:keys [trigger custom-instructions on-blocked]}]
+  (let [{:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx trigger custom-instructions)]
     (if blocked?
       (do
-        (logger/info logger-tag "Auto-compaction blocked by hook" {:chat-id chat-id
-                                                                   :stop-turn? stop-turn?})
-        ;; continue:false stops the turn (reason from stopReason, hook-name for
-        ;; provenance); exit 2 blocks compaction only, with no user-facing reason.
+        (logger/info logger-tag "Compaction blocked by hook" {:chat-id chat-id
+                                                              :trigger trigger
+                                                              :stop-turn? stop-turn?})
         (if stop-turn?
           (do (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
-              (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
+              (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
+              nil)
           (do (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)})
-              (prompt-messages! user-messages
-                                :auto-compact-blocked
-                                (assoc chat-ctx :auto-compacted? true))))
-        nil)
+              (on-blocked))))
       (let [db             @db*
-            compact-prompt (f.prompt/compact-prompt nil all-tools agent config db)]
-        (logger/info logger-tag "Auto-compacting chat" {:chat-id chat-id})
+            compact-prompt (f.prompt/compact-prompt (shared/not-blank custom-instructions) all-tools agent config db)]
+        (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
         (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
         (prompt-messages!
          [{:role "user" :content "Compact the chat following the template:"}
           {:role "user" :content compact-prompt}]
          :auto-compact
          (assoc chat-ctx
-                :on-finished-side-effect #(auto-compact-finished-side-effect! chat-ctx)
-                :on-after-finish! #(resume-after-auto-compact! chat-ctx user-messages)))
+                :on-finished-side-effect #(compact-finished-side-effect! chat-ctx trigger)
+                :on-after-finish! #(resume-after-compact! chat-ctx user-messages)))
         nil))))
+
+(defn ^:private trigger-auto-compact!
+  "Trigger auto-compact: send compact prompt, then resume the original task.
+   When a hook blocks compaction without stopping the turn, the original task is
+   (re)sent as a new prompt, marked so auto-compaction is not retried."
+  [chat-ctx all-tools user-messages]
+  (trigger-compact! chat-ctx all-tools user-messages
+                    {:trigger "auto"
+                     :on-blocked (fn []
+                                   (prompt-messages! user-messages
+                                                     :auto-compact-blocked
+                                                     (assoc chat-ctx :auto-compacted? true))
+                                   nil)}))
 
 (defn ^:private log-api-switch!
   "Log when the user swaps to a model whose api differs from the chat's
@@ -763,6 +785,36 @@
         (lifecycle/send-content! chat-ctx :user {:type :text
                                                  :content-id content-id
                                                  :text (str steer-msg "\n")})))))
+
+(defn ^:private consume-steered-compact!
+  "When the pending steer message is a `/compact` command, clears it, echoes it
+   to the client as the user message it was typed as and returns
+   {:custom-instructions string :content-id string}; otherwise leaves the steer
+   message pending and returns nil.
+   The command is parsed outside the swap (command lookup reads the filesystem)
+   and only removed while the pending message is still the parsed one; if
+   another steer landed meanwhile the merged message is parsed again."
+  [chat-id db* {:keys [config] :as chat-ctx}]
+  (loop []
+    (when-let [steer-msg (get-in @db* [:chats chat-id :steer-message])]
+      (let [{:keys [type command args]} (message->decision steer-msg @db* config)]
+        (when (and (= :eca-command type)
+                   (= "compact" command))
+          (let [[old-db new-db] (swap-vals! db* (fn [db]
+                                                  (if (= steer-msg (get-in db [:chats chat-id :steer-message]))
+                                                    (update-in db [:chats chat-id] dissoc :steer-message)
+                                                    db)))
+                removed? (and (= steer-msg (get-in old-db [:chats chat-id :steer-message]))
+                              (nil? (get-in new-db [:chats chat-id :steer-message])))]
+            (if removed?
+              (let [content-id (lifecycle/new-content-id)]
+                (logger/info logger-tag "Steered /compact consumed" {:chat-id chat-id})
+                (lifecycle/send-content! chat-ctx :user {:type :text
+                                                         :content-id content-id
+                                                         :text (str steer-msg "\n")})
+                {:custom-instructions (string/join " " args)
+                 :content-id content-id})
+              (recur))))))))
 
 (defn ^:private consume-pending-job-notifications!
   "Reads and clears any pending job notifications for the chat in a single swap.
@@ -1208,22 +1260,36 @@
                 :on-tools-called (tc/on-tools-called!
                                   (assoc chat-ctx :continue-fn
                                          (fn [tc-all-tools tc-user-messages]
-                                           (if (get-in @db* [:chats chat-id :compact-done?])
-                                             ;; Manual /compact maintenance prompt: skip postRequest hooks
-                                             ;; (postCompact provides compact_summary; postRequest would
-                                             ;; just see the trailing "Compacted successfully!" tool result).
-                                             (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
-                                                 (lifecycle/finish-chat-prompt! :idle
-                                                                                (assoc chat-ctx :skip-post-request-hooks? true))
-                                                 nil)
-                                             (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                                      (not (:auto-compacted? chat-ctx)))
-                                               (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                               (do
-                                                 (consume-steer-message! chat-id db* chat-ctx add-to-history!)
-                                                 (consume-pending-job-notifications! chat-id db* add-to-history!)
-                                                 {:tools tc-all-tools
-                                                  :new-messages (messages-to-send @db* chat-id full-model)})))))
+                                           (let [continue-turn! (fn []
+                                                                  (consume-steer-message! chat-id db* chat-ctx add-to-history!)
+                                                                  (consume-pending-job-notifications! chat-id db* add-to-history!)
+                                                                  {:tools tc-all-tools
+                                                                   :new-messages (messages-to-send @db* chat-id full-model)})]
+                                             (cond
+                                               ;; Manual /compact maintenance prompt: skip postRequest hooks
+                                               ;; (postCompact provides compact_summary; postRequest would
+                                               ;; just see the trailing "Compacted successfully!" tool result).
+                                               (get-in @db* [:chats chat-id :compact-done?])
+                                               (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
+                                                   (lifecycle/finish-chat-prompt! :idle
+                                                                                  (assoc chat-ctx :skip-post-request-hooks? true))
+                                                   nil)
+
+                                               :else
+                                               ;; A /compact steered while the turn was running is applied here
+                                               ;; with its instructions, then the task resumes. Checked before the
+                                               ;; threshold so the chat is not compacted twice. #600
+                                               (if-let [{:keys [custom-instructions content-id]} (consume-steered-compact! chat-id db* chat-ctx)]
+                                                 (trigger-compact! (assoc chat-ctx :user-content-id content-id)
+                                                                   tc-all-tools
+                                                                   tc-user-messages
+                                                                   {:trigger "manual"
+                                                                    :custom-instructions custom-instructions
+                                                                    :on-blocked continue-turn!})
+                                                 (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                                          (not (:auto-compacted? chat-ctx)))
+                                                   (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
+                                                   (continue-turn!)))))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)

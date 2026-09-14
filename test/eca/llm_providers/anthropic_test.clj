@@ -657,6 +657,70 @@
                                 :delta {:stop_reason "refusal"}
                                 :usage {:output_tokens 1}}))))))
 
+(deftest chat!-stream-usage-test
+  (let [sse (fn [event data]
+              (str "event: " event "\n"
+                   "data: " (json/generate-string data) "\n\n"))
+        run-stream! (fn [start-usage delta-usage]
+                      (let [usages* (atom [])
+                            errors* (atom [])
+                            stream-text (str (sse "message_start" {:type "message_start"
+                                                                   :message {:usage start-usage}})
+                                             (sse "content_block_start" {:type "content_block_start"
+                                                                         :index 0
+                                                                         :content_block {:type "text" :text ""}})
+                                             (sse "content_block_delta" {:type "content_block_delta"
+                                                                         :index 0
+                                                                         :delta {:type "text_delta" :text "hello!"}})
+                                             (sse "content_block_stop" {:type "content_block_stop" :index 0})
+                                             (sse "message_delta" {:type "message_delta"
+                                                                   :delta {:stop_reason "end_turn"}
+                                                                   :usage delta-usage})
+                                             (sse "message_stop" {:type "message_stop"}))]
+                        (with-redefs [http/post (fn [_url opts]
+                                                  (is (= :stream (:as opts)))
+                                                  {:status 200
+                                                   :body (java.io.ByteArrayInputStream.
+                                                          (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
+                          (llm-providers.anthropic/chat!
+                           {:model "claude-fable-5"
+                            :api-url "http://localhost:1"
+                            :api-key "fake-key"
+                            :auth-type :auth/key
+                            :instructions {:static "STATIC" :dynamic nil}
+                            :user-messages [{:role "user" :content "hello"}]
+                            :past-messages []
+                            :cancelled? (constantly false)}
+                           {:on-message-received identity
+                            :on-error (fn [err] (swap! errors* conj err))
+                            :on-usage-updated (fn [usage] (swap! usages* conj usage))}))
+                        {:usages @usages*
+                         :errors @errors*}))]
+    (testing "input usage comes from message_start when message_delta only reports output"
+      (is (match? {:usages [{:input-tokens 10
+                             :input-cache-creation-tokens 0
+                             :input-cache-read-tokens 0
+                             :output-tokens 5}]
+                   :errors empty?}
+                  (run-stream! {:input_tokens 10}
+                               {:output_tokens 5}))))
+    (testing "message_start wins over the cumulative message_delta input usage of server tools (#307)"
+      (is (match? {:usages [{:input-tokens 10
+                             :input-cache-creation-tokens 20
+                             :input-cache-read-tokens 30
+                             :output-tokens 5}]
+                   :errors empty?}
+                  (run-stream! {:input_tokens 10 :cache_creation_input_tokens 20 :cache_read_input_tokens 30}
+                               {:input_tokens 500 :cache_creation_input_tokens 200 :cache_read_input_tokens 300 :output_tokens 5}))))
+    (testing "message_delta input usage is used when message_start reports zeros (Z.AI, #604)"
+      (is (match? {:usages [{:input-tokens 52
+                             :input-cache-creation-tokens 0
+                             :input-cache-read-tokens 768
+                             :output-tokens 40}]
+                   :errors empty?}
+                  (run-stream! {:input_tokens 0 :output_tokens 0}
+                               {:input_tokens 52 :cache_creation_input_tokens 0 :cache_read_input_tokens 768 :output_tokens 40}))))))
+
 (deftest chat!-stream-mislabeled-stop-reason-test
   (let [sse (fn [event data]
               (str "event: " event "\n"

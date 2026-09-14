@@ -158,7 +158,9 @@
                                  :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                  :key nil ;; not supported, requires login auth
                                  :requiresAuth? true
-                                 :models {"gpt-5.5" {}}}
+                                 ;; models come from the account's /models catalog after login;
+                                 ;; a static entry here would bypass its plan filtering.
+                                 :models {}}
                "google" {:api "openai-chat"
                          :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
                          :key "${env:GOOGLE_API_KEY}"

@@ -13,6 +13,7 @@
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
    [eca.test-helper :as h]
@@ -1402,6 +1403,194 @@
       (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
       (is (not (true? (get-in (h/db) [:chats chat-id :compacting?])))
           "the accidental call must not activate or complete compaction"))))
+
+(def ^:private steered-compact-tools
+  [{:name "read_file" :full-name "eca__read_file" :server {:name "eca"}}
+   {:name "compact_chat" :full-name "eca__compact_chat" :server {:name "eca"}}])
+
+(defn ^:private steered-compact-call-tool-mock
+  "Runs the real compact_chat handler so the compaction flags/summary behave as
+   in production; any other tool returns a canned result."
+  [full-name arguments chat-id & _]
+  (if (= "eca__compact_chat" full-name)
+    ((get-in f.tools.chat/definitions ["compact_chat" :handler]) arguments {:db* (h/db*) :chat-id chat-id})
+    {:error false :contents [{:type :text :text "file contents"}]}))
+
+(deftest steered-compact-test
+  (testing "a /compact steered while the turn runs compacts at the tool-call boundary with its instructions, then resumes the task (#600)"
+    (h/reset-components!)
+    ;; The test config has no resolved prompt templates; use a minimal compact one.
+    (h/config! {:prompts {:compact "Summarize the chat. {{additionalUserInput}}"}})
+    (let [chat-id "steered-compact-chat"
+          api-calls* (atom [])
+          pre-compact-hook-args* (atom nil)]
+      (with-redefs [lifecycle/run-pre-compact-hooks! (fn [_chat-ctx trigger custom-instructions]
+                                                        (reset! pre-compact-hook-args* {:trigger trigger
+                                                                                        :custom-instructions custom-instructions})
+                                                        {:blocked? false})]
+        (prompt!
+         {:message "Rename rfq to query" :chat-id chat-id}
+         {:all-tools-mock (constantly steered-compact-tools)
+          :call-tool-mock steered-compact-call-tool-mock
+          :api-mock
+          (fn [{:keys [user-messages on-first-response-received on-message-received
+                       on-prepare-tool-call on-tools-called]}]
+            (swap! api-calls* conj user-messages)
+            (case (count @api-calls*)
+              ;; Original task: the user steers /compact while the tool call runs.
+              1 (do (on-first-response-received {:type :text :text "Reading"})
+                    (on-message-received {:type :text :text "Reading"})
+                    (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+                    (f.chat/prompt-steer {:chat-id chat-id :message "/compact Keep only the rename details"}
+                                         (h/db*) (h/messenger) (h/config) (h/metrics))
+                    (is (nil? (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+                        "the compaction takes over the turn instead of continuing the LLM loop"))
+              ;; Compaction prompt: the LLM submits the summary.
+              2 (do (on-first-response-received)
+                    (on-prepare-tool-call {:id "compact-1" :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Renamed rfq to query\"}"})
+                    (on-tools-called [{:id "compact-1" :full-name "eca__compact_chat" :arguments {"summary" "Renamed rfq to query"}}]))
+              ;; Resumed task.
+              3 (do (on-first-response-received {:type :text :text "Done"})
+                    (on-message-received {:type :text :text "Done"})
+                    (on-message-received {:type :finish}))))}))
+      (is (= 3 (count @api-calls*))
+          "LLM is called for the task, the compaction and the resumed task")
+      (is (= {:trigger "manual" :custom-instructions "Keep only the rename details"}
+             @pre-compact-hook-args*)
+          "preCompact hooks run as a manual compaction with the steered instructions")
+      (is (match? [{:role "user" :content "Compact the chat following the template:"}
+                   {:role "user" :content #(string/includes? % "Keep only the rename details")}]
+                  (second @api-calls*))
+          "the compact prompt carries the steered instructions")
+      (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
+                   {:role "user" :content [{:type :text :text "Rename rfq to query"}]}]
+                  (nth @api-calls* 2))
+          "the original task resumes after the compaction")
+      (let [messages (:chat-content-received (h/messages))
+            steer-echo (some #(when (and (= :user (:role %))
+                                         (= "/compact Keep only the rename details\n" (get-in % [:content :text])))
+                                %)
+                             messages)]
+        (is (match? {:content {:type :text :content-id string?}} steer-echo)
+            "the consumed steer is echoed to the client as the user message it was typed as")
+        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+                                         {:role "assistant" :content [{:type :text :text "Reading"}]}
+                                         {:role "tool_call" :content {:id "call-1"}}
+                                         {:role "tool_call_output" :content {:id "call-1"}}
+                                         {:role "user" :content "Compact the chat following the template:"
+                                          :content-id (get-in steer-echo [:content :content-id])}
+                                         {:role "user" :content-id (get-in steer-echo [:content :content-id])}
+                                         {:role "tool_call" :content {:id "compact-1"}}
+                                         {:role "tool_call_output" :content {:id "compact-1"}}
+                                         {:role "compact_marker" :content {:auto? false}}
+                                         {:role "user" :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nRenamed rfq to query"}]}
+                                         {:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
+                                         {:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+                                         {:role "assistant" :content [{:type :text :text "Done"}]}]}}
+                    (:chats (h/db)))
+            "the compaction prompt is tied to the /compact echo so rolling back to it undoes the compaction; the raw command never enters history")
+        (is (match? (m/embeds [{:role :system :content {:type :text :text "Compacted chat"}}])
+                    messages)
+            "reported as a manual compaction"))
+      (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
+      (is (not (true? (get-in (h/db) [:chats chat-id :compacting?]))))
+      (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest steered-compact-blocked-by-hook-test
+  (testing "a preCompact hook blocking (exit 2) a steered /compact keeps the turn going without compacting"
+    (h/reset-components!)
+    (let [chat-id "steered-compact-blocked-chat"
+          api-call-count* (atom 0)
+          continuation* (atom nil)]
+      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? true
+                                                                  :reason nil
+                                                                  :hook-name "guard"
+                                                                  :stop-turn? false})]
+        (prompt!
+         {:message "Rename rfq to query" :chat-id chat-id}
+         {:all-tools-mock (constantly steered-compact-tools)
+          :call-tool-mock steered-compact-call-tool-mock
+          :api-mock
+          (fn [{:keys [on-first-response-received on-message-received
+                       on-prepare-tool-call on-tools-called]}]
+            (swap! api-call-count* inc)
+            (on-first-response-received {:type :text :text "Reading"})
+            (on-message-received {:type :text :text "Reading"})
+            (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+            (f.chat/prompt-steer {:chat-id chat-id :message "/compact Keep only the rename details"}
+                                 (h/db*) (h/messenger) (h/config) (h/metrics))
+            (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+            (on-message-received {:type :text :text "Done"})
+            (on-message-received {:type :finish}))}))
+      (is (= 1 @api-call-count*) "no compaction prompt is sent")
+      (is (match? {:tools steered-compact-tools
+                   :new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}
+                  @continuation*)
+          "the LLM loop continues normally with the tool results")
+      (is (not-any? #(= "compact_marker" (:role %)) (get-in (h/db) [:chats chat-id :messages])))
+      (is (not-any? #(and (= "user" (:role %))
+                          (string/includes? (pr-str (:content %)) "/compact"))
+                    (get-in (h/db) [:chats chat-id :messages]))
+          "the blocked command is not injected as plain text either")
+      (is (match? (m/embeds [{:role :user :content {:type :text :text "/compact Keep only the rename details\n"}}
+                             {:role :system :content {:type :text :text "Compaction blocked by hook 'guard'."}}])
+                  (:chat-content-received (h/messages))))
+      (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest steered-plain-message-test
+  (testing "a steered plain message is still injected as a user message at the tool-call boundary"
+    (h/reset-components!)
+    (let [chat-id "steered-plain-chat"
+          continuation* (atom nil)]
+      (prompt!
+       {:message "Rename rfq to query" :chat-id chat-id}
+       {:all-tools-mock (constantly steered-compact-tools)
+        :call-tool-mock steered-compact-call-tool-mock
+        :api-mock
+        (fn [{:keys [on-first-response-received on-message-received
+                     on-prepare-tool-call on-tools-called]}]
+          (on-first-response-received {:type :text :text "Reading"})
+          (on-message-received {:type :text :text "Reading"})
+          (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+          (f.chat/prompt-steer {:chat-id chat-id :message "also check the tests"}
+                               (h/db*) (h/messenger) (h/config) (h/metrics))
+          (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+          (on-message-received {:type :text :text "Done"})
+          (on-message-received {:type :finish}))})
+      (is (match? {:new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}
+                                            {:role "user" :content [{:type :text :text "also check the tests"}]}])}
+                  @continuation*))
+      (is (match? (m/embeds [{:role :user :content {:type :text :text "also check the tests\n" :content-id string?}}])
+                  (:chat-content-received (h/messages))))
+      (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
+      (is (not-any? #(= "compact_marker" (:role %)) (get-in (h/db) [:chats chat-id :messages]))))))
+
+(deftest consume-steered-compact-test
+  (let [consume! (fn [steer-message]
+                   (h/reset-components!)
+                   (swap! (h/db*) assoc-in [:chats "chat-1"]
+                          (cond-> {:id "chat-1" :status :running}
+                            steer-message (assoc :steer-message steer-message)))
+                   (#'f.chat/consume-steered-compact! "chat-1" (h/db*)
+                                                      {:chat-id "chat-1" :db* (h/db*) :messenger (h/messenger) :config (h/config)}))]
+    (testing "a pending /compact without instructions is consumed with empty instructions"
+      (is (match? {:custom-instructions "" :content-id string?}
+                  (consume! "/compact")))
+      (is (nil? (get-in (h/db) [:chats "chat-1" :steer-message])))
+      (is (match? [{:role :user :content {:type :text :text "/compact\n" :content-id string?}}]
+                  (:chat-content-received (h/messages)))))
+    (testing "quoted instructions are joined like a regular /compact"
+      (is (match? {:custom-instructions "keep the plan only"}
+                  (consume! "/compact \"keep the plan\" only"))))
+    (testing "other steers are left pending untouched"
+      (is (nil? (consume! "/compacting is not a command")))
+      (is (= "/compacting is not a command" (get-in (h/db) [:chats "chat-1" :steer-message])))
+      (is (empty? (:chat-content-received (h/messages)))))
+    (testing "no pending steer"
+      (is (nil? (consume! nil))))))
 
 (deftest concurrent-tool-calls-test
   (testing "Running three calls simultaneously"

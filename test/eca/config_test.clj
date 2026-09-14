@@ -11,6 +11,7 @@
    [eca.secrets :as secrets]
    [eca.shared :as shared]
    [eca.test-helper :as h]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
@@ -44,7 +45,7 @@
     (is (match?
          {:pureConfig true
           :providers {"github-copilot" {:key nil
-                                        :models {"gpt-5.5" {}}}}}
+                                        :models (m/equals {})}}}
          (#'config/all* {}))))
   (testing "deep merging initializationOptions with initial config"
     (reset! config/initialization-config* {:pureConfig true
@@ -52,7 +53,7 @@
     (is (match?
          {:pureConfig true
           :providers {"github-copilot" {:key "123"
-                                        :models {"gpt-5.5" {}}}}}
+                                        :models (m/equals {})}}}
          (#'config/all* {}))))
   (testing "providers and models are updated correctly"
     (reset! config/initialization-config* {:pureConfig true
