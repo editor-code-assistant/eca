@@ -1527,7 +1527,9 @@ see the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">
 </div>
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">your-json-preferences</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;eca.serverPath&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/home/you/.local/bin/eca-sandboxed&quot;</span>
+<span class="w">  </span><span class="s2">&quot;eca.serverPath&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;/home/you/.local/bin/eca-sandboxed&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="c1">// The host PID is not visible inside the container, see caveats below.</span>
+<span class="w">  </span><span class="s2">&quot;eca.sendProcessId&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -1559,7 +1561,7 @@ see the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">
 </div>
 <h3 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">#</a></h3>
 <ul>
-<li><strong>Client processId</strong>: when the editor sends its <code>processId</code> on <code>initialize</code>, the server watches that PID and exits once it disappears. Inside the container's PID namespace the host PID doesn't exist, so the server would exit right after starting. Either make the client not send it (Emacs: <code>eca-send-process-id</code>), or run the container with <code>--pid=host</code>, which keeps the watchdog working at the cost of PID isolation.</li>
+<li><strong>Client processId</strong>: when the editor sends its <code>processId</code> on <code>initialize</code>, the server watches that PID and exits once it disappears. Inside the container's PID namespace the host PID doesn't exist, so the server would exit right after starting (<code>Liveness probe - parent &lt;pid&gt; is not running</code> in the logs). Either make the client not send it (Emacs: <code>eca-send-process-id</code>, VsCode: <code>eca.sendProcessId</code>), or on Linux run the container with <code>--pid=host</code>, which keeps the watchdog working at the cost of PID isolation. <code>--pid=host</code> does not help on macOS: containers run inside a Linux VM there, so the "host" is the VM, not your Mac.</li>
 <li><strong>Network</strong>: the container needs egress to your LLM providers (and any HTTP MCP servers); <code>--network none</code> will break chat. Restrict selectively (e.g. via a proxy) if needed.</li>
 <li><strong>Login</strong>: <code>/login</code> flows that open a browser or listen on localhost callbacks don't work from inside the container. Prefer API keys, or login on the host and share the state as shown above.</li>
 <li>
@@ -1626,7 +1628,7 @@ see the <a href="https://github.com/editor-code-assistant/eca-emacs#sandboxing">
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 14, 2026 19:20:01 UTC">September 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 15, 2026 13:19:21 UTC">September 15, 2026</span>
   </span>
 
     
