@@ -3,7 +3,11 @@
 ## Unreleased
 
 - Expand `@file` references in custom-command and parameterized-skill arguments into file content before sending the prompt. #163
+
+## 0.160.2
+
 - Retry one transient GitHub Copilot token-renewal gateway/service failure. #551
+- Build native binaries with GraalVM for JDK 25: fixes the idle server burning one CPU core per HTTPS connection closed by a gateway mid-stream. #608
 
 ## 0.160.1
 

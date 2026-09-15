@@ -123,7 +123,7 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '24'
+          java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -180,7 +180,7 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '24'
+          java-version: '25'
           distribution: 'graalvm'
           native-image-musl: 'true'
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -240,7 +240,7 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '24'
+          java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -297,7 +297,7 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '24'
+          java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -369,7 +369,7 @@ jobs:
 
       - uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '24'
+          java-version: '25'
           distribution: 'graalvm'
           native-image-musl: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
