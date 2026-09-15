@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retry one transient GitHub Copilot token-renewal gateway/service failure. #551
+
 ## 0.160.1
 
 - Fix answering pending questions from the remote UI without SSE subscribers; the first editor or HTTP answer wins.
