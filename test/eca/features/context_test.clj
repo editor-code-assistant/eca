@@ -570,6 +570,22 @@
              :content "Some content"}]
            (f.context/contexts-str-from-prompt "check @/path/to/folder" (h/db)))))))
 
+(deftest parse-context-reference-test
+  (with-redefs [fs/directory? (constantly false)]
+    (is (= {:type "file"
+            :path "/path/to/file"
+            :lines-range {:start 2 :end 4}}
+           (f.context/parse-context-reference "/path/to/file:L2-L4")))
+    (is (= {:type "file"
+            :path (h/file-path "C:\\dir\\file.clj")
+            :lines-range {:start 2 :end 4}}
+           (f.context/parse-context-reference "C:\\dir\\file.clj:L2-L4"))))
+  (testing "expands a leading home directory"
+    (with-redefs [fs/expand-home (constantly (h/file-path "/home/user/notes.md"))
+                  fs/directory? (constantly false)]
+      (is (= {:type "file" :path (h/file-path "/home/user/notes.md")}
+             (f.context/parse-context-reference "~/notes.md"))))))
+
 (deftest raw-contexts->refined-image-test
   (testing "Inline image context is refined into the canonical {:type :image ...} shape"
     (h/reset-components!)

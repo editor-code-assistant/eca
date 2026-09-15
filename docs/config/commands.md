@@ -7,7 +7,7 @@ description: "Configure ECA commands: built-in slash commands like /init and /co
 ![](../images/features/commands.png)
 
 You can configure custom command prompts for project, global or via `commands` config pointing to the path of the commands.
-Prompts can use positional variables like `$ARGUMENTS`, `$1`, `$2`, or [named `{{name}}` variables](#frontmatter-description-and-named-arguments), to replace in the prompt during command call.
+Prompts can use positional variables like `$ARGUMENTS`, `$1`, `$2`, or [named `{{name}}` variables](#frontmatter-description-and-named-arguments), to replace in the prompt during command call. File references passed as arguments (for example, `@/workspace/src/app.clj`) include the file content just like they do in a regular chat prompt. Quote arguments that contain spaces.
 
 !!! tip "Skills support arguments too"
 
