@@ -48,7 +48,9 @@ Then make your editor start the wrapper (`chmod +x` it first) instead of `eca`:
 
     ```javascript title="your-json-preferences"
     {
-      "eca.serverPath": "/home/you/.local/bin/eca-sandboxed"
+      "eca.serverPath": "/home/you/.local/bin/eca-sandboxed",
+      // The host PID is not visible inside the container, see caveats below.
+      "eca.sendProcessId": false
     }
     ```
 
@@ -88,7 +90,7 @@ ECA keeps caches, chat history and logins under `~/.cache/eca`, which is ephemer
 
 ### Caveats
 
-- __Client processId__: when the editor sends its `processId` on `initialize`, the server watches that PID and exits once it disappears. Inside the container's PID namespace the host PID doesn't exist, so the server would exit right after starting. Either make the client not send it (Emacs: `eca-send-process-id`), or run the container with `--pid=host`, which keeps the watchdog working at the cost of PID isolation.
+- __Client processId__: when the editor sends its `processId` on `initialize`, the server watches that PID and exits once it disappears. Inside the container's PID namespace the host PID doesn't exist, so the server would exit right after starting (`Liveness probe - parent <pid> is not running` in the logs). Either make the client not send it (Emacs: `eca-send-process-id`, VsCode: `eca.sendProcessId`), or on Linux run the container with `--pid=host`, which keeps the watchdog working at the cost of PID isolation. `--pid=host` does not help on macOS: containers run inside a Linux VM there, so the "host" is the VM, not your Mac.
 - __Network__: the container needs egress to your LLM providers (and any HTTP MCP servers); `--network none` will break chat. Restrict selectively (e.g. via a proxy) if needed.
 - __Login__: `/login` flows that open a browser or listen on localhost callbacks don't work from inside the container. Prefer API keys, or login on the host and share the state as shown above.
 - __Tooling__: the agent can only use what exists in the image. Extend it with your project toolchain so it can build and run tests:
