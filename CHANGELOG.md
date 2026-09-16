@@ -4,6 +4,10 @@
 
 - Expand `@file` references in custom-command and parameterized-skill arguments into file content before sending the prompt. #163
 
+## 0.160.3
+
+- Fix built-in GPT-5.x/GPT-6 variants on `openai-chat` providers (e.g. LiteLLM/Azure gateways) sending the Responses `reasoning` object (`Unknown parameter: 'reasoning'`); they now send `reasoning_effort`. #609
+
 ## 0.160.2
 
 - Retry one transient GitHub Copilot token-renewal gateway/service failure. #551

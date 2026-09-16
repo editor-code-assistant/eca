@@ -100,6 +100,23 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `xhigh`    | `{"reasoning": {"effort": "xhigh", "summary": "auto"}}` |
     | `max`      | `{"reasoning": {"effort": "max", "summary": "auto"}}` |
 
+=== "OpenAI (openai-chat gateways, e.g. LiteLLM)"
+
+    The three GPT tables above are for providers using the `openai-responses` API. The same models served through providers using the `openai-chat` API (e.g. a LiteLLM or Azure gateway) get the same variant names, but `/chat/completions` takes a top-level `reasoning_effort` string instead of the `reasoning` object:
+
+    | Variant    | Payload |
+    | ---------- | ------- |
+    | `none`     | `{"reasoning_effort": "none"}` (not for `gpt-6`) |
+    | `low`      | `{"reasoning_effort": "low"}` |
+    | `medium`   | `{"reasoning_effort": "medium"}` |
+    | `high`     | `{"reasoning_effort": "high"}` |
+    | `xhigh`    | `{"reasoning_effort": "xhigh"}` |
+    | `max`      | `{"reasoning_effort": "max"}` (`gpt-5.6` and `gpt-6` only) |
+
+    !!! warning
+
+        OpenAI does not support function tools together with reasoning on `/chat/completions` for `gpt-5.6` and `gpt-6` models (`Function tools with reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to 'none'`), and `gpt-6-astra` rejects `none`. Since ECA sends its tools on every request, use `"api": "openai-responses"` for these models when your gateway supports `/responses` (LiteLLM does).
+
 === "DeepSeek"
 
     Applies to models matching `deepseek-v4-pro` and `deepseek-v4-flash`. Only for providers using the `openai-chat` API.

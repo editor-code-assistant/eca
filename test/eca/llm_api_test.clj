@@ -432,6 +432,47 @@
         (is (= {:type "adaptive"} (get-in @captured* [:extra-payload :thinking])))
         (is (nil? (get-in @captured* [:extra-payload :output_config])))))))
 
+(deftest prompt-builtin-gpt-variants-follow-provider-api-test
+  ;; #609: a custom openai-chat provider (LiteLLM/Azure gateway) serving GPT
+  ;; models must get the Chat Completions `reasoning_effort` param, not the
+  ;; Responses `reasoning` object the gateway rejects as an unknown parameter.
+  (let [config (-> (config/initial-config)
+                   (assoc :providers {"gateway" {:api "openai-chat"
+                                                 :url "https://gateway.example.com"
+                                                 :key "k"
+                                                 :models {"openai/gpt-6-astra" {}}}
+                                      "responses-gateway" {:api "openai-responses"
+                                                           :url "https://gateway.example.com"
+                                                           :key "k"
+                                                           :models {"openai/gpt-6-astra" {}}}}))
+        base-opts {:model "openai/gpt-6-astra"
+                   :model-capabilities {:tools true
+                                        :reason? true
+                                        :web-search false
+                                        :model-name "openai/gpt-6-astra"}
+                   :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                   :past-messages []
+                   :tools []
+                   :variant "medium"
+                   :provider-auth {:api-key "k"}
+                   :config config
+                   :sync? false}]
+    (testing "openai-chat provider sends reasoning_effort"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai-chat/chat-completion!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt! (assoc base-opts :provider "gateway")))
+        (is (= "medium" (get-in @captured* [:extra-payload :reasoning_effort])))
+        (is (nil? (get-in @captured* [:extra-payload :reasoning])))))
+
+    (testing "openai-responses provider keeps the nested reasoning object"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai/create-response!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt! (assoc base-opts :provider "responses-gateway")))
+        (is (= {:effort "medium" :summary "auto"} (get-in @captured* [:extra-payload :reasoning])))
+        (is (nil? (get-in @captured* [:extra-payload :reasoning_effort])))))))
+
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"
     (let [captured* (atom nil)]
