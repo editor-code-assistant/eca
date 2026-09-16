@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix built-in GPT-5.x/GPT-6 variants on `openai-chat` providers (e.g. LiteLLM/Azure gateways) sending the Responses `reasoning` object (`Unknown parameter: 'reasoning'`); they now send `reasoning_effort`. #609
+
 ## 0.160.2
 
 - Retry one transient GitHub Copilot token-renewal gateway/service failure. #551

@@ -941,7 +941,7 @@
                                                    {:api :openai-chat} nil)))))
 
     (testing "Default config: gpt-6 models get effort variants without none"
-      (let [default-config (config/initial-config)
+      (let [default-config (assoc-in (config/initial-config) [:providers "custom" :api] "openai-responses")
             gpt-6-variants {"low" {:reasoning {:effort "low" :summary "auto"}}
                             "medium" {:reasoning {:effort "medium" :summary "auto"}}
                             "high" {:reasoning {:effort "high" :summary "auto"}}
@@ -958,6 +958,40 @@
         (is (nil? (config/effective-model-variants default-config "openai" "gpt-6.1" nil nil)))
         (is (nil? (config/effective-model-variants default-config "openai" "gpt-60" nil nil)))
         (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-6-astra" nil nil)))))
+
+    (testing "Default config: GPT models on openai-chat providers (e.g. LiteLLM/Azure gateways) get reasoning_effort variants (#609)"
+      (let [default-config (-> (config/initial-config)
+                               (assoc-in [:providers "gateway" :api] "openai-chat")
+                               (assoc-in [:providers "legacy" :api] "openai"))]
+        (is (= {"low" {:reasoning_effort "low"}
+                "medium" {:reasoning_effort "medium"}
+                "high" {:reasoning_effort "high"}
+                "xhigh" {:reasoning_effort "xhigh"}
+                "max" {:reasoning_effort "max"}}
+               (config/effective-model-variants default-config "gateway" "openai/gpt-6-astra" nil nil)))
+        (is (= {"none" {:reasoning_effort "none"}
+                "low" {:reasoning_effort "low"}
+                "medium" {:reasoning_effort "medium"}
+                "high" {:reasoning_effort "high"}
+                "xhigh" {:reasoning_effort "xhigh"}
+                "max" {:reasoning_effort "max"}}
+               (config/effective-model-variants default-config "gateway" "gpt-5.6-luna" nil nil)))
+        (is (= {"none" {:reasoning_effort "none"}
+                "low" {:reasoning_effort "low"}
+                "medium" {:reasoning_effort "medium"}
+                "high" {:reasoning_effort "high"}
+                "xhigh" {:reasoning_effort "xhigh"}}
+               (config/effective-model-variants default-config "gateway" "gpt-5.5" nil nil)))
+        ;; the Responses shape stays on openai-responses providers, including the legacy `openai` api alias
+        (is (= {:effort "medium" :summary "auto"}
+               (get-in (config/effective-model-variants default-config "legacy" "gpt-5.5" nil nil)
+                       ["medium" :reasoning])))
+        ;; a discovered API wins over the provider config
+        (is (= {:reasoning_effort "medium"}
+               (get (config/effective-model-variants default-config "legacy" "gpt-5.5" {:api :openai-chat} nil)
+                    "medium")))
+        ;; Copilot GPT models keep discovery-only behavior
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-5.5" {:api :openai-chat} nil)))))
 
     (testing "User variant set to {} removes it from result"
       (is (= (dissoc anthropic-variants "high" "max")

@@ -85,6 +85,25 @@
    "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}
    "max" {:reasoning {:effort "max" :summary "auto"}}})
 
+(defn ^:private chat-completions-variants
+  "Chat Completions counterpart of a Responses API variant table: the same
+   effort levels, sent as the top-level `reasoning_effort` string that
+   /chat/completions expects instead of the `reasoning.effort` object, which
+   OpenAI-compatible gateways reject as an unknown parameter (#609)."
+  [responses-variants]
+  (into {}
+        (map (fn [[variant-name {{:keys [effort]} :reasoning}]]
+               [variant-name {:reasoning_effort effort}]))
+        responses-variants))
+
+(def ^:private openai-chat-variants (chat-completions-variants openai-variants))
+(def ^:private openai-chat-gpt-5-6-variants (chat-completions-variants openai-gpt-5-6-variants))
+(def ^:private openai-chat-gpt-6-variants (chat-completions-variants openai-gpt-6-variants))
+
+(def ^:private openai-responses-apis
+  "Provider `api` values routed to the Responses API (`openai` is a legacy alias)."
+  ["openai-responses" "openai"])
+
 (def ^:private anthropic-variants
   {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
    "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive"}}
@@ -277,12 +296,27 @@
                                                                                                            :api "openai-chat"
                                                                                                            :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
+                                                                              :api openai-responses-apis
                                                                               :excludeProviders ["github-copilot"]}
                      ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants
+                                                 :api openai-responses-apis
                                                  :excludeProviders ["github-copilot"]}
                      ;; gpt-6 family (gpt-6-astra), not gpt-6.x point releases.
                      ".*gpt[-._]6(?![-._]?\\d)" {:variants openai-gpt-6-variants
+                                                 :api openai-responses-apis
                                                  :excludeProviders ["github-copilot"]}
+                     ;; Same GPT families served through openai-chat providers (e.g.
+                     ;; LiteLLM/Azure gateways): /chat/completions takes a top-level
+                     ;; `reasoning_effort` string instead of `reasoning.effort` (#609).
+                     "(?:.*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex))" {:variants openai-chat-variants
+                                                                                  :api "openai-chat"
+                                                                                  :excludeProviders ["github-copilot"]}
+                     "(?:.*gpt[-._]5[-._]6(?!\\d))" {:variants openai-chat-gpt-5-6-variants
+                                                     :api "openai-chat"
+                                                     :excludeProviders ["github-copilot"]}
+                     "(?:.*gpt[-._]6(?![-._]?\\d))" {:variants openai-chat-gpt-6-variants
+                                                     :api "openai-chat"
+                                                     :excludeProviders ["github-copilot"]}
                      ".*deepseek[-._]v4[-._](?:pro|flash)" {:variants deepseek-variants
                                                             :api "openai-chat"}
                      "(?i).*glm[-._]5[-._]2" {:variants glm-variants}}
