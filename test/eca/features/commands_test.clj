@@ -7,6 +7,7 @@
    [eca.features.chat.export :as f.chat.export]
    [eca.features.commands :as f.commands]
    [eca.features.rules :as f.rules]
+   [eca.features.skills :as f.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]))
 
@@ -102,6 +103,55 @@
     (let [custom [{:name "test" :content "Process $ARGUMENTS here"}]]
       (is (= "Process one two here"
              (#'f.commands/get-custom-command "test" ["one" "two"] custom))))))
+
+(deftest custom-command-file-context-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (let [command-file (fs/file tmp-dir "review.md")
+            context-file (fs/file tmp-dir "example file.clj")
+            context-path (str (fs/canonicalize context-file))]
+        (spit command-file "Review $1")
+        (spit context-file "(def answer 42)")
+        (let [result (f.commands/handle-command!
+                      "review"
+                      [(str "@" context-path)]
+                      (assoc (command-context "chat-1")
+                             :config {:pureConfig true
+                                      :commands [{:path (str command-file)}]}))]
+          (is (= :send-prompt (:type result)))
+          (is (= (str "Review @" context-path)
+                 (get-in result [:prompt 0 :text])))
+          (is (string/includes? (get-in result [:prompt 1 :text])
+                                (str "<file path=\"" context-path "\">(def answer 42)</file>")))))
+      (testing "an unreadable file argument leaves the expanded prompt unchanged"
+        (let [result (f.commands/handle-command!
+                      "review"
+                      ["@/missing/example.clj"]
+                      (assoc (command-context "chat-1")
+                             :config {:pureConfig true
+                                      :commands [{:path (str (fs/file tmp-dir "review.md"))}]}))]
+          (is (= "Review @/missing/example.clj" (:prompt result)))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest parameterized-skill-file-context-test
+  (let [tmp-dir (fs/create-temp-dir)]
+    (try
+      (let [context-file (fs/file tmp-dir "example.clj")
+            context-path (str (fs/canonicalize context-file))]
+        (spit context-file "(def answer 42)")
+        (with-redefs [f.skills/all (constantly [{:name "review"
+                                                 :body "Review $1"}])]
+          (let [result (f.commands/handle-command! "review"
+                                                   [(str "@" context-path)]
+                                                   (command-context "chat-1"))]
+            (is (= :send-prompt (:type result)))
+            (is (= (str "Review @" context-path)
+                   (get-in result [:prompt 0 :text])))
+            (is (string/includes? (get-in result [:prompt 1 :text])
+                                  (str "<file path=\"" context-path "\">(def answer 42)</file>"))))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
 
 (deftest substitute-args-test
   (testing "replaces $ARGS with all args joined"
