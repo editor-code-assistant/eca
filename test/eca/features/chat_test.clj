@@ -73,6 +73,30 @@
                @prompted*))
         (is (nil? (get-in @(h/db*) [:chats "chat-1" :steer-message])))))
 
+    (testing "steered native command that can't run mid-turn is refused with a notice instead of queued"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :running})
+      (f.chat/prompt-steer {:chat-id "chat-1" :message "/model openai/gpt-5.2"}
+                           (h/db*) (h/messenger) test-config (h/metrics))
+      (is (nil? (get-in @(h/db*) [:chats "chat-1" :steer-message])))
+      (is (match? [{:role :system :content {:type :text :text #(string/includes? % "`/model` can't run while the chat is working")}}]
+                  (:chat-content-received (h/messages)))))
+
+    (testing "steered native command that is safe mid-turn is queued for the turn boundary"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :running})
+      (f.chat/prompt-steer {:chat-id "chat-1" :message "/costs"}
+                           (h/db*) (h/messenger) test-config (h/metrics))
+      (is (= "/costs" (get-in @(h/db*) [:chats "chat-1" :steer-message])))
+      (is (empty? (:chat-content-received (h/messages)))))
+
+    (testing "steered text starting with a path is still queued as plain text"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :running})
+      (f.chat/prompt-steer {:chat-id "chat-1" :message "/path/to/file has a bug"}
+                           (h/db*) (h/messenger) test-config (h/metrics))
+      (is (= "/path/to/file has a bug" (get-in @(h/db*) [:chats "chat-1" :steer-message]))))
+
     (testing "steered message on an idle chat is dropped"
       (h/reset-components!)
       (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :idle})
@@ -1568,6 +1592,45 @@
       (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
       (is (not-any? #(= "compact_marker" (:role %)) (get-in (h/db) [:chats chat-id :messages]))))))
 
+(deftest steered-native-command-test
+  (testing "a steer-safe native command steered while the turn runs is executed at the tool-call boundary instead of reaching the LLM as text, then the task resumes (#610)"
+    (h/reset-components!)
+    (let [chat-id "steered-native-command-chat"
+          continuation* (atom nil)]
+      (prompt!
+       {:message "Rename rfq to query" :chat-id chat-id}
+       {:all-tools-mock (constantly steered-compact-tools)
+        :call-tool-mock steered-compact-call-tool-mock
+        :api-mock
+        (fn [{:keys [on-first-response-received on-message-received
+                     on-prepare-tool-call on-tools-called]}]
+          (on-first-response-received {:type :text :text "Reading"})
+          (on-message-received {:type :text :text "Reading"})
+          (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+          (is (some? (get-in (h/db) [:chats chat-id :prompt-cache])) "the prompt cache was built for this prompt")
+          (f.chat/prompt-steer {:chat-id chat-id :message "/sync-system-prompt"}
+                               (h/db*) (h/messenger) (h/config) (h/metrics))
+          (is (= "/sync-system-prompt" (get-in (h/db) [:chats chat-id :steer-message])) "queued for the turn boundary")
+          (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+          (on-message-received {:type :text :text "Done"})
+          (on-message-received {:type :finish}))})
+      (is (match? {:tools steered-compact-tools
+                   :new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}
+                  @continuation*)
+          "the LLM loop continues normally with the tool results")
+      (is (not-any? #(string/includes? (pr-str %) "/sync-system-prompt") (:new-messages @continuation*))
+          "the command is not sent to the LLM")
+      (is (not-any? #(string/includes? (pr-str (:content %)) "/sync-system-prompt")
+                    (get-in (h/db) [:chats chat-id :messages]))
+          "the command never enters history")
+      (is (nil? (get-in (h/db) [:chats chat-id :prompt-cache])) "the command ran at the boundary")
+      (is (match? (m/embeds [{:role :user :content {:type :text :text "/sync-system-prompt\n" :content-id string?}}
+                             {:role "system" :content {:type :text :text #(string/includes? % "System prompt will be re-synced on the next message")}}])
+                  (:chat-content-received (h/messages)))
+          "the steer is echoed as the user message it was typed as, followed by the command output")
+      (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
 (deftest consume-steered-compact-test
   (let [consume! (fn [steer-message]
                    (h/reset-components!)
@@ -1589,6 +1652,30 @@
       (is (nil? (consume! "/compacting is not a command")))
       (is (= "/compacting is not a command" (get-in (h/db) [:chats "chat-1" :steer-message])))
       (is (empty? (:chat-content-received (h/messages)))))
+    (testing "no pending steer"
+      (is (nil? (consume! nil))))))
+
+(deftest consume-steered-native-command-test
+  (let [consume! (fn [steer-message]
+                   (h/reset-components!)
+                   (swap! (h/db*) assoc-in [:chats "chat-1"]
+                          (cond-> {:id "chat-1" :status :running :prompt-cache {:static "cached"}}
+                            steer-message (assoc :steer-message steer-message)))
+                   (#'f.chat/consume-steered-native-command! "chat-1" (h/db*)
+                                                             {:chat-id "chat-1" :db* (h/db*) :messenger (h/messenger) :config (h/config)}))]
+    (testing "a pending steer-safe native command is consumed, echoed and run with its output shown"
+      (is (nil? (consume! "/sync-system-prompt")))
+      (is (nil? (get-in (h/db) [:chats "chat-1" :steer-message])))
+      (is (nil? (get-in (h/db) [:chats "chat-1" :prompt-cache])) "the command ran")
+      (is (match? [{:role :user :content {:type :text :text "/sync-system-prompt\n" :content-id string?}}
+                   {:role "system" :content {:type :text :text #(string/includes? % "System prompt will be re-synced on the next message")}}]
+                  (:chat-content-received (h/messages)))))
+    (testing "/compact, chat-changing commands and plain text are left pending untouched"
+      (doseq [steer ["/compact keep the plan" "/model foo" "also check the tests"]]
+        (is (nil? (consume! steer)))
+        (is (= steer (get-in (h/db) [:chats "chat-1" :steer-message])))
+        (is (= {:static "cached"} (get-in (h/db) [:chats "chat-1" :prompt-cache])))
+        (is (empty? (:chat-content-received (h/messages))))))
     (testing "no pending steer"
       (is (nil? (consume! nil))))))
 
@@ -1890,16 +1977,19 @@
   (testing "ECA command without args"
     (is (= {:type :eca-command
             :command "doctor"
+            :command-type :native
             :args []}
            (#'f.chat/message->decision "/doctor" {} {}))))
   (testing "ECA command with args"
     (is (= {:type :eca-command
             :command "login"
+            :command-type :native
             :args ["foo" "bar"]}
            (#'f.chat/message->decision "/login foo bar" {} {}))))
   (testing "ECA command with args with spaces in quotes"
     (is (= {:type :eca-command
             :command "login"
+            :command-type :native
             :args ["foo bar" "baz" "qux bla blow"]}
            (#'f.chat/message->decision "/login \"foo bar\" baz \"qux bla blow\"" {} {}))))
   (testing "quoted file arguments with spaces remain one token"

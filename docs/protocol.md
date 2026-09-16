@@ -1740,7 +1740,14 @@ are not queued: the server executes them immediately as a regular prompt, so e.g
 A steered `/compact [instructions]` is queued like a regular message, but at the turn boundary
 the server compacts the chat with those instructions (as a manual compaction) and then resumes
 the running task, instead of injecting the command text into the conversation.
-Other commands are injected as plain user text.
+
+Other native commands that do not affect the running turn (`/sync-system-prompt`, `/costs`,
+`/context`, `/chats`, `/skills`, `/rules`, `/subagents`, `/plugins`, `/hooks`, `/prompt-show`,
+`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`) are also queued and
+executed at the turn boundary: their output is shown and the task resumes. Native commands that
+would change the chat or start another prompt (`/model`, `/agent`, `/fork`, `/resume`,
+`/delete-chat`, `/login`, `/init`, ...) are refused with a system message and not queued.
+Custom commands, skills, MCP prompts and any other text are injected as plain user text.
 
 _Notification:_
 

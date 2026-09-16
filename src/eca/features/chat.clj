@@ -653,6 +653,7 @@
       matched
       {:type :eca-command
        :command command-name
+       :command-type (:type matched)
        :args args}
 
       :else
@@ -786,20 +787,18 @@
                                                  :content-id content-id
                                                  :text (str steer-msg "\n")})))))
 
-(defn ^:private consume-steered-compact!
-  "When the pending steer message is a `/compact` command, clears it, echoes it
-   to the client as the user message it was typed as and returns
-   {:custom-instructions string :content-id string}; otherwise leaves the steer
-   message pending and returns nil.
+(defn ^:private take-steered-command!
+  "Parses the pending steer message as a command and, when `pred` accepts the
+   `message->decision` result, clears it and returns that decision with the raw
+   text under :steer-msg; otherwise leaves the steer message pending and returns nil.
    The command is parsed outside the swap (command lookup reads the filesystem)
    and only removed while the pending message is still the parsed one; if
    another steer landed meanwhile the merged message is parsed again."
-  [chat-id db* {:keys [config] :as chat-ctx}]
+  [chat-id db* config pred]
   (loop []
     (when-let [steer-msg (get-in @db* [:chats chat-id :steer-message])]
-      (let [{:keys [type command args]} (message->decision steer-msg @db* config)]
-        (when (and (= :eca-command type)
-                   (= "compact" command))
+      (let [decision (message->decision steer-msg @db* config)]
+        (when (pred decision)
           (let [[old-db new-db] (swap-vals! db* (fn [db]
                                                   (if (= steer-msg (get-in db [:chats chat-id :steer-message]))
                                                     (update-in db [:chats chat-id] dissoc :steer-message)
@@ -807,14 +806,77 @@
                 removed? (and (= steer-msg (get-in old-db [:chats chat-id :steer-message]))
                               (nil? (get-in new-db [:chats chat-id :steer-message])))]
             (if removed?
-              (let [content-id (lifecycle/new-content-id)]
-                (logger/info logger-tag "Steered /compact consumed" {:chat-id chat-id})
-                (lifecycle/send-content! chat-ctx :user {:type :text
-                                                         :content-id content-id
-                                                         :text (str steer-msg "\n")})
-                {:custom-instructions (string/join " " args)
-                 :content-id content-id})
+              (assoc decision :steer-msg steer-msg)
               (recur))))))))
+
+(defn ^:private consume-steered-compact!
+  "When the pending steer message is a `/compact` command, clears it, echoes it
+   to the client as the user message it was typed as and returns
+   {:custom-instructions string :content-id string}; otherwise leaves the steer
+   message pending and returns nil."
+  [chat-id db* {:keys [config] :as chat-ctx}]
+  (when-let [{:keys [args steer-msg]} (take-steered-command! chat-id db* config
+                                                             (fn [{:keys [type command]}]
+                                                               (and (= :eca-command type)
+                                                                    (= "compact" command))))]
+    (let [content-id (lifecycle/new-content-id)]
+      (logger/info logger-tag "Steered /compact consumed" {:chat-id chat-id})
+      (lifecycle/send-content! chat-ctx :user {:type :text
+                                               :content-id content-id
+                                               :text (str steer-msg "\n")})
+      {:custom-instructions (string/join " " args)
+       :content-id content-id})))
+
+(def ^:private steer-boundary-commands
+  "Native commands that can run while a prompt is in flight without touching the
+   running turn: read-only ones and /sync-system-prompt, which only drops the
+   prompt cache read by the next prompt. All return :chat-messages. Steered, they
+   are queued and executed at the next turn boundary with the running turn's
+   context, then the task resumes; any other steered native command is refused
+   (see `steer-refused-command`). /btw runs immediately instead
+   (`steer-divertible-commands`) and /compact has its own boundary handling. #610"
+  #{"sync-system-prompt" "costs" "context" "chats" "skills" "rules" "subagents"
+    "plugins" "hooks" "prompt-show" "repo-map-show" "doctor" "config" "remote"
+    "debug-chat" "export"})
+
+(defn ^:private send-command-chat-messages!
+  "Emits a command's :chat-messages result to the client, per target chat."
+  [result chat-ctx]
+  (doseq [[chat-id {:keys [messages title]}] (:chats result)]
+    (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
+      (send-chat-contents! messages new-chat-ctx)
+      (when title
+        (lifecycle/send-content! new-chat-ctx :system (assoc-some
+                                                       {:type :metadata}
+                                                       :title title))))))
+
+(defn ^:private consume-steered-native-command!
+  "When the pending steer message is a native command that can run while the
+   turn is in flight (see `steer-boundary-commands`), clears it, echoes it to
+   the client as the user message it was typed as and runs it with the running
+   turn's context, showing its output without finishing the prompt; the turn
+   then resumes. Otherwise leaves the steer message pending. Returns nil. #610"
+  [chat-id db* {:keys [config] :as chat-ctx}]
+  (when-let [{:keys [command args steer-msg]}
+             (take-steered-command! chat-id db* config
+                                    (fn [{:keys [type command command-type]}]
+                                      (and (= :eca-command type)
+                                           (= :native command-type)
+                                           (contains? steer-boundary-commands command))))]
+    (logger/info logger-tag "Steered command consumed at turn boundary" {:chat-id chat-id :command command})
+    (lifecycle/send-content! chat-ctx :user {:type :text
+                                             :content-id (lifecycle/new-content-id)
+                                             :text (str steer-msg "\n")})
+    (try
+      (let [{:keys [type] :as result} (f.commands/handle-command! command args chat-ctx)]
+        (if (= :chat-messages type)
+          (send-command-chat-messages! result chat-ctx)
+          (logger/warn logger-tag "Unexpected steered command result" {:chat-id chat-id :command command :type type})))
+      (catch Exception e
+        (logger/error e)
+        (lifecycle/send-content! chat-ctx :system {:type :text
+                                                   :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})))
+    nil))
 
 (defn ^:private consume-pending-job-notifications!
   "Reads and clears any pending job notifications for the chat in a single swap.
@@ -1286,10 +1348,14 @@
                                                                    {:trigger "manual"
                                                                     :custom-instructions custom-instructions
                                                                     :on-blocked continue-turn!})
-                                                 (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                                          (not (:auto-compacted? chat-ctx)))
-                                                   (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                                   (continue-turn!)))))))
+                                                 (do
+                                                   ;; Other steered native commands safe to run mid-turn execute here
+                                                   ;; and the task resumes, so the LLM never sees them as text. #610
+                                                   (consume-steered-native-command! chat-id db* chat-ctx)
+                                                   (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                                            (not (:auto-compacted? chat-ctx)))
+                                                     (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
+                                                     (continue-turn!))))))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
@@ -1699,13 +1765,7 @@
                          (when (:clear-before? result)
                            (messenger/chat-cleared (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :messages true})
                            (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :status :running}))
-                         (doseq [[chat-id {:keys [messages title]}] (:chats result)]
-                           (let [new-chat-ctx (assoc chat-ctx :chat-id chat-id)]
-                             (send-chat-contents! messages new-chat-ctx)
-                             (when title
-                               (lifecycle/send-content! new-chat-ctx :system (assoc-some
-                                                                              {:type :metadata}
-                                                                              :title title)))))
+                         (send-command-chat-messages! result chat-ctx)
                          (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
         :new-chat-status (lifecycle/finish-chat-prompt! (:status result) (assoc chat-ctx :skip-post-request-hooks? true))
         :delete-chat (let [{:keys [target-chat-id text]} result
@@ -2290,6 +2350,19 @@
     (and (= :eca-command type)
          (contains? steer-divertible-commands command))))
 
+(defn ^:private steer-refused-command
+  "Returns the command name when the steered message is a native command that
+   can't run while a prompt is in flight because it would change the chat or
+   start another prompt (e.g. /model, /agent, /resume); nil otherwise. #610"
+  [message db config]
+  (let [{:keys [type command command-type]} (message->decision message db config)]
+    (when (and (= :eca-command type)
+               (= :native command-type)
+               (not= "compact" command)
+               (not (contains? steer-divertible-commands command))
+               (not (contains? steer-boundary-commands command)))
+      command)))
+
 (defn prompt-steer
   [{:keys [chat-id message]} db* messenger config metrics]
   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
@@ -2306,9 +2379,19 @@
                      :variant (get-in @db* [:chats chat-id :variant])}
                     db* messenger config metrics)))
         (when (identical? :running (get-in @db* [:chats chat-id :status]))
-          (logger/info logger-tag "Steer message received" {:chat-id chat-id})
-          (swap! db* update-in [:chats chat-id :steer-message]
-                 (fn [existing] (if existing (str existing "\n" message) message))))))))
+          (if-let [command (steer-refused-command message @db* config)]
+            (do
+              (logger/info logger-tag "Steer message refused, command can't run while the prompt is running" {:chat-id chat-id :command command})
+              (lifecycle/send-content! {:chat-id chat-id
+                                        :parent-chat-id (db/parent-chat-id @db* chat-id)
+                                        :messenger messenger}
+                                       :system
+                                       {:type :text
+                                        :text (format "`/%s` can't run while the chat is working; run it after the current turn finishes.\n" command)}))
+            (do
+              (logger/info logger-tag "Steer message received" {:chat-id chat-id})
+              (swap! db* update-in [:chats chat-id :steer-message]
+                     (fn [existing] (if existing (str existing "\n" message) message))))))))))
 
 (defn prompt-steer-remove
   "Drop any pending steer message for the chat.

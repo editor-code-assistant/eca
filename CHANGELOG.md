@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Expand `@file` references in custom-command and parameterized-skill arguments into file content before sending the prompt. #163
+- Fix steered native commands (e.g. `/sync-system-prompt`) being sent to the LLM as text while the chat runs: run them at the next turn boundary or refuse chat-changing ones. #610
 
 ## 0.160.3
 
