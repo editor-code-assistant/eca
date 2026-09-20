@@ -407,11 +407,18 @@
              (let [chat-contents (message-content->chat-content (:role message) (:content message) (:content-id message))
                    subagent-chat-id (when (= "tool_call_output" (:role message))
                                       (get-in message [:content :details :subagent-chat-id]))
-                   subagent-messages (when subagent-chat-id
-                                       (get-in db [:chats subagent-chat-id :messages]))]
+                   child (get-in db [:chats subagent-chat-id])
+                   subagent-messages (when (and (string? subagent-chat-id)
+                                                (not (string/blank? subagent-chat-id))
+                                                (not= chat-id subagent-chat-id)
+                                                (:subagent child)
+                                                (= chat-id (:parent-chat-id child))
+                                                (= (get-in message [:content :details :agent-name])
+                                                   (:agent-name child)))
+                                       (:messages child))]
                (if (some? subagent-messages)
-                 ;; For subagent tool calls: toolCallRun + toolCallRunning, then
-                 ;; subagent messages, then toolCalled — matching live execution order.
+                 ;; Render the child transcript between the tool-running
+                 ;; and tool-called notifications.
                  (concat (map ->payload (butlast chat-contents))
                          (messages->contents subagent-messages
                                              {:chat-id subagent-chat-id
@@ -982,6 +989,33 @@
           (string/trim)
           (as-> t (subs t 0 (min (count t) 40)))))))
 
+(defn ^:private start-prompt-worker!
+  [{:keys [db* config chat-id]} thunk]
+  (logger/with-chat-context chat-id (get-in @db* [:chats chat-id :parent-chat-id])
+    (let [managed? (contains? (:subagent-runs @db*) chat-id)
+          started? (volatile! false)]
+      ;; Count before dispatch; idle may be published before nested workers start.
+      ;; Release only after the prompt's entire cleanup has unwound.
+      (when managed?
+        (swap! db* update-in [:subagent-runs chat-id :workers] inc))
+      (try
+        (future* config
+          (vreset! started? true)
+          (try
+            (thunk)
+            (catch Throwable e
+              (when managed?
+                (swap! db* assoc-in [:subagent-runs chat-id :interrupted?] true))
+              (throw e))
+            (finally
+              (when managed?
+                (swap! db* update-in [:subagent-runs chat-id :workers] dec)))))
+        (catch Throwable e
+          (when (and managed? (not @started?))
+            (swap! db* update-in [:subagent-runs chat-id]
+                   #(-> % (update :workers dec) (assoc :interrupted? true))))
+          (throw e))))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -1154,7 +1188,8 @@
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
-          (future* config
+          (start-prompt-worker! chat-ctx
+           (fn []
             (try
               (llm-api/sync-or-async-prompt!
                {:model model
@@ -1709,6 +1744,8 @@
                                       (db/save-chat! @db* chat-id metrics)
                                       (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx))))))))})
               (catch Exception e
+                (when (contains? (:subagent-runs @db*) chat-id)
+                  (swap! db* assoc-in [:subagent-runs chat-id :interrupted?] true))
                 (when-not (:silent? (ex-data e))
                   (logger/error e)
                   (swap! db* assoc-in [:chats chat-id :prompt-error]
@@ -1725,13 +1762,16 @@
               (finally
                 (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
                            (contains? #{:stopping :running} (get-in @db* [:chats chat-id :status])))
+                  (when (and (contains? (:subagent-runs @db*) chat-id)
+                             (not (get-in @db* [:chats chat-id :prompt-finished?])))
+                    (swap! db* assoc-in [:subagent-runs chat-id :interrupted?] true))
                   (swap! db* assoc-in [:chats chat-id :status] :idle)
                   ;; Only notify client if finish-chat-prompt! hasn't already run,
                   ;; otherwise the belated statusChanged causes duplicate finished handling.
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
                     (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
                     (lifecycle/trigger-chat-status-hook! chat-ctx))
-                  (db/save-chat! @db* chat-id metrics))))))))))
+                  (db/save-chat! @db* chat-id metrics)))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
@@ -2062,6 +2102,10 @@
    config should pass the map."
   [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
   (let [provided-chat-id chat-id
+        _ (when-let [run (get-in @db* [:subagent-runs chat-id])]
+            (when-not (and (:token run)
+                           (identical? (:token run) (:subagent-token params)))
+              (throw (ex-info "Managed subagents must be prompted through spawn_agent." {}))))
         invalid-id-reason (when (and (some? provided-chat-id)
                                      (not (server-managed-subagent-chat-id? @db* provided-chat-id)))
                             (validate-client-chat-id provided-chat-id))]
@@ -2414,7 +2458,10 @@
     (when (identical? :running (get-in @db* [:chats chat-id :status]))
       ;; Set :stopping immediately to prevent race with stream callbacks
       ;; that check status via assert-chat-not-stopped! or cancelled?
-      (swap! db* assoc-in [:chats chat-id :status] :stopping)
+      (swap! db* (fn [db]
+                   (cond-> (assoc-in db [:chats chat-id :status] :stopping)
+                     (contains? (:subagent-runs db) chat-id)
+                     (assoc-in [:subagent-runs chat-id :interrupted?] true))))
       (let [chat-ctx {:chat-id chat-id
                       :db* db*
                       :config config

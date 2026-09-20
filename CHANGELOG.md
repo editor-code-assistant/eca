@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Allow `spawn_agent` to continue a subagent conversation using optional `chat_id`, preserving its history and model selections within the same live parent chat.
 - Expand `@file` references in custom-command and parameterized-skill arguments into file content before sending the prompt. #163
 - Fix steered native commands (e.g. `/sync-system-prompt`) being sent to the LLM as text while the chat runs: run them at the next turn boundary or refuse chat-changing ones. #610
 
