@@ -9,7 +9,6 @@
    into the waterfall without requiring changes to individual feature modules."
   (:require
    [babashka.fs :as fs]
-   [babashka.process :as p]
    [cheshire.core :as json]
    [cheshire.factory :as json.factory]
    [clojure.java.io :as io]
@@ -17,6 +16,7 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.features.agents :as agents]
+   [eca.features.plugins.git :as git]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -37,7 +37,7 @@
       (string/replace #"/" "-")))
 
 (defn ^:private source-cache-path
-  "Returns the local cache directory for a given source URL."
+  "Returns the legacy cache directory used when adopting a source pin."
   ^java.io.File [^String source-url]
   (io/file (cache/plugins-dir) (sanitize-source-url source-url)))
 
@@ -48,146 +48,56 @@
       (string/starts-with? source "https://")
       (string/starts-with? source "git@")))
 
-(def ^:private git-timeout-ms 30000)
-
-(def ^:private pull-ttl-ms
-  "Minimum time between git pull attempts for the same source (1 hour)."
-  (* 60 60 1000))
-
-(def ^:private stale-lock-threshold-ms
-  "Age above which a *.lock file inside a cached repo's .git directory is
-   considered stale and safe to remove. Set comfortably above git-timeout-ms
-   so live git operations are never disturbed."
-  (* 2 git-timeout-ms))
-
-(def ^:private last-pull-times (atom {}))
-
-(def ^:private source-locks
-  "Per source-URL monitors used to serialize git operations against the same
-   cached repo. Prevents concurrent `git pull` from leaving behind stale
-   ref/index .lock files in .git/."
-  (atom {}))
-
-(defn ^:private source-lock
-  "Returns a stable monitor object for `source-url`, creating one on first use."
-  ^Object [^String source-url]
-  (-> (swap! source-locks
-             (fn [m] (if (contains? m source-url)
-                       m
-                       (assoc m source-url (Object.)))))
-      (get source-url)))
-
-(defn ^:private cleanup-stale-git-locks!
-  "Removes *.lock files under `cache-dir`/.git/ whose mtime exceeds
-   `stale-lock-threshold-ms`. These are typically left behind by crashed or
-   previously-raced git operations and cause subsequent `git pull` to fail with
-   messages like 'cannot lock ref ...: File exists'. Best-effort: errors are
-   swallowed so cleanup never breaks a pull."
-  [^java.io.File cache-dir]
-  (let [git-dir (io/file cache-dir ".git")
-        now (System/currentTimeMillis)]
-    (when (fs/exists? git-dir)
-      (try
-        (doseq [^java.io.File f (file-seq git-dir)]
-          (when (and (.isFile f)
-                     (string/ends-with? (.getName f) ".lock"))
-            (try
-              (when (> (- now (.lastModified f)) stale-lock-threshold-ms)
-                (when (.delete f)
-                  (logger/info logger-tag "Removed stale git lock file:" (str f))))
-              (catch Exception _e nil))))
-        (catch Exception e
-          (logger/debug logger-tag "Failed scanning for stale git lock files in"
-                        (str cache-dir) (.getMessage e)))))))
-
-(defn ^:private run-git!
-  "Runs a git command with a timeout and returns {:exit :out :err}."
-  [& args]
-  (try
-    (let [proc (apply p/process {:out :string :err :string} "git" args)
-          result (deref proc git-timeout-ms nil)]
-      (if result
-        {:exit (:exit result)
-         :out (:out result)
-         :err (:err result)}
-        (do (p/destroy-tree proc)
-            {:exit 1 :out "" :err (str "git operation timed out after " (/ git-timeout-ms 1000) "s")})))
-    (catch Exception e
-      {:exit 1 :out "" :err (.getMessage e)})))
-
-(defn ^:private pull-needed?
-  "Returns true if enough time has passed since the last pull for this source."
-  [^String source-url]
-  (let [last-pull (get @last-pull-times source-url 0)
-        now (System/currentTimeMillis)]
-    (> (- now last-pull) pull-ttl-ms)))
-
-(defn ^:private clone-or-pull!
-  "Clones a git repo if not cached, or pulls if already cached (respecting TTL).
-   Returns the local directory path or nil on failure.
-
-   Serialized per source URL so concurrent callers (e.g. parallel chats running
-   /plugins or /plugin-install) cannot overlap a `git pull` on the same .git
-   directory. The TTL check is re-evaluated inside the lock so queued callers
-   short-circuit to the cached version after the first successful pull."
-  [^String source-url]
-  (let [cache-dir (source-cache-path source-url)]
-    ;; source-lock returns a stable per-URL monitor, safe to lock on.
-    #_{:clj-kondo/ignore [:locking-suspicious-lock]}
-    (locking (source-lock source-url)
-      (if (fs/exists? (io/file cache-dir ".git"))
-        (if (pull-needed? source-url)
-          (do
-            (cleanup-stale-git-locks! cache-dir)
-            (let [{:keys [exit err]} (run-git! "-C" (str cache-dir) "pull" "--ff-only" "-q")]
-              (swap! last-pull-times assoc source-url (System/currentTimeMillis))
-              (if (zero? exit)
-                (do (logger/info logger-tag "Updated plugin source:" source-url)
-                    cache-dir)
-                (do (logger/warn logger-tag "Failed to update plugin source, using cached version:"
-                                 source-url err)
-                    cache-dir))))
-          (do (logger/debug logger-tag "Plugin source recently pulled, using cached version:" source-url)
-              cache-dir))
-        (do
-          (fs/create-dirs (fs/parent cache-dir))
-          (let [{:keys [exit err]} (run-git! "clone" "--depth" "1" "-q" source-url (str cache-dir))]
-            (if (zero? exit)
-              (do (logger/info logger-tag "Cloned plugin source:" source-url)
-                  (swap! last-pull-times assoc source-url (System/currentTimeMillis))
-                  cache-dir)
-              (do (logger/warn logger-tag "Failed to clone plugin source:" source-url err)
-                  nil))))))))
-
 (defn ^:private resolve-source!
-  "Resolves a plugin source to a local directory.
-   For git URLs: clones/pulls to cache. For local paths: verifies existence.
-   Returns a File or nil."
+  "Returns {:dir File :commit full-oid} for a pinned Git source, or {:dir File}
+   for a local development source. Missing local paths return nil; Git failures propagate."
   [^String source]
   (if (git-url? source)
-    (clone-or-pull! source)
+    (git/resolve! source (source-cache-path source))
     (let [local-dir (io/file source)]
       (if (fs/exists? local-dir)
         (do (logger/debug logger-tag "Using local plugin source:" source)
-            local-dir)
+            {:dir local-dir})
         (do (logger/warn logger-tag "Local plugin source not found:" source)
             nil)))))
 
-(defn ^:private read-marketplace
-  "Reads and parses .eca-plugin/marketplace.json from a source directory.
-   Returns a vector of plugin entries or nil."
+(defn ^:private parse-marketplace
+  "Reads marketplace data only, without interpolation or component discovery.
+   Throws on missing, malformed, or ambiguous marketplace entries."
   [^java.io.File source-dir]
-  (let [marketplace-file (io/file source-dir ".eca-plugin" "marketplace.json")]
-    (if (fs/exists? marketplace-file)
-      (try
-        (let [content (json/parse-string (slurp marketplace-file) true)]
-          (or (:plugins content) []))
-        (catch Exception e
-          (logger/warn logger-tag "Failed to parse marketplace.json:" (str marketplace-file)
-                       (.getMessage e))
-          nil))
-      (do (logger/warn logger-tag "No .eca-plugin/marketplace.json found in:" (str source-dir))
-          nil))))
+  (let [marketplace-file (io/file source-dir ".eca-plugin" "marketplace.json")
+        content (json/parse-string (slurp marketplace-file) true)
+        plugins (:plugins content)
+        nonblank-string? #(and (string? %) (not (string/blank? %)))]
+    (when-not (and (map? content)
+                   (vector? plugins)
+                   (every? (fn [entry]
+                             (and (map? entry)
+                                  (nonblank-string? (:name entry))
+                                  (nonblank-string? (or (:source entry) (:path entry)))
+                                  (or (nil? (:dependencies entry))
+                                      (and (vector? (:dependencies entry))
+                                           (every? nonblank-string? (:dependencies entry))))))
+                           plugins)
+                   (= (count plugins) (count (distinct (map :name plugins)))))
+      (throw (ex-info (str "Invalid marketplace.json at `" marketplace-file
+                           "`: expected uniquely named plugins with source/path strings and optional dependency refs.")
+                      {:marketplace-file (str marketplace-file)})))
+    plugins))
+
+(defn ^:private read-marketplace
+  "Reads marketplace entries. Strict resolution propagates failures; legacy callers get nil."
+  ([^java.io.File source-dir]
+   (read-marketplace source-dir false))
+  ([^java.io.File source-dir strict?]
+   (try
+     (parse-marketplace source-dir)
+     (catch Exception e
+       (if strict?
+         (throw e)
+         (do (logger/warn logger-tag "Failed to read marketplace.json:" (str source-dir)
+                          (.getMessage e))
+             nil))))))
 
 (defn ^:private read-plugin-manifest
   "Reads and parses the optional .eca-plugin/plugin.json from a plugin directory.
@@ -400,22 +310,32 @@
        (distinct)
        (vec)))
 
+(defn ^:private ambiguous-plugin
+  [plugin-name refs]
+  (ex-info (str "Plugin `" plugin-name "` is ambiguous. Use one of: "
+                (string/join ", " (map #(str "`" % "`") (sort refs))) ".")
+           {:plugin-name plugin-name :refs (vec (sort refs))}))
+
 (defn ^:private resolve-ref
-  "Resolves a plugin ref ('name' or 'name@marketplace') against resolved sources.
-   Plain names match every source providing the plugin; '@marketplace' restricts
-   the match to the source registered with that name. Returns a seq of
+  "Resolves a plugin ref against resolved sources, rejecting ambiguous bare names.
+   Qualified refs match only the named source. Returns zero or one matches with
    {:plugin-name :source-name :source-dir :plugin-dir :entry} (plugin-dir may be nil)."
   [resolved-sources ^String plugin-ref]
-  (let [{:keys [plugin-name marketplace]} (parse-plugin-arg plugin-ref)]
-    (for [{:keys [source-name source-dir marketplace-plugins]} resolved-sources
-          :when (or (nil? marketplace) (= marketplace source-name))
-          :let [entry (find-plugin-entry plugin-name marketplace-plugins)]
-          :when entry]
-      {:plugin-name plugin-name
-       :source-name source-name
-       :source-dir source-dir
-       :plugin-dir (resolve-plugin-dir source-dir entry)
-       :entry entry})))
+  (let [{:keys [plugin-name marketplace]} (parse-plugin-arg plugin-ref)
+        matches (vec
+                 (for [{:keys [source-name source-dir marketplace-plugins]} resolved-sources
+                       :when (or (nil? marketplace) (= marketplace source-name))
+                       :let [entry (find-plugin-entry plugin-name marketplace-plugins)]
+                       :when entry]
+                   {:plugin-name plugin-name
+                    :source-name source-name
+                    :source-dir source-dir
+                    :plugin-dir (resolve-plugin-dir source-dir entry)
+                    :entry entry}))]
+    (when (and (nil? marketplace) (> (count matches) 1))
+      (throw (ambiguous-plugin plugin-name
+                               (map #(str plugin-name "@" (:source-name %)) matches))))
+    matches))
 
 (defn ^:private expand-install-list
   "Expands install plugin refs with their transitive dependencies (breadth-first).
@@ -452,18 +372,24 @@
       (into (vec (rseq auto)) direct))))
 
 (defn ^:private resolve-sources!
-  "Resolves configured sources to local dirs (cloning/pulling git sources) and
-   reads their marketplaces. Returns [{:source-name :source-dir :marketplace-plugins}]."
+  "Resolves pinned Git snapshots or local dirs and reads marketplace data.
+   Source failures propagate: dropping a source could make a bare ref look unique."
   [sources]
-  (->> sources
-       (keep (fn [[source-name source-url]]
-               (logger/info logger-tag "Resolving plugin source:" source-name source-url)
-               (when-let [source-dir (resolve-source! source-url)]
-                 (when-let [marketplace-plugins (read-marketplace source-dir)]
-                   {:source-name source-name
-                    :source-dir source-dir
-                    :marketplace-plugins marketplace-plugins}))))
-       (vec)))
+  (mapv (fn [[source-name source-url]]
+          (logger/info logger-tag "Resolving plugin source:" source-name source-url)
+          (try
+            (let [{:keys [dir commit]} (or (resolve-source! source-url)
+                                          (throw (ex-info "Source directory not found." {:source-url source-url})))]
+              {:source-name source-name
+               :source-url source-url
+               :source-dir dir
+               :commit commit
+               :marketplace-plugins (read-marketplace dir true)})
+            (catch Exception e
+              (throw (ex-info (str "Could not resolve marketplace `" source-name "`: " (ex-message e))
+                              {:source-name source-name :source-url source-url}
+                              e)))))
+        sources))
 
 (defn resolve-all!
   "Main entry point: resolves all plugin sources, reads marketplaces,
@@ -491,104 +417,161 @@
           (merge-components components))))))
 
 (defn list-marketplace-plugins
-  "Lists all available plugins from configured marketplace sources.
-   Returns a seq of {:name :source-name :source-url :description :installed?} maps."
+  "Lists available plugins. Legacy bare install refs mark only unique matches."
   [plugins-config]
   (when (seq plugins-config)
     (let [installed-set (set (get plugins-config "install" []))
-          sources (parse-sources plugins-config)]
-      (doall
-       (for [[source-name source-url] sources
-             :let [source-dir (resolve-source! source-url)]
-             :when source-dir
-             :let [marketplace (read-marketplace source-dir)]
-             :when marketplace
-             plugin marketplace]
-         {:name (:name plugin)
+          sources (resolve-sources! (parse-sources plugins-config))
+          name-counts (frequencies (mapcat #(map :name (:marketplace-plugins %)) sources))]
+      (vec
+       (for [{:keys [source-name source-url commit marketplace-plugins]} sources
+             plugin marketplace-plugins
+             :let [plugin-name (:name plugin)]]
+         {:name plugin-name
           :description (:description plugin)
           :source-name source-name
           :source-url source-url
-          :installed? (contains? installed-set (:name plugin))})))))
+          :commit commit
+          :installed? (or (contains? installed-set (str plugin-name "@" source-name))
+                          (and (= 1 (get name-counts plugin-name))
+                               (contains? installed-set plugin-name)))})))))
+
+(defn update-source!
+  "Explicitly updates a configured Git marketplace pin after data-only validation.
+   Returns {:status :ok/:error :message ...}; activation requires a restart."
+  [plugins-config source-name]
+  (try
+    (if-let [source-url (get (into {} (parse-sources plugins-config)) source-name)]
+      (if (git-url? source-url)
+        (let [{:keys [commit previous-commit]} (git/update! source-url parse-marketplace)]
+          {:status :ok
+           :message (str "Marketplace `" source-name "` "
+                         (if (= commit previous-commit)
+                           (str "is already up to date at `" commit "`.")
+                           (str "pin updated from `" (or previous-commit "unpinned") "` to `" commit "`."))
+                         " Restart ECA to apply this commit to all plugins from this marketplace.")})
+        {:status :error
+         :message (str "Marketplace `" source-name "` is an unpinned local development directory; it cannot be updated with /plugin-update.")})
+      {:status :error
+       :message (str "Unknown marketplace `" source-name "`. Use a configured marketplace source name.")})
+    (catch Exception e
+      {:status :error
+       :message (str "Could not update marketplace `" source-name "`: " (ex-message e)
+                     " The existing pin was not changed.")})))
+
+(defn ^:private read-global-install
+  "Reads only global install entries, without interpolation or merged project config."
+  []
+  (let [file (config/global-config-file)]
+    (try
+      (let [global-config (if (.exists file)
+                            (binding [json.factory/*json-factory* (json.factory/make-json-factory
+                                                                  {:allow-comments true})]
+                              (json/parse-string (slurp file)))
+                            {})
+            install (get-in global-config ["plugins" "install"] [])]
+        (when-not (and (map? global-config) (vector? install) (every? string? install))
+          (throw (ex-info "Expected plugins.install to be an array of plugin refs." {})))
+        install)
+      (catch Exception e
+        (throw (ex-info (str "Could not read the global config file at `" file "`. "
+                             "Fix the JSON error, then retry. " (ex-message e))
+                        {:file (str file)} e))))))
 
 (defn ^:private find-plugin-in-marketplaces
-  "Finds a plugin by name across all resolved marketplaces, optionally filtered by source name.
-   Returns {:name :source-name :source-url} or nil."
+  "Resolves a unique plugin, restricting qualified refs to the selected source."
   [plugins-config plugin-name marketplace-filter]
-  (let [sources (parse-sources plugins-config)]
-    (first
-     (for [[source-name source-url] sources
-           :when (or (nil? marketplace-filter) (= marketplace-filter source-name))
-           :let [source-dir (resolve-source! source-url)]
-           :when source-dir
-           :let [marketplace (read-marketplace source-dir)]
-           :when marketplace
-           :let [entry (find-plugin-entry plugin-name marketplace)]
-           :when entry]
-       {:name plugin-name
-        :source-name source-name
-        :source-url source-url}))))
+  (let [sources (cond->> (parse-sources plugins-config)
+                  marketplace-filter (filter #(= marketplace-filter (first %))))
+        resolved-sources (resolve-sources! sources)]
+    (first (resolve-ref resolved-sources
+                        (str plugin-name (when marketplace-filter (str "@" marketplace-filter)))))))
 
 (defn install-plugin!
-  "Installs a plugin by adding it to the global config install list.
+  "Installs a uniquely resolved plugin as name@marketplace in global config only.
    `input` is either 'plugin-name' or 'plugin-name@marketplace'.
    Returns {:status :ok/:error, :message ...}."
   [plugins-config ^String input]
-  (let [{:keys [plugin-name marketplace]} (parse-plugin-arg input)
-        sources (parse-sources plugins-config)
-        current-install (set (get plugins-config "install" []))]
-    (cond
-      (empty? sources)
-      {:status :error
-       :message "No plugin marketplaces configured. Add plugin sources to your config under the `plugins` key."}
-
-      (contains? current-install plugin-name)
-      {:status :error
-       :message (str "Plugin `" plugin-name "` is already installed.")}
-
-      :else
-      (if-let [found (find-plugin-in-marketplaces plugins-config plugin-name marketplace)]
-        (let [new-install (vec (sort (conj current-install plugin-name)))]
-          (config/update-global-config! {:plugins {:install new-install}})
-          {:status :ok
-           :message (str "Plugin `" plugin-name "` installed from **" (:source-name found) "**. Restart ECA to activate it.")})
+  (try
+    (let [{:keys [plugin-name marketplace]} (parse-plugin-arg input)
+          sources (parse-sources plugins-config)]
+      (if (empty? sources)
         {:status :error
-         :message (if marketplace
-                    (str "Plugin `" plugin-name "` not found in marketplace `" marketplace "`.")
-                    (str "Plugin `" plugin-name "` not found in any configured marketplace."))}))))
+         :message "No plugin marketplaces configured. Add plugin sources to your config under the `plugins` key."}
+        (if-let [found (find-plugin-in-marketplaces plugins-config plugin-name marketplace)]
+          (let [qualified-ref (str plugin-name "@" (:source-name found))
+                global-install (read-global-install)
+                current-install (set (concat global-install (get plugins-config "install" [])))
+                other-refs (filter (fn [ref]
+                                     (let [parsed (parse-plugin-arg ref)]
+                                       (and (= plugin-name (:plugin-name parsed))
+                                            (:marketplace parsed)
+                                            (not= qualified-ref ref))))
+                                   current-install)
+                migrate? (some #{plugin-name} global-install)]
+            (cond
+              (seq other-refs)
+              {:status :error
+               :message (str "Plugin `" plugin-name "` is installed from another marketplace as "
+                             (string/join ", " (sort other-refs))
+                             ". Uninstall that entry before selecting `" qualified-ref "`.")}
+
+              (and (contains? current-install qualified-ref) (not migrate?))
+              {:status :error
+               :message (str "Plugin `" qualified-ref "` is already installed.")}
+
+              (and (contains? current-install plugin-name) (not migrate?))
+              {:status :error
+               :message (str "Plugin `" plugin-name "` has a bare install entry in another config source. "
+                             "Replace it there with `" qualified-ref "` to preserve marketplace identity.")}
+
+              :else
+              (let [migrated (mapv #(if (= plugin-name %) qualified-ref %) global-install)
+                    new-install (if (some #{qualified-ref} migrated)
+                                  (vec (distinct migrated))
+                                  (conj migrated qualified-ref))]
+                (config/update-global-config! {:plugins {:install new-install}})
+                {:status :ok
+                 :message (str "Plugin `" qualified-ref "` installed from **" (:source-name found)
+                               "**. Restart ECA to activate it.")})))
+          {:status :error
+           :message (if marketplace
+                      (str "Plugin `" plugin-name "` not found in marketplace `" marketplace "`.")
+                      (str "Plugin `" plugin-name "` not found in any configured marketplace."))})))
+    (catch Exception e
+      {:status :error
+       :message (str "Could not install plugin `" input "`: " (ex-message e))})))
 
 (defn uninstall-plugin!
-  "Removes an exact plugin reference from the global config install list only.
+  "Removes an exact global ref, or a uniquely identifiable installed bare name.
+   Exact refs take precedence. Project-only entries are never written globally.
    Returns {:status :ok/:error, :message ...}."
-  [plugins-config ^String plugin-name]
-  (let [file (config/global-config-file)
-        global-config (when (.exists file)
-                        (try
-                          (binding [json.factory/*json-factory* (json.factory/make-json-factory
-                                                                {:allow-comments true})]
-                            (json/parse-string (slurp file)))
-                          (catch Exception e
-                            (logger/warn logger-tag "Error reading global config file:" (ex-message e))
-                            ::unreadable)))
-        global-install (get-in global-config ["plugins" "install"])]
-    (cond
-      (= ::unreadable global-config)
-      {:status :error
-       :message (str "Could not read the global config file at `" file "`. "
-                     "Fix the JSON error, then retry.")}
+  [plugins-config ^String input]
+  (try
+    (let [global-install (read-global-install)
+          installed (set (concat global-install (get plugins-config "install" [])))
+          {:keys [plugin-name marketplace]} (parse-plugin-arg input)
+          matches (when (and (nil? marketplace) (not (contains? installed input)))
+                    (filter #(= plugin-name (:plugin-name (parse-plugin-arg %))) installed))
+          _ (when (> (count matches) 1)
+              (throw (ambiguous-plugin plugin-name matches)))
+          plugin-ref (or (first matches) input)]
+      (cond
+        (some #{plugin-ref} global-install)
+        (do
+          (config/update-global-config!
+           {:plugins {:install (filterv #(not= plugin-ref %) global-install)}})
+          {:status :ok
+           :message (str "Global install entry for plugin `" plugin-ref "` removed. "
+                         "Other config sources can still install it; remove the entry there too. Restart ECA to apply.")})
 
-      (some #{plugin-name} global-install)
-      (do
-        (config/update-global-config!
-         {:plugins {:install (filterv #(not= plugin-name %) global-install)}})
-        {:status :ok
-         :message (str "Global install entry for plugin `" plugin-name "` removed. "
-                       "Other config sources can still install it; remove the entry there too. Restart ECA to apply.")})
+        (contains? installed plugin-ref)
+        {:status :error
+         :message (str "Plugin `" plugin-ref "` has no global install entry. "
+                       "Remove it from plugins.install in its source config (for example, ECA_CONFIG, initialization options, or project config).")}
 
-      (some #{plugin-name} (get plugins-config "install"))
-      {:status :error
-       :message (str "Plugin `" plugin-name "` has no global install entry. "
-                     "Remove it from plugins.install in its source config (for example, ECA_CONFIG, initialization options, or project config).")}
-
-      :else
-      {:status :error
-       :message (str "Plugin `" plugin-name "` is not installed.")})))
+        :else
+        {:status :error
+         :message (str "Plugin `" input "` is not installed.")}))
+    (catch Exception e
+      {:status :error :message (ex-message e)})))

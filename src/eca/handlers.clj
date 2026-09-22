@@ -104,7 +104,8 @@
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
-      {:chat-welcome-message (welcome-message config)})))
+      {:chat-welcome-message (welcome-message config)
+       :global-config-path (str (config/global-config-file))})))
 
 (defn ^:private send-progress! [db* messenger params]
   (when-not (:stopping @db*)
@@ -168,7 +169,16 @@
             (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))
             (config/clear-cache!)))
         (catch Exception e
-          (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))))
+          (reset! config/plugin-components* nil)
+          (config/clear-cache!)
+          (logger/warn "[PLUGINS]" "Plugin resolution failed:" (.getMessage e))
+          (try
+            (messenger/showMessage messenger
+                                   {:type "error"
+                                    :message (str "Plugins were not loaded: " (ex-message e))})
+            (catch Exception notification-error
+              (logger/warn "[PLUGINS]" "Could not report plugin resolution failure:"
+                           (ex-message notification-error))))))
       (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
       (let [config (config/all @db*)]
         ;; Trigger sessionStart before delivering plugins-resolved so it

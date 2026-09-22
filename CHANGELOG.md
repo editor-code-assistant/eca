@@ -3,8 +3,14 @@
 ## Unreleased
 
 - Allow `spawn_agent` to continue a subagent conversation using optional `chat_id`, preserving its history and model selections within the same live parent chat.
+
+## 0.161.0
+
+- Pin plugin sources to verified commits, add explicit `/plugin-update`, and preserve marketplace identity when installing plugins.
+- Retry transient Anthropic post-tool failures before new output without rerunning tools; show recovery counts and explain exhausted or disabled recovery.
 - Expand `@file` references in custom-command and parameterized-skill arguments into file content before sending the prompt. #163
 - Fix steered native commands (e.g. `/sync-system-prompt`) being sent to the LLM as text while the chat runs: run them at the next turn boundary or refuse chat-changing ones. #610
+- Return `globalConfigPath` in the `initialize` response so clients open the config file the server actually reads.
 
 ## 0.160.3
 

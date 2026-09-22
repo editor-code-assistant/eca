@@ -293,10 +293,14 @@
                        :type :native
                        :description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
                        :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
+                      {:name "plugin-update"
+                       :type :native
+                       :description "Update a marketplace's pinned version for the next restart (all its plugins)."
+                       :arguments [{:name "marketplace" :description "Configured marketplace source name" :required true}]}
                       {:name "plugin-uninstall"
                        :type :native
-                       :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin)"
-                       :arguments [{:name "plugin" :description "Plugin name" :required true}]}
+                       :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin@marketplace)"
+                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                       {:name "hooks"
                        :type :native
                        :description "List active hooks grouped by type."
@@ -1123,27 +1127,36 @@
       "subagents" (let [msg (subagents-msg config agent)]
                     {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "plugins" (let [plugins-config (:plugins config)
-                      plugins (f.plugins/list-marketplace-plugins plugins-config)
-                      msg (if (seq plugins)
+      "plugins" (let [{:keys [plugins error]}
+                      (try
+                        {:plugins (f.plugins/list-marketplace-plugins (:plugins config))}
+                        (catch Exception e {:error (ex-message e)}))
+                      msg (cond
+                            error (str "Could not list plugins: " error)
+                            (seq plugins)
                             (let [by-source (group-by :source-name plugins)]
                               (multi-str (reduce-kv
                                           (fn [s source-name source-plugins]
-                                            (str s "**" source-name "** (`" (:source-url (first source-plugins)) "`)\n"
-                                                 (reduce
-                                                  (fn [s2 {:keys [name description installed?]}]
-                                                    (str s2 "- "
-                                                         (when installed? "✅ ")
-                                                         name
-                                                         (when description (str " — " description))
-                                                         "\n"))
-                                                  ""
-                                                  source-plugins)
-                                                 "\n"))
+                                            (let [{:keys [source-url commit]} (first source-plugins)]
+                                              (str s "**" source-name "** (`" source-url "`)\n"
+                                                   (if commit
+                                                     (str "Pinned commit: `" commit "`\n")
+                                                     "Local development source (unpinned)\n")
+                                                   (reduce
+                                                    (fn [s2 {:keys [name description installed?]}]
+                                                      (str s2 "- "
+                                                           (when installed? "✅ ")
+                                                           name "@" source-name
+                                                           (when description (str " — " description))
+                                                           "\n"))
+                                                    ""
+                                                    source-plugins)
+                                                   "\n")))
                                           "Plugins available:\n\n"
                                           by-source)
-                                         "Use `/plugin-install <name>` to install a plugin."))
-                            "No plugin marketplaces configured. Add plugin sources to your config under the `plugins` key.")]
+                                         "Use `/plugin-install <name@marketplace>` to install a plugin."
+                                         "Use `/plugin-update <marketplace>` to update its pinned version, then restart ECA."))
+                            :else "No plugins found. Check your configured marketplaces under the `plugins` key.")]
                   {:type :chat-messages
                    :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "plugin-install" (let [plugin-input (first args)
@@ -1153,10 +1166,17 @@
                                       (f.plugins/install-plugin! (:plugins config) plugin-input))]
                          {:type :chat-messages
                           :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
+      "plugin-update" (let [source-name (first args)
+                            result (if (or (not= 1 (count args)) (string/blank? source-name))
+                                     {:status :error
+                                      :message "Usage: `/plugin-update <marketplace>`. Updates all plugins from that source on the next restart."}
+                                     (f.plugins/update-source! (:plugins config) source-name))]
+                        {:type :chat-messages
+                         :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
       "plugin-uninstall" (let [plugin-input (first args)
                                result (if (string/blank? plugin-input)
                                         {:status :error
-                                         :message "Usage: `/plugin-uninstall <plugin-name>`"}
+                                         :message "Usage: `/plugin-uninstall <plugin-name>` or `/plugin-uninstall <plugin-name@marketplace>`"}
                                         (f.plugins/uninstall-plugin! (:plugins config) plugin-input))]
                            {:type :chat-messages
                             :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})

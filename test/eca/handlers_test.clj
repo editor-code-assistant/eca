@@ -39,7 +39,14 @@
                               :initialization-options {:pureConfig true}})
         (is (match? {:initial-workspace-folders workspace-folders
                      :workspace-folders workspace-folders}
-                    (h/db)))))))
+                    (h/db))))))
+
+  (testing "returns the global config path the server reads"
+    (h/reset-components!)
+    (with-redefs [db/load-db-from-cache! (constantly nil)]
+      (is (match? {:global-config-path (str (config/global-config-file))}
+                  (handlers/initialize (h/components)
+                                       {:initialization-options {:pureConfig true}}))))))
 
 (deftest chat-selected-agent-changed-test
   (testing "Switching to agent with defaultModel updates model and variants"

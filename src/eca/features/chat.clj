@@ -1318,9 +1318,13 @@
                                                        (logger/info logger-tag "Truncated or premature response detected, auto-continuing"
                                                                     {:chat-id chat-id
                                                                      :premature? (:premature? msg)
-                                                                     :truncated? (truncated-response? response-text)})
+                                                                     :truncated? (truncated-response? response-text)
+                                                                     :attempt (inc (:auto-continue-count chat-ctx 0))
+                                                                     :max-auto-continues auto-continue-limit})
                                                        (lifecycle/send-content! chat-ctx :system
-                                                                                {:type :progress :state :running :text "Response interrupted, continuing..."})
+                                                                                {:type :progress :state :running
+                                                                                 :text (format "Response interrupted, continuing (recovery %d/%d)..."
+                                                                                               (inc (:auto-continue-count chat-ctx 0)) auto-continue-limit)})
                                                        (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                                        (lifecycle/finish-chat-prompt!
                                                         :idle
@@ -1670,7 +1674,9 @@
 
                                 :else
                                 (let [partial-text @received-msgs*
-                                      transient-error? (contains? #{:overloaded :premature-stop :network} error-type)
+                                      transient-error? (or (contains? #{:overloaded :premature-stop :network} error-type)
+                                                           (string/includes? (or message "") "idle timeout"))
+                                      auto-continue-count (:auto-continue-count chat-ctx 0)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
                                       user-messages-recorded? (boolean
                                                                (when-let [user-content-id (:user-content-id chat-ctx)]
@@ -1686,13 +1692,15 @@
                                       retry-source-type (if continue-existing-response?
                                                           :auto-continue
                                                           :transient-error-retry)
-                                      can-auto-continue? (and (not stopping?)
-                                                              (or transient-error?
-                                                                  (string/includes? (or message "") "idle timeout"))
-                                                              (< (:auto-continue-count chat-ctx 0) auto-continue-limit)
-                                                              (not (or (:on-finished-side-effect chat-ctx)
-                                                                       (:on-after-finish! chat-ctx)))
-                                                              (not compacting?))]
+                                      recovery-blocked-reason (cond
+                                                                (not transient-error?) :non-transient
+                                                                stopping? :stopping
+                                                                compacting? :compacting
+                                                                (or (:on-finished-side-effect chat-ctx)
+                                                                    (:on-after-finish! chat-ctx)) :finish-callback
+                                                                (zero? auto-continue-limit) :disabled
+                                                                (>= auto-continue-count auto-continue-limit) :limit-reached)
+                                      can-auto-continue? (nil? recovery-blocked-reason)]
                                   (when compacting?
                                     (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?))
                                   (when-not (string/blank? partial-text)
@@ -1701,14 +1709,18 @@
                                   (if can-auto-continue?
                                     (do
                                       (logger/info logger-tag "Transient error during response, auto-continuing"
-                                                   {:chat-id chat-id :error-type error-type})
+                                                   {:chat-id chat-id :error-type error-type
+                                                    :attempt (inc auto-continue-count)
+                                                    :max-auto-continues auto-continue-limit})
                                       (lifecycle/send-content! chat-ctx :system
                                                                {:type :progress
                                                                 :state :running
                                                                 :text (str (or message "Connection interrupted")
                                                                            (if continue-existing-response?
-                                                                             ", continuing..."
-                                                                             ", retrying original request..."))})
+                                                                             ", continuing"
+                                                                             ", retrying original request")
+                                                                           (format " (recovery %d/%d)..."
+                                                                                   (inc auto-continue-count) auto-continue-limit))})
                                       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
                                       (lifecycle/finish-chat-prompt! :idle
                                                                      (assoc chat-ctx
@@ -1722,6 +1734,12 @@
                                                                                retry-source-type
                                                                                (update chat-ctx :auto-continue-count (fnil inc 0)))))))
                                     (do
+                                      (when transient-error?
+                                        (logger/info logger-tag "Automatic recovery skipped"
+                                                     {:chat-id chat-id :error-type error-type
+                                                      :reason recovery-blocked-reason
+                                                      :auto-continue-count auto-continue-count
+                                                      :max-auto-continues auto-continue-limit}))
                                       (when-not stopping?
                                         (swap! db* assoc-in [:chats chat-id :prompt-error]
                                                (prompt-error-data error-data error-type))
@@ -1732,6 +1750,11 @@
                                                                                " (system prompt, MCP server instructions and messages combined)."
                                                                                " Try a model with a larger context window, or reduce enabled MCP servers/context.")
                                                                           (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))
+                                                                               (case recovery-blocked-reason
+                                                                                 :disabled "\nAutomatic recovery is disabled for this provider (retry.maxAutoContinues: 0)."
+                                                                                 :limit-reached (format "\nAutomatic recovery limit reached (%d/%d for this turn). Send a new message to continue."
+                                                                                                        auto-continue-count auto-continue-limit)
+                                                                                 nil)
                                                                                (when-let [resets-at (:rate-limit-resets-at error-data)]
                                                                                  (let [in-ms (- (long resets-at) (System/currentTimeMillis))]
                                                                                    (format "\nRate limit resets at %s%s."

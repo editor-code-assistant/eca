@@ -16,6 +16,8 @@
    [eca.features.tools.chat :as f.tools.chat]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -372,6 +374,105 @@
                              :content {:type :progress
                                        :text #(string/includes? % "Connection closed unexpectedly")}}])}
                 (h/messages))))))
+
+(deftest transient-tls-recovery-limit-test
+  (doseq [[configured limit reason] [[nil 3 :limit-reached] [2 2 :limit-reached] [0 0 :disabled]]]
+    (testing (str "bounded TLS recovery with maxAutoContinues=" configured)
+      (h/reset-components!)
+      (when (some? configured)
+        (h/config! {:providers {"openai" {:retry {:maxAutoContinues configured}}}}))
+      (let [attempts* (atom 0)
+            logs* (atom [])
+            exception (javax.net.ssl.SSLException. "(bad_record_mac) Received fatal alert: bad_record_mac")
+            error-data {:exception exception :message (llm-util/connection-error-message exception)}
+            {:keys [chat-id]}
+            (with-redefs [logger/info (fn [& args] (swap! logs* conj args))]
+              (prompt!
+               {:message "Keep working"}
+               {:all-tools-mock (constantly [])
+                :api-mock (fn [{:keys [on-first-response-received on-message-received on-error]}]
+                            (swap! attempts* inc)
+                            (on-first-response-received)
+                            (on-message-received {:type :text :text "Partial"})
+                            (on-error error-data)
+                            (on-error error-data))}))
+            recovery-progress (->> (:chat-content-received (h/messages))
+                                   (map :content)
+                                   (filter #(and (= :progress (:type %))
+                                                 (string/includes? (or (:text %) "") "recovery "))))
+            skipped (filter #(= "Automatic recovery skipped" (second %)) @logs*)]
+        (is (= (inc limit) @attempts*))
+        (is (= :idle (get-in (h/db) [:chats chat-id :status])))
+        (is (= :network (get-in (h/db) [:chats chat-id :prompt-error :error-type])))
+        (is (= limit (count recovery-progress)))
+        (doseq [[i progress] (map-indexed vector recovery-progress)]
+          (is (string/includes? (:text progress) (format "recovery %d/%d" (inc i) limit))))
+        (is (= 1 (count skipped)) "late duplicate failures must not deliver another terminal error")
+        (is (match? {:reason reason :auto-continue-count limit :max-auto-continues limit}
+                    (last (first skipped))))
+        (is (match? {:chat-content-received
+                     (m/embeds [{:role :system
+                                 :content {:type :text
+                                           :text #(and (string/includes? % "bad_record_mac")
+                                                       (string/includes? % (if (zero? limit)
+                                                                             "Automatic recovery is disabled"
+                                                                             (format "Automatic recovery limit reached (%d/%d for this turn)" limit limit))))}}])}
+                    (h/messages)))))))
+
+(deftest truncated-response-shares-recovery-budget-test
+  (h/config! {:providers {"openai" {:retry {:maxAutoContinues 1}}}})
+  (let [attempts* (atom 0)
+        exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")
+        {:keys [chat-id]}
+        (prompt!
+         {:message "Keep working"}
+         {:all-tools-mock (constantly [])
+          :api-mock (fn [{:keys [on-first-response-received on-message-received on-error]}]
+                      (let [attempt (swap! attempts* inc)]
+                        (on-first-response-received)
+                        (on-message-received {:type :text :text "Partial"})
+                        (if (= 1 attempt)
+                          (on-message-received {:type :finish :premature? true})
+                          (on-error {:exception exception
+                                     :message (llm-util/connection-error-message exception)}))))})]
+    (is (= 2 @attempts*))
+    (is (= :network (get-in (h/db) [:chats chat-id :prompt-error :error-type])))
+    (is (match? {:chat-content-received
+                 (m/embeds [{:role :system
+                             :content {:type :progress :text #"Response interrupted.*recovery 1/1"}}
+                            {:role :system
+                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 for this turn\).*"}}])}
+                (h/messages)))))
+
+(deftest transient-tls-recovery-guards-test
+  (doseq [[state reason] [[{:status :stopping} :stopping]
+                          [{:auto-compacting? true} :compacting]
+                          [{:compacting? true} :compacting]]]
+    (testing (str "TLS recovery stays blocked by " state)
+      (h/reset-components!)
+      (let [chat-id "tls-recovery-guard"
+            attempts* (atom 0)
+            logs* (atom [])
+            exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")]
+        (with-redefs [logger/info (fn [& args] (swap! logs* conj args))]
+          (prompt!
+           {:message "Keep working" :chat-id chat-id}
+           {:all-tools-mock (constantly [])
+            :api-mock (fn [{:keys [on-error]}]
+                        (swap! attempts* inc)
+                        (swap! (h/db*) update-in [:chats chat-id] merge state)
+                        (on-error {:exception exception
+                                   :message (llm-util/connection-error-message exception)}))}))
+        (is (= 1 @attempts*))
+        (is (match? {:reason reason :auto-continue-count 0 :max-auto-continues 3}
+                    (->> @logs*
+                         (filter #(= "Automatic recovery skipped" (second %)))
+                         first
+                         last)))
+        (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+        (is (nil? (get-in (h/db) [:chats chat-id :compacting?])))
+        (when (= :stopping reason)
+          (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))))
 
 (deftest prompt-multiple-text-interaction-test
   (testing "Chat history"
