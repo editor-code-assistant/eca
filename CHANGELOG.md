@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.161.0
+
 - Pin plugin sources to verified commits, add explicit `/plugin-update`, and preserve marketplace identity when installing plugins.
 - Retry transient Anthropic post-tool failures before new output without rerunning tools; show recovery counts and explain exhausted or disabled recovery.
 - Expand `@file` references in custom-command and parameterized-skill arguments into file content before sending the prompt. #163
