@@ -55,7 +55,9 @@
                        {:name "plugin-uninstall"
                         :arguments [{:name "plugin" :description "Plugin name" :required true}]}
                        {:name "hooks" :arguments []}
-                       {:name "eca-info" :arguments nil}]}
+                       {:name "eca-info"
+                        :description "Inspect running ECA for self-debug: versions, client, default model, providers/auth, MCP servers (status/tools), skills, subagents, env vars, credential files."
+                        :arguments nil}]}
            resp))))
 
   (testing "We query specific commands"
