@@ -71,17 +71,33 @@
   (build "native-cli")
   (mv-here (fs/path (eca-bin-filename :native))))
 
-(defn tag [& [tag]]
+(defn ^:private bump-version [current bump]
+  (let [[major minor patch] (map parse-long (string/split (string/trim current) #"\."))]
+    (case bump
+      "major" (format "%d.0.0" (inc major))
+      "minor" (format "%d.%d.0" major (inc minor))
+      "patch" (format "%d.%d.%d" major minor (inc patch))
+      (if (re-matches #"\d+\.\d+\.\d+" bump)
+        bump
+        (throw (ex-info (str "Invalid bump, expected major, minor, patch or a version like 1.2.3, got: " bump) {}))))))
+
+(defn tag
+  "Release a new version: `bb tag major|minor|patch` (or an explicit version)."
+  [& [bump]]
+  (when-not bump
+    (throw (ex-info "Usage: bb tag major|minor|patch" {})))
   (shell "git fetch origin")
   (shell "git pull origin HEAD")
-  (spit "resources/ECA_VERSION" tag)
-  (add-changelog-entry tag nil)
-  (prod-jar)
-  (shell "git add resources/ECA_VERSION CHANGELOG.md")
-  (shell (format "git commit -m \"Release: %s\"" tag))
-  (shell (str "git tag " tag))
-  (shell "git push origin HEAD")
-  (shell "git push origin --tags"))
+  (let [tag (bump-version (slurp "resources/ECA_VERSION") bump)]
+    (println "Releasing" tag)
+    (spit "resources/ECA_VERSION" tag)
+    (add-changelog-entry tag nil)
+    (prod-jar)
+    (shell "git add resources/ECA_VERSION CHANGELOG.md")
+    (shell (format "git commit -m \"Release: %s\"" tag))
+    (shell (str "git tag " tag))
+    (shell "git push origin HEAD")
+    (shell "git push origin --tags")))
 
 (defn get-last-changelog-entry [version]
   (println (->> (slurp "CHANGELOG.md")
