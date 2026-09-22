@@ -48,9 +48,25 @@ Hato proxies; it does not change JVM proxy properties or other HTTP clients.
 ## Connection and TLS errors
 
 A `Connection closed unexpectedly` message, including TLS record-layer alerts such as
-`bad_record_mac`, usually means an established streaming connection was interrupted by
-the provider, a proxy, a VPN, or the network. ECA treats these failures as transient and
-may automatically continue the response a limited number of times.
+`bad_record_mac`, indicates a failed connection but does not identify its cause. ECA
+treats these failures as eligible for bounded recovery, not as a reason to disable TLS
+verification.
+
+Anthropic requests sent after tool execution have their own request-level retries when
+no new output has been emitted. These retries resend the same tool results without
+rerunning completed tools. Once output has started, or request retries are exhausted,
+ECA falls back to chat-level recovery when safe.
+
+Chat-level recovery is limited by `providers.<provider>.retry.maxAutoContinues`
+(default `3`) **per user turn**, not per connection. Truncated-response continuations
+share this budget. Progress shows the recovery count, and the terminal error explains
+when recovery is exhausted or disabled (`maxAutoContinues: 0`). A new user message
+starts a fresh budget. See [Retry Policy and Rules](models.md#retry-policy-and-rules).
+
+If recovery is skipped, stderr logs `Automatic recovery skipped` with the reason and
+count, including compaction or stopping guards. When reporting a failure, include the
+surrounding `[LLM-API]` and `[CHAT]` lines for that chat ID; a TLS stack trace alone does
+not explain why recovery stopped.
 
 Other TLS failures, such as `PKIX path building failed`, certificate errors, or mTLS
 handshake errors, can indicate a trust-store or client-certificate configuration problem.

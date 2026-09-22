@@ -4,9 +4,301 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
+   [eca.llm-api :as llm-api]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
+
+(defn ^:private sse [events]
+  (apply str (map (fn [[event data]]
+                    (str "event: " event "\ndata: " (json/generate-string data) "\n\n"))
+                  events)))
+
+(def ^:private tool-events
+  [["message_start" {:message {:usage {:input_tokens 1}}}]
+   ["content_block_start" {:index 0 :content_block {:type "tool_use" :id "call-1" :name "test_tool"}}]
+   ["content_block_delta" {:index 0 :delta {:type "input_json_delta" :partial_json "{}"}}]
+   ["content_block_stop" {:index 0}]
+   ["message_delta" {:delta {:stop_reason "tool_use"} :usage {:output_tokens 1}}]
+   ["message_stop" {}]])
+
+(def ^:private final-events
+  [["message_start" {:message {:usage {:input_tokens 2}}}]
+   ["content_block_delta" {:index 0 :delta {:type "text_delta" :text "done"}}]
+   ["message_delta" {:delta {:stop_reason "end_turn"} :usage {:output_tokens 1}}]
+   ["message_stop" {}]])
+
+(defn ^:private post-tool-scenario! [{:keys [child-response initial-response sleep-fn max-retries cancelled?]
+                                    :or {max-retries 2 cancelled? (constantly false)}}]
+  (let [requests* (atom [])
+        tools-called* (atom 0)
+        messages* (atom [])
+        reasons* (atom [])
+        preparations* (atom [])
+        searches* (atom [])
+        errors* (atom [])
+        retries* (atom [])
+        sleeps* (atom [])
+        closed* (atom [])
+        stream-response (fn [request-number events]
+                          {:status 200
+                           :body (proxy [java.io.ByteArrayInputStream]
+                                        [(.getBytes ^String (sse events) java.nio.charset.StandardCharsets/UTF_8)]
+                                   (close []
+                                     (swap! closed* conj request-number)
+                                     (proxy-super close)))})]
+    (with-redefs [http/post (fn [_ opts]
+                              (swap! requests* conj (:body opts))
+                              (let [n (count @requests*)]
+                                (if (= 1 n)
+                                  (if initial-response
+                                    (initial-response n #(stream-response n %))
+                                    (stream-response n tool-events))
+                                  (child-response n #(stream-response n %)))))
+                  eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
+                                                (swap! sleeps* conj delay-ms)
+                                                (if sleep-fn
+                                                  (sleep-fn cancelled?)
+                                                  (not (cancelled?))))]
+      (llm-api/sync-or-async-prompt!
+       {:provider "anthropic"
+        :model "claude-test"
+        :model-capabilities {:tools true :reason? true :web-search true}
+        :instructions "test"
+        :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+        :past-messages []
+        :tools [{:full-name "test_tool" :description "test" :parameters {:type "object"}}]
+        :config {:providers {"anthropic" {:api "anthropic"
+                                         :url "http://test.invalid"
+                                         :retry {:maxRetries max-retries :prematureStopMaxRetries max-retries :baseDelayMs 0}
+                                         :models {"claude-test" {}}}}}
+        :provider-auth {:api-key "test-key"}
+        :cancelled? cancelled?
+        :on-message-received #(swap! messages* conj %)
+        :on-reason #(swap! reasons* conj %)
+        :on-prepare-tool-call #(swap! preparations* conj %)
+        :on-server-web-search #(swap! searches* conj %)
+        :on-error #(swap! errors* conj %)
+        :on-retry #(swap! retries* conj %)
+        :on-tools-called (fn [calls]
+                           (swap! tools-called* inc)
+                           {:new-messages [{:role "tool_call" :content (first calls)}
+                                           {:role "tool_call_output"
+                                            :content {:id "call-1" :output {:contents [{:type :text :text "result"}]}}}]
+                            :tools []})}))
+    {:requests @requests* :tools-called @tools-called* :messages @messages*
+     :reasons @reasons* :preparations @preparations* :searches @searches*
+     :errors @errors* :retries @retries* :sleeps @sleeps* :closed @closed*}))
+
+(deftest post-tool-network-retry-test
+  (let [failure (javax.net.ssl.SSLException. "(bad_record_mac) Received fatal alert: bad_record_mac")
+        {:keys [requests tools-called messages errors retries sleeps]}
+        (post-tool-scenario! {:child-response (fn [n respond]
+                                                (if (= 2 n)
+                                                  (throw failure)
+                                                  (respond final-events)))})]
+    (is (= 3 (count requests)))
+    (is (= 1 tools-called))
+    (is (= 2 (count (rest requests))))
+    (is (apply = (rest requests)) "replay the exact serialized tool-result request")
+    (is (= [:network] (mapv #(get-in % [:classified :error/type]) retries)))
+    (is (= [0] sleeps))
+    (is (empty? errors))
+    (is (= [{:type :text :text "done"} {:type :finish :finish-reason "end_turn"}] messages))))
+
+(defn ^:private failing-stream [events failure closed*]
+  (proxy [java.io.ByteArrayInputStream]
+         [(.getBytes ^String (sse events) java.nio.charset.StandardCharsets/UTF_8)]
+    (read
+      ([] (if (zero? (.available ^java.io.ByteArrayInputStream this))
+            (throw failure)
+            (proxy-super read)))
+      ([buffer offset length]
+       (if (zero? (.available ^java.io.ByteArrayInputStream this))
+         (throw failure)
+         (proxy-super read buffer offset length))))
+    (close []
+      (reset! closed* true)
+      (proxy-super close))))
+
+(deftest post-tool-retry-exhaustion-test
+  (doseq [budget [0 1 2]]
+    (testing (str "shared controller retry budget " budget)
+      (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+            {:keys [requests tools-called errors retries sleeps messages]}
+            (post-tool-scenario! {:max-retries budget
+                                 :child-response (fn [_ _] (throw failure))})]
+        (is (= (+ 2 budget) (count requests)))
+        (is (= 1 tools-called))
+        (is (apply = (rest requests)))
+        (is (= (range 1 (inc budget)) (map :attempt retries)))
+        (is (= budget (count sleeps)))
+        (is (= 1 (count errors)))
+        (is (identical? failure (:exception (first errors))))
+        (is (empty? messages))))))
+
+(deftest post-tool-retry-cancellation-test
+  (doseq [during-backoff? [false true]]
+    (testing (if during-backoff? "cancel during backoff" "cancel before retry decision")
+      (let [cancelled* (atom false)
+            failure (javax.net.ssl.SSLException. "bad_record_mac")
+            {:keys [requests tools-called errors retries sleeps]}
+            (post-tool-scenario!
+             {:cancelled? #(deref cancelled*)
+              :child-response (fn [_ _]
+                                (when-not during-backoff? (reset! cancelled* true))
+                                (throw failure))
+              :sleep-fn (fn [cancelled?]
+                          (reset! cancelled* true)
+                          (not (cancelled?)))})]
+        (is (= 2 (count requests)))
+        (is (= 1 tools-called))
+        (is (= (if during-backoff? 1 0) (count retries) (count sleeps)))
+        (is (= 1 (count errors)))
+        (is (identical? failure (:exception (first errors))))))))
+
+(deftest post-tool-trust-error-not-retried-test
+  (let [failure (javax.net.ssl.SSLHandshakeException. "PKIX path building failed")
+        {:keys [requests tools-called errors retries sleeps]}
+        (post-tool-scenario! {:child-response (fn [_ _] (throw failure))})]
+    (is (= 2 (count requests)))
+    (is (= 1 tools-called))
+    (is (empty? retries))
+    (is (empty? sleeps))
+    (is (= 1 (count errors)))
+    (is (identical? failure (:exception (first errors))))))
+
+(deftest post-tool-read-error-retry-test
+  (let [closed* (atom false)
+        failure (javax.net.ssl.SSLException. "bad_record_mac")
+        {:keys [requests tools-called errors retries messages closed]}
+        (post-tool-scenario!
+         {:child-response (fn [n respond]
+                            (if (= 2 n)
+                              {:status 200 :body (failing-stream [(first final-events)] failure closed*)}
+                              (do
+                                (is @closed* "failed reader is closed before replay")
+                                (respond final-events))))})]
+    (is (= 3 (count requests)))
+    (is (= 1 tools-called))
+    (is (apply = (rest requests)))
+    (is (= [:network] (mapv #(get-in % [:classified :error/type]) retries)))
+    (is (identical? failure (get-in retries [0 :error-data :exception])))
+    (is (empty? errors))
+    (is (= [:text :finish] (mapv :type messages)))
+    (is (= [3 1] closed) "child closes before the suspended parent")))
+
+(deftest post-tool-side-effects-prevent-replay-test
+  (doseq [[label events result-key expected-count]
+          [["partial text" [(second final-events)] :messages 1]
+           ["reasoning start" [["content_block_start" {:index 0 :content_block {:type "thinking"}}]] :reasons 1]
+           ["partial reasoning" [["content_block_start" {:index 0 :content_block {:type "thinking"}}]
+                                 ["content_block_delta" {:index 0 :delta {:type "thinking_delta" :thinking "partial"}}]] :reasons 2]
+           ["redacted reasoning" [["content_block_start" {:index 0 :content_block {:type "redacted_thinking" :data "secret"}}]] :reasons 1]
+           ["tool preparation" [(second tool-events)] :preparations 3]
+           ["server tool" [["content_block_start" {:index 0 :content_block {:type "server_tool_use" :id "web-1" :name "web_search"}}]] :searches 1]
+           ["citation" [["content_block_delta" {:delta {:type "citations_delta" :citation {:type "web_search_result_location" :title "test" :url "https://test.invalid"}}}]] :messages 1]]]
+    (testing label
+      (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+            closed* (atom false)
+            {:keys [requests tools-called errors retries sleeps] :as result}
+            (post-tool-scenario!
+             {:child-response (fn [_ _]
+                                {:status 200
+                                 :body (failing-stream (cons (first final-events) events) failure closed*)})})]
+        (is (= 2 (count requests)))
+        (is (= 1 tools-called))
+        (is (empty? retries))
+        (is (empty? sleeps))
+        (is (= 1 (count errors)))
+        (is (identical? failure (:exception (first errors))))
+        (is (= expected-count (count (get result result-key))))
+        (is @closed*)))))
+
+(deftest post-tool-parser-state-isolation-test
+  (testing "an empty child stream cannot inherit the parent's content or stop reason"
+    (let [{:keys [requests tools-called errors messages retries]}
+          (post-tool-scenario! {:max-retries 0
+                               :child-response (fn [_ respond] (respond [["message_stop" {}]]))})]
+      (is (= 2 (count requests)))
+      (is (= 1 tools-called))
+      (is (= 1 (count errors)))
+      (is (empty? messages) "neither child nor parent invents a finish")
+      (is (empty? retries))))
+  (testing "a failed child cannot clear the parent's stop reason"
+    (let [{:keys [requests tools-called errors messages]}
+          (post-tool-scenario! {:max-retries 0
+                               :child-response (fn [_ respond] (respond [(first final-events)]))})]
+      (is (= 2 (count requests)))
+      (is (= 1 tools-called))
+      (is (= 1 (count errors)))
+      (is (empty? messages)))))
+
+(deftest nested-post-tool-failure-not-replayed-test
+  (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+        parent-failure (java.io.IOException. "parent connection closed")
+        closed* (atom false)
+        {:keys [requests tools-called errors retries messages]}
+        (post-tool-scenario!
+         {:max-retries 1
+          :child-response (fn [n _]
+                            (if (= 2 n)
+                              {:status 200 :body (failing-stream (butlast tool-events) parent-failure closed*)}
+                              (throw failure)))})]
+    (is (= 4 (count requests)))
+    (is (= 2 tools-called) "neither ancestor request reruns its tools")
+    (is (= (nth requests 2) (nth requests 3)))
+    (is (= 1 (count retries)))
+    (is (= 1 (count errors)))
+    (is (identical? failure (:exception (first errors))) "keep the child's original error on unwind")
+    (is (empty? messages))
+    (is @closed*)))
+
+(deftest post-tool-sse-error-retry-test
+  (let [{:keys [requests tools-called errors retries messages closed]}
+        (post-tool-scenario!
+         {:child-response (fn [n respond]
+                            (if (= 2 n)
+                              (respond (concat [["error" {:error {:type "overloaded_error" :message "Overloaded"}}]]
+                                               tool-events))
+                              (respond final-events)))})]
+    (is (= 3 (count requests)))
+    (is (= 1 tools-called) "events after the SSE error are not dispatched")
+    (is (apply = (rest requests)))
+    (is (= [:rate-limited] (mapv #(get-in % [:classified :error/type]) retries)))
+    (is (nil? (get-in retries [0 :error-data :exception])) "do not replace the SSE error with the unwind exception")
+    (is (empty? errors))
+    (is (= [:text :finish] (mapv :type messages)))
+    (is (= [2 3 1] closed))))
+
+(deftest post-tool-rate-limit-delay-test
+  (let [{:keys [requests tools-called errors retries sleeps]}
+        (post-tool-scenario!
+         {:child-response (fn [n respond]
+                            (if (= 2 n)
+                              {:status 429
+                               :headers {"retry-after" "7"}
+                               :body (java.io.ByteArrayInputStream.
+                                      (.getBytes "rate limited" java.nio.charset.StandardCharsets/UTF_8))}
+                              (respond final-events)))})]
+    (is (= 3 (count requests)))
+    (is (= 1 tools-called))
+    (is (apply = (rest requests)))
+    (is (= [:rate-limited] (mapv #(get-in % [:classified :error/type]) retries)))
+    (is (= [8000] sleeps) "shared controller owns provider-header delay and buffer")
+    (is (empty? errors))))
+
+(deftest initial-request-retry-budget-unchanged-test
+  (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+        fail (fn [_ _] (throw failure))
+        {:keys [requests tools-called errors retries]}
+        (post-tool-scenario! {:max-retries 1 :initial-response fail :child-response fail})]
+    (is (= 2 (count requests)) "no extra request-scoped budget for the initial prompt")
+    (is (apply = requests))
+    (is (zero? tools-called))
+    (is (= 1 (count retries)))
+    (is (= 1 (count errors)))
+    (is (identical? failure (:exception (first errors))))))
 
 (deftest base-request-test
   (testing "constructs an Anthropics API request and extracts completion text"

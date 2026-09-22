@@ -104,7 +104,8 @@
       (when-not (:pureConfig config)
         (db/load-db-from-cache! db* config metrics))
 
-      {:chat-welcome-message (welcome-message config)})))
+      {:chat-welcome-message (welcome-message config)
+       :global-config-path (str (config/global-config-file))})))
 
 (defn ^:private send-progress! [db* messenger params]
   (when-not (:stopping @db*)

@@ -181,6 +181,39 @@
                    :message (llm-util/connection-error-message e)})))
     @response*))
 
+(defn ^:private request-with-retry!
+  "Retries one exact post-tool request, never the tool execution that built it.
+   Defer retry decisions until the failed stream and its watchdog are closed."
+  [{:keys [on-error make-on-stream retry-request] :as request-opts}]
+  (letfn [(request! [attempt]
+            (let [replay-safe?* (atom true)
+                  error* (atom nil)
+                  capture-error! #(compare-and-set! error* nil %)
+                  on-stream (make-on-stream capture-error!)]
+              (base-request!
+               (assoc request-opts
+                      :content-block* (atom nil)
+                      :on-error capture-error!
+                      :on-stream (fn [event data & args]
+                                   ;; Only bookkeeping and errors are safe to replay. Mark before
+                                   ;; dispatch, including tool preparation and completion callbacks.
+                                   (when-not (contains? #{"message_start" "ping" "error"} event)
+                                     (reset! replay-safe?* false))
+                                   (apply on-stream event data args)
+                                   (when-let [error @error*]
+                                     ;; Stop parsing after an SSE error. The first error wins over
+                                     ;; this unwind signal or any later reader/cleanup exception.
+                                     (throw (ex-info "Stream request failed" {} (:exception error)))))))
+              (when-let [error-data @error*]
+                (if retry-request
+                  (retry-request {:error-data error-data
+                                  :attempt attempt
+                                  :replay-safe? @replay-safe?*
+                                  :on-give-up on-error
+                                  :retry-fn request!})
+                  (on-error error-data)))))]
+    (request! 0)))
+
 (defn ^:private normalize-messages [past-messages supports-image?]
   (keep (fn [{:keys [role content] :as msg}]
           ;; Defense-in-depth against #209: entries whose :content :api was
@@ -415,7 +448,7 @@
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
            stream-idle-timeout-seconds cache-retention]}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search] :as callbacks}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search retry-request] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
                      (normalize-messages supports-image?)
@@ -448,13 +481,15 @@
                :thinking (when reason?
                            {:type "enabled" :budget_tokens 2048}))
               extra-payload)
-        context-usage* (atom nil)
-        has-content?* (atom false)
-        has-stop-reason?* (atom false)
-        on-stream-fn
-        (when stream?
-          (fn handle-stream [event data content-block* reason-id*]
-            (case event
+        make-on-stream
+        (fn make-on-stream [on-error]
+          ;; Each HTTP attempt owns its parser state, including while parent
+          ;; streams remain suspended inside on-tools-called continuations.
+          (let [context-usage* (atom nil)
+                has-content?* (atom false)
+                has-stop-reason?* (atom false)]
+            (fn [event data content-block* reason-id*]
+              (case event
               "message_start" (do
                                 (reset! has-content?* false)
                                 (reset! has-stop-reason?* false)
@@ -562,7 +597,7 @@
                                                                     merge-adjacent-tool-results
                                                                     (finalize-messages cache-control mid-system? dynamic))]
                                                    (reset! content-block* {})
-                                                   (base-request!
+                                                   (request-with-retry!
                                                     {:rid (llm-util/gen-rid)
                                                      :body (assoc body
                                                                   :messages messages
@@ -576,7 +611,8 @@
                                                      :content-block* (atom nil)
                                                      :cancelled? cancelled?
                                                      :on-error on-error
-                                                     :on-stream handle-stream
+                                                     :make-on-stream make-on-stream
+                                                     :retry-request retry-request
                                                      :stream-idle-timeout-seconds stream-idle-timeout-seconds}))))
                                   "end_turn" (if @has-content?*
                                                (do
@@ -609,7 +645,7 @@
                                  (throw (ex-info "Stream ended without completion"
                                                  {:error/type :premature-stop}))))
               "error" (on-error {:message (format "\nAnthropic error response: %s" (:error data))})
-              nil)))]
+              nil))))]
     (base-request!
      {:rid (llm-util/gen-rid)
       :body body
@@ -622,7 +658,7 @@
       :content-block* (atom nil)
       :cancelled? cancelled?
       :on-error on-error
-      :on-stream on-stream-fn
+      :on-stream (when stream? (make-on-stream on-error))
       :stream-idle-timeout-seconds stream-idle-timeout-seconds})))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")

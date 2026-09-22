@@ -256,6 +256,15 @@ interface InitializeResponse {
      * Optional welcome message configured by the user to show when starting a new chat.
      */
     chatWelcomeMessage?: string;
+
+    /**
+     * Absolute path of the global config file the server reads
+     * (`$XDG_CONFIG_HOME/eca/config.json` or `~/.config/eca/config.json`).
+     * Clients should use it instead of computing the path themselves,
+     * since the resolution of the home directory may differ between
+     * the client and the server (e.g. on Windows).
+     */
+    globalConfigPath?: string;
 }
 ```
 
