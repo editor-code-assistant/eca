@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.161.1
+
 - Add Claude Opus 5.5 support.
 
 ## 0.161.0
