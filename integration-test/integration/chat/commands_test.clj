@@ -52,12 +52,12 @@
                        {:name "plugins" :arguments []}
                        {:name "plugin-install"
                         :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
+                       {:name "plugin-update"
+                        :arguments [{:name "marketplace" :description "Configured marketplace source name" :required true}]}
                        {:name "plugin-uninstall"
-                        :arguments [{:name "plugin" :description "Plugin name" :required true}]}
+                        :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                        {:name "hooks" :arguments []}
-                       {:name "eca-info"
-                        :description "Inspect running ECA for self-debug: versions, client, default model, providers/auth, MCP servers (status/tools), skills, subagents, env vars, credential files."
-                        :arguments nil}]}
+                       {:name "eca-info" :arguments nil}]}
            resp))))
 
   (testing "We query specific commands"
