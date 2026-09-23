@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Claude Opus 5.5 support.
+
 ## 0.161.0
 
 - Pin plugin sources to verified commits, add explicit `/plugin-update`, and preserve marketplace identity when installing plugins.
