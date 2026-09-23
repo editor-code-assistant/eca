@@ -475,7 +475,7 @@
               result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-end result-data)]
 
           (is (match? {:status :cleanup
-                       :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
+                       :actions [:save-execution-result :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
                       result)
               "Expected transition to :cleanup with send toolCalled and record metrics actions")
 
@@ -546,7 +546,7 @@
                 "Expected transition from :executing to :stopping with relevant actions"))
           (let [result (#'tc/transition-tool-call! db* chat-ctx "tool-executing" :stop-attempted)]
             (is (match? {:status :cleanup
-                         :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCallRejected :trigger-post-tool-call-hook]}
+                         :actions [:save-execution-result :send-toolCallRejected :trigger-post-tool-call-hook]}
                         result)
                 "Expected transition from :stopping to :cleanup with relevant actions"))))
 
@@ -1025,7 +1025,7 @@
               result (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-end error-result)]
 
           (is (match? {:status :cleanup
-                       :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
+                       :actions [:save-execution-result :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
                       result)
               "Expected transition to :cleanup with send toolCalled and record metrics actions")
 

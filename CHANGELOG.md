@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow `spawn_agent` to continue a subagent conversation using optional `chat_id`, preserving its history and model selections within the same live parent chat.
+
 ## 0.161.0
 
 - Pin plugin sources to verified commits, add explicit `/plugin-update`, and preserve marketplace identity when installing plugins.

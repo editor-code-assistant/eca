@@ -115,10 +115,10 @@
                                       :name "spawn_agent"
                                       :error false
                                       :outputs (m/embeds [{:type "text"
-                                                           :text #"^## Agent 'explorer' Result"}])}
+                                                           :text #"^Subagent chat_id: subagent-[^\n]+\n\n## Agent 'explorer' Result"}])}
                                      (:content e))))
                     events)
-              "Expected toolCalled for spawn_agent with output text starting with \"## Agent 'explorer' Result\"")))
+              "Expected toolCalled for spawn_agent with the reusable chat ID followed by the result heading")))
 
       (testing "parent receives final assistant text after subagent completes"
         (is (some (fn [e]

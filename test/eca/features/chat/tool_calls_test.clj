@@ -731,6 +731,27 @@
                    :post-tool-call-stop-hook-name "guard"}
                   (get-in @db* [:chats "chat-1" :tool-calls "tool-1"]))))))
 
+(deftest cleanup-signal-follows-hooks-test
+  (doseq [[status event] [[:executing :execution-end] [:stopping :stop-attempted]]
+          failure [nil :action :status]]
+    (let [done (promise)
+          db* (atom {:chats {"child" {:tool-calls {"tool" {:status status
+                                                          :future-cleanup-complete?* done}}}}})
+          execute @#'tc/execute-action!]
+      (with-redefs [tc/execute-action!
+                    (fn [action & args]
+                      (if (= :deliver-future-cleanup-completed action)
+                        (apply execute action args)
+                        (do (is (not (realized? done)) "Actions must finish before the join is released")
+                            (when (= :action failure) (throw (ex-info "action failed" {}))))))
+                    lifecycle/trigger-chat-status-hook!
+                    (fn [_]
+                      (is (not (realized? done)) "Status hook is part of tool-side work")
+                      (when (= :status failure) (throw (ex-info "status failed" {}))))]
+        (try (tc/transition-tool-call! db* {:chat-id "child"} "tool" event {})
+             (catch clojure.lang.ExceptionInfo e (is failure (ex-message e))))
+        (is (realized? done) "Exceptions must also release the join")))))
+
 (deftest rejected-tool-call-output-contents-test
   (testing "states the call did not run and made no changes (#507)"
     (let [text (-> (#'tc/rejected-tool-call-output-contents "Tool call rejected by user choice")

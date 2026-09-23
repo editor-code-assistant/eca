@@ -9,6 +9,13 @@
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
+(deftest constrained-empty-argument-test
+  (is (= {"chat_id" "" "required" ""}
+         (tools.util/omit-optional-empty-string-args
+          {:properties {"chat_id" {:minLength 1} "optional" {:type "string"}}
+           :required ["required"]}
+          {"chat_id" "" "optional" "" "required" ""}))))
+
 (def ^:private test-tool-call-id "test-truncation-call-1")
 
 (def ^:private ^:dynamic *temp-cache-dir* nil)

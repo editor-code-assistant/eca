@@ -1,5 +1,5 @@
 (ns eca.features.tools.agent
-  "Tool for spawning subagents to perform focused tasks in isolated context."
+  "Tool for spawning or continuing subagents to perform focused tasks in isolated context."
   (:require
    [clojure.string :as str]
    [eca.config :as config]
@@ -73,7 +73,7 @@
   [error-type]
   (when error-type
     (if (contains? llm-providers.errors/retryable-error-types error-type)
-      "This is a transient provider error. Prefer spawning this agent again for the same task (optionally with a different `model`) instead of performing the task yourself."
+      "This is a transient provider error. Continue this agent using the returned `chat_id` and the same agent, without model or variant overrides, instead of performing the task yourself."
       "Retrying this agent the same way is unlikely to help. Consider spawning it again with a different `model` or handling the task yourself.")))
 
 (defn ^:private failed-agent-result [agent-name prompt-error partial-output]
@@ -158,9 +158,28 @@
               variants (config/effective-model-variants config provider model model-capabilities user-variants)]
           (config/selectable-variant-names variants))))))
 
+(defn ^:private resumable-run
+  [db id parent-id agent-name config trust]
+  (let [run (get-in db [:subagent-runs id])
+        child (get-in db [:chats id])]
+    (when-not (and run (:subagent child)
+                   (= parent-id (:parent-chat-id child) (:parent-chat-id run))
+                   (= agent-name (:agent-name child) (:agent-name run)))
+      (throw (ex-info "chat_id must name a live subagent owned by this parent with the same agent." {})))
+    (when (or (:token run)
+              (pos? (:workers run 0))
+              (some #(or (:future %) (seq (:resources %))) (vals (:tool-calls child)))
+              (not (#{:idle :error} (:status child))))
+      (throw (ex-info "Subagent is busy or unsettled and cannot be resumed." {})))
+    (when-not (and (= (:config-hash run) (hash config))
+                   (= (:workspace-folders run) (:workspace-folders db))
+                   (= (:trust run) trust (:trust child)))
+      (throw (ex-info "Subagent config, workspace, or trust changed; spawn a new agent." {})))
+    run))
+
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
-   Spawns a subagent to perform a focused task and returns the result."
+   Runs a focused task in a new or existing subagent conversation and returns the result."
   [arguments {:keys [db* config messenger metrics chat-id tool-call-id call-state-fn trust agent]}]
   (let [arguments (normalize-arguments arguments)
         agent-name (get arguments "agent")
@@ -185,8 +204,13 @@
                               {:agent-name agent-name
                                :available (map :name available)}))))
 
-        ;; Create subagent chat session using deterministic id based on tool-call-id
-        subagent-chat-id (->subagent-chat-id tool-call-id)
+        resume? (contains? arguments "chat_id")
+        subagent-chat-id (if resume? (get arguments "chat_id") (->subagent-chat-id tool-call-id))
+        _ (when (and resume? (or (not (string? subagent-chat-id)) (str/blank? subagent-chat-id)))
+            (throw (ex-info "chat_id must be a nonblank string." {})))
+        _ (when (and resume? (some #(contains? arguments %) ["model" "variant"]))
+            (throw (ex-info "model and variant overrides are not allowed when resuming." {})))
+        run (when resume? (resumable-run db subagent-chat-id chat-id agent-name config trust))
 
         user-model (get arguments "model")
         _ (when user-model
@@ -203,11 +227,13 @@
         parent-provider (some-> parent-model shared/full-model->provider+model first)
         ;; The agent's :defaultModel may be a bare alias resolved against the
         ;; currently selected (parent) provider; keep it verbatim if it doesn't resolve.
-        subagent-model (or user-model
-                          (when-let [agent-model (:model subagent)]
-                            (or (models/full-model-for db parent-provider agent-model)
-                                agent-model))
-                          parent-model)
+        subagent-model (if resume?
+                         (:model run)
+                         (or user-model
+                             (when-let [agent-model (:model subagent)]
+                               (or (models/full-model-for db parent-provider agent-model)
+                                   agent-model))
+                             parent-model))
 
         ;; Variant validation: reject only when the resolved model has configured
         ;; variants and the user-specified one isn't among them. Models with no
@@ -222,42 +248,67 @@
                                 {:variant user-variant
                                  :model subagent-model
                                  :available valid-variants})))))
-        variant (or user-variant (:variant subagent))]
-
-    (logger/info logger-tag (format "Spawning agent '%s' for task: %s (model: %s, variant: %s)" agent-name task subagent-model (or variant "default")))
-
-    (let [max-steps-limit (max-steps subagent)]
-      (swap! db* assoc-in [:chats subagent-chat-id]
-             (cond-> {:id subagent-chat-id
-                      :parent-chat-id chat-id
-                      :agent-name agent-name
-                      :subagent subagent
-                      :current-step 0}
-               max-steps-limit (assoc :max-steps max-steps-limit)))
-
-      (try
+        variant (if resume? (:variant run) (or user-variant (:variant subagent)))
+        token (Object.)
+        [before _] (swap-vals!
+                    db*
+                    (fn [db]
+                      (if resume?
+                        (do (resumable-run db subagent-chat-id chat-id agent-name config trust)
+                            (-> db
+                                (update-in [:subagent-runs subagent-chat-id]
+                                           #(-> % (assoc :token token) (dissoc :interrupted?)))
+                                (update-in [:chats subagent-chat-id]
+                                           #(-> %
+                                                (dissoc :max-steps-reached? :prompt-error :prompt-finished? :follow-up-active?)
+                                                (assoc :current-step 0)))))
+                        (do
+                          (when (or (contains? (:chats db) subagent-chat-id)
+                                    (contains? (:subagent-runs db) subagent-chat-id))
+                            (throw (ex-info "Subagent chat ID already exists." {})))
+                          (-> db
+                              (assoc-in [:subagent-runs subagent-chat-id]
+                                        {:parent-chat-id chat-id :agent-name agent-name
+                                         :model subagent-model :variant variant :trust trust
+                                         :config-hash (hash config) :workspace-folders (:workspace-folders db)
+                                         :token token :workers 0})
+                              (assoc-in [:chats subagent-chat-id]
+                                        (cond-> {:id subagent-chat-id :parent-chat-id chat-id
+                                                 :agent-name agent-name :subagent subagent
+                                                 :trust trust :current-step 0}
+                                          (max-steps subagent) (assoc :max-steps (max-steps subagent)))))))))
+        starting-message-count (count (get-in before [:chats subagent-chat-id :messages]))
+        max-steps-limit (get-in @db* [:chats subagent-chat-id :max-steps])]
+    (logger/with-chat-context chat-id (get-in db [:chats chat-id :parent-chat-id])
+      (update-in
+       (try
+        (logger/info logger-tag (format "Running agent '%s' for task: %s (model: %s, variant: %s)" agent-name task subagent-model (or variant "default")))
         ;; Require chat ns here to avoid circular dependency
         (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
               task-prompt (if max-steps-limit
                             (format "%s\n\nIMPORTANT: You have a maximum of %d steps to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
                                     task max-steps-limit)
-                            task)]
-          (chat-prompt
-           (cond-> {:message task-prompt
-                    :chat-id subagent-chat-id
-                    :model subagent-model
-                    :agent agent-name
-                    :contexts []
-                    :trust trust}
-             variant (assoc :variant variant))
-           db*
-           messenger
-           config
-           metrics))
+                            task)
+              prompt-result (chat-prompt
+                             (cond-> {:message task-prompt
+                                      :subagent-token token
+                                      :chat-id subagent-chat-id
+                                      :model subagent-model
+                                      :agent agent-name
+                                      :contexts []
+                                      :trust trust}
+                               variant (assoc :variant variant))
+                             db* messenger config metrics)]
+          (when (= :error (:status prompt-result))
+            (swap! db* assoc-in [:subagent-runs subagent-chat-id :interrupted?] true)
+            (swap! db* update-in [:chats subagent-chat-id]
+                   #(assoc % :status :error :prompt-error
+                           (or (:prompt-error %) {:message "Subagent prompt setup failed."})))))
 
         ;; Wait for subagent to complete by polling status
         (let [stopped-result (fn []
                                (logger/info logger-tag (format "Agent '%s' stopped by parent chat" agent-name))
+                               (swap! db* assoc-in [:subagent-runs subagent-chat-id :interrupted?] true)
                                (stop-subagent-chat! db* messenger config metrics subagent-chat-id agent-name)
                                {:error true
                                 :contents [{:type :text
@@ -270,19 +321,23 @@
                 ;; Send step progress when step advances
                 (when (> current-step last-step)
                   (send-step-progress! messenger chat-id tool-call-id agent-name activity
-                                       subagent-chat-id current-step max-steps-limit subagent-model variant arguments))
+                                       subagent-chat-id current-step max-steps-limit
+                                       (get-in db [:chats subagent-chat-id :model] subagent-model)
+                                       (get-in db [:chats subagent-chat-id :variant] variant) arguments))
                 (cond
                   ;; Parent chat stopped — propagate stop to subagent
                   (= :stopping (:status (call-state-fn)))
                   (stopped-result)
 
                   ;; Subagent completed
-                  (#{:idle :error} status)
-                  (let [messages (get-in db [:chats subagent-chat-id :messages] [])
+                  (and (#{:idle :error} status)
+                       (zero? (get-in db [:subagent-runs subagent-chat-id :workers] 0)))
+                  (let [messages (drop starting-message-count (get-in db [:chats subagent-chat-id :messages] []))
                         summary (extract-final-summary messages)
                         partial-output (extract-final-assistant-text messages)
                         prompt-error (get-in db [:chats subagent-chat-id :prompt-error])
-                        failed? (boolean (or (= :error status) prompt-error))
+                        failed? (boolean (or (= :error status) prompt-error
+                                             (get-in db [:subagent-runs subagent-chat-id :interrupted?])))
                         max-steps-reached? (get-in db [:chats subagent-chat-id :max-steps-reached?])]
                     (cond
                       max-steps-reached?
@@ -294,6 +349,9 @@
 
                       :else
                       (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
+                    (swap! db* update-in [:subagent-runs subagent-chat-id]
+                           #(cond-> (merge % (select-keys (get-in db [:chats subagent-chat-id]) [:model :variant]))
+                              failed? (assoc :interrupted? true)))
                     (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
                     (cond
                       max-steps-reached?
@@ -318,7 +376,14 @@
             (catch InterruptedException _
               (stopped-result))))
         (catch Exception e
-          (throw e))))))
+          (swap! db* assoc-in [:subagent-runs subagent-chat-id :interrupted?] true)
+          (when (or (instance? InterruptedException e)
+                    (= :stopping (:status (call-state-fn))))
+            (stop-subagent-chat! db* messenger config metrics subagent-chat-id agent-name))
+          (failed-agent-result agent-name {:message (ex-message e)} nil))
+        (finally
+          (swap! db* update-in [:subagent-runs subagent-chat-id] dissoc :token)))
+       [:contents 0 :text] #(str "Subagent chat_id: " subagent-chat-id "\n\n" %)))))
 
 (defn ^:private build-description
   "Build tool description with available agents and models listed."
@@ -340,11 +405,14 @@
     {:description (build-description config parent-agent-name)
      :parameters  {:type       "object"
                    :properties {"agent"    {:type        "string"
-                                            :description "Name of the agent to spawn"}
+                                            :description "Name of the agent to spawn or continue"}
                                 "task"     {:type        "string"
                                             :description "The detailed instructions for the agent"}
                                 "activity" {:type        "string"
-                                            :description "Concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
+                                            :description "Optional concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
+                                "chat_id"  {:type        "string"
+                                            :minLength   1
+                                            :description "Resume this live same-parent subagent conversation; repeat its agent and omit model/variant overrides."}
                                 "model"    {:type        "string"
                                             :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
                                 "variant"  {:type        "string"
@@ -367,20 +435,37 @@
         subagent (when agent-name
                    (get-agent agent-name config parent-agent-name))
         parent-model (get-in db [:chats chat-id :model])
-        subagent-model (or user-model (:model subagent) parent-model)
-        variant (or user-variant (:variant subagent))
-        subagent-chat-id (when tool-call-id
-                           (->subagent-chat-id tool-call-id))]
+        resume? (contains? arguments "chat_id")
+        subagent-chat-id (if resume? (get arguments "chat_id")
+                            (when tool-call-id (->subagent-chat-id tool-call-id)))
+        child (get-in db [:chats subagent-chat-id])
+        owned? (and (string? subagent-chat-id) (not (str/blank? subagent-chat-id))
+                    subagent (:subagent child)
+                    (get-in db [:subagent-runs subagent-chat-id])
+                    (= chat-id (:parent-chat-id child))
+                    (= agent-name (:agent-name child)))
+        child (when owned? child)
+        subagent-model (if resume? (:model child)
+                           (or user-model
+                               (when-let [model (:model subagent)]
+                                 (or (models/full-model-for db (some-> parent-model shared/full-model->provider+model first) model)
+                                     model))
+                               parent-model))
+        variant (if resume? (:variant child) (or user-variant (:variant subagent)))]
     (cond-> {:type :subagent
-             :subagent-chat-id subagent-chat-id
+             :subagent-chat-id (when (or (not resume?) owned?) subagent-chat-id)
              :model subagent-model
              :agent-name agent-name
-             :step (get-in db [:chats subagent-chat-id :current-step] 1)
-             :max-steps (max-steps subagent)}
+             :step (get child :current-step 1)
+             :max-steps (if resume? (:max-steps child) (max-steps subagent))}
       variant (assoc :variant variant))))
 
 (defmethod tools.util/tool-call-details-after-invocation :spawn_agent
   [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]
   (let [final-step (get-in db [:chats chat-id :tool-calls tool-call-id :subagent-final-step]
-                           (or (:step before-details) 1))]
-    (assoc before-details :step final-step)))
+                           (or (:step before-details) 1))
+        child (get-in db [:chats (:subagent-chat-id before-details)])]
+    (cond-> (assoc before-details :step final-step)
+      (and (= chat-id (:parent-chat-id child))
+           (get-in db [:chats chat-id :tool-calls tool-call-id :subagent-final-step]))
+      (merge (select-keys child [:model :variant :max-steps])))))
