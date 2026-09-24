@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
+
 ## 0.161.1
 
 - Add Claude Opus 5.5 support.
