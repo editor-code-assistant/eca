@@ -632,6 +632,8 @@ Globally ECA allows its read-only builtin tools and asks for everything else:
 }
 ```
 
+The `rename_chat_title` builtin changes chat metadata, so it is not in the default `allow` list. It asks for approval unless you add an explicit rule or enable trust mode.
+
 The builtin `plan` and `explorer` agents replace these with stricter rules: `allow` only covers the read-only builtin tools plus read-only shell commands (`pwd`, `git diff/log/show`, `find`, `ls`), and `deny` blocks dangerous shell patterns (file mutations like `rm`/`mv`/`cp`/`touch`/`mkdir`, output redirections, pipes to `tee`/`dd`/`xargs`, in-place `sed`/`awk`/`perl`, `git add/commit/push`, `npm install`). Check the up-to-date values in [config.clj](https://github.com/editor-code-assistant/eca/blob/master/src/eca/config.clj).
 
 ### Debugging approval rules

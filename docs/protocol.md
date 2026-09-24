@@ -3025,13 +3025,16 @@ interface EcaServerUpdatedParams {
     /**
      * The built-in tools supported by eca.
      *
-     * Built-in tools include: read_file, view_image, write_file, edit_file, move_file,
-     * directory_tree, shell_command, editor_diagnostics, editor_definition,
-     * editor_references, compact_chat, skill, spawn_agent, and task.
+     * Built-in tools include: ask_user, bg_job, compact_chat, directory_tree,
+     * edit_file, editor_definition, editor_diagnostics, editor_references,
+     * fetch_rule, git, grep, move_file, preview_file_change, read_file,
+     * rename_chat_title, search_tools, shell_command, skill, spawn_agent,
+     * task, view_image, and write_file.
      *
-     * Note: `spawn_agent` and `task` are excluded from subagent tool sets.
-     * `spawn_agent` is excluded to prevent nesting, and `task` because
-     * task list state is chat-local and should be managed by the parent agent.
+     * Note: `spawn_agent`, `task`, `git`, `ask_user`, and `rename_chat_title`
+     * are excluded from subagent tool sets. `spawn_agent` is excluded to prevent
+     * nesting. `task`, `git`, `ask_user`, and `rename_chat_title` require
+     * parent-agent state, user interaction, or visible parent chat ownership.
      */
     tools: ServerTool[];
 }

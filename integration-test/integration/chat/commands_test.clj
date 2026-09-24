@@ -52,8 +52,10 @@
                        {:name "plugins" :arguments []}
                        {:name "plugin-install"
                         :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
+                       {:name "plugin-update"
+                        :arguments [{:name "marketplace" :description "Configured marketplace source name" :required true}]}
                        {:name "plugin-uninstall"
-                        :arguments [{:name "plugin" :description "Plugin name" :required true}]}
+                        :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                        {:name "hooks" :arguments []}
                        {:name "eca-info" :arguments nil}]}
            resp))))

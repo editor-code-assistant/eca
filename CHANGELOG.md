@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `rename_chat_title`, a native tool that lets an approved agent rename the current chat title.
+
 ## 0.161.1
 
 - Add Claude Opus 5.5 support.

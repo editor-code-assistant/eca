@@ -258,9 +258,10 @@
    - Excludes spawn_agent to prevent nesting.
    - Excludes task because task list state is currently chat-local; it should be managed by the parent agent.
    - Excludes git because subagents don't perform git operations.
-   - Excludes ask_user because subagents run non-interactively and cannot prompt the user."
+   - Excludes ask_user because subagents run non-interactively and cannot prompt the user.
+   - Excludes rename_chat_title because subagents do not own the visible parent chat title."
   [tools]
-  (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
+  (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user" "rename_chat_title"} (:name %))) tools))
 
 (defn ^:private get-defer-all-percent
   "Percentage of the model context window the MCP tool definitions may take

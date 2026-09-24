@@ -7,6 +7,7 @@
    [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.title :as chat.title]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
@@ -18,6 +19,7 @@
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.messenger :as messenger]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -643,6 +645,212 @@
   (testing "returns nil for nil input"
     (is (nil? (#'f.chat/sanitize-title nil)))))
 
+(defn ^:private call-in-thread [f]
+  (let [result (promise)
+        thread (Thread. (fn []
+                          (try
+                            (deliver result {:value (f)})
+                            (catch Throwable e
+                              (deliver result {:error e})))))]
+    (.start thread)
+    result))
+
+(defn ^:private blocking-title-messenger
+  [blocked-title started release events*]
+  (reify messenger/IMessenger
+    (chat-content-received [_ msg]
+      (let [title (get-in msg [:content :title])]
+        (when (= blocked-title title)
+          (deliver started true)
+          @release)
+        (swap! events* conj [:metadata title])))))
+
+(deftest generated-title-update-test
+  (testing "writes generated title for a chat without a custom title"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "generated-title-chat"
+          result (do
+                   (swap! db* assoc-in [:chats chat-id] {:id chat-id :title "Old title"})
+                   (chat.title/update-generated-chat-title! db* chat-id "Generated title\nignored"))]
+      (is (= "Generated title" (:title result)))
+      (is (= "Generated title" (get-in @db* [:chats chat-id :title])))
+      (is (not (get-in @db* [:chats chat-id :title-custom?])))
+      (is (= "Generated title" (get-in result [:db :chats chat-id :title])))))
+
+  (testing "does not overwrite a custom title after a CAS retry"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "generated-title-race-chat"
+          sanitize-calls* (atom 0)]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :title "Old title"})
+      (with-redefs [chat.title/sanitize-title
+                    (fn [_title]
+                      (when (= 1 (swap! sanitize-calls* inc))
+                        (swap! db* update-in [:chats chat-id]
+                               assoc
+                               :title "Custom during CAS"
+                               :title-custom? true))
+                      "Generated after race")]
+        (is (nil? (chat.title/update-generated-chat-title! db* chat-id "Generated after race"))))
+      (is (= "Custom during CAS" (get-in @db* [:chats chat-id :title])))
+      (is (true? (get-in @db* [:chats chat-id :title-custom?])))))
+
+  (testing "rejects generated title from stale prompt state"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "generated-title-stale-state-chat"
+          saves* (atom [])]
+      (swap! db* assoc-in [:chats chat-id]
+             {:id chat-id
+              :title "Newer generated title"
+              :status :idle
+              :prompt-id "prompt-2"
+              :user-prompt-count 2})
+      (with-redefs [db/save-chat!
+                    (fn [db chat-id _metrics]
+                      (swap! saves* conj (get-in db [:chats chat-id :title])))]
+        (is (nil? (chat.title/update-generated-chat-title!
+                   db* chat-id "Stale generated title"
+                   {:messenger (h/messenger)
+                    :metrics (h/metrics)
+                    :expected-prompt-id "prompt-1"
+                    :expected-user-prompt-count 1}))))
+      (is (= "Newer generated title" (get-in @db* [:chats chat-id :title])))
+      (is (empty? (:chat-content-received (h/messages))))
+      (is (empty? @saves*))))
+
+  (testing "serializes generated title side effects before a later custom title"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "generated-title-side-effects-chat"
+          generated-started (promise)
+          release-generated (promise)
+          events* (atom [])
+          messenger (blocking-title-messenger "Generated title" generated-started release-generated events*)]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :title "Old title" :status :idle})
+      (with-redefs [db/save-chat!
+                    (fn [db chat-id _metrics]
+                      (swap! events* conj [:save (get-in db [:chats chat-id :title])]))]
+        (let [generated-result (call-in-thread
+                                #(chat.title/update-generated-chat-title!
+                                  db* chat-id "Generated title"
+                                  {:messenger messenger
+                                   :metrics (h/metrics)
+                                   :role :system}))
+              generated-started? (deref generated-started 2000 false)
+              custom-result (when generated-started?
+                              (call-in-thread
+                               #(chat.title/update-chat-title! db* chat-id "Custom title"
+                                                               messenger
+                                                               (h/metrics))))]
+          (is generated-started?
+              "Generated title metadata should start before the custom update is released")
+          (when generated-started?
+            (deliver release-generated true)
+            (is (not= ::timeout (deref generated-result 1000 ::timeout)))
+            (is (not= ::timeout (deref custom-result 1000 ::timeout)))
+            (is (= [[:metadata "Generated title"]
+                    [:save "Generated title"]
+                    [:metadata "Custom title"]
+                    [:save "Custom title"]]
+                   @events*))
+            (is (= "Custom title" (get-in @db* [:chats chat-id :title])))
+            (is (true? (get-in @db* [:chats chat-id :title-custom?])))))))))
+
+(deftest explicit-title-update-side-effects-test
+  (testing "serializes explicit title side effects in commit order"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "explicit-title-side-effects-chat"
+          first-started (promise)
+          release-first (promise)
+          events* (atom [])
+          messenger (blocking-title-messenger "First title" first-started release-first events*)]
+      (swap! db* assoc-in [:chats chat-id] {:id chat-id :title "Old title" :updated-at 1})
+      (with-redefs [db/save-chat!
+                    (fn [db chat-id _metrics]
+                      (swap! events* conj [:save (get-in db [:chats chat-id :title])]))]
+        (let [first-result (call-in-thread
+                            #(chat.title/update-chat-title! db* chat-id "First title"
+                                                            messenger
+                                                            (h/metrics)))
+              first-started? (deref first-started 2000 false)
+              second-result (when first-started?
+                              (call-in-thread
+                               #(chat.title/update-chat-title! db* chat-id "Second title"
+                                                               messenger
+                                                               (h/metrics))))]
+          (is first-started?
+              "First title metadata should start before the second update is released")
+          (when-not first-started?
+            (is (nil? (:error (deref first-result 1000 {})))
+                "First title update should not fail before metadata"))
+          (when first-started?
+            (deliver release-first true)
+            (is (not= ::timeout (deref first-result 1000 ::timeout)))
+            (is (not= ::timeout (deref second-result 1000 ::timeout)))
+            (is (= [[:metadata "First title"]
+                    [:save "First title"]
+                    [:metadata "Second title"]
+                    [:save "Second title"]]
+                   @events*))
+            (is (= "Second title" (get-in @db* [:chats chat-id :title])))
+            (is (true? (get-in @db* [:chats chat-id :title-custom?])))
+            (is (< 1 (get-in @db* [:chats chat-id :updated-at])))))))))
+
+(deftest prompt-save-title-persistence-race-test
+  (testing "stale prompt save cannot persist after a custom title save"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "prompt-save-title-race-chat"
+          first-save-started (promise)
+          second-save-started (promise)
+          release-first-save (promise)
+          save-calls* (atom 0)
+          saved-titles* (atom [])]
+      (swap! db* assoc-in [:chats chat-id]
+             {:id chat-id
+              :title "Old title"
+              :status :running
+              :prompt-id "prompt-1"})
+      (with-redefs [db/save-chat!
+                    (fn [db chat-id _metrics]
+                      (let [call (swap! save-calls* inc)
+                            title (get-in db [:chats chat-id :title])]
+                        (if (= 1 call)
+                          (do
+                            (deliver first-save-started true)
+                            @release-first-save
+                            (swap! saved-titles* conj title))
+                          (do
+                            (deliver second-save-started true)
+                            (swap! saved-titles* conj title)))))]
+        (let [prompt-result (call-in-thread
+                             #(lifecycle/finish-chat-prompt!
+                               :idle
+                               {:chat-id chat-id
+                                :db* db*
+                                :metrics (h/metrics)
+                                :messenger (h/messenger)
+                                :prompt-id "prompt-1"
+                                :skip-post-request-hooks? true}))
+              first-started? (deref first-save-started 2000 false)]
+          (is first-started?
+              "Prompt save should start before the custom rename")
+          (when first-started?
+            (let [title-result (call-in-thread
+                                #(chat.title/update-chat-title! db* chat-id "Custom title"
+                                                                (h/messenger)
+                                                                (h/metrics)))]
+              (deref second-save-started 1000 ::not-started)
+              (deliver release-first-save true)
+              (is (not= ::timeout (deref prompt-result 1000 ::timeout)))
+              (is (not= ::timeout (deref title-result 1000 ::timeout)))
+              (is (= "Custom title" (last @saved-titles*)))
+              (is (= "Custom title" (get-in @db* [:chats chat-id :title])))
+              (is (true? (get-in @db* [:chats chat-id :title-custom?]))))))))))
+
 (deftest conversation-title-transcript-test
   (testing "renders user/assistant messages as a plain-text transcript"
     (is (= "user: hi\n\nassistant: hello"
@@ -789,6 +997,20 @@
       (is (= 1 (count @sync-prompt-calls*))
           "Should NOT re-title after manual rename")
       (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))))
+
+  (testing "automatic title does not overwrite a custom title set while generating"
+    (h/reset-components!)
+    (let [chat-id "title-race-chat"
+          sync-mock (fn [_params]
+                      (f.chat/update-chat {:chat-id chat-id :title "Custom During Title"}
+                                          (h/db*)
+                                          (h/messenger)
+                                          (h/metrics))
+                      {:output-text "Auto Later"})]
+      (prompt-with-title! {:message "Help me debug" :chat-id chat-id}
+                          {:sync-prompt-mock sync-mock})
+      (is (= "Custom During Title" (get-in (h/db) [:chats chat-id :title])))
+      (is (true? (get-in (h/db) [:chats chat-id :title-custom?])))))
 
   (testing "title disabled in config skips all generation"
     (h/reset-components!)
