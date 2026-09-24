@@ -81,6 +81,13 @@ ECA support built-in tools to avoid user extra installation and configuration, t
     - `editor_definition`: Ask client for the definition locations of a symbol (like LSP definition). Requires client capability, can be disabled via `toolCall.editorNav.enabled` config.
     - `editor_references`: Ask client for the references of a symbol (like LSP references). Requires client capability, can be disabled via `toolCall.editorNav.enabled` config.
 
+=== "Chat"
+
+    Provides access to chat metadata and lifecycle actions.
+
+    - `compact_chat`: submit a summary during chat compaction.
+    - `rename_chat_title`: rename the current chat title after the user explicitly asks for it. This tool asks for approval by default.
+
 !!! info "Custom Tools"
 
     Besides the built-in native tools, ECA allows you to define your own tools by wrapping any command-line executable. This feature enables you to extend ECA's capabilities to match your specific workflows, such as running custom scripts, interacting with internal services, or using your favorite CLI tools.

@@ -10,6 +10,8 @@
    [eca.features.background-tasks :as bg]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.persistence :as chat.persistence]
+   [eca.features.chat.title :as chat.title]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
@@ -955,32 +957,7 @@
       (pos? m) (format "%dm%02ds" m s)
       :else (format "%ds" s))))
 
-(defn ^:private sanitize-title
-  "Clean up a chat title: take first meaningful line, strip control chars,
-   markdown header prefixes, collapse whitespace, and truncate to 40 chars.
-
-   If the first non-blank line is a bare markdown header with nothing else
-   (e.g. '## Understand' — a planning-mode section the title model sometimes
-   mimics), fall through to the next non-blank line when one exists."
-  [^String s]
-  (when s
-    (let [lines (->> (string/split s #"\n")
-                     (map string/trim)
-                     (remove string/blank?))
-          bare-header? (fn [^String line]
-                         (boolean (re-matches #"#+\s+\S.*" line)))
-          picked (or (when-let [first-line (first lines)]
-                       (if (and (bare-header? first-line)
-                                (seq (rest lines)))
-                         (first (rest lines))
-                         first-line))
-                     "")]
-      (-> picked
-          (string/replace #"[\x00-\x1f\x7f]" " ")
-          (string/replace #"^#+\s*" "")
-          (string/replace #"\s+" " ")
-          (string/trim)
-          (as-> t (subs t 0 (min (count t) 40)))))))
+(def ^:private sanitize-title chat.title/sanitize-title)
 
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
@@ -1084,7 +1061,7 @@
                                 ;; *_result entry appended right after, which
                                 ;; triggers the save in their place.
                                 (when-not (#{"tool_call" "server_tool_use"} role)
-                                  (db/save-chat! @db* chat-id metrics))))
+                                  (chat.persistence/save-chat-current! db* chat-id metrics))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  ;; Never let the context-breakdown (a display-only
@@ -1145,11 +1122,14 @@
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
                 (when output-text
-                  (let [title (sanitize-title output-text)]
-                    (swap! db* assoc-in [:chats chat-id :title] title)
-                    (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
-                    (when (= :idle (get-in @db* [:chats chat-id :status]))
-                      (db/save-chat! @db* chat-id metrics))))))))
+                  (chat.title/update-generated-chat-title!
+                   db* chat-id output-text
+                   {:messenger messenger
+                    :metrics metrics
+                    :parent-chat-id (:parent-chat-id chat-ctx)
+                    :role :system
+                    :expected-prompt-id prompt-id
+                    :expected-user-prompt-count prompt-count}))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
@@ -1634,7 +1614,7 @@
                                       (swap! db* assoc-in [:chats chat-id :prompt-error]
                                              (prompt-error-data error-data error-type))
                                       (lifecycle/send-content! chat-ctx :system {:type :text :text text})
-                                      (db/save-chat! @db* chat-id metrics)
+                                      (chat.persistence/save-chat-current! db* chat-id metrics)
                                       (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx)))))
 
                                 :else
@@ -1729,7 +1709,7 @@
                                       ;; :prompt-finished? was already set or the prompt-id rotated,
                                       ;; which would leave a chat that hit an error without a save.
                                       ;; Persist explicitly so users can always /resume an errored chat.
-                                      (db/save-chat! @db* chat-id metrics)
+                                      (chat.persistence/save-chat-current! db* chat-id metrics)
                                       (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx))))))))})
               (catch Exception e
                 (when-not (:silent? (ex-data e))
@@ -1743,7 +1723,7 @@
                   (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
                   ;; Belt-and-suspenders: persist before finish-chat-prompt!,
                   ;; which may short-circuit. See note above in :on-error.
-                  (db/save-chat! @db* chat-id metrics)
+                  (chat.persistence/save-chat-current! db* chat-id metrics)
                   (lifecycle/finish-chat-prompt! :idle (lifecycle/strip-hook-callbacks chat-ctx))))
               (finally
                 (when (and (= prompt-id (get-in @db* [:chats chat-id :prompt-id]))
@@ -1754,7 +1734,7 @@
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
                     (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
                     (lifecycle/trigger-chat-status-hook! chat-ctx))
-                  (db/save-chat! @db* chat-id metrics))))))))))
+                  (chat.persistence/save-chat-current! db* chat-id metrics))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
@@ -2270,7 +2250,7 @@
                          (swap-vals! db* update-in [:chats chat-id] #(or % new-chat)))
             created? (and new-chat (nil? (get-in old-db [:chats chat-id])))
             _ (when created?
-                (db/save-chat! @db* chat-id metrics)
+                (chat.persistence/save-chat-current! db* chat-id metrics)
                 (messenger/chat-opened messenger {:chat-id chat-id :title (:title new-chat)})
                 (when (:trust new-chat)
                   (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id)))
@@ -2501,7 +2481,7 @@
                             (dissoc :tool-calls :last-api :usage :task
                                     :prompt-cache :last-editor-state)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
-    (db/save-chat! @db* chat-id metrics)))
+    (chat.persistence/save-chat-current! db* chat-id metrics)))
 
 (defn update-chat
   "Update chat metadata like title and trust.
@@ -2513,14 +2493,7 @@
     (when (some? trust)
       (swap! db* assoc-in [:chats chat-id :trust] trust))
     (when title
-      (let [title (sanitize-title title)]
-        (swap! db* assoc-in [:chats chat-id :title] title)
-        (swap! db* assoc-in [:chats chat-id :title-custom?] true)
-        (messenger/chat-content-received messenger
-                                         {:chat-id chat-id
-                                          :role    "system"
-                                          :content {:type :metadata :title title}})
-        (db/save-chat! @db* chat-id metrics))))
+      (chat.title/update-chat-title! db* chat-id title messenger metrics)))
   {})
 
 (defn rollback-chat
@@ -2553,7 +2526,7 @@
       ;; Rollback is the user's recovery tool for a chat that got into a bad
       ;; state. Persist immediately so the cleaned-up history survives a
       ;; restart instead of relying on the next unrelated save.
-      (db/save-chat! @db* chat-id metrics)
+      (chat.persistence/save-chat-current! db* chat-id metrics)
       (messenger/chat-cleared
        messenger
        {:chat-id chat-id
@@ -2593,7 +2566,7 @@
             new-messages (into (subvec messages 0 insert-after)
                                (cons flag-msg (subvec messages insert-after)))]
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-        (db/save-chat! @db* chat-id metrics)
+        (chat.persistence/save-chat-current! db* chat-id metrics)
         (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
         (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))
     {}))
@@ -2608,7 +2581,7 @@
                                     messages))]
       (when (not= (count new-messages) (count messages))
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-        (db/save-chat! @db* chat-id metrics))))
+        (chat.persistence/save-chat-current! db* chat-id metrics))))
   {})
 
 (defn fork-chat
@@ -2636,7 +2609,7 @@
                       :prompt-finished? true}]
         (swap! db* assoc-in [:chats new-id] new-chat)
         (mark-editor-open! db* new-id)
-        (db/save-chat! @db* new-id metrics)
+        (chat.persistence/save-chat-current! db* new-id metrics)
         (messenger/chat-opened messenger {:chat-id new-id :title new-title})
         (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
         (lifecycle/send-content! {:messenger messenger :chat-id new-id}
