@@ -1193,6 +1193,22 @@
              (:config-updated (h/messages))))
       (is (= session-defaults (:last-config-notified (h/db)))))))
 
+(deftest notify-selected-agent-changed-test
+  (testing "scopes the agent to chat-id, even when it matches the session defaults"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :last-config-notified {:chat {:select-agent "plan"}})
+    (let [session-defaults (:last-config-notified (h/db))]
+      (config/notify-selected-agent-changed! "plan" (h/db*) (h/messenger) "chat-a")
+      (is (= [{:chat-id "chat-a" :chat {:select-agent "plan"}}]
+             (:config-updated (h/messages))))
+      (is (= session-defaults (:last-config-notified (h/db))))))
+
+  (testing "no-op without agent or chat-id"
+    (h/reset-components!)
+    (config/notify-selected-agent-changed! nil (h/db*) (h/messenger) "chat-a")
+    (config/notify-selected-agent-changed! "plan" (h/db*) (h/messenger) nil)
+    (is (empty? (:config-updated (h/messages))))))
+
 (deftest agent-modes-test
   (testing "scalar string :mode is honored"
     (is (= #{"primary"} (config/agent-modes {:mode "primary"})))

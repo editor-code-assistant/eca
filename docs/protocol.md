@@ -2953,7 +2953,8 @@ interface ConfigUpdatedParams {
          * clients should forcefully update chat selected model.
          * 
          * Server returns this when starting and only when makes sense to 
-         * force update a model, like a config change.
+         * force update a model, like a config change, or scoped via `chatId`
+         * when a chat's model changes server-side (e.g. `/model`, `/resume`).
          */
         selectModel?: Model;
 
@@ -2962,7 +2963,10 @@ interface ConfigUpdatedParams {
          * clients should forcefully update chat selected agent.
          * 
          * Server returns this when starting and only when makes sense to 
-         * force update an agent, like a config change.
+         * force update an agent, like a config change, or scoped via `chatId`
+         * when a chat's agent changes server-side (e.g. `/agent`, `/resume`,
+         * remote UI). Clients must apply it: the agent sent on the next
+         * `chat/prompt` wins over the one persisted on the chat.
          */
         selectAgent?: ChatAgent;
 

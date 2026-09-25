@@ -295,7 +295,7 @@
             :variant (:variant body)})
           (no-content))))))
 
-(defn handle-change-agent [{:keys [db*] :as components} request chat-id]
+(defn handle-change-agent [{:keys [db* messenger] :as components} request chat-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (let [body (parse-body request)]
@@ -306,6 +306,10 @@
            (assoc components :config config)
            {:chat-id chat-id
             :agent (:agent body)})
+          ;; The editor showing this chat must learn it too, otherwise its
+          ;; next prompt sends its stale agent and reverts this change.
+          (config/notify-selected-agent-changed!
+           (get-in @db* [:chats chat-id :agent]) db* messenger chat-id)
           (no-content))))))
 
 (defn handle-change-variant [{:keys [db*] :as components} request chat-id]

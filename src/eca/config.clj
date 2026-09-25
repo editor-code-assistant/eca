@@ -1030,6 +1030,18 @@
        (notify-fields-changed-only! payload messenger db*))
      selection)))
 
+(defn notify-selected-agent-changed!
+  "Server-initiated equivalent of a client-side agent selection: aligns the
+   client's selected agent for `chat-id` with the agent the server persisted
+   on that chat. Clients send their selected agent on every `chat/prompt`, so
+   without this a server-side change (`/agent`, `/resume`, remote UI) would be
+   reverted by the next prompt.
+
+   Always scoped to `chat-id`; no-op when `agent` or `chat-id` is missing."
+  [agent db* messenger chat-id]
+  (when agent
+    (notify-fields-changed-only! {:chat {:select-agent agent}} messenger db* chat-id)))
+
 (def ^:private config-schema-url "https://eca.dev/config.json")
 
 (defn ^:private flatten-to-paths
