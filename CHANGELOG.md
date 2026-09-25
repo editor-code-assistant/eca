@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.161.2
+
 - List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
 - Fix `/agent`, `/model` and remote UI agent changes being reverted by the editor's next prompt; `/resume` now also restores the chat agent. eca-emacs#327
 - Retry transient `openai-chat` post-tool failures (e.g. 502) before new output without rerunning tools, so sub-agents survive flaky gateways. #620
