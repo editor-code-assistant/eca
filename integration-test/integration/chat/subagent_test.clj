@@ -127,26 +127,43 @@
                          (matches? {:type "text" :text "Final answer"} (:content e))))
                   events))))))
 
-(deftest spawn-subagent-retries-overloaded-post-tool-request-test
+(defn ^:private chat-text
+  "Assistant text streamed to `chat-id`, joined across chunks: providers may
+   split a single reply into several text deltas."
+  [chat-id events]
+  (->> events
+       (filter #(and (= chat-id (:chatId %))
+                     (= "assistant" (:role %))
+                     (= "text" (-> % :content :type))))
+       (map #(-> % :content :text))
+       (apply str)))
+
+(defn ^:private assert-subagent-retries-post-tool-request!
+  "Runs a parent/subagent scenario whose subagent post-tool request fails once
+   with a transient provider error, asserting the request-level retry recovers it."
+  [model mock-case]
   (eca/start-process!)
   (eca/request! (fixture/initialize-request))
   (eca/notify! (fixture/initialized-notification))
 
-  (llm.mocks/set-case! :subagent-retry-0)
+  (llm.mocks/set-case! mock-case)
   (let [resp (eca/request! (fixture/chat-prompt-request
-                            {:model "openai/gpt-5.2"
+                            {:model model
                              :message "What can you find?"}))
         parent-chat-id (:chatId resp)
         events (drain-content-events-until
                 (fn [e]
                   (and (= parent-chat-id (:chatId e))
-                       (= "assistant" (:role e))
-                       (= "text" (-> e :content :type))
-                       (= "Final answer" (-> e :content :text)))))
+                       (= "system" (:role e))
+                       (matches? {:type "progress" :state "finished"} (:content e)))))
         subagent-chat-id (->> events
                               (keep :chatId)
                               (filter #(string/starts-with? % "subagent-"))
-                              first)]
+                              first)
+        subagent-progress-texts (->> events
+                                     (filter #(and (= subagent-chat-id (:chatId %))
+                                                   (= "progress" (-> % :content :type))))
+                                     (keep #(-> % :content :text)))]
     (is (string? subagent-chat-id))
 
     (testing "subagent reports retrying the overloaded post-tool request"
@@ -158,6 +175,9 @@
                                   :text #"Provider overloaded.*Retrying"}
                                  (:content e))))
                 events)))
+
+    (testing "subagent recovers without spending chat-level recovery"
+      (is (not-any? #(re-find #"\(recovery \d+/\d+\)" %) subagent-progress-texts)))
 
     (testing "subagent tool executes exactly once"
       (is (= 1
@@ -172,12 +192,10 @@
                       events)))))
 
     (testing "subagent finishes after the retried request succeeds"
-      (is (some (fn [e]
-                  (and (= subagent-chat-id (:chatId e))
-                       (= parent-chat-id (:parentChatId e))
-                       (= "assistant" (:role e))
-                       (matches? {:type "text" :text "Subagent done"} (:content e))))
-                events)))
+      (is (= "Subagent done"
+             (->> events
+                  (filter #(= parent-chat-id (:parentChatId %)))
+                  (chat-text subagent-chat-id)))))
 
     (testing "parent receives a successful subagent result and finishes"
       (is (some (fn [e]
@@ -188,8 +206,11 @@
                                   :error false}
                                  (:content e))))
                 events))
-      (is (some (fn [e]
-                  (and (= parent-chat-id (:chatId e))
-                       (= "assistant" (:role e))
-                       (matches? {:type "text" :text "Final answer"} (:content e))))
-                events)))))
+      (is (= "Final answer" (chat-text parent-chat-id events))))))
+
+(deftest spawn-subagent-retries-overloaded-post-tool-request-test
+  (assert-subagent-retries-post-tool-request! "openai/gpt-5.2" :subagent-retry-0))
+
+(deftest spawn-subagent-retries-bad-gateway-post-tool-request-test
+  (testing "openai-chat providers retry a gateway 502 on the subagent's post-tool request #620"
+    (assert-subagent-retries-post-tool-request! "google/gemini-2.5-pro" :subagent-bad-gateway-0)))

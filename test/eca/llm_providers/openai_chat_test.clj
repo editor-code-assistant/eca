@@ -1,9 +1,11 @@
 (ns eca.llm-providers.openai-chat-test
   (:require
+   [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.features.tools.util :as tools.util]
+   [eca.llm-api :as llm-api]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [eca.llm-util :as llm-util]
    [hato.client :as http]
@@ -262,6 +264,225 @@
           :idle-timeout (is (= "Stream idle timeout: no data received for 120 seconds"
                               (:message (first @errors*))))
           (is (= "test read failure" (ex-message (:exception (first @errors*))))))))))
+
+(defn ^:private input-stream [^String s]
+  (java.io.ByteArrayInputStream. (.getBytes s java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn ^:private sse [chunks]
+  (apply str (map #(str "data: " (json/generate-string %) "\n\n") chunks)))
+
+(def ^:private tool-chunks
+  [{:choices [{:index 0 :delta {:tool_calls [{:index 0 :id "call-1" :type "function"
+                                               :function {:name "test_tool" :arguments "{}"}}]}}]}
+   {:choices [{:index 0 :delta {} :finish_reason "tool_calls"}]}])
+
+(def ^:private final-chunks
+  [{:choices [{:index 0 :delta {:content "done"}}]}
+   {:choices [{:index 0 :delta {} :finish_reason "stop"}]}])
+
+(def ^:private final-messages
+  [{:type :text :text "done"} {:type :finish :finish-reason "stop"}])
+
+(defn ^:private bad-gateway []
+  {:status 502
+   :headers {"content-type" "text/html"}
+   :body (input-stream (str "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n"
+                            "<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n"
+                            "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"))})
+
+(defn ^:private failing-stream
+  "SSE body that throws `failure` once `chunks` are consumed."
+  [chunks failure]
+  (proxy [java.io.ByteArrayInputStream]
+         [(.getBytes ^String (sse chunks) java.nio.charset.StandardCharsets/UTF_8)]
+    (read
+      ([] (if (zero? (.available ^java.io.ByteArrayInputStream this))
+            (throw failure)
+            (proxy-super read)))
+      ([buffer offset length]
+       (if (zero? (.available ^java.io.ByteArrayInputStream this))
+         (throw failure)
+         (proxy-super read buffer offset length))))))
+
+(defn ^:private post-tool-scenario!
+  "Runs a prompt through the shared retry controller. The first request streams
+   a tool call unless `initial-response` is given; later ones use `child-response`."
+  [{:keys [child-response initial-response sleep-fn max-retries cancelled?]
+    :or {max-retries 2 cancelled? (constantly false)}}]
+  (let [requests* (atom [])
+        tools-called* (atom 0)
+        messages* (atom [])
+        errors* (atom [])
+        retries* (atom [])
+        sleeps* (atom [])
+        respond (fn [chunks]
+                  {:status 200 :body (input-stream (str (sse chunks) "data: [DONE]\n\n"))})]
+    (with-redefs [http/post (fn [_ opts]
+                              (let [n (count (swap! requests* conj (:body opts)))]
+                                (cond
+                                  (and (= 1 n) initial-response) (initial-response n respond)
+                                  (= 1 n) (respond tool-chunks)
+                                  :else (child-response n respond))))
+                  eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
+                                                (swap! sleeps* conj delay-ms)
+                                                (if sleep-fn
+                                                  (sleep-fn cancelled?)
+                                                  (not (cancelled?))))]
+      (llm-api/sync-or-async-prompt!
+       {:provider "custom"
+        :model "test-model"
+        :model-capabilities {:tools true}
+        :instructions "test"
+        :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+        :past-messages []
+        :tools [{:full-name "test_tool" :description "test" :parameters {:type "object"}}]
+        :config {:providers {"custom" {:api "openai-chat"
+                                       :url "http://test.invalid"
+                                       :retry {:maxRetries max-retries :baseDelayMs 0}
+                                       :models {"test-model" {}}}}}
+        :provider-auth {:api-key "test-key"}
+        :cancelled? cancelled?
+        :on-message-received #(swap! messages* conj %)
+        :on-error #(swap! errors* conj %)
+        :on-retry #(swap! retries* conj %)
+        :on-tools-called (fn [[call]]
+                           (swap! tools-called* inc)
+                           {:new-messages [{:role "tool_call" :content call}
+                                           {:role "tool_call_output"
+                                            :content (assoc call :output {:contents [{:type :text :text "result"}]})}]
+                            :tools []})}))
+    {:requests @requests* :tools-called @tools-called* :messages @messages*
+     :errors @errors* :retries @retries* :sleeps @sleeps*}))
+
+(deftest post-tool-bad-gateway-retry-test
+  (testing "a gateway 502 on a post-tool request replays that exact request without rerunning tools #620"
+    (let [{:keys [requests tools-called messages errors retries sleeps]}
+          (post-tool-scenario! {:child-response (fn [n respond]
+                                                  (if (= 2 n)
+                                                    (bad-gateway)
+                                                    (respond final-chunks)))})]
+      (is (= 3 (count requests)))
+      (is (= 1 tools-called))
+      (is (apply = (rest requests)) "replay the exact serialized tool-result request")
+      (is (= [:overloaded] (mapv #(get-in % [:classified :error/type]) retries)))
+      (is (= [502] (mapv #(get-in % [:error-data :status]) retries)))
+      (is (= [0] sleeps))
+      (is (empty? errors))
+      (is (= final-messages messages)))))
+
+(deftest post-tool-network-retry-test
+  (doseq [[label failed-response]
+          [["connection failure" (fn [failure] (throw failure))]
+           ["read failure after a role-only chunk"
+            (fn [failure]
+              {:status 200
+               :body (failing-stream [{:choices [{:index 0 :delta {:role "assistant" :content ""}}]}] failure)})]]]
+    (testing label
+      (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+            {:keys [requests tools-called messages errors retries]}
+            (post-tool-scenario! {:child-response (fn [n respond]
+                                                    (if (= 2 n)
+                                                      (failed-response failure)
+                                                      (respond final-chunks)))})]
+        (is (= 3 (count requests)))
+        (is (= 1 tools-called))
+        (is (apply = (rest requests)))
+        (is (= [:network] (mapv #(get-in % [:classified :error/type]) retries)))
+        (is (identical? failure (get-in retries [0 :error-data :exception])))
+        (is (empty? errors))
+        (is (= final-messages messages))))))
+
+(deftest post-tool-output-prevents-replay-test
+  (doseq [[label chunk expected-messages]
+          [["buffered partial text" {:choices [{:index 0 :delta {:content "par"}}]} [{:type :text :text "par"}]]
+           ["reasoning" {:choices [{:index 0 :delta {:reasoning_content "thinking"}}]} []]
+           ["nameless tool-call delta" {:choices [{:index 0 :delta {:tool_calls [{:index 0 :function {:arguments "{"}}]}}]} []]]]
+    (testing label
+      (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+            {:keys [requests tools-called messages errors retries sleeps]}
+            (post-tool-scenario! {:child-response (fn [_ _]
+                                                    {:status 200 :body (failing-stream [chunk] failure)})})]
+        (is (= 2 (count requests)))
+        (is (= 1 tools-called))
+        (is (empty? retries))
+        (is (empty? sleeps))
+        (is (= 1 (count errors)))
+        (is (identical? failure (:exception (first errors))))
+        (is (= expected-messages messages) "buffered output is flushed once, never replayed")))))
+
+(deftest post-tool-retry-exhaustion-test
+  (doseq [budget [0 1 2]]
+    (testing (str "retry budget " budget)
+      (let [{:keys [requests tools-called errors retries sleeps messages]}
+            (post-tool-scenario! {:max-retries budget
+                                 :child-response (fn [_ _] (bad-gateway))})]
+        (is (= (+ 2 budget) (count requests)))
+        (is (= 1 tools-called))
+        (is (apply = (rest requests)))
+        (is (= (range 1 (inc budget)) (map :attempt retries)))
+        (is (= budget (count sleeps)))
+        (is (= 1 (count errors)))
+        (is (= 502 (:status (first errors))))
+        (is (empty? messages))))))
+
+(deftest post-tool-retry-cancellation-test
+  (doseq [during-backoff? [false true]]
+    (testing (if during-backoff? "cancel during backoff" "cancel before retry decision")
+      (let [cancelled* (atom false)
+            {:keys [requests tools-called errors retries sleeps]}
+            (post-tool-scenario!
+             {:cancelled? #(deref cancelled*)
+              :child-response (fn [_ _]
+                                (when-not during-backoff? (reset! cancelled* true))
+                                (bad-gateway))
+              :sleep-fn (fn [cancelled?]
+                          (reset! cancelled* true)
+                          (not (cancelled?)))})]
+        (is (= 2 (count requests)))
+        (is (= 1 tools-called))
+        (is (= (if during-backoff? 1 0) (count retries) (count sleeps)))
+        (is (= 1 (count errors)))))))
+
+(deftest nested-post-tool-retry-test
+  (testing "each post-tool request owns its retry budget and tool rounds never rerun"
+    (let [{:keys [requests tools-called errors retries messages]}
+          (post-tool-scenario! {:max-retries 1
+                                :child-response (fn [n respond]
+                                                  (case n
+                                                    (2 4) (bad-gateway)
+                                                    3 (respond tool-chunks)
+                                                    (respond final-chunks)))})]
+      (is (= 5 (count requests)))
+      (is (= 2 tools-called))
+      (is (= (nth requests 1) (nth requests 2)))
+      (is (= (nth requests 3) (nth requests 4)))
+      (is (= [1 1] (map :attempt retries)))
+      (is (empty? errors))
+      (is (= final-messages messages))))
+  (testing "an exhausted nested request errors once without replaying its ancestors"
+    (let [{:keys [requests tools-called errors retries messages]}
+          (post-tool-scenario! {:max-retries 1
+                                :child-response (fn [n respond]
+                                                  (if (= 2 n)
+                                                    (respond tool-chunks)
+                                                    (bad-gateway)))})]
+      (is (= 4 (count requests)))
+      (is (= 2 tools-called))
+      (is (= (nth requests 2) (nth requests 3)))
+      (is (= 1 (count retries)))
+      (is (= 1 (count errors)))
+      (is (empty? messages)))))
+
+(deftest initial-request-retry-budget-unchanged-test
+  (let [{:keys [requests tools-called errors retries]}
+        (post-tool-scenario! {:max-retries 1
+                              :initial-response (fn [_ _] (bad-gateway))
+                              :child-response (fn [_ _] (bad-gateway))})]
+    (is (= 2 (count requests)) "no extra request-scoped budget for the initial prompt")
+    (is (apply = requests))
+    (is (zero? tools-called))
+    (is (= 1 (count retries)))
+    (is (= 1 (count errors)))))
 
 (deftest normalize-messages-test
   (testing "With tool_call history - assistant text and tool calls are merged"

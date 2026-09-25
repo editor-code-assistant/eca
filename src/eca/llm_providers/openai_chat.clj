@@ -200,6 +200,48 @@
         (on-error {:exception e
                    :message (llm-util/connection-error-message e)})))))
 
+(defn ^:private replay-blocking-chunk?
+  "Whether a streamed chunk makes the current request unsafe to replay.
+   Text may be buffered for think-tag detection and nameless tool-call deltas
+   accumulate silently, so this inspects raw deltas instead of emitted callbacks.
+   Any chunk that changes parser state must block replay."
+  [event data]
+  (or (= "stream-end" event)
+      (boolean
+       (some (fn [{{:keys [content reasoning reasoning_content reasoning_text tool_calls]} :delta}]
+               (or (and (or (string? content) (sequential? content))
+                        (seq content))
+                   reasoning
+                   reasoning_content
+                   reasoning_text
+                   tool_calls))
+             (:choices data)))))
+
+(defn ^:private request-with-retry!
+  "Retries one exact post-tool request, never the tool execution that built it.
+   Retry decisions wait until the failed stream and its watchdog are closed."
+  [{:keys [on-error on-stream retry-request] :as request-opts}]
+  (letfn [(request! [attempt]
+            (let [replay-safe?* (atom true)
+                  error* (atom nil)]
+              (base-chat-request!
+               (assoc request-opts
+                      :on-error #(compare-and-set! error* nil %)
+                      :on-stream (fn [event data]
+                                   (when (replay-blocking-chunk? event data)
+                                     (reset! replay-safe?* false))
+                                   (on-stream event data))))
+              (when-let [error-data @error*]
+                (if (and retry-request
+                         (not (:silent? (ex-data (:exception error-data)))))
+                  (retry-request {:error-data error-data
+                                  :attempt attempt
+                                  :replay-safe? @replay-safe?*
+                                  :on-give-up on-error
+                                  :retry-fn request!})
+                  (on-error error-data)))))]
+    (request! 0)))
+
 (defn ^:private transform-message
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles.
 
@@ -567,7 +609,7 @@
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
            think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds]}
-   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
+   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated retry-request] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
         stream? (boolean callbacks)
@@ -642,24 +684,27 @@
                                           new-messages-list (vec (concat
                                                                   system-messages
                                                                   (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end)))
-                                          new-rid (llm-util/gen-rid)]
+                                          request-opts {:rid (llm-util/gen-rid)
+                                                        :body (assoc-some body
+                                                                          :messages new-messages-list
+                                                                          :tools (when (seq tools) (->tools tools)))
+                                                        :on-tools-called-wrapper on-tools-called-wrapper
+                                                        :extra-headers extra-headers
+                                                        :http-client http-client
+                                                        :api-url api-url
+                                                        :api-key (or fresh-api-key api-key)
+                                                        :url-relative-path url-relative-path
+                                                        :cancelled? cancelled?
+                                                        :stream-idle-timeout-seconds stream-idle-timeout-seconds
+                                                        :on-error wrapped-on-error
+                                                        :on-usage-updated on-usage-updated}]
                                       (reset! tool-calls* {})
-                                      (base-chat-request!
-                                       {:rid new-rid
-                                        :body (assoc-some body
-                                                          :messages new-messages-list
-                                                          :tools (when (seq tools) (->tools tools)))
-                                        :on-tools-called-wrapper on-tools-called-wrapper
-                                        :extra-headers extra-headers
-                                        :http-client http-client
-                                        :api-url api-url
-                                        :api-key (or fresh-api-key api-key)
-                                        :url-relative-path url-relative-path
-                                        :cancelled? cancelled?
-                                        :stream-idle-timeout-seconds stream-idle-timeout-seconds
-                                        :on-error wrapped-on-error
-                                        :on-usage-updated on-usage-updated
-                                        :on-stream (when stream? (fn [event data] (handle-response event data tool-calls*)))}))))
+                                      (if stream?
+                                        (request-with-retry!
+                                         (assoc request-opts
+                                                :retry-request retry-request
+                                                :on-stream (fn [event data] (handle-response event data tool-calls*))))
+                                        (base-chat-request! request-opts)))))
 
         handle-response (fn handle-response [event data tool-calls*]
                           (if (= event "stream-end")
