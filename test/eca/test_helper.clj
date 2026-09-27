@@ -71,7 +71,11 @@
       (cond
         (instance? Throwable v) (throw v)
         (= v :block) (promise)
-        :else (future v)))))
+        :else (future v))))
+
+  messenger/IMemoryMessenger
+  (memory-index-loaded [_ params]
+    (swap! messages* update :memory-index-loaded (fnil conj []) params)))
 
 (defn ^:private make-components []
   {:db* (atom db/initial-db)

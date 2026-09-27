@@ -5,6 +5,7 @@
    [clojure.java.shell :as shell]
    [clojure.string :as string]
    [eca.cache :as cache]
+   [eca.features.memory :as f.memory]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -114,17 +115,36 @@
          (not (shared/path-inside-root? p (cache/tool-call-outputs-dir)))
          (not-any? #(shared/path-inside-root? p %) roots))))
 
+(defn ^:private memory-trusted-path?
+  "True when `path` is inside one of the chat's memory dirs and memory dirs may
+   be treated as workspace-like for approval purposes. `kind` is :read or
+   :write: reads receive path trust whenever memory is enabled; writes only
+   when `memory.writeMode` is \"agent\". Explicit mode grants no extra write
+   trust; normal workspace rules, remembered approvals, and chat trust still
+   apply. The instruction to write only when asked is a model policy."
+  [db config path kind]
+  (and (f.memory/enabled? config)
+       (or (= :read kind)
+           (= "agent" (f.memory/write-mode config)))
+       (when-let [p (shared/normalize-path path)]
+         (boolean (some #(shared/path-inside-root? p %)
+                        (map :dir (f.memory/memory-dirs db config)))))))
+
 (defn require-approval-when-outside-workspace
   "Returns a function suitable for tool `:require-approval-fn` that triggers
    approval when any of the provided `path-keys` in args is outside the
-   workspace roots."
-  [path-keys]
-  (fn [args {:keys [db]}]
-    (when (seq path-keys)
-      (some (fn [k]
-              (when-let [p (get args k)]
-                (path-outside-workspace? db p)))
-            path-keys))))
+   workspace roots. Optional `:trust-memory-paths` (:read or :write) treats
+   memory dirs as inside the workspace; see `memory-trusted-path?`."
+  ([path-keys] (require-approval-when-outside-workspace path-keys nil))
+  ([path-keys {:keys [trust-memory-paths]}]
+   (fn [args {:keys [db config]}]
+     (when (seq path-keys)
+       (some (fn [k]
+               (when-let [p (get args k)]
+                 (and (path-outside-workspace? db p)
+                      (not (and trust-memory-paths
+                                (memory-trusted-path? db config p trust-memory-paths))))))
+             path-keys)))))
 
 (defn command-available? [command & args]
   (try

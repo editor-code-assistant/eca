@@ -6,6 +6,8 @@
    [clojure.string :as string]
    [eca.diff :as diff]
    [eca.features.index :as f.index]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.usage :as f.memory.usage]
    [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.smart-edit :as smart-edit]
    [eca.features.tools.text-match :as text-match]
@@ -159,6 +161,10 @@
             was-truncated?                (not= (- (count full-content-lines) line-offset)
                                                 (count maybe-truncated-content-lines))
             content                       (string/join "\n" maybe-truncated-content-lines)]
+        ;; Usage tracking: only read_file records reads, and only for memory
+        ;; files. record-read! itself re-checks flags/disabled.
+        (when (f.memory/memory-dir-info-for-path (:db ctx) config path)
+          (f.memory.usage/record-read! ctx path))
         (tools.util/single-text-content (if was-truncated?
                                           (str content "\n\n"
                                                "[CONTENT TRUNCATED] Showing lines " (if line-offset (inc line-offset) 1)
@@ -181,6 +187,26 @@
                          line-offset
                          (+ line-offset limit))))))
     "Reading file"))
+
+(defn ^:private path-inside-memory-dirs?
+  "True when `path` is inside one of the chat's memory dirs and memory is
+   enabled."
+  [path {:keys [db config]}]
+  (and path
+       (f.memory/enabled? config)
+       (boolean (some #(shared/path-inside-root? path %)
+                      (map :dir (f.memory/memory-dirs db config))))))
+
+(defn ^:private require-valid-memory-content
+  "Error result when `path` is inside one of the chat's memory dirs and
+   `content` would not be a valid memory file (YAML frontmatter mapping with
+   non-blank `name` and `description`), else nil. A malformed memory file
+   would be silently skipped by the memory index, so such writes are rejected
+   before any byte hits disk."
+  [path content ctx]
+  (when (and path content (path-inside-memory-dirs? path ctx))
+    (when-let [error (f.memory/memory-content-error content)]
+      (tools.util/single-text-content error :error))))
 
 (defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
@@ -236,6 +262,7 @@
   (let [path (get arguments "path")
         content (get arguments "content")]
     (or (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
+        (require-valid-memory-content path content ctx)
         (let [old-content (try (slurp path) (catch Exception _ nil))]
           (fs/create-dirs (fs/parent (fs/path path)))
           (spit path content)
@@ -445,10 +472,12 @@
             initial-content  (slurp path)
             result           (apply-file-edit-strategy initial-content original-content new-content all? path)
             write!           (fn [res]
-                               (spit path (:new-full-content res))
-                               (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
-                                   (assoc :rollback-changes [{:path    path
-                                                              :content initial-content}])))]
+                               (or (require-valid-memory-content path (:new-full-content res) ctx)
+                                   (do
+                                     (spit path (:new-full-content res))
+                                     (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                                         (assoc :rollback-changes [{:path    path
+                                                                    :content initial-content}])))))]
         (if (:new-full-content result)
           (let [current-content (slurp path)]
             (if (= current-content (:original-full-content result))
@@ -481,7 +510,7 @@
                path)
        :error))))
 
-(defn ^:private move-file [arguments _]
+(defn ^:private move-file [arguments _ctx]
   (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
                                                ["destination" (complement fs/exists?) "Path $destination already exists"]])
       (let [source (get arguments "source")
@@ -516,7 +545,7 @@
                                            :description (format "Maximum depth to traverse (default: %s)" directory-tree-max-depth)}}
                  :required ["path"]}
     :handler #'directory-tree
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'directory-tree-summary}
    "read_file"
    {:description (tools.util/read-tool-description "read_file")
@@ -529,7 +558,7 @@
                                        :description "Maximum lines to read (default: {{readFileMaxLines}})"}}
                  :required ["path"]}
     :handler #'read-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'read-file-summary}
    "view_image"
    {:description (tools.util/read-tool-description "view_image")
@@ -550,7 +579,7 @@
                                          :description "The complete content to write to the file"}}
                  :required ["path" "content"]}
     :handler #'write-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :write})
     :summary-fn #'write-file-summary}
    "edit_file"
    {:description (tools.util/read-tool-description "edit_file")
@@ -565,7 +594,7 @@
                                                  :description "Whether to replace all occurrences of the file or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :write})
     :summary-fn #'edit-file-summary}
    "preview_file_change"
    {:description (tools.util/read-tool-description "preview_file_change")
@@ -580,7 +609,7 @@
                                                  :description "Whether to preview replacing all occurrences or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'preview-file-change
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn (constantly "Previewing change")}
    "move_file"
    {:description (tools.util/read-tool-description "move_file")
@@ -591,7 +620,7 @@
                                              :description "The new absolute file path to move to."}}
                  :required ["source" "destination"]}
     :handler #'move-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"] {:trust-memory-paths :write})
     :summary-fn #'move-file-summary}
    "grep"
    {:description (tools.util/read-tool-description "grep")
@@ -609,49 +638,61 @@
                                              :description "Output format: 'content' shows matching lines with context, 'files_with_matches' shows only file paths (default), 'count' shows match counts per file"}}
                  :required ["path" "pattern"]}
     :handler #'grep
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'grep-summary}})
 
-(defmethod tools.util/tool-call-details-before-invocation :edit_file [_name arguments _server _ctx]
+(defn ^:private maybe-tag-memory-details
+  "Tags file-change details with `:memory true` when `path` is inside one of
+   the chat's memory dirs (and memory is enabled), so clients can render a
+   memory-specific UI or hide the call entirely."
+  [details path ctx]
+  (if (and details (path-inside-memory-dirs? path ctx))
+    (assoc details :memory true)
+    details))
+
+(defmethod tools.util/tool-call-details-before-invocation :edit_file [_name arguments _server ctx]
   (let [path (get arguments "path")
         original-content (get arguments "original_content")
         new-content (get arguments "new_content")
         all? (get arguments "all_occurrences")
         file-exists? (and path (fs/exists? path))]
-    (cond
-      (and file-exists? original-content new-content)
-      (let [result (apply-file-edit-strategy (slurp path) original-content new-content (boolean all?) path)
-            original-full-content (:original-full-content result)]
-        (when original-full-content
-          (if-let [new-full-content (:new-full-content result)]
-            (let [{:keys [added removed diff]} (diff/diff original-full-content new-full-content path)]
-              {:type :fileChange
-               :path path
-               :linesAdded added
-               :linesRemoved removed
-               :diff diff})
-            (logger/warn "tool-call-details-before-invocation - NO DIFF GENERATED because match failed for path:" path))))
+    (->
+     (cond
+       (and file-exists? original-content new-content)
+       (let [result (apply-file-edit-strategy (slurp path) original-content new-content (boolean all?) path)
+             original-full-content (:original-full-content result)]
+         (when original-full-content
+           (if-let [new-full-content (:new-full-content result)]
+             (let [{:keys [added removed diff]} (diff/diff original-full-content new-full-content path)]
+               {:type :fileChange
+                :path path
+                :linesAdded added
+                :linesRemoved removed
+                :diff diff})
+             (logger/warn "tool-call-details-before-invocation - NO DIFF GENERATED because match failed for path:" path))))
 
-      (and (not file-exists?) (= original-content "") new-content path)
-      (let [{:keys [added removed diff]} (diff/diff "" new-content path)]
-        {:type :fileChange
-         :path path
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff})
+       (and (not file-exists?) (= original-content "") new-content path)
+       (let [{:keys [added removed diff]} (diff/diff "" new-content path)]
+         {:type :fileChange
+          :path path
+          :linesAdded added
+          :linesRemoved removed
+          :diff diff})
 
-      :else nil)))
+       :else nil)
+     (maybe-tag-memory-details path ctx))))
 
 (defmethod tools.util/tool-call-details-before-invocation :preview_file_change [_name arguments server ctx]
   (tools.util/tool-call-details-before-invocation :edit_file arguments server ctx))
 
-(defmethod tools.util/tool-call-details-before-invocation :write_file [_name arguments _server _ctx]
+(defmethod tools.util/tool-call-details-before-invocation :write_file [_name arguments _server ctx]
   (let [path (get arguments "path")
         content (get arguments "content")]
-    (when (and path content)
-      (let [{:keys [added removed diff]} (diff/diff "" content path)]
-        {:type :fileChange
-         :path path
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff}))))
+    (-> (when (and path content)
+          (let [{:keys [added removed diff]} (diff/diff "" content path)]
+            {:type :fileChange
+             :path path
+             :linesAdded added
+             :linesRemoved removed
+             :diff diff}))
+        (maybe-tag-memory-details path ctx))))

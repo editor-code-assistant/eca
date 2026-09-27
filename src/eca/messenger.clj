@@ -22,3 +22,6 @@
   (editor-definition [this uri position])
   (editor-references [this uri position include-declaration])
   (ask-question [this params]))
+
+(defprotocol IMemoryMessenger
+  (memory-index-loaded [this params]))

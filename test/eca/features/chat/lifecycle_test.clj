@@ -2,8 +2,10 @@
   (:require
    [cheshire.core :as json]
    [clojure.test :refer [are deftest is testing]]
+   [eca.db :as db]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
+   [eca.messenger :as messenger]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -371,6 +373,50 @@
       (is (not (contains? (:ctx @captured*) :on-after-finish!)))
       ;; on-follow-up is preserved (but skip-post-request-hooks? means it won't fire)
       (is (contains? (:ctx @captured*) :on-follow-up)))))
+
+(deftest stopped-memory-consolidation-cleanup-test
+  (doseq [[label finish! status]
+          [["hook stop" lifecycle/finish-chat-prompt-stopped! :running]
+           ["user stop with stripped callbacks"
+            (fn [status ctx]
+              (lifecycle/finish-chat-prompt!
+               status (-> ctx
+                          (assoc :skip-post-request-hooks? true)
+                          lifecycle/strip-hook-callbacks)))
+            :stopping]]]
+    (testing label
+      (doseq [prompt-id ["current" "old"]]
+        (testing (str "finishing " prompt-id " prompt")
+          (let [initial-db {:chats {chat-id {:id chat-id
+                                           :prompt-id "current"
+                                           :prompt-finished? false
+                                           :status status
+                                           :memory-consolidating? true}}}
+                db* (atom initial-db)
+                calls* (atom [])
+                saved* (atom nil)
+                ctx {:chat-id chat-id
+                     :prompt-id prompt-id
+                     :db* db*
+                     :config {}
+                     :on-finished-side-effect #(swap! calls* conj :side-effect)
+                     :on-after-finish! #(swap! calls* conj :continuation)
+                     :on-follow-up (fn [_ _] (swap! calls* conj :follow-up))}]
+            (with-redefs [db/save-chat! (fn [db _ _] (reset! saved* db))
+                          messenger/chat-status-changed (fn [_ _])
+                          messenger/chat-content-received (fn [_ _])
+                          f.hooks/trigger-if-matches! (fn [& _] (swap! calls* conj :hook))]
+              (finish! :idle ctx))
+            (is (empty? @calls*) "stopping must not restore callbacks or run hooks")
+            (if (= "current" prompt-id)
+              (do
+                (is (nil? (get-in @db* [:chats chat-id :memory-consolidating?])))
+                (is (true? (get-in @db* [:chats chat-id :prompt-finished?])))
+                (is (= :idle (get-in @db* [:chats chat-id :status])))
+                (is (= @db* @saved*) "saved chat must also have the flag cleared"))
+              (do
+                (is (= initial-db @db*) "an old stop must not change the current turn")
+                (is (nil? @saved*))))))))))
 
 (deftest trigger-chat-status-hook!-exit-2-is-non-blocking-test
   (testing "chatStatusChanged hook exit 2 is logged but does not stop later hooks"
