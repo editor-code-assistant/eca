@@ -6,6 +6,7 @@
    [eca.features.chat.tool-calls :as tc]
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
+   [eca.message-sanitize :as message-sanitize]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -743,3 +744,29 @@
     (let [text (-> (#'tc/rejected-tool-call-output-contents "  ") first :text)]
       (is (string/includes? text "did NOT run"))
       (is (not (string/includes? text "Reason:"))))))
+
+(deftest tool-loop-continuation-reapplies-prompt-injections-test
+  (testing "continuation builds (db history folded in by on-tools-called!) re-apply call-scoped injections at the sanitize seam"
+    (let [injections [{:content "## Memory\nrecall" :target :last-user-message :merge :append-text}]
+          continuation-messages
+          [{:role "user" :content [{:type :text :text "weather?"}]}
+           {:role "assistant" :content [{:type :text :text "Checking…"}]}
+           {:role "tool_call" :content {:id "t1" :full-name "get_weather" :arguments {:city "Paris"}}}
+           {:role "tool_call_output" :content {:id "t1" :name "get_weather" :output {:contents []}}}]
+          sanitized (message-sanitize/sanitize-outbound-messages continuation-messages injections)]
+      (is (= "## Memory\nrecall"
+             (-> sanitized first :content last :text))
+          "the injection lands on the original user turn, not the tool result")
+      (is (not (re-find #"prompt-injections" (pr-str sanitized)))
+          "injection metadata never reaches the wire")))
+  (testing "the injection follows a mid-loop user follow-up when one exists"
+    (let [injections [{:content "recall" :target :last-user-message :merge :append-text}]
+          continuation-messages
+          [{:role "user" :content [{:type :text :text "weather?"}]}
+           {:role "assistant" :content [{:type :text :text "Checking…"}]}
+           {:role "tool_call" :content {:id "t1" :full-name "get_weather" :arguments {:city "Paris"}}}
+           {:role "tool_call_output" :content {:id "t1" :name "get_weather" :output {:contents []}}}
+           {:role "user" :content [{:type :text :text "I rejected one or more tool calls"}]}]
+          sanitized (message-sanitize/sanitize-outbound-messages continuation-messages injections)]
+      (is (= "recall" (-> sanitized last :content last :text))
+          "the last user-role message at outbound time receives the injection"))))

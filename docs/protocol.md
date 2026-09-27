@@ -1311,6 +1311,14 @@ interface FileChangeDetails {
       * The count of lines removed in this change.
       */
      linesRemoved: number;
+
+     /**
+      * Present and true when the changed path is inside one of the durable
+      * memory directories (see Durable Memory). Clients may use this to
+      * present a memory-specific UX (e.g. "Saved memory") or to hide the
+      * call entirely, like task tool calls.
+      */
+     memory?: boolean;
 }
 
 interface JsonOutputsDetails {
@@ -3704,6 +3712,118 @@ _Notification:_
 
 * method: `providers/updated`
 * params: `ProviderStatus` (see `providers/list` response above)
+
+## Durable Memory
+
+Memory is file-based: plain markdown files with YAML frontmatter in two tiers
+(per-project personal and global), scanned into a generated
+index injected into every enabled chat turn. There are no dedicated memory tools;
+the agent reads and writes memory files with its normal filesystem tools. The
+methods below let clients implement memory panels. Timestamps are Unix epoch
+milliseconds.
+
+The `memory/list` method requires
+`memory.enabled`; when memory is disabled it fails with a JSON-RPC error with
+`code: "memory-disabled"` and message `memory is disabled`.
+
+### List Memories (↩️)
+
+Lists all valid memory files across the chat's memory directories: for each
+workspace root its personal dir, then the global dir. Entries are ordered newest-mtime-first within
+each directory group, using actual file modification times rather than prompt usage ranking.
+The absolute path identifies an entry; a move or rename changes that identity.
+Names and labels are for display only and are not unique. Files missing `name`/`description` or failing to parse are
+omitted from `memories` and reported in `skipped` instead (with a reason).
+
+_Request:_
+
+* method: `memory/list`
+* params: `{}` (none)
+
+_Response:_
+
+* result: `MemoryListResult` defined as follows:
+
+```typescript
+type MemoryTier = "personal" | "global";
+
+interface MemoryEntry {
+    /** Absolute path and identity of the memory markdown file. */
+    path: string;
+    tier: MemoryTier;
+    name: string;
+    /** Shown in the generated index. */
+    description: string;
+    /** "note" when the file has no type. */
+    type: string;
+    tags: string[];
+    /** Root basename for personal, "global" for global. */
+    label: string;
+    /** Last-modified time in Unix epoch milliseconds. */
+    mtimeMs: number;
+}
+
+interface MemoryListResult {
+    memories: MemoryEntry[];
+    /** Memory files that exist on disk but failed to read/parse (and are
+        therefore excluded from `memories` and the injected index). Clients
+        should surface these so users can fix or delete them — e.g. via
+        `/memory-consolidate`. Empty when everything parses. */
+    skipped: SkippedMemoryFile[];
+}
+
+interface SkippedMemoryFile {
+    /** Absolute path of the broken file. */
+    path: string;
+    tier: MemoryTier;
+    label: string;
+    /** Human-readable reason: unreadable file, YAML error, or a
+        missing name/description frontmatter requirement. */
+    reason: string;
+}
+```
+
+### Memory Index Loaded (⬅️)
+
+Sent on a user prompt turn when the rendered memory index, its reported items
+(including paths), or the total count change. Repeated identical notifications
+are suppressed. Clients can show "30 of 80 memory entries included" using `count`
+and `totalCount`. These counts refer to index entries, not full memory bodies read.
+To mark included entries in a memory panel, match `items[].path` against the `path`
+values from `memory/list`, using the notification for the selected `chatId`.
+This describes the last reported selection, not a prediction of the next prompt;
+list order alone does not identify included entries.
+If the budget cannot fit any entries, `count` is zero but `totalCount` still reports
+all valid entries found in the active memory directories. Other entries remain searchable.
+When a previously reported index is cleared, ECA sends one notification with
+`count: 0` and `items: []`; `totalCount` is zero if no entries were found or memory
+retrieval is disabled or failed. An initially empty store sends nothing.
+Memory retrieval remains limited to enabled, non-subagent chats.
+
+_Notification:_
+
+* method: `memory/indexLoaded`
+* params: `MemoryIndexLoadedParams` defined as follows:
+
+```typescript
+interface MemoryIndexLoadedItem {
+    name: string;
+    type: string;
+    /** Root basename for personal, "global" for global. */
+    source: string;
+    path: string;
+}
+
+interface MemoryIndexLoadedParams {
+    chatId: string;
+    /** Number of entries shown in the injected index (bounded by the index caps). */
+    count: number;
+    /** Valid entries found before applying index limits. Excludes skipped files.
+        Zero when retrieval is disabled or failed. */
+    totalCount: number;
+    items: MemoryIndexLoadedItem[];
+}
+```
 
 ## Background Jobs
 

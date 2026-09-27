@@ -233,6 +233,43 @@
             (is (= 2 @call-count*))
             (is (match? {:output-text "It is sunny."} next-result))))))))
 
+(deftest chat!-tool-loop-reapplies-prompt-injections-test
+  (testing "the re-issued tool-loop request re-applies call-scoped prompt-injections into text content"
+    (let [bodies* (atom [])
+          injections [{:content "## Memory INDEX-REDACTED"
+                       :target :last-user-message
+                       :merge :append-text}]]
+      (with-client-proxied {}
+        (fn handler [req]
+          (swap! bodies* conj (:body req))
+          {:status 200
+           :body (if (= 1 (count @bodies*))
+                   {:output {:message {:content [{:toolUse {:toolUseId "t1"
+                                                            :name "get_weather"
+                                                            :input {:city "Paris"}}}]}}
+                    :stopReason "tool_use"
+                    :usage {:inputTokens 5 :outputTokens 2}}
+                   {:output {:message {:content [{:text "Done."}]}}
+                    :stopReason "end_turn"
+                    :usage {:inputTokens 8 :outputTokens 4}})})
+        (let [result (llm-providers.bedrock/chat!
+                      {:model "model-x" :api-url "http://localhost:1" :api-key "k"
+                       :user-messages [{:role "user"
+                                        :content [{:type :text :text "weather?"}]}]
+                       :prompt-injections injections
+                       :past-messages []}
+                      nil)]
+          ((:call-tools-fn result)
+           (constantly {:new-messages [{:role "user"
+                                        :content [{:type :text :text "weather?"}]}]
+                        :tools nil}))
+          (let [reissued-messages (get (second @bodies*) :messages)]
+            (is (some #(= "## Memory INDEX-REDACTED" (get % :text))
+                      (mapcat #(get % :content) reissued-messages))
+                "the memory index must reach Bedrock as text content in continuation requests")
+            (is (not (re-find #"prompt-injections" (pr-str @bodies*)))
+                "injection metadata must never reach the wire")))))))
+
 ;; --- chat! streaming ---
 
 (defn ^:private collecting-callbacks [events*]

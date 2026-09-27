@@ -99,6 +99,21 @@
       (is (= "c1" (:id body)))
       (is (= "My Chat" (:title body)))))
 
+  (testing "stored history never carries request-local content and is exposed as-is"
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1"
+            :title "Hidden context"
+            :messages [{:role "user"
+                        :content [{:type :text :text "question"}]}]})
+    (doseq [request [nil {:params {:limit 1}}]]
+      (let [response (handlers/handle-get-chat (components) request "c1")
+            body (json/parse-string (:body response) true)
+            message (first (:messages body))]
+        (is (= 200 (:status response)))
+        (is (= "question" (get-in message [:content 0 :text])))
+        (is (not (contains? message :promptInjections))
+            "call-scoped prompt-injections never appear on stored messages, so they can never leak"))))
+
   (testing "returns the requested key as id even when the stored :id field has drifted"
     ;; The map key (path param) is authoritative; the client selects/restores
     ;; by it, so the response must echo it rather than the stale :id field.

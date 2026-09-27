@@ -3,6 +3,9 @@
 ## Unreleased
 
 - List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
+- Add opt-in personal Markdown memory with a bounded prompt index, usage tracking, `memory/list`, and `/memory-consolidate` cleanup.
+- Require clear permission for future chats before saving user preferences in memory; keep automatic technical findings in agent mode.
+- Inject the current date into chats as a deduped user-message stamp, re-sent only when the day changes, so models can anchor relative dates.
 
 ## 0.161.1
 
@@ -128,7 +131,6 @@
 - Store chats in per-chat cache files with a lazy-loaded index instead of one whole-workspace blob, fixing CPU spikes and slow startup as history grows; legacy caches migrate automatically. #557
 - Hooks `db_cache_path` now points at the workspace cache dir instead of `db.transit.json`; `read-chat --db-cache-path` accepts the dir or a legacy file. #557
 - Keep `compact_chat` in the tool schema across normal and compact requests, preserving prompt-cache prefixes while rejecting calls outside active compaction.
-
 - Provide token metrics for ollama provider. #567.
 
 ## 0.152.0

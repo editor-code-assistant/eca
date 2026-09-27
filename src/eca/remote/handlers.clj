@@ -49,6 +49,12 @@
 (defn ^:private camel-keys [m]
   (shared/map->camel-cased-map m))
 
+(defn ^:private public-messages [messages]
+  ;; Request-local content is never stored on db messages (prompt-injections
+  ;; live in call params and are applied at the outbound seam), so stored
+  ;; history is already safe to expose.
+  messages)
+
 (defn ^:private pending-tool-call? [[_ tc]]
   (or (= :waiting-approval (:status tc))
       ;; ask_user blocks inside its handler while :executing; surface it so
@@ -183,7 +189,7 @@
                 :status (or (:status chat) :idle)
                 :created-at (:created-at chat)
                 :updated-at (:updated-at chat)
-                :messages (if paginate? (:messages page) all-messages)
+                :messages (public-messages (if paginate? (:messages page) all-messages))
                 :task (:task chat)
                 :pending-tool-calls (pending-tool-calls chat)
                 ;; Effective selection: per-chat override if set, otherwise the

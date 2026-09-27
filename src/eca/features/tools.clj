@@ -4,6 +4,7 @@
   (:require
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.db :as db]
    [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.background :as f.tools.background]
    [eca.features.tools.chat :as f.tools.chat]
@@ -100,7 +101,7 @@
              (when remembered?
                {:decision :allow :rule {:source :session-remember}})
 
-             (when (and require-approval-fn (require-approval-fn args {:db db}))
+             (when (and require-approval-fn (require-approval-fn args {:db db :config config}))
                {:decision :ask :rule {:source :tool-built-in-check}})
 
              (when-let [rule (match-rule ask :config-ask)]
@@ -402,59 +403,61 @@
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
                   {:keys [trust]}]
-  (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
-  (let [arguments (update-keys arguments clojure.core/name)
-        db @db*
-        all-tools (all-tools chat-id agent-name db config)
-        tool-meta (resolve-tool full-name all-tools)
-        resolved-full-name (:full-name tool-meta full-name)
-        server-name (get-in tool-meta [:server :name])
-        tool-name (:name tool-meta)
-        arguments (if-let [parameters (:parameters tool-meta)]
-                    (tools.util/omit-optional-empty-string-args parameters arguments)
-                    arguments)
-        required-args-error (when-let [parameters (:parameters tool-meta)]
-                              (tools.util/required-params-error parameters arguments))]
-    (try
-      (when-not tool-meta
-        (throw (ex-info (format "Tool '%s' not found" full-name) {:full-name full-name
-                                                                  :arguments arguments
-                                                                  :all-tools (mapv :full-name all-tools)})))
-      (let [result (-> (if required-args-error
-                         required-args-error
-                         (if-let [native-tool-handler (and (= "eca" server-name)
-                                                           (get-in (native-definitions chat-id agent-name db config) [tool-name :handler]))]
-                           (native-tool-handler arguments {:db db
-                                                           :db* db*
-                                                           :config config
-                                                           :messenger messenger
-                                                           :agent agent-name
-                                                           :metrics metrics
-                                                           :chat-id chat-id
-                                                           :all-tools all-tools
-                                                           :tool-call-id tool-call-id
-                                                           :call-state-fn call-state-fn
-                                                           :state-transition-fn state-transition-fn
-                                                           :trust trust})
-                           (f.mcp/call-tool! server-name tool-name arguments {:db db
-                                                                              :db* db*
-                                                                              :config config
-                                                                              :metrics metrics})))
-                       (tools.util/maybe-truncate-output config tool-call-id))]
-        (logger/debug logger-tag "Tool call result: " result)
-        (metrics/count-up! "tool-called" {:name resolved-full-name :error (:error result)} metrics)
-        (if-let [r (:rollback-changes result)]
-          (do
-            (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
-            (dissoc result :rollback-changes))
-          result))
-      (catch Exception e
-        (let [error-msg (or (.getMessage e) (.getName (class e)))]
-          (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name error-msg (with-out-str (.printStackTrace e))))
-          (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
-          {:error true
-           :contents [{:type :text
-                       :text (str "Error calling tool: " error-msg)}]})))))
+  (let [db @db*
+        parent-chat-id (db/parent-chat-id db chat-id)]
+    (logger/with-chat-context chat-id parent-chat-id
+      (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
+      (let [arguments (update-keys arguments clojure.core/name)
+            all-tools (all-tools chat-id agent-name db config)
+            tool-meta (resolve-tool full-name all-tools)
+            resolved-full-name (:full-name tool-meta full-name)
+            server-name (get-in tool-meta [:server :name])
+            tool-name (:name tool-meta)
+            arguments (if (:parameters tool-meta)
+                        (tools.util/omit-optional-empty-string-args (:parameters tool-meta) arguments)
+                        arguments)
+            required-args-error (when-let [parameters (:parameters tool-meta)]
+                                  (tools.util/required-params-error parameters arguments))]
+        (try
+          (when-not tool-meta
+            (throw (ex-info (format "Tool '%s' not found" full-name) {:full-name full-name
+                                                                      :arguments arguments
+                                                                      :all-tools (mapv :full-name all-tools)})))
+          (let [result (-> (if required-args-error
+                             required-args-error
+                             (if-let [native-tool-handler (and (= "eca" server-name)
+                                                               (get-in (native-definitions chat-id agent-name db config) [tool-name :handler]))]
+                               (native-tool-handler arguments {:db db
+                                                               :db* db*
+                                                               :config config
+                                                               :messenger messenger
+                                                               :agent agent-name
+                                                               :metrics metrics
+                                                               :chat-id chat-id
+                                                               :all-tools all-tools
+                                                               :tool-call-id tool-call-id
+                                                               :call-state-fn call-state-fn
+                                                               :state-transition-fn state-transition-fn
+                                                               :trust trust})
+                               (f.mcp/call-tool! server-name tool-name arguments {:db db
+                                                                                  :db* db*
+                                                                                  :config config
+                                                                                  :metrics metrics})))
+                           (tools.util/maybe-truncate-output config tool-call-id))]
+            (logger/debug logger-tag "Tool call result: " result)
+            (metrics/count-up! "tool-called" {:name resolved-full-name :error (:error result)} metrics)
+            (if-let [r (:rollback-changes result)]
+              (do
+                (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
+                (dissoc result :rollback-changes))
+              result))
+          (catch Exception e
+            (let [error-msg (or (.getMessage e) (.getName (class e)))]
+              (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name error-msg (with-out-str (.printStackTrace e))))
+              (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
+              {:error true
+               :contents [{:type :text
+                           :text (str "Error calling tool: " error-msg)}]})))))))
 
 (defn ^:private notify-server-updated [metrics messenger tool-status-fn server]
   (metrics/count-up! "mcp-server-status" {:name (:name server)

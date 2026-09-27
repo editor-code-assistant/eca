@@ -372,12 +372,12 @@
                           "x-initiator" "user"})})
       (is (= {:model "claude" :messages [{:role "user"}] :stream false}
              @seen-body*))
-            (is (= "interleaved-thinking-2025-05-14"
-                   (get-in @req* [:headers "anthropic-beta"])))
-            (is (not (string/includes? (get-in @req* [:headers "anthropic-beta"])
-                                       "oauth-2025-04-20"))
-                "Copilot's GitHub bearer must not opt into Anthropic OAuth beta behavior")
-            (is (= "user" (get-in @req* [:headers "x-initiator"]))))))
+      (is (= "interleaved-thinking-2025-05-14"
+             (get-in @req* [:headers "anthropic-beta"])))
+      (is (not (string/includes? (get-in @req* [:headers "anthropic-beta"])
+                                 "oauth-2025-04-20"))
+          "Copilot's GitHub bearer must not opt into Anthropic OAuth beta behavior")
+      (is (= "user" (get-in @req* [:headers "x-initiator"]))))))
 
 (deftest oauth-authorize-test
   (testing "exchanges an OAuth code for tokens and returns refresh/access tokens with expiry"
@@ -851,19 +851,31 @@
 
 (deftest finalize-messages-test
   (let [cache {:type "ephemeral"}
-        finalize #'llm-providers.anthropic/finalize-messages]
+        finalize #'llm-providers.anthropic/finalize-messages
+        tail-content "RECALL"]
     (testing "mid-system? false behaves like add-cache-to-last-message (no trailing system message)"
       (is (match?
            [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}]
-           (finalize [{:role "user" :content "hi"}] cache false "DYN"))))
-    (testing "mid-system? true appends dynamic as a trailing system message, cache stays on the prior turn"
+           (finalize [{:role "user" :content "hi"}] cache false "DYN" tail-content))))
+    (testing "dynamic instructions and tail-system injection trail the cached user turn in stable order"
       (is (match?
            [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}
-            {:role "system" :content [{:type "text" :text "DYN"}]}]
-           (finalize [{:role "user" :content "hi"}] cache true "DYN"))))
-    (testing "the trailing system message carries no cache_control so it stays uncached"
-      (is (nil? (-> (finalize [{:role "user" :content "hi"}] cache true "DYN")
-                    last :content first :cache_control))))))
+            {:role "system"
+             :content [{:type "text" :text "DYN"}
+                       {:type "text" :text "RECALL"}]}]
+           (finalize [{:role "user" :content "hi"}] cache true "DYN" tail-content))))
+    (testing "injection works without dynamic instructions and remains uncached"
+      (let [messages (finalize [{:role "user" :content "hi"}] cache true nil tail-content)]
+        (is (= "RECALL" (-> messages last :content first :text)))
+        (is (= cache (-> messages first :content first :cache_control)))
+        (is (nil? (-> messages last :content first :cache_control)))))
+    (testing "tool-loop follow-ups retain the same tail injection after the new cache breakpoint"
+      (let [messages (finalize [{:role "assistant" :content [{:type "tool_use" :id "t1"}]}
+                                {:role "user" :content [{:type "tool_result" :tool_use_id "t1" :content "ok"}]}]
+                               cache true "DYN" tail-content)]
+        (is (= cache (-> messages (nth 1) :content last :cache_control)))
+        (is (= ["DYN" "RECALL"]
+               (mapv :text (:content (last messages)))))))))
 
 (deftest chat!-mid-conversation-system-test
   (let [base-params {:model "claude-opus-4-8"
@@ -871,6 +883,9 @@
                      :api-key "fake-key"
                      :auth-type :auth/key
                      :instructions {:static "STATIC" :dynamic "DYNAMIC"}
+                     :prompt-injections [{:content "RECALLED EXACT BYTES"
+                                          :target :tail-system-message
+                                          :merge :append-text}]
                      :user-messages [{:role "user" :content "hello"}]
                      :past-messages []}
         run! (fn [params]
@@ -887,17 +902,24 @@
             "dynamic block present in :system")
         (is (not-any? #(= "system" (:role %)) (:messages body))
             "no system-role entry inside the messages array")))
-    (testing "flag on moves dynamic out of :system into a trailing system message after the user turn"
-      (let [body (run! (assoc base-params :mid-conversation-system? true))]
+    (testing "flag on places dynamic and tail-system injection after the cached user turn"
+      (let [body (run! (assoc base-params :mid-conversation-system? true))
+            messages (:messages body)
+            cached-user (nth messages (- (count messages) 2))]
         (is (some #(= "STATIC" (:text %)) (:system body))
             "static block still in :system")
         (is (not-any? #(= "DYNAMIC" (:text %)) (:system body))
             "dynamic block removed from :system")
-        (is (match? {:role "system" :content [{:type "text" :text "DYNAMIC"}]}
-                    (last (:messages body)))
-            "dynamic appended as the trailing system message")
-        (is (= "user" (:role (last (butlast (:messages body)))))
-            "trailing system message follows a user turn")))))
+        (is (= "user" (:role cached-user)))
+        (is (= {:type "ephemeral"}
+               (-> cached-user :content last :cache_control))
+            "cache breakpoint is on the genuine user turn before the tail injection")
+        (is (= {:role "system"
+                :content [{:type "text" :text "DYNAMIC"}
+                          {:type "text" :text "RECALLED EXACT BYTES"}]}
+               (last messages))
+            "exact recall bytes are the final uncached system content block")
+        (is (every? nil? (map :cache_control (:content (last messages)))))))))
 
 (deftest chat!-stream-refusal-test
   (let [run-stream! (fn [message-delta-data]
@@ -1106,3 +1128,49 @@
                                                       :delta {:stop_reason "end_turn"}
                                                       :usage {:output_tokens 5}})
                                 (sse "message_stop" {:type "message_stop"})]))))))
+
+(deftest tail-injection-keeps-prior-anthropic-cache-prefix-stable-test
+  (let [run! (fn [params]
+               (let [req* (atom nil)]
+                 (with-client-proxied {}
+                   (fn handler [req]
+                     (reset! req* req)
+                     {:status 200 :body {:content [{:text "ok"}]}})
+                   (llm-providers.anthropic/chat! params nil))
+                 (:body @req*)))
+        base {:model "claude-opus-4-8"
+              :api-url "http://localhost:1"
+              :api-key "fake-key"
+              :auth-type :auth/key
+              :mid-conversation-system? true}
+        tail-injection (fn [content]
+                         [{:content content
+                           :target :tail-system-message
+                           :merge :append-text}])
+        first-body (run! (assoc base
+                                :instructions {:static "STATIC" :dynamic "DYNAMIC-A"}
+                                :prompt-injections (tail-injection "MEMORY-A")
+                                :past-messages []
+                                :user-messages [{:role "user" :content "USER-1"}]))
+        second-body (run! (assoc base
+                                 :instructions {:static "STATIC" :dynamic "DYNAMIC-B"}
+                                 :prompt-injections (tail-injection "MEMORY-B")
+                                 :past-messages [{:role "user" :content "USER-1"}
+                                                 {:role "assistant" :content "ASSISTANT-1"}]
+                                 :user-messages [{:role "user" :content "USER-2"}]))
+        canonical-prefix-message (fn [{:keys [role content]}]
+                                   {:role role
+                                    :texts (if (string? content)
+                                             [content]
+                                             (mapv :text content))})
+        first-stable-prefix (mapv canonical-prefix-message (butlast (:messages first-body)))
+        second-replayed-prefix (mapv canonical-prefix-message
+                                     (take (count first-stable-prefix) (:messages second-body)))]
+    (is (= first-stable-prefix second-replayed-prefix)
+        "Changing the tail injection must not alter the previously cached prefix")
+    (is (= ["DYNAMIC-A" "MEMORY-A"]
+           (mapv :text (:content (last (:messages first-body))))))
+    (is (= ["DYNAMIC-B" "MEMORY-B"]
+           (mapv :text (:content (last (:messages second-body))))))
+    (is (not (string/includes? (pr-str (:messages second-body)) "MEMORY-A"))
+        "Request-only injection from the prior turn is not replayed past its cache boundary")))

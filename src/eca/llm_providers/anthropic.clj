@@ -293,26 +293,26 @@
                             :tool_use_id (:tool-use-id content)
                             :content (:raw-content content)}]})
 
-            (-> msg
-                (update :content (fn [c]
-                                   (if (string? c)
-                                     (string/trim c)
-                                     (vec
-                                      (keep #(when-let [t (:type %)]
-                                               (case (name t)
+              (-> msg
+                  (update :content (fn [c]
+                                     (if (string? c)
+                                       (string/trim c)
+                                       (vec
+                                        (keep #(when-let [t (:type %)]
+                                                 (case (name t)
 
-                                                 "text"
-                                                 (update % :text string/trim)
+                                                   "text"
+                                                   (update % :text string/trim)
 
-                                                 "image"
-                                                 (when supports-image?
-                                                   {:type "image"
-                                                    :source {:data (:base64 %)
-                                                             :media_type (:media-type %)
-                                                             :type "base64"}})
+                                                   "image"
+                                                   (when supports-image?
+                                                     {:type "image"
+                                                      :source {:data (:base64 %)
+                                                               :media_type (:media-type %)
+                                                               :type "base64"}})
 
-                                                 %))
-                                            c)))))))))
+                                                   %))
+                                              c)))))))))
         past-messages))
 
 (defn ^:private group-parallel-tool-calls
@@ -394,18 +394,21 @@
          (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
 
 (defn ^:private finalize-messages
-  "Adds the trailing cache breakpoint and, when `mid-system?`, appends the
-   volatile `dynamic` instructions as a `role: \"system\"` entry after the last
-   (user) turn. The cache breakpoint stays on the last real user/tool turn so
-   the volatile system entry is left uncached and the stable history prefix
-   keeps being cached across turns instead of being invalidated whenever
-   `dynamic` changes."
-  [messages cache-control mid-system? dynamic]
-  (let [cached (add-cache-to-last-message messages cache-control)]
-    (if mid-system?
-      (conj cached {:role "system"
-                    :content [{:type "text" :text dynamic}]})
-      cached)))
+  "Adds the trailing cache breakpoint, then appends supported request-only
+   context in one trailing system message. Dynamic instructions and
+   `:tail-system-message` prompt-injections stay distinct content blocks after
+   the stable cached prefix, deliberately uncached."
+  [messages cache-control mid-system? dynamic tail-content]
+  (let [tail-blocks (when mid-system?
+                      (cond-> []
+                        (not (string/blank? dynamic))
+                        (conj {:type "text" :text dynamic})
+
+                        (not (string/blank? tail-content))
+                        (conj {:type "text" :text tail-content})))]
+    (cond-> (add-cache-to-last-message messages cache-control)
+      (seq tail-blocks)
+      (conj {:role "system" :content tail-blocks}))))
 
 (defn ^:private max-tokens-input-overflow?
   "Heuristic: when stop_reason is 'max_tokens' but output was barely
@@ -446,7 +449,7 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens
            api-url api-key auth-type url-relative-path reason? past-messages
-           tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
+           tools web-search mid-conversation-system? prompt-injections extra-payload extra-headers supports-image? http-client cancelled?
            stream-idle-timeout-seconds cache-retention]}
    {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search retry-request] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
@@ -457,14 +460,24 @@
         stream? (boolean callbacks)
         cache-control (cache-control-value api-url cache-retention)
         {:keys [static dynamic]} (if (map? instructions)
-                                    instructions
-                                    {:static instructions :dynamic nil})
+                                   instructions
+                                   {:static instructions :dynamic nil})
+        ;; :tail-system-message prompt-injections are joined into one trailing
+        ;; uncached system block; :last-user-message ones are applied by the
+        ;; message-sanitize seam on both the initial build and continuations.
+        tail-content (->> prompt-injections
+                          (filter #(= :tail-system-message (:target %)))
+                          (keep :content)
+                          (string/join "\n\n"))
+        user-injections (->> prompt-injections
+                             (remove #(= :tail-system-message (:target %)))
+                             vec)
         ;; Opus 4.8+ accepts `role: system` entries inside the messages array.
-        ;; When supported, the volatile dynamic instructions move out of the
-        ;; cached :system prefix into a trailing system message, so a changing
-        ;; dynamic block no longer invalidates the cached conversation history.
+        ;; Keep both dynamic instructions and request-only memory after the
+        ;; cache breakpoint when the selected Anthropic model supports it.
         mid-system? (and mid-conversation-system?
-                         (not (string/blank? dynamic))
+                         (or (not (string/blank? dynamic))
+                             (not (string/blank? tail-content)))
                          (= "user" (:role (last messages))))
         system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
                                {:type "text" :text static :cache_control cache-control}]
@@ -473,7 +486,7 @@
         body (merge
               (assoc-some
                {:model model
-                :messages (finalize-messages messages cache-control mid-system? dynamic)
+                :messages (finalize-messages messages cache-control mid-system? dynamic tail-content)
                 :max_tokens (or max-output-tokens 32000)
                 :stream stream?
                 :tools (add-cache-to-last-tool (->tools tools web-search) cache-control)
@@ -521,9 +534,9 @@
                                                           (reset! has-content?* true)
                                                           (swap! content-block* assoc (:index data) content-block)
                                                           (on-server-web-search {:status :started
-                                                                                  :id (:id content-block)
-                                                                                  :name (:name content-block)
-                                                                                  :input (:input content-block)}))
+                                                                                 :id (:id content-block)
+                                                                                 :name (:name content-block)
+                                                                                 :input (:input content-block)}))
                                       "web_search_tool_result" (let [content-block (:content_block data)
                                                                      results (keep (fn [{:keys [type title url]}]
                                                                                      (when (= "web_search_result" type)
@@ -560,16 +573,16 @@
                                                                     :id @reason-id*})
                                       nil)
               "content_block_stop" (when-let [content-block (get @content-block* (:index data))]
-                                    (case (:type content-block)
-                                      "redacted_thinking" (on-reason {:status :finished
-                                                                      :id @reason-id*})
-                                      "server_tool_use" (let [input (when-let [json-str (:input-json content-block)]
-                                                                      (json/parse-string json-str))]
-                                                          (on-server-web-search {:status :input-ready
-                                                                                 :id (:id content-block)
-                                                                                 :name (:name content-block)
-                                                                                 :input (or input (:input content-block) {})}))
-                                      nil))
+                                     (case (:type content-block)
+                                       "redacted_thinking" (on-reason {:status :finished
+                                                                       :id @reason-id*})
+                                       "server_tool_use" (let [input (when-let [json-str (:input-json content-block)]
+                                                                       (json/parse-string json-str))]
+                                                           (on-server-web-search {:status :input-ready
+                                                                                  :id (:id content-block)
+                                                                                  :name (:name content-block)
+                                                                                  :input (or input (:input content-block) {})}))
+                                       nil))
               "message_delta" (do
                                 (when (-> data :delta :stop_reason)
                                   (reset! has-stop-reason?* true))
@@ -590,12 +603,12 @@
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
                                                  (let [messages (-> new-messages
-                                                                    message-sanitize/sanitize-outbound-messages
+                                                                    (message-sanitize/sanitize-outbound-messages user-injections)
                                                                     group-parallel-tool-calls
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
                                                                     merge-adjacent-tool-results
-                                                                    (finalize-messages cache-control mid-system? dynamic))]
+                                                                    (finalize-messages cache-control mid-system? dynamic tail-content))]
                                                    (reset! content-block* {})
                                                    (request-with-retry!
                                                     {:rid (llm-util/gen-rid)

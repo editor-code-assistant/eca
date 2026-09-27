@@ -79,7 +79,7 @@
    change during a server's lifetime."
   (memoize linked-worktree-root*))
 
-(defn ^:private canonicalize-workspace-path
+(defn canonicalize-workspace-path
   "Canonical identity path for a workspace folder: linked git worktrees map to
    their repository's main worktree root so chat history is shared across all
    worktrees of a repo (#558). Anything else returns unchanged, keeping

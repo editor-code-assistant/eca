@@ -13,6 +13,8 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.render :as f.memory.render]
    [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
@@ -305,6 +307,14 @@
                        :type :native
                        :description "List active hooks grouped by type."
                        :arguments []}]
+        eca-commands (cond-> eca-commands
+                       (f.memory/enabled? config)
+                       (conj {:name "memory-consolidate"
+                              :type :native
+                              :description "Review, merge and clean up durable memory files"
+                              :arguments [{:name "additional-input"
+                                           :description "Extra instructions for the consolidation run"
+                                           :required false}]}))
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -678,6 +688,32 @@
               :on-finished-side-effect (fn []
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
+      "memory-consolidate" (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
+                             ;; :eca-command dispatches never receive the per-turn memory
+                             ;; index (chat.clj gates it on :prompt-message), so the dir
+                             ;; list + usage snapshot are injected directly into the
+                             ;; prompt text here, where db/config are available.
+                             (let [args-text (string/join " " args)
+                                   snapshot (try
+                                              (f.memory.render/consolidate-snapshot-text
+                                               {:dirs (f.memory/memory-dirs db config)
+                                                :entries (f.memory/scan-memories db config)
+                                                :skipped (f.memory/skipped-files db config)})
+                                              (catch Throwable e
+                                                (logger/warn "[commands]"
+                                                             "Could not build memory usage snapshot for /memory-consolidate"
+                                                             (ex-message e))
+                                                "usage snapshot unavailable"))
+                                   prompt (str (f.prompt/memory-consolidate-prompt agent config)
+                                               "\n\n## Memory directories and usage snapshot\n"
+                                               snapshot
+                                               (when-not (string/blank? args-text)
+                                                 (str "\n\n## Additional instructions from the user\n" args-text)))]
+                               (swap! db* assoc-in [:chats chat-id :memory-consolidating?] true)
+                               {:type :send-prompt
+                                :prompt prompt
+                                :on-finished-side-effect (fn []
+                                                           (swap! db* update-in [:chats chat-id] dissoc :memory-consolidating?))}))
       "compact" (let [custom-instructions (string/join " " args)
                       {:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions)]
                   (if blocked?
@@ -866,7 +902,7 @@
                    (let [_ (db/hydrate-chat! db* selected-chat-id metrics)
                          chat (get-in @db* [:chats selected-chat-id])]
                      (swap! db* assoc-in [:chats chat-id] (assoc chat :id chat-id))
-                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting?)
+                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting? :memory-consolidating?)
                      (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
                      ;; The resumed content now lives under chat-id; drop the
                      ;; old id from memory and cache, tombstoning it so peer
@@ -1093,7 +1129,7 @@
                          replaced? (contains? (:chats db) imported-id)
                          model-available? (contains? (:models db) (:model chat))
                          imported-chat (-> chat
-                                           (dissoc :prompt-finished? :auto-compacting? :compacting?
+                                           (dissoc :prompt-finished? :auto-compacting? :compacting? :memory-consolidating?
                                                    :tool-calls :last-status-payload)
                                            (assoc :status :idle :prompt-finished? true))
                          summary (multi-str

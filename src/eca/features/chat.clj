@@ -15,6 +15,7 @@
    [eca.features.context :as f.context]
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
+   [eca.features.memory.retrieval :as f.memory.retrieval]
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
@@ -112,7 +113,9 @@
      ;; Deferred tools are tracked separately because they render a catalog into
      ;; the static prompt, unlike normal tools whose schemas are sent per turn.
      :tools (sha {:names (sort (map :full-name all-tools))
-                  :deferrable (sort (map :full-name (filter :deferrable all-tools)))})}))
+                  :deferrable (sort (map :full-name (filter :deferrable all-tools)))})
+     :memory (sha {:enabled (boolean (get-in config [:memory :enabled]))
+                   :write-mode (or (get-in config [:memory :writeMode]) "agent")})}))
 
 (defn ^:private changed-system-prompt-categories
   "Names of system prompt categories that changed vs the cached signature.
@@ -669,13 +672,13 @@
 
 (defn ^:private compact-finished-side-effect!
   "on-finished-side-effect for a mid-turn compaction: clear the auto-compacting
-   flag, apply the compact side effects and run postCompact hooks for `trigger`
-   (\"auto\" or \"manual\"). When a postCompact hook stops the turn
-   (continue:false), surface the reason and finish here (postRequest hooks were
-   already skipped while auto-compacting), returning {:stop-after-finish? true}
-   so the resume continuation does not fire."
+   and memory-consolidating flags, apply the compact side effects and run
+   postCompact hooks for `trigger` (\"auto\" or \"manual\"). When a postCompact
+   hook stops the turn (continue:false), surface the reason and finish here
+   (postRequest hooks were already skipped while auto-compacting), returning
+   {:stop-after-finish? true} so the resume continuation does not fire."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
-  (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
+  (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :memory-consolidating?)
   (let [{:keys [stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)]
     (when stop-turn?
       (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
@@ -683,7 +686,10 @@
     {:stop-after-finish? stop-turn?}))
 
 (defn ^:private resume-after-compact!
-  "on-after-finish! for a mid-turn compaction: resume the original user task."
+  "on-after-finish! for a mid-turn compaction: resume the original user task.
+   The resumed prompt reuses the pre-compact `:prompt-injections` (memory
+   index) bytes: refreshing the index mid-turn is not worth a full memory-dir
+   rescan, and the next real user turn rescans anyway."
   [chat-ctx user-messages]
   (prompt-messages!
    (concat [{:role "user"
@@ -729,7 +735,7 @@
          [{:role "user" :content "Compact the chat following the template:"}
           {:role "user" :content compact-prompt}]
          :auto-compact
-         (assoc chat-ctx
+         (assoc (dissoc chat-ctx :prompt-injections)
                 :on-finished-side-effect #(compact-finished-side-effect! chat-ctx trigger)
                 :on-after-finish! #(resume-after-compact! chat-ctx user-messages)))
         nil))))
@@ -982,6 +988,11 @@
           (string/trim)
           (as-> t (subs t 0 (min (count t) 40)))))))
 
+(defn ^:private message-has-date? [message date]
+  (and date
+       (= "user" (:role message))
+       (some #(= {:type :text :text date} %) (:content message))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -994,42 +1005,86 @@
   (let [original-text (or message (-> user-messages first :content first :text))
         modify-allowed? (= source-type :prompt-message)
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
-        user-messages (if run-hooks?
-                        (let [{:keys [final-prompt additional-contexts stop-turn? blocked?] :as pre-request-state}
-                              (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
-                          (cond
-                            (or stop-turn? blocked?) (do (finish-blocked-or-stopped-pre-request! chat-ctx pre-request-state) nil)
-                            :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
-                                          ;; preRequest additionalContext should ideally attach to the last user message,
-                                          ;; but some prompt sources may not contain a user role (e.g. prompt templates).
-                                        context-idx   (or last-user-idx
-                                                          (some-> user-messages seq count dec))
-                                        rewritten     (if (and modify-allowed? last-user-idx final-prompt)
-                                                        (assoc-in user-messages [last-user-idx :content 0 :text] final-prompt)
-                                                        user-messages)
-                                        with-contexts (cond
-                                                        (and (seq additional-contexts) context-idx)
-                                                        (reduce (fn [msgs {:keys [content]}]
-                                                                  (update-in msgs [context-idx :content]
-                                                                             #(conj (if (string? %)
-                                                                                      [{:type :text :text %}]
-                                                                                      (vec %))
-                                                                                    {:type :text
-                                                                                     :text (lifecycle/wrap-additional-context content)})))
-                                                                rewritten
-                                                                additional-contexts)
+        [user-messages prompt-message-turn?]
+        (if run-hooks?
+          (let [{:keys [final-prompt additional-contexts stop-turn? blocked?] :as pre-request-state}
+                (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
+            (cond
+              (or stop-turn? blocked?)
+              (do
+                (finish-blocked-or-stopped-pre-request! chat-ctx pre-request-state)
+                [nil nil])
 
-                                                        (seq additional-contexts)
-                                                        (do (logger/warn logger-tag "Dropping preRequest additionalContext because no message index was found"
-                                                                         {:source-type source-type
-                                                                          :num-messages (count user-messages)})
-                                                            rewritten)
+              :else
+              (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
+                    ;; preRequest additionalContext should ideally attach to the last user message,
+                    ;; but some prompt sources may not contain a user role (e.g. prompt templates).
+                    context-idx   (or last-user-idx
+                                      (some-> user-messages seq count dec))
+                    rewritten     (if (and modify-allowed? last-user-idx final-prompt)
+                                    (assoc-in user-messages [last-user-idx :content 0 :text] final-prompt)
+                                    user-messages)
+                    with-contexts (cond
+                                    (and (seq additional-contexts) context-idx)
+                                    (reduce (fn [msgs {:keys [content]}]
+                                              (update-in msgs [context-idx :content]
+                                                         #(conj (if (string? %)
+                                                                  [{:type :text :text %}]
+                                                                  (vec %))
+                                                                {:type :text
+                                                                 :text (lifecycle/wrap-additional-context content)})))
+                                            rewritten
+                                            additional-contexts)
 
-                                                        :else
-                                                        rewritten)]
-                                    with-contexts)))
-                        user-messages)
+                                    (seq additional-contexts)
+                                    (do
+                                      (logger/warn logger-tag "Dropping preRequest additionalContext because no message index was found"
+                                                   {:source-type source-type
+                                                    :num-messages (count user-messages)})
+                                      rewritten)
+
+                                    :else
+                                    rewritten)]
+                [with-contexts
+                 (= :prompt-message source-type)])))
+          [user-messages nil])
+        current-db @db*
+        tail-system-supported? (llm-api/tail-system-injection-supported?
+                                provider model (get-in current-db [:models full-model])
+                                config)
+        memory-index (when (and user-messages prompt-message-turn?)
+                       (f.memory.retrieval/provide
+                        {:chat-id chat-id
+                         :db current-db
+                         :config config
+                         :metrics metrics}))
+        ;; Call-scoped prompt injections: the per-turn memory index rides either
+        ;; the trailing uncached system message (Anthropic mid-system models) or
+        ;; the last user message (everyone else). Applied at the outbound seam on
+        ;; every payload build and NEVER stored on db messages. The current date
+        ;; does not ride this seam; it is appended to the user message with
+        ;; cursor-style dedupe (see prompt!). Auto-compact resume reuses the
+        ;; pre-compact injections via chat-ctx.
+        prompt-injections (or (:prompt-injections chat-ctx)
+                              (when (and user-messages prompt-message-turn? (:content memory-index))
+                                [{:content (:content memory-index)
+                                  :target (if tail-system-supported?
+                                            :tail-system-message
+                                            :last-user-message)
+                                  :merge :append-text}]))
         prompt-id (random-uuid)]
+    (when (and user-messages prompt-message-turn?)
+      ;; Paths can change without changing the rendered text. A nil index
+      ;; clears a previously reported index once, but sends nothing initially.
+      (let [fingerprint (when memory-index (select-keys memory-index [:content :items :total-count]))]
+        (when (and (satisfies? messenger/IMemoryMessenger messenger)
+                   (not= fingerprint (get-in @db* [:chats chat-id :memory-index-fingerprint])))
+          (swap! db* assoc-in [:chats chat-id :memory-index-fingerprint] fingerprint)
+          (messenger/memory-index-loaded messenger
+                                         {:chat-id chat-id
+                                          :count (or (:item-count memory-index) 0)
+                                          :total-count (or (:total-count memory-index) 0)
+                                          :items (or (:items memory-index) [])}))))
     (when user-messages
       (when (#{:running :stopping} (get-in @db* [:chats chat-id :status]))
         (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
@@ -1049,7 +1104,8 @@
       ;; prompt keeps the record in sync with the user's current pick.
       (swap! db* assoc-in [:chats chat-id :variant] (:variant chat-ctx))
       (swap! db* update-in [:chats chat-id :user-prompt-count] (fnil inc 0))
-      (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
+      (let [chat-ctx (cond-> (assoc chat-ctx :prompt-id prompt-id)
+                       (seq prompt-injections) (assoc :prompt-injections prompt-injections))
             _ (lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
             db @db*
             model-capabilities (get-in db [:models full-model])
@@ -1074,7 +1130,11 @@
                                                        "server_tool_use" "server_tool_result"} role))
                                              (assoc with-ts :content (assoc content :api current-api))
                                              with-ts)]
-                                (swap! db* update-in [:chats chat-id :messages] (fnil conj []) tagged)
+                                (swap! db* update-in [:chats chat-id]
+                                       (fn [chat]
+                                         (cond-> (update chat :messages (fnil conj []) tagged)
+                                           (message-has-date? msg (:date-context chat-ctx))
+                                           (assoc :last-injected-date (:date-context chat-ctx)))))
                                 ;; Persist after meaningful history mutations so a
                                 ;; long-running chat is recoverable mid-loop even if
                                 ;; ECA dies (crash, kill, host reboot) before the
@@ -1162,6 +1222,7 @@
                 :model-capabilities model-capabilities
                 :user-messages user-messages
                 :instructions  instructions
+                :prompt-injections prompt-injections
                 :past-messages (messages-to-send @db* chat-id full-model)
                 :config  config
                 :tools all-tools
@@ -1223,7 +1284,8 @@
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
                                                 (add-to-history!
-                                                 (assoc message :content-id (:user-content-id chat-ctx))))
+                                                 (assoc message
+                                                        :content-id (:user-content-id chat-ctx))))
                                               (swap! db* assoc-in [:chats chat-id :last-api] (:api (llm-api/provider->api-handler provider model model-capabilities config)))
                                               (lifecycle/send-content! chat-ctx :system {:type :progress
                                                                                          :state :running
@@ -1252,7 +1314,7 @@
                                                              {:type :text
                                                               :text (str "API limit reached. Tokens: "
                                                                          (json/generate-string (:tokens msg)))})
-                                                            (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+                                                            (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?)
                                                             (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
                                          :refusal (do (lifecycle/send-content!
                                                        chat-ctx
@@ -1265,7 +1327,7 @@
                                                                    (when-let [explanation (:explanation msg)]
                                                                      (str " " explanation))
                                                                    " Try rephrasing or switching to a different model.")})
-                                                      (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+                                                      (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?)
                                                       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
                                          :finish (let [response-text @received-msgs*
                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
@@ -1296,7 +1358,7 @@
                                                         (assoc chat-ctx
                                                                :on-finished-side-effect
                                                                (fn []
-                                                                 (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                 (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :memory-consolidating?))
                                                                :on-after-finish!
                                                                (fn []
                                                                  (prompt-messages!
@@ -1576,7 +1638,7 @@
                                                                  (assoc chat-ctx
                                                                         :on-finished-side-effect
                                                                         (fn []
-                                                                          (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                          (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :memory-consolidating?))
                                                                         :on-after-finish!
                                                                         (fn []
                                                                           (prompt-messages! retry-messages
@@ -1667,7 +1729,7 @@
                                                                 (>= auto-continue-count auto-continue-limit) :limit-reached)
                                       can-auto-continue? (nil? recovery-blocked-reason)]
                                   (when compacting?
-                                    (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?))
+                                    (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?))
                                   (when-not (string/blank? partial-text)
                                     (add-to-history! {:role "assistant"
                                                       :content [{:type :text :text partial-text}]}))
@@ -1691,7 +1753,7 @@
                                                                      (assoc chat-ctx
                                                                             :on-finished-side-effect
                                                                             (fn []
-                                                                              (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                              (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :memory-consolidating?))
                                                                             :on-after-finish!
                                                                             (fn []
                                                                               (prompt-messages!
@@ -1736,7 +1798,7 @@
                   (logger/error e)
                   (swap! db* assoc-in [:chats chat-id :prompt-error]
                          (prompt-error-data {:exception e} :unknown))
-                  (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+                  (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?)
                   (when-not (string/blank? @received-msgs*)
                     (add-to-history! {:role "assistant"
                                       :content [{:type :text :text @received-msgs*}]}))
@@ -2013,16 +2075,29 @@
                 (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context))
             editor-state-contents (when editor-state-changed?
                                     [{:type :text :text editor-state-context}])
+            ;; Current date uses the same mechanism as the cursor: appended to
+            ;; the user message and deduped per chat, so it enters the history
+            ;; once per day change (first turn, midnight rollover, resumed chat
+            ;; from an earlier day, or after compaction/chat-clear drops the
+            ;; dedupe field). Multi-day history dates itself via these stamps,
+            ;; like Codex's environment context fragment.
+            date-context (str "Current date: " (java.time.LocalDate/now))
+            date-changed? (not= date-context
+                                (get-in db [:chats chat-id :last-injected-date]))
+            date-contents (when date-changed?
+                            [{:type :text :text date-context}])
             user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                                expanded-prompt-contexts
                                                                text-contents
                                                                editor-state-contents
+                                                               date-contents
                                                                image-contents))}]
             [provider model] (when full-model (shared/full-model->provider+model full-model))
             chat-ctx (merge base-chat-ctx
                             {:instructions instructions
                              :all-tools all-tools
                              :user-messages user-messages
+                             :date-context (when date-changed? date-context)
                              :full-model full-model
                              :provider provider
                              :model model
@@ -2454,7 +2529,7 @@
                                     {:reason {:code :user-prompt-stop
                                               :text "Tool call rejected because of user prompt stop"}}))
         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
-        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?)
         (lifecycle/finish-chat-prompt! :stopping (lifecycle/strip-hook-callbacks chat-ctx))))))
 
 (defn delete-chat
@@ -2499,7 +2574,8 @@
                ;; of warning about an invalidated cache that no longer exists. #530
                messages (-> (assoc :messages [])
                             (dissoc :tool-calls :last-api :usage :task
-                                    :prompt-cache :last-editor-state)))))
+                                    :prompt-cache :last-editor-state
+                                    :last-injected-date)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/save-chat! @db* chat-id metrics)))
 
@@ -2543,27 +2619,32 @@
                               (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
                               flatten
                               reverse)]
-    (doseq [{:keys [path content]} rollback-changes]
-      (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
-      (if content
-        (spit path content)
-        (io/delete-file path true)))
-    (when new-messages
-      (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-      ;; Rollback is the user's recovery tool for a chat that got into a bad
-      ;; state. Persist immediately so the cleaned-up history survives a
-      ;; restart instead of relying on the next unrelated save.
-      (db/save-chat! @db* chat-id metrics)
-      (messenger/chat-cleared
-       messenger
-       {:chat-id chat-id
-        :messages true})
-      (send-chat-contents!
-       new-messages
-       {:chat-id chat-id
-        :db* db*
-        :messenger messenger}))
-    {}))
+    (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+      (doseq [{:keys [path content]} rollback-changes]
+        (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
+        (if content
+          (spit path content)
+          (io/delete-file path true)))
+      (when new-messages
+        (swap! db* update-in [:chats chat-id]
+               (fn [chat]
+                 (cond-> (assoc chat :messages new-messages)
+                   (not-any? #(message-has-date? % (:last-injected-date chat)) new-messages)
+                   (dissoc :last-injected-date))))
+        ;; Rollback is the user's recovery tool for a chat that got into a bad
+        ;; state. Persist immediately so the cleaned-up history survives a
+        ;; restart instead of relying on the next unrelated save.
+        (db/save-chat! @db* chat-id metrics)
+        (messenger/chat-cleared
+         messenger
+         {:chat-id chat-id
+          :messages true})
+        (send-chat-contents!
+         new-messages
+         {:chat-id chat-id
+          :db* db*
+          :messenger messenger}))
+      {})))
 
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both

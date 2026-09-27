@@ -8,6 +8,27 @@
 
 (h/reset-components-before-test)
 
+(defn ^:private messenger-stub
+  "IMessenger stub implementing every protocol method; only ask-question is
+   customized, the rest are no-ops."
+  [ask-question-fn]
+  (reify messenger/IMessenger
+    (chat-content-received [_ _data])
+    (chat-cleared [_ _params])
+    (chat-status-changed [_ _params])
+    (chat-deleted [_ _params])
+    (chat-opened [_ _params])
+    (rewrite-content-received [_ _data])
+    (tool-server-updated [_ _params])
+    (tool-server-removed [_ _params])
+    (config-updated [_ _params])
+    (provider-updated [_ _params])
+    (jobs-updated [_ _params])
+    (showMessage [_ _msg])
+    (progress [_ _params])
+    (editor-diagnostics [_ _uri])
+    (ask-question [_ params] (ask-question-fn params))))
+
 (deftest broadcast-messenger-delegates-and-broadcasts-test
   (let [inner (h/messenger)
         sse-connections* (sse/create-connections)
@@ -58,6 +79,20 @@
         (Thread/sleep 100)
         (is (seq (:rewrite-content-received (h/messages))))
         (is (not (.contains (.toString os3 "UTF-8") "rewrite")))))
+
+    (testing "memory-index-loaded delegates and broadcasts camelCase"
+      (messenger/memory-index-loaded
+       broadcast-messenger
+       {:chat-id "c1" :count 2 :total-count 80 :items [{:name "Cache" :type "solution" :source "global"}]})
+      (Thread/sleep 100)
+      (is (= {:chat-id "c1" :count 2 :total-count 80 :items [{:name "Cache" :type "solution" :source "global"}]}
+             (first (:memory-index-loaded (h/messages)))))
+      (let [output (.toString os "UTF-8")]
+        (is (.contains output "memory:index-loaded"))
+        (is (.contains output "\"chatId\":\"c1\""))
+        (is (.contains output "\"count\":2"))
+        (is (.contains output "\"totalCount\":80"))
+        (is (.contains output "\"items\""))))
 
     (sse/close-all! sse-connections*)))
 
@@ -383,10 +418,10 @@
 (deftest ask-question-reaches-editor-and-sse-when-both-connected-test
   (testing "with an SSE client connected, inner (editor) still receives chat/askQuestion"
     (let [inner-params* (atom nil)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ params]
-                    (reset! inner-params* params)
-                    (promise)))
+          inner (messenger-stub
+                 (fn [params]
+                   (reset! inner-params* params)
+                   (promise)))
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -401,9 +436,9 @@
 
 (deftest ask-question-sse-answer-wins-test
   (testing "an SSE answer resolves the call when both transports are connected"
-    (let [inner (reify messenger/IMessenger
-                  ;; editor never answers
-                  (ask-question [_ _params] (promise)))
+    (let [inner (messenger-stub
+                 ;; editor never answers
+                 (fn [_] (promise)))
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -425,8 +460,7 @@
     ;; A CompletableFuture models the jsonrpc PendingRequest: future-cancellable,
     ;; and cancelling it is what fires $/cancelRequest in the real ServerMessenger.
     (let [inner-result (java.util.concurrent.CompletableFuture.)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _params] inner-result))
+          inner (messenger-stub (fn [_] inner-result))
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -442,8 +476,7 @@
 (deftest ask-question-editor-answer-wins-test
   (testing "an editor answer resolves the call and cleans up the SSE pending entry"
     (let [inner-promise (promise)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _params] inner-promise))
+          inner (messenger-stub (fn [_] inner-promise))
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)

@@ -566,11 +566,17 @@
    Compatible with OpenRouter and other OpenAI-compatible providers."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds]}
+           think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds
+           prompt-injections]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
         stream? (boolean callbacks)
+        ;; OpenAI-compatible chat has no trailing-system-message seam; only
+        ;; :last-user-message injections apply (via the sanitize seam below).
+        user-injections (->> prompt-injections
+                             (remove #(= :tail-system-message (:target %)))
+                             vec)
         system-messages (when instructions [{:role "system" :content instructions}])
         ;; Pipeline: prune history -> normalize -> merge adjacent assistants -> filter
         all-messages (prune-history (vec (concat past-messages user-messages)) reasoning-history)
@@ -637,7 +643,7 @@
                                        tool-calls))
         on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
                                   (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tools-to-call)]
-                                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)
+                                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages user-injections)
                                           pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
