@@ -658,7 +658,9 @@
   ;; Zero chat usage and clear transient per-chat rule validations.
   ;; Drop :last-editor-state so the cursor is re-sent next turn, since the
   ;; pre-marker history holding the previous cursor is no longer in context.
-  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules :last-editor-state)
+  ;; Drop :last-injected-date for the same reason: the pre-marker history
+  ;; holding the date stamp is gone, so re-stamp the current date.
+  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules :last-editor-state :last-injected-date)
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id

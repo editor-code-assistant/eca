@@ -479,7 +479,7 @@
 
       (and follow-up-text on-follow-up)
       (do
-        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?)
         (swap! db* assoc-in [:chats chat-id :follow-up-active?] true)
         (on-follow-up follow-up-text chat-ctx))
 
@@ -498,7 +498,8 @@
             stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
-          (swap! db* update-in [:chats chat-id] dissoc :steer-message)
+          ;; Turn cleanup must not depend on callbacks stripped by stop paths.
+          (swap! db* update-in [:chats chat-id] dissoc :steer-message :memory-consolidating?)
           (apply-status-transition! chat-ctx status))
         ;; A postRequest hook that returned continue:false stops the turn and
         ;; cancels followUp; surface the reason to the user (prefixed with the

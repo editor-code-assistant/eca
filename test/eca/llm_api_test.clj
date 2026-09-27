@@ -104,6 +104,17 @@
       (is (every? #(not (contains? % :created-at)) messages))
       (is (every? #(not (contains? % :content-id)) messages))))
 
+  (testing "past messages never carry request-local content; metadata is stripped as-is"
+    (let [past [{:role "user"
+                 :content [{:type :text :text "question"}]
+                 :created-at 123}]
+          {:keys [messages]} (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+      (is (= [{:role "user"
+               :content [{:type :text :text "question"}]}]
+             messages)
+          "no materialization: prompt-injections never live on stored history")
+      (is (not (contains? (first messages) :created-at)))))
+
   (testing "mixed history: tagged foreign entries dropped, untagged + matching kept"
     (let [past [{:role "user" :content [{:type :text :text "u1"}]}
                 {:role "reason" :content {:id "r0" :text "legacy"}}                            ; untagged → kept
@@ -277,6 +288,52 @@
         :sync? true}))
     (is (= 512 (:max-output-tokens @captured*)))))
 
+(deftest tail-system-injection-supported-test
+  (testing "requires both the Anthropic handler and explicit model capability"
+    (is (true? (llm-api/tail-system-injection-supported?
+                "anthropic" "claude" {:mid-conversation-system? true} {})))
+    (is (false? (llm-api/tail-system-injection-supported?
+                 "anthropic" "claude" {:mid-conversation-system? false} {})))
+    (is (false? (llm-api/tail-system-injection-supported?
+                 "openai" "gpt" {:mid-conversation-system? true} {}))))
+  (testing "custom/copilot routing is judged by its selected API handler"
+    (is (true? (llm-api/tail-system-injection-supported?
+                "github-copilot" "claude" {:api :anthropic :mid-conversation-system? true} {})))
+    (is (false? (llm-api/tail-system-injection-supported?
+                 "github-copilot" "gpt" {:api :openai-chat :mid-conversation-system? true} {})))))
+
+(deftest prompt-applies-injections-at-outbound-seam-test
+  (let [captured* (atom nil)
+        prior "<relevant-memory>prior exact bytes</relevant-memory>"
+        current "<relevant-memory>current exact bytes</relevant-memory>"
+        injection (fn [rendered]
+                    {:content rendered
+                     :target :last-user-message
+                     :merge :append-text})]
+    (with-redefs [llm-providers.openai/create-response!
+                  (fn [opts _callbacks]
+                    (reset! captured* opts)
+                    {:output-text "ok"})]
+      (#'eca.llm-api/prompt!
+       {:provider "openai"
+        :model "gpt"
+        :model-capabilities {:tools false :reason? false}
+        :past-messages [{:role "user" :content [{:type :text :text "old question"}]}]
+        :user-messages [{:role "user" :content [{:type :text :text "new question"}]}]
+        :prompt-injections [(injection prior) (injection current)]
+        :config {:providers {"openai" {:url "https://example.test"}}}
+        :sync? true}))
+    (is (= [{:type :text :text "old question"}]
+           (get-in @captured* [:past-messages 0 :content]))
+        "past messages are never injected — request-local content is not stored")
+    (is (= [{:type :text :text "new question"}
+            {:type :text :text prior}
+            {:type :text :text current}]
+           (get-in @captured* [:user-messages 0 :content]))
+        "both injections append to the current turn's user message, in order")
+    (is (not (re-find #"prompt-injections" (pr-str (get-in @captured* [:user-messages 0]))))
+        "injection metadata never reaches the provider opts")))
+
 (deftest prompt-test
   (testing "Custom OpenAI provider behavior and proper passing of httpClient options to the Hato client"
     (let [req* (atom nil)]
@@ -358,8 +415,8 @@
                                    :api-url "https://api.githubcopilot.com"
                                    :type :auth/oauth}
                    :config {:providers {"github-copilot" {:api "openai-chat"
-                                                           :url "https://api.githubcopilot.com"
-                                                           :models {}}}}
+                                                          :url "https://api.githubcopilot.com"
+                                                          :models {}}}}
                    :sync? false}]
     (testing "Chat models receive reasoning_effort"
       (let [captured* (atom nil)]
@@ -734,10 +791,16 @@
                              {:new-messages [{:role "tool_call_output"
                                               :content {:id "call-1"
                                                         :output {:contents [{:type :text
-                                                                            :text "result"}]}}}]
+                                                                             :text "result"}]}}}]
                               :tools []})})
 
         (is (= 3 (count @requests*)))
+        (doseq [{:keys [body]} (rest @requests*)]
+          (is (= [{:type "function_call_output"
+                   :call_id "call-1"
+                   :output "result\n"}]
+                 (filterv #(= "function_call_output" (:type %)) (:input body)))
+              "both the continuation and retry must contain the actual tool output"))
         (is (= 1 @tools-called*))
         (is (empty? @terminal-errors*))
         (is (some #(= {:type :text :text "done"} %) @messages*))
@@ -755,9 +818,43 @@
           (is (= 1 (count (distinct session-ids)))
               "every request in the turn shares one Session-ID"))))))
 
-(deftest prompt-forwards-stream-idle-timeout-and-cache-retention-to-anthropic-handler-test
-  (testing "custom provider with :api anthropic forwards :stream-idle-timeout-seconds and :cache-retention to chat!"
-    (let [captured* (atom nil)]
+(deftest sync-prompt-applies-model-name-override-test
+  (let [config {:providers {"mock" {:api "openai-chat"
+                                    :url "http://mock.local"
+                                    :key "test-key"}}}
+        provider "mock"
+        model "memory-selector"
+        model-capabilities {:model-name "actual-provider-model"}
+        captured* (atom nil)]
+    (with-redefs [llm-providers.openai-chat/chat-completion!
+                  (fn [opts callbacks]
+                    (reset! captured* [opts callbacks])
+                    {:output-text "ok"})]
+      (is (= {:output-text "ok"}
+             (llm-api/sync-prompt!
+              {:provider provider
+               :model model
+               :model-capabilities model-capabilities
+               :instructions "isolated"
+               :prompt "query"
+               :past-messages nil
+               :tools nil
+               :config config
+               :provider-auth nil
+               :subagent? true})))
+      (let [[opts callbacks] @captured*]
+        (is (= "actual-provider-model" (:model opts)))
+        (is (nil? (:tools opts)))
+        (is (nil? callbacks))))))
+
+(deftest prompt-forwards-anthropic-options-for-custom-provider-test
+  (testing "custom Anthropic-compatible providers retain prompt-injections and transport options"
+    (let [captured* (atom nil)
+          instructions {:static "stable" :dynamic "dynamic"}
+          prompt-injections [{:content "<relevant-memory>exact recall</relevant-memory>"
+                              :target :tail-system-message
+                              :merge :append-text}]]
+
       (with-redefs [llm-providers.anthropic/chat!
                     (fn [opts _callbacks] (reset! captured* opts) :ok)]
         (#'eca.llm-api/prompt!
@@ -766,7 +863,10 @@
           :model-capabilities {:tools true
                                :reason? false
                                :web-search false
+                               :mid-conversation-system? true
                                :model-name "claude-sonnet-4-6"}
+          :instructions instructions
+          :prompt-injections prompt-injections
           :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
           :past-messages []
           :tools []
@@ -776,12 +876,17 @@
                                            :url "https://my-proxy.example.com/v1"
                                            :key "test-key"
                                            :cacheRetention "long"
+                                           :completionUrlRelativePath "/messages"
+                                           :httpClient {:version :http-1.1}
                                            :models {"claude-sonnet-4-6" {}}}}}
           :sync? false}))
-      (is (= "long" (:cache-retention @captured*))
-          "anthropic handler should receive :cache-retention from provider-config")
-      (is (= 300 (:stream-idle-timeout-seconds @captured*))
-          "anthropic handler should receive :stream-idle-timeout-seconds from top-level config"))))
+      (is (= instructions (:instructions @captured*)))
+      (is (= prompt-injections (:prompt-injections @captured*)))
+      (is (true? (:mid-conversation-system? @captured*)))
+      (is (= "/messages" (:url-relative-path @captured*)))
+      (is (= {:version :http-1.1} (:http-client @captured*)))
+      (is (= "long" (:cache-retention @captured*)))
+      (is (= 300 (:stream-idle-timeout-seconds @captured*))))))
 
 (deftest prompt-merges-provider-and-model-extra-headers-test
   (testing "provider-level extraHeaders are sent and model-level ones win on conflicts"
@@ -1216,12 +1321,12 @@
          (make-prompt-opts
           {:stream false
            :config {:providers {"anthropic" {:key "test-key"
-                                               :url "http://test"
-                                               :retry {:maxRetries 2
-                                                       :baseDelayMs 100
-                                                       :backoffMultiplier 3
-                                                       :maxDelayMs 250}
-                                               :models {"claude-sonnet-4-6" {:extraPayload {:stream false}}}}}}
+                                             :url "http://test"
+                                             :retry {:maxRetries 2
+                                                     :baseDelayMs 100
+                                                     :backoffMultiplier 3
+                                                     :maxDelayMs 250}
+                                             :models {"claude-sonnet-4-6" {:extraPayload {:stream false}}}}}}
            :on-retry (fn [event] (swap! retry-events* conj event))
            :on-error #(reset! final-error* %)
            :on-message-received identity})))
@@ -1395,8 +1500,8 @@
                                                        :message "Request failed"
                                                        :error/source :openai-responses}))
                       eca.llm-api/sleep-with-cancel (fn [_ _]
-                                                     (swap! sleep-calls* inc)
-                                                     true)]
+                                                      (swap! sleep-calls* inc)
+                                                      true)]
           (llm-api/sync-or-async-prompt!
            (make-prompt-opts
             {:on-error (fn [error] (swap! errors* conj error))
@@ -1460,8 +1565,8 @@
                                             :retry-fn (fn [_]
                                                         (swap! request-retries* inc))}))
                     eca.llm-api/sleep-with-cancel (fn [_ _]
-                                                   (swap! sleep-calls* inc)
-                                                   true)]
+                                                    (swap! sleep-calls* inc)
+                                                    true)]
         (llm-api/sync-or-async-prompt!
          (make-prompt-opts
           {:on-error (fn [error] (swap! errors* conj error))
@@ -1488,9 +1593,9 @@
         (llm-api/sync-or-async-prompt!
          (make-prompt-opts
           {:config {:providers {"anthropic" {:key "test-key"
-                                               :url "http://test"
-                                               :retry {:maxRetries 1}
-                                               :models {"claude-sonnet-4-6" {}}}}}
+                                             :url "http://test"
+                                             :retry {:maxRetries 1}
+                                             :models {"claude-sonnet-4-6" {}}}}}
            :on-error (fn [error] (swap! errors* conj error))
            :on-message-received identity})))
       (is (zero? @request-retries*))

@@ -8,6 +8,29 @@
 
 (h/reset-components-before-test)
 
+(defn ^:private capturing-ask-user-messenger
+  "IMessenger stub implementing every protocol method; ask-question records
+   its params and answers with `answer`, the rest are no-ops."
+  [captured* answer]
+  (reify messenger/IMessenger
+    (chat-content-received [_ _data])
+    (chat-cleared [_ _params])
+    (chat-status-changed [_ _params])
+    (chat-deleted [_ _params])
+    (chat-opened [_ _params])
+    (rewrite-content-received [_ _data])
+    (tool-server-updated [_ _params])
+    (tool-server-removed [_ _params])
+    (config-updated [_ _params])
+    (provider-updated [_ _params])
+    (jobs-updated [_ _params])
+    (showMessage [_ _msg])
+    (progress [_ _params])
+    (editor-diagnostics [_ _uri])
+    (ask-question [_ params]
+      (reset! captured* params)
+      (future answer))))
+
 (defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id db*]
                                      :or {tool-call-id "test-tool-call-id"}}]]
   ((get-in f.tools.ask-user/definitions ["ask_user" :handler])
@@ -96,21 +119,15 @@
   (testing "toolCallId is included in params sent to messenger"
     (let [captured-params (atom nil)]
       (call-ask-user {"question" "Proceed?"}
-                     {:messenger (reify messenger/IMessenger
-                                   (chat-content-received [_ _data])
-                                   (ask-question [_ params]
-                                     (reset! captured-params params)
-                                     (future {:answer "yes" :cancelled false})))
+                     {:messenger (capturing-ask-user-messenger captured-params
+                                                               {:answer "yes" :cancelled false})
                       :tool-call-id "tc-42"})
       (is (= "tc-42" (:toolCallId @captured-params)))))
   (testing "toolCallId is absent when tool-call-id is nil"
     (let [captured-params (atom nil)]
       (call-ask-user {"question" "Proceed?"}
-                     {:messenger (reify messenger/IMessenger
-                                   (chat-content-received [_ _data])
-                                   (ask-question [_ params]
-                                     (reset! captured-params params)
-                                     (future {:answer "yes" :cancelled false})))
+                     {:messenger (capturing-ask-user-messenger captured-params
+                                                               {:answer "yes" :cancelled false})
                       :tool-call-id nil})
       (is (nil? (:toolCallId @captured-params))))))
 
@@ -118,32 +135,23 @@
   (testing "allowFreeform defaults to true"
     (let [captured-params (atom nil)]
       (call-ask-user {"question" "Pick one"}
-                     {:messenger (reify messenger/IMessenger
-                                   (chat-content-received [_ _data])
-                                   (ask-question [_ params]
-                                     (reset! captured-params params)
-                                     (future {:answer "A" :cancelled false})))})
+                     {:messenger (capturing-ask-user-messenger captured-params
+                                                               {:answer "A" :cancelled false})})
       (is (true? (:allowFreeform @captured-params)))))
   (testing "allowFreeform false is passed through"
     (let [captured-params (atom nil)]
       (call-ask-user {"question" "Pick one" "allowFreeform" false}
-                     {:messenger (reify messenger/IMessenger
-                                   (chat-content-received [_ _data])
-                                   (ask-question [_ params]
-                                     (reset! captured-params params)
-                                     (future {:answer "A" :cancelled false})))})
+                     {:messenger (capturing-ask-user-messenger captured-params
+                                                               {:answer "A" :cancelled false})})
       (is (false? (:allowFreeform @captured-params))))))
 
 (deftest ask-user-normalizes-options-test
-  (letfn [(captured-options [arguments]
-            (let [captured (atom nil)]
-              (call-ask-user arguments
-                             {:messenger (reify messenger/IMessenger
-                                           (chat-content-received [_ _data])
-                                           (ask-question [_ params]
-                                             (reset! captured params)
-                                             (future {:answer "x" :cancelled false})))})
-              (:options @captured)))]
+      (letfn [(captured-options [arguments]
+              (let [captured (atom nil)]
+                (call-ask-user arguments
+                               {:messenger (capturing-ask-user-messenger captured
+                                                                         {:answer "x" :cancelled false})})
+                (:options @captured)))]
     (testing "array of objects becomes label/description maps"
       (is (= [{:label "A" :description "first"} {:label "B"}]
              (captured-options {"question" "Pick"
@@ -168,11 +176,8 @@
   (testing "ask-question-request-id is written to tool-call state in db*"
     (let [db* (atom {:chats {"c1" {:tool-calls {"tc-1" {:status :executing}}}}})
           captured-params (atom nil)
-          fake-messenger (reify messenger/IMessenger
-                           (chat-content-received [_ _data])
-                           (ask-question [_ params]
-                             (reset! captured-params params)
-                             (future {:answer "yes" :cancelled false})))]
+          fake-messenger (capturing-ask-user-messenger captured-params
+                                                       {:answer "yes" :cancelled false})]
       (call-ask-user {"question" "Ready?"}
                      {:messenger fake-messenger
                       :db* db*

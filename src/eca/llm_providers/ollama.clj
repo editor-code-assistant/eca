@@ -162,10 +162,15 @@
         messages))
 
 (defn chat! [{:keys [model user-messages reason? instructions api-url past-messages tools max-output-tokens
-                     extra-headers extra-payload cancelled? stream-idle-timeout-seconds]}
+                     extra-headers extra-payload cancelled? stream-idle-timeout-seconds prompt-injections]}
              {:keys [on-message-received on-error on-prepare-tool-call on-tools-called
                      on-reason on-usage-updated] :as callbacks}]
-  (let [messages (concat
+  (let [;; Ollama has no trailing-system-message seam; only
+        ;; :last-user-message injections apply (via the sanitize seam below).
+        user-injections (->> prompt-injections
+                             (remove #(= :tail-system-message (:target %)))
+                             vec)
+        messages (concat
                   (normalize-messages (concat [{:role "system" :content instructions}] past-messages))
                   (normalize-messages user-messages))
         stream? (boolean callbacks)
@@ -201,7 +206,7 @@
                              (if-let [tool-call (get @tool-calls* rid)]
                                  ;; TODO support multiple tool calls
                                (when-let [{:keys [new-messages tools]} (on-tools-called [tool-call])]
-                                 (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)]
+                                 (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages user-injections)]
                                    (swap! tool-calls* dissoc rid)
                                    (base-chat-request!
                                     {:rid (llm-util/gen-rid)

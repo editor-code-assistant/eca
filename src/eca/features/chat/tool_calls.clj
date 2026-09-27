@@ -1012,8 +1012,9 @@
                   [_ refreshed-api-key] (llm-util/provider-api-key (:provider chat-ctx)
                                                                    refreshed-provider-auth
                                                                    config)
-                  with-fresh-auth #(some-> % (assoc :fresh-api-key refreshed-api-key
-                                                    :provider-auth refreshed-provider-auth))]
+                  with-fresh-auth #(some-> %
+                                           (assoc :fresh-api-key refreshed-api-key
+                                                  :provider-auth refreshed-provider-auth))]
               (if-let [blocked-info @blocked-tool-call-info*]
                 (let [reason-code
                       (if (map? blocked-info) (:code blocked-info) blocked-info)

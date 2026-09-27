@@ -9,6 +9,9 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.render :as f.memory.render]
+   [eca.features.memory.retrieval :as f.memory.retrieval]
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
@@ -18,6 +21,7 @@
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -152,6 +156,12 @@
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
 
+(defn ^:private date-text-item
+  "The cursor-style current-date stamp appended to the user message once per
+   day change (see chat.clj prompt!)."
+  []
+  {:type :text :text (str "Current date: " (java.time.LocalDate/now))})
+
 (defn ^:private deep-sleep
   "Sleep for the given duration in milliseconds, ignoring interrupts.
    Continues sleeping until the full duration has elapsed."
@@ -229,7 +239,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Hey!"}]}
+                     :messages [{:role "user" :content [{:type :text :text "Hey!"}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Hey you!"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -335,7 +346,8 @@
       (is (= 2 (count @requests*)))
       (is (= (first @requests*) (second @requests*))
           "a no-output retry must replay the original task, not a contextless continuation")
-      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}
+                                           (date-text-item)]}
                    {:role "assistant" :content [{:type :text :text "Recovered"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))
@@ -362,7 +374,7 @@
                             {:all-tools-mock (constantly [])
                              :api-mock api-mock}))]
     (is (= 2 (count @requests*)))
-    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"} (date-text-item)]}
                  {:role "assistant" :content [{:type :text :text "Partial"}]}
                  {:role "user"
                   :content [{:type :text
@@ -491,7 +503,8 @@
           chat-id-1 (:chat-id res-1)]
       (is (match?
            {chat-id-1 {:id chat-id-1
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}
+                                                          (date-text-item)]}
                                   {:role "assistant" :content [{:type :text :text "2 mississippi"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -531,7 +544,8 @@
             chat-id-2 (:chat-id res-2)]
         (is (match?
              {chat-id-2 {:id chat-id-2
-                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}
+                                                            (date-text-item)]}
                                     {:role "assistant" :content [{:type :text :text "2 mississippi"}]}
                                     {:role "user" :content [{:type :text :text "3 mississippi"}]}
                                     {:role "assistant" :content [{:type :text :text "4 mississippi"}]}]}}
@@ -869,9 +883,17 @@
 (deftest context-overflow-auto-compact-guard-test
   (testing "context overflow after auto-compact reports error instead of looping"
     (h/reset-components!)
+    (h/config! {:memory {:enabled true :writeMode "agent"}})
+    (swap! (h/db*) assoc-in [:models "anthropic/claude-opus-4-8"]
+           {:tools true :mid-conversation-system? true})
     (let [chat-id "overflow-compact-chat"
           api-call-count* (atom 0)
-          auto-compact-count* (atom 0)]
+          api-requests* (atom [])
+          auto-compact-count* (atom 0)
+          recall-count* (atom 0)
+          memory-context {:content "<relevant-memory>\nM1 [solution] Cache\nExact bytes.\n</relevant-memory>"
+                          :tokens 20
+                          :item-count 1}]
       ;; Seed prior conversation so there is something to compact; with empty
       ;; history the overflow is surfaced immediately, see
       ;; context-overflow-first-turn-surfaces-error-test.
@@ -886,21 +908,35 @@
            (#'f.chat/prompt-messages!
             user-messages
             :auto-compact
-            (assoc chat-ctx :auto-compacted? true)))}
+            (assoc chat-ctx :auto-compacted? true)))
+         #'f.memory.retrieval/provide
+         (fn [_]
+           (swap! recall-count* inc)
+           memory-context)}
         (fn []
           (let [{:keys [_chat-id]}
                 (prompt!
-                 {:message "Do something" :chat-id chat-id}
+                 {:message "Do something"
+                  :chat-id chat-id
+                  :model "anthropic/claude-opus-4-8"}
                  {:all-tools-mock (constantly [])
                   :api-mock
-                  (fn [{:keys [on-error]}]
+                  (fn [{:keys [on-error] :as request}]
                     (swap! api-call-count* inc)
+                    (swap! api-requests* conj request)
                     (on-error {:error/type :context-overflow
                                :message "token limit exceeded"}))})]
             (is (= 1 @auto-compact-count*)
                 "auto-compact should trigger exactly once, not loop")
             (is (= 2 @api-call-count*)
                 "LLM should be called exactly twice: initial prompt and resume after compact")
+            (is (= (repeat 2 [{:content (:content memory-context)
+                               :target :tail-system-message
+                               :merge :append-text}])
+                   (mapv :prompt-injections @api-requests*))
+                "the Anthropic recall selected for the user turn must survive auto-compaction")
+            (is (= 1 @recall-count*)
+                "Automatic recall should run only for the genuine user prompt")
             (is (match?
                  {:chat-content-received
                   (m/embeds [{:role :system
@@ -1205,8 +1241,36 @@
                   (h/messages)))
       (is (match? {:prompt-type :auto-compact-blocked
                    :chat-ctx {:auto-compacted? true}}
-                  @prompted*)))))
+                  @prompted*))))
 
+  (testing "prompt injections skip the compact prompt and return with the original task"
+    (h/reset-components!)
+    (let [prompted* (atom [])
+          injections [{:content "memory" :target :tail-system-message :merge :append-text}]
+          original-messages [{:role "user" :content [{:type :text :text "keep going"}]}]
+          chat-ctx {:db* (h/db*)
+                    :config (h/config)
+                    :chat-id "chat-1"
+                    :agent "code"
+                    :messenger (h/messenger)
+                    :metrics (h/metrics)
+                    :prompt-injections injections}]
+      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})
+                    f.prompt/compact-prompt (constantly "compact")
+                    f.chat/prompt-messages! (fn [user-messages prompt-type prompt-ctx]
+                                              (swap! prompted* conj {:user-messages user-messages
+                                                                     :prompt-type prompt-type
+                                                                     :chat-ctx prompt-ctx}))]
+        (#'f.chat/trigger-auto-compact! chat-ctx [] original-messages)
+        ((get-in (first @prompted*) [:chat-ctx :on-after-finish!])))
+      (let [compact-call (first @prompted*)
+            resume-call (second @prompted*)]
+        (is (nil? (get-in compact-call [:chat-ctx :prompt-injections])))
+        (is (= injections
+               (get-in resume-call [:chat-ctx :prompt-injections])))
+        (is (= :auto-compact (:prompt-type resume-call)))
+        (is (= original-messages
+               (vec (rest (:user-messages resume-call)))))))))
 
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
@@ -1309,7 +1373,8 @@
              {chat-id {:id chat-id
                        :messages [{:role "user"
                                    :content [{:type :text :text "Check @/path/to/file please"}
-                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
+                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}
+                                             (date-text-item)]}
                                   {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
              (:chats (h/db)))))))
   (testing "When prompt contains @missing-file we do not add context noise"
@@ -1328,7 +1393,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text msg}]}
+                     :messages [{:role "user" :content [{:type :text :text msg}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -1421,9 +1487,12 @@
                                                     :arguments []}])
                     f.prompt/get-prompt! (fn [_name _arguments _db]
                                            {:messages [{:role "user"
-                                                       :content [{:type :text
-                                                                  :text "MCP prompt body"}]}]})]
+                                                        :content [{:type :text
+                                                                   :text "MCP prompt body"}]}]})]
         (let [{:keys [chat-id]} (prompt! {:message "/test-server:my-prompt" :contexts [cursor]} mocks)]
+          (is (match? [{:role "user"
+                        :content [{:type :text :text "MCP prompt body"}]}]
+                      (first @user-msgs*)))
           (is (nil? (get-in (h/db) [:chats chat-id :last-editor-state])))
           (is (not (string/includes? (->> @user-msgs* first first :content (keep :text) (string/join "\n"))
                                      "<cursor")))
@@ -1458,7 +1527,8 @@
                          :contents [{:type :text :text "Allowed directories: /foo/bar"}]})})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}]}
+                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}
@@ -1588,7 +1658,7 @@
                   (second @api-calls*))
           "the compact prompt carries the steered instructions")
       (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
-                   {:role "user" :content [{:type :text :text "Rename rfq to query"}]}]
+                   {:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}]
                   (nth @api-calls* 2))
           "the original task resumes after the compaction")
       (let [messages (:chat-content-received (h/messages))
@@ -1598,7 +1668,7 @@
                              messages)]
         (is (match? {:content {:type :text :content-id string?}} steer-echo)
             "the consumed steer is echoed to the client as the user message it was typed as")
-        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}
                                          {:role "assistant" :content [{:type :text :text "Reading"}]}
                                          {:role "tool_call" :content {:id "call-1"}}
                                          {:role "tool_call_output" :content {:id "call-1"}}
@@ -1610,7 +1680,7 @@
                                          {:role "compact_marker" :content {:auto? false}}
                                          {:role "user" :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nRenamed rfq to query"}]}
                                          {:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
-                                         {:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+                                         {:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}
                                          {:role "assistant" :content [{:type :text :text "Done"}]}]}}
                     (:chats (h/db)))
             "the compaction prompt is tied to the /compact echo so rolling back to it undoes the compaction; the raw command never enters history")
@@ -1829,7 +1899,8 @@
 
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
+                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-3"  :full-name "eca__ro_tool_3" :arguments {}
@@ -1938,7 +2009,8 @@
                      :contents [{:type :text :text "RO tool call 3 result"}]})))})]
       (is (match? {chat-id
                    {:id chat-id
-                    :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
+                    :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}
+                                                       (date-text-item)]}
                                {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
                                {:role "tool_call_output" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}
                                                                    :output {:error false
@@ -2151,7 +2223,8 @@
       ;; Verify initial state
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                 {:role "assistant" :content [{:type :text :text "2"}]}]}}
            (:chats (h/db))))
 
@@ -2172,7 +2245,8 @@
         ;; Verify we now have 4 messages
         (is (match?
              {chat-id {:id chat-id
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                   {:role "assistant" :content [{:type :text :text "2"}]}
                                   {:role "user" :content [{:type :text :text "3"}] :content-id second-content-id}
                                   {:role "assistant" :content [{:type :text :text "4"}]}]}}
@@ -2188,7 +2262,8 @@
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?
              {chat-id {:id chat-id
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                   {:role "assistant" :content [{:type :text :text "2"}]}]}}
              (:chats (h/db))))
 
@@ -2197,7 +2272,8 @@
              {:chat-clear [{:chat-id chat-id :messages true}]
               :chat-content-received
               [{:chat-id chat-id
-                :content {:type :text :text "\nCount with me: 1" :content-id first-content-id}
+                :content {:type :text :text (str "\nCount with me: 1\n" (:text (date-text-item)))
+                          :content-id first-content-id}
                 :role "user"}
                {:chat-id chat-id
                 :content {:type :text :text "\n2"}
@@ -2300,7 +2376,7 @@
         (h/config! {:chat {:autoSyncSystemPrompt true}
                     :prompts {:chat nil}
                     :agent {"code" {:prompts {:chat nil}
-                                      :systemPromptFile (str prompt-file)}}})
+                                    :systemPromptFile (str prompt-file)}}})
         (with-redefs [f.prompt/build-chat-instructions
                       (fn [& args]
                         (swap! build-calls* inc)
@@ -2515,6 +2591,278 @@
     (on-first-response-received {:type :text :text "x"})
     (on-message-received {:type :text :text "x"})
     (on-message-received {:type :finish})))
+
+(deftest rendered-memory-index-context-shape-test
+  (let [entries [{:name "One" :type "solution" :label "global" :description "First" :mtime-ms nil :tags []}
+                 {:name "Two" :type "gotcha" :label "global" :description "Second" :mtime-ms nil :tags []}]
+        rendered (f.memory.render/index-context
+                  {:entries entries
+                   :max-entries 100
+                   :max-tokens 1000})]
+    (is (= 2 (:item-count rendered)))
+    (is (= 2 (:total-count rendered)))
+    (is (= [{:name "One" :type "solution" :source "global" :path nil}
+            {:name "Two" :type "gotcha" :source "global" :path nil}]
+           (:items rendered)))
+    (is (string/includes? (:content rendered) "## Memory"))
+    (is (string/includes? (:content rendered) "One [solution]"))
+    (is (string/includes? (:content rendered) "Two [gotcha]"))
+    (is (pos? (:tokens rendered)))))
+
+(deftest memory-index-context-is-hidden-and-request-local-test
+  (h/reset-components!)
+  (h/config! {:memory {:enabled true :writeMode "agent"}})
+  (let [captured* (atom [])
+        provided* (atom [])
+        memory-block "## Memory\nMemory directories:\n- /tmp/mem (global)\n\nMemories:\n1 memories"
+        api-mock (fn [{:keys [on-first-response-received on-message-received] :as params}]
+                   (swap! captured* conj params)
+                   (on-first-response-received {:type :text :text "x"})
+                   (on-message-received {:type :text :text "x"})
+                   (on-message-received {:type :finish}))
+        run-test
+        (fn []
+          (with-redefs [f.memory.retrieval/provide
+                        (fn [ctx]
+                          (swap! provided* conj ctx)
+                          {:content memory-block
+                           :tokens 20
+                           :item-count 1
+                           :total-count 1
+                           :items [{:name "Cache" :type "solution" :source "global"
+                                    :path "/tmp/mem/cache.md"}]})]
+            (let [{:keys [chat-id]} (prompt! {:message "first request"}
+                                             {:all-tools-mock (constantly [])
+                                              :api-mock api-mock})
+                  index-loaded-notification (first (:memory-index-loaded (h/messages)))]
+              (h/reset-messenger!)
+              (prompt! {:message "second request" :chat-id chat-id}
+                       {:all-tools-mock (constantly [])
+                        :api-mock api-mock})
+              [chat-id index-loaded-notification])))]
+    (with-redefs-fn {#'eca.features.chat/run-pre-request-hooks!
+                     (fn [state]
+                       (assoc state
+                              :final-prompt (str "rewritten " (:message state))
+                              :additional-contexts [{:content "hook-only context"}]))}
+      (fn []
+        (let [[chat-id index-loaded-notification] (run-test)
+              [first-request second-request] @captured*
+              stored-users (->> (get-in (h/db) [:chats chat-id :messages])
+                                (filterv #(= "user" (:role %)))
+                                (mapv #(select-keys % [:role :content])))
+              first-wire-user (first (message-sanitize/sanitize-outbound-messages
+                                      (:user-messages first-request)
+                                      (:prompt-injections first-request)))
+              second-wire-past (:messages
+                                (llm-api/sanitize-past-messages-for-api
+                                 :openai-responses (:past-messages second-request)))
+              visible-history (f.chat/messages->contents
+                               (get-in (h/db) [:chats chat-id :messages])
+                               {:chat-id chat-id :db (h/db)})]
+          (is (= 2 (count @provided*))
+              "provide must run for each genuine user prompt")
+          (is (= chat-id (get-in (first @provided*) [:chat-id]))
+              "provide must receive the chat-id in its context map")
+          (is (= [{:content memory-block
+                   :target :last-user-message
+                   :merge :append-text}]
+                 (:prompt-injections first-request))
+              "the memory index rides the request as a call-scoped prompt injection")
+          (is (not-any? #(= :tail-system-message (:target %))
+                        (:prompt-injections first-request))
+              "non-tail-system providers must not receive a tail-system injection")
+          (is (= "rewritten first request" (get-in stored-users [0 :content 0 :text])))
+          (is (= memory-block (-> first-wire-user :content last :text))
+              "the current provider request receives the injected memory index at the outbound seam")
+          (is (some #(string/starts-with? (str (:text %)) "Current date: ") (:content first-wire-user))
+              "the current date rides the user message itself (cursor-style dedupe), ahead of the injected index")
+          (is (not (string/includes? (pr-str second-wire-past) "## Memory"))
+              "a later turn must not replay prior request-local memory from history")
+          (is (= memory-block
+                 (-> second-request
+                     :user-messages
+                     (message-sanitize/sanitize-outbound-messages (:prompt-injections second-request))
+                     first :content last :text))
+              "each turn carries its own freshly provided index")
+          (is (every? #(not (contains? % :prompt-injections)) stored-users)
+              "stored history messages never carry prompt-injections")
+          (is (not (string/includes? (pr-str stored-users) "## Memory"))
+              "the memory index must not be persisted in chat history")
+          (is (not (string/includes? (pr-str visible-history) "## Memory"))
+              "Replayed UI history exposes only the genuine user text")
+          (is (not (string/includes? (pr-str (:chat-content-received (h/messages)))
+                                     "## Memory")))
+          (is (= {:chat-id chat-id
+                  :count 1
+                  :total-count 1
+                  :items [{:name "Cache" :type "solution" :source "global"
+                           :path "/tmp/mem/cache.md"}]}
+                 index-loaded-notification)
+              "the client must be notified of the loaded index"))))))
+
+(deftest memory-index-loaded-notification-dedup-test
+  (h/reset-components!)
+  (h/config! {:memory {:enabled true :writeMode "agent"}})
+  (let [content* (atom "index-v1")
+        total* (atom 80)
+        path* (atom "/tmp/mem/cache.md")
+        api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                   (on-first-response-received {:type :text :text "x"})
+                   (on-message-received {:type :text :text "x"})
+                   (on-message-received {:type :finish}))]
+    (with-redefs [f.memory.retrieval/provide
+                  (fn [_]
+                    (when @content*
+                      {:content @content*
+                       :tokens 20
+                       :item-count 1
+                       :total-count @total*
+                       :items [{:name "Cache" :type "solution" :source "global"
+                                :path @path*}]}))]
+      (let [mocks {:all-tools-mock (constantly []) :api-mock api-mock}
+            {:keys [chat-id]} (prompt! {:message "first"} mocks)
+            notification-count #(count (:memory-index-loaded (h/messages)))]
+        (is (= 1 (notification-count)) "first turn notifies")
+        (prompt! {:message "second" :chat-id chat-id} mocks)
+        (is (= 1 (notification-count))
+            "identical index on the next turn must not re-notify")
+        (reset! content* "index-v2")
+        (prompt! {:message "third" :chat-id chat-id} mocks)
+        (is (= 2 (notification-count))
+            "an actually changed index notifies again")
+        (reset! path* "/tmp/mem/renamed.md")
+        (prompt! {:message "renamed" :chat-id chat-id} mocks)
+        (is (= 3 (notification-count)) "path-only changes notify")
+        (is (= @path* (-> (h/messages) :memory-index-loaded last :items first :path)))
+        (is (= 80 (-> (h/messages) :memory-index-loaded last :total-count)))
+        (swap! total* inc)
+        (prompt! {:message "more available" :chat-id chat-id} mocks)
+        (is (= 4 (notification-count)) "total-only changes notify")
+        (is (= {:count 1 :total-count 81}
+               (select-keys (last (:memory-index-loaded (h/messages))) [:count :total-count])))
+        (reset! content* nil)
+        (prompt! {:message "empty" :chat-id chat-id} mocks)
+        (is (= 5 (notification-count)))
+        (is (= {:chat-id chat-id :count 0 :total-count 0 :items []}
+               (last (:memory-index-loaded (h/messages)))))
+        (prompt! {:message "still empty" :chat-id chat-id} mocks)
+        (is (= 5 (notification-count)) "an empty index clears the client only once")))))
+
+(deftest memory-index-notification-counts-test
+  (doseq [[limits included] [[{:maxEntries 1} 1] [{:maxTokens 0} 0]]]
+    (h/reset-components!)
+    (h/config! {:memory {:enabled true :index limits}})
+    (let [captured* (atom nil)]
+      (with-redefs [f.memory/pre-create-dirs! (constantly nil)
+                    f.memory/scan-memories
+                    (constantly [{:name "One" :type "fact" :description "First" :label "global"}
+                                 {:name "Two" :type "fact" :description "Second" :label "global"}])]
+        (prompt! {:message "hello"}
+                 {:all-tools-mock (constantly []) :api-mock (capturing-api-mock captured*)}))
+      (let [notification (last (:memory-index-loaded (h/messages)))]
+        (is (= {:count included :total-count 2}
+               (select-keys notification [:count :total-count])))
+        (is (= included (count (:items notification))))
+        (is (= (pos? included) (boolean (seq (:prompt-injections @captured*)))))))))
+
+(deftest anthropic-memory-context-is-volatile-and-not-persisted-test
+  (h/reset-components!)
+  (h/config! {:memory {:enabled true :writeMode "agent"}})
+  (swap! (h/db*) assoc-in [:models "anthropic/claude-opus-4-8"]
+         {:tools true :mid-conversation-system? true})
+  (let [captured* (atom nil)
+        memory-block "<relevant-memory>\nM1 [solution] Cache\nExact bytes.\n</relevant-memory>"]
+    (with-redefs [f.memory.retrieval/provide
+                  (fn [_]
+                    {:content memory-block :tokens 20 :item-count 1})]
+      (let [{:keys [chat-id]} (prompt! {:message "fix cache" :model "anthropic/claude-opus-4-8"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock (capturing-api-mock captured*)})
+            stored-user (->> (get-in (h/db) [:chats chat-id :messages])
+                             (filter #(= "user" (:role %)))
+                             first)]
+        (is (= [{:content memory-block
+                 :target :tail-system-message
+                 :merge :append-text}]
+               (:prompt-injections @captured*))
+            "memory rides the tail-system-message injection for mid-system Anthropic models")
+        (is (not (string/includes? (or (get-in @captured* [:instructions :dynamic]) "")
+                                   memory-block)))
+        (is (not (contains? stored-user :prompt-injections))
+            "injections are call-scoped and never stored on history messages")
+        (is (= "fix cache" (get-in stored-user [:content 0 :text])))
+        (is (some #(string/starts-with? (str (:text %)) "Current date: ") (:content stored-user))
+            "the current date rides the stored user message with cursor-style dedupe")))))
+
+(deftest current-date-rides-user-message-with-cursor-style-dedupe-test
+  (let [today (str "Current date: " (java.time.LocalDate/now))
+        has-date? (fn [msg] (boolean (some #(= today (:text %)) (:content msg))))
+        prompt-and-capture! (fn [params]
+                              (let [captured* (atom nil)
+                                    resp (prompt! params
+                                                  {:all-tools-mock (constantly [])
+                                                   :api-mock (capturing-api-mock captured*)})]
+                                [resp @captured*]))]
+    (testing "first turn stamps the date onto the user message and stores it"
+      (h/reset-components!)
+      (let [[{:keys [chat-id]} captured] (prompt-and-capture! {:message "hello"})
+            stored-user (->> (get-in (h/db) [:chats chat-id :messages])
+                             (filter #(= "user" (:role %)))
+                             first)]
+        (is (has-date? (first (:user-messages captured)))
+            "the model receives the current date as a content item of the user message")
+        (is (has-date? stored-user)
+            "the stamp is persisted with the message so history dates itself")
+        (is (nil? (:prompt-injections captured))
+            "the date no longer rides the prompt-injection seam")))
+
+    (testing "a blocked prompt does not mark the date as recorded"
+      (h/reset-components!)
+      (let [[{:keys [chat-id]} blocked]
+            (with-redefs [f.chat/run-pre-request-hooks! (constantly {:blocked? true})]
+              (prompt-and-capture! {:message "blocked"}))]
+        (is (nil? blocked))
+        (is (nil? (get-in (h/db) [:chats chat-id :last-injected-date])))
+        (let [[_ accepted] (prompt-and-capture! {:message "accepted" :chat-id chat-id})]
+          (is (has-date? (first (:user-messages accepted))))
+          (is (= today (get-in (h/db) [:chats chat-id :last-injected-date]))))))
+
+    (testing "rollback keeps the marker only while its dated message remains"
+      (doseq [[stamp rollback-id retained-marker add-date?]
+              [[today "b" today false]
+               [today "a" nil true]
+               [(str "Current date: " (.minusDays (java.time.LocalDate/now) 1)) "b"
+                (str "Current date: " (.minusDays (java.time.LocalDate/now) 1)) true]]]
+        (h/reset-components!)
+        (let [chat-id "date-rollback"]
+          (swap! (h/db*) assoc-in [:chats chat-id]
+                 {:id chat-id :last-injected-date stamp
+                  :messages [{:role "user" :content-id "a"
+                              :content [{:type :text :text "first"} {:type :text :text stamp}]}
+                             {:role "user" :content-id "b" :content [{:type :text :text "second"}]}]})
+          (f.chat/rollback-chat {:chat-id chat-id :content-id rollback-id :include ["messages"]}
+                                (h/db*) (h/messenger) (h/metrics))
+          (is (= retained-marker (get-in (h/db) [:chats chat-id :last-injected-date])))
+          (let [[_ captured] (prompt-and-capture! {:message "after rollback" :chat-id chat-id})]
+            (is (= add-date? (has-date? (first (:user-messages captured)))))
+            (is (= today (get-in (h/db) [:chats chat-id :last-injected-date])))))))
+
+    (testing "same-day follow-up turn is deduped"
+      (h/reset-components!)
+      (let [[{:keys [chat-id]} _] (prompt-and-capture! {:message "first"})
+            [_ second] (prompt-and-capture! {:message "second" :chat-id chat-id})]
+        (is (not (has-date? (first (:user-messages second))))
+            "no second stamp while the day is unchanged")))
+
+    (testing "day change re-stamps the date"
+      (h/reset-components!)
+      (let [[{:keys [chat-id]} _] (prompt-and-capture! {:message "first"})
+            _ (swap! (h/db*) assoc-in [:chats chat-id :last-injected-date]
+                     (str "Current date: " (.minusDays (java.time.LocalDate/now) 1)))
+            [_ second] (prompt-and-capture! {:message "next day" :chat-id chat-id})]
+        (is (has-date? (first (:user-messages second)))
+            "a resumed or rolled-over chat gets a fresh stamp when the stored date differs")))))
 
 (deftest resume-preserves-stored-model-test
   (testing "Stored chat :model wins over default when no explicit model is sent (#417)"
@@ -2869,7 +3217,8 @@
                                         :contexts sha?
                                         :rules sha?
                                         :skills sha?
-                                        :tools sha?}
+                                        :tools sha?
+                                        :memory sha?}
                      :agent "plan"
                      :model "openai/gpt-4.1"}
                     (get-in (h/db) [:chats chat-id :prompt-cache])))))))
@@ -3073,7 +3422,8 @@
       (is (match? {:chat-id "inline-3" :status :prompting} resp))
       (is (= title-before (get-in (h/db) [:chats "inline-3" :title])))
       (is (nil? (:chat-opened (h/messages))))
-      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}]}
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}
+                                                     (date-text-item)]}
                              {:role "user" :content [{:type :text :text "second"}]}])
                   (get-in (h/db) [:chats "inline-3" :messages]))))))
 
@@ -3103,7 +3453,8 @@
       (testing "copied history + new turn, dangling tool call dropped"
         (is (match? (m/embeds [{:role "user" :content [{:type :text :text "original question"}]}
                                {:role "assistant" :content [{:type :text :text "original answer"}]}
-                               {:role "user" :content [{:type :text :text "btw what is bar?"}]}])
+                               {:role "user" :content [{:type :text :text "btw what is bar?"}
+                                                       (date-text-item)]}])
                     (get-in (h/db) [:chats "inline-fork-1" :messages])))
         (is (not-any? #(= "tool_call" (:role %))
                       (get-in (h/db) [:chats "inline-fork-1" :messages]))))
@@ -3235,7 +3586,7 @@
       (is (match? {:chat-id "inline-orphan" :status :prompting} resp))
       (is (match? {:kind :inline} (get-in (h/db) [:chats "inline-orphan"])))
       ;; no copied history: the first message is the new question itself
-      (is (match? {:role "user" :content [{:text "hi"}]}
+      (is (match? {:role "user" :content [{:text "hi"} (date-text-item)]}
                   (first (get-in (h/db) [:chats "inline-orphan" :messages])))))))
 
 (deftest inline-prompt-variant-config-test

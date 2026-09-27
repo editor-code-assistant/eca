@@ -623,7 +623,7 @@
 (defn create-response! [{:keys [model user-messages instructions reason? supports-image? api-key api-url url-relative-path
                                 max-output-tokens past-messages tools web-search image-generation extra-payload extra-headers
                                 provider auth-type provider-data account-id http-client prompt-cache-key cancelled?
-                                stream-idle-timeout-seconds]}
+                                stream-idle-timeout-seconds prompt-injections]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
                                 on-server-web-search on-server-image-generation retry-request] :as callbacks}]
   (let [codex? (codex-request? provider auth-type)
@@ -632,6 +632,11 @@
                                provider-data))
         default-reasoning-effort (:default-reasoning-effort provider-data)
         turn-context (when codex? (new-codex-turn-context))
+        ;; OpenAI has no trailing-system-message seam; only
+        ;; :last-user-message injections apply (via the sanitize seam below).
+        user-injections (->> prompt-injections
+                             (remove #(= :tail-system-message (:target %)))
+                             vec)
         input (concat (normalize-messages past-messages supports-image?)
                       (normalize-messages user-messages supports-image?))
         tools (->tools tools web-search image-generation)
@@ -794,7 +799,7 @@
                                      :input-cache-read-tokens input-cache-read-tokens}))
                 (if (seq tool-calls)
                   (when-let [{:keys [new-messages tools fresh-api-key provider-auth]} (on-tools-called tool-calls)]
-                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)]
+                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages user-injections)]
                       (reset! tool-call-by-item-id* {})
                       (request-with-retry!
                        {:rid (llm-util/gen-rid)

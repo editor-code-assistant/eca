@@ -13,6 +13,7 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.shared :as shared :refer [assoc-some join-api-url]]
    [hato.client :as http])
   (:import
@@ -377,13 +378,15 @@
    The tool loop recurses per turn (mirroring `anthropic.clj`); termination
    relies on the model and the chat layer's subagent step cap rather than a
    provider-side ceiling."
-  [{:keys [base-opts body supports-image?]}
+  [{:keys [base-opts body supports-image? user-injections]}
    {:keys [new-messages tools fresh-api-key]}
    extra-opts]
   (base-request!
    (merge base-opts
           {:rid (llm-util/gen-rid)
-           :body (assoc-some (assoc body :messages (normalize-conversation new-messages nil supports-image?))
+           :body (assoc-some (assoc body :messages (normalize-conversation
+                                                    (message-sanitize/sanitize-outbound-messages new-messages user-injections)
+                                                    nil supports-image?))
                              :toolConfig (->tool-config tools))
            :api-key (or fresh-api-key (:api-key base-opts))}
           extra-opts)))
@@ -492,10 +495,15 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens api-url api-key
            reason? past-messages tools extra-payload extra-headers supports-image?
-           http-client cancelled?]}
+           http-client cancelled? prompt-injections]}
    {:keys [on-error] :as callbacks}]
   (let [stream? (boolean callbacks)
         cancelled? (or cancelled? (constantly false))
+        ;; Bedrock has no trailing-system-message seam; only
+        ;; :last-user-message injections apply (via the sanitize seam below).
+        user-injections (->> prompt-injections
+                             (remove #(= :tail-system-message (:target %)))
+                             vec)
         body (build-body {:messages (normalize-conversation past-messages user-messages supports-image?)
                           :instructions instructions
                           :max-output-tokens max-output-tokens
@@ -508,7 +516,8 @@
                    :extra-headers extra-headers
                    :http-client http-client
                    :cancelled? cancelled?}
-        reissue-ctx {:base-opts base-opts :body body :supports-image? supports-image?}
+        reissue-ctx {:base-opts base-opts :body body :supports-image? supports-image?
+                     :user-injections user-injections}
         ;; Non-streaming tool loop: re-issue with the updated history, which
         ;; yields another result map the sync caller drives.
         on-tools-called-wrapper

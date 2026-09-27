@@ -308,14 +308,20 @@
 
 (deftest compact-side-effect-clears-validated-path-rules-test
   (let [db* (atom {:chats {"chat-1" {:last-summary "Short summary"
-                                     :messages []
+                                     :messages [{:role "user"
+                                                 :content [{:type :text :text "old"}]}]
                                      :validated-path-rules #{"/workspace/a/.eca/rules/format.md"}}}})]
     (shared/compact-side-effect! {:chat-id "chat-1"
                                   :full-model "openai/gpt-5.2"
                                   :db* db*
                                   :messenger (h/messenger)}
                                  false)
-    (is (nil? (get-in @db* [:chats "chat-1" :validated-path-rules])))))
+    (is (nil? (get-in @db* [:chats "chat-1" :validated-path-rules])))
+    (is (= [{:type :text :text "old"}]
+           (get-in @db* [:chats "chat-1" :messages 0 :content]))
+        "stored history passes through compaction unchanged (request-local content never lives here)")
+    (is (= ["user" "compact_marker" "user"]
+           (mapv :role (get-in @db* [:chats "chat-1" :messages]))))))
 
 (deftest messages-after-last-compact-marker-test
   (testing "returns all messages when no compact_marker exists"

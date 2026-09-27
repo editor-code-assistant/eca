@@ -6,14 +6,14 @@
    [cognitect.transit :as transit]
    [eca.cache :as cache]
    [eca.digest :as digest]
+   [eca.file-io :as file-io]
    [eca.logger :as logger]
    [eca.metrics :as metrics]
    [eca.shared :as shared])
   (:import
-   [java.io OutputStream RandomAccessFile]
-   [java.nio.channels FileChannel FileLock]
-   [java.nio.file AtomicMoveNotSupportedException CopyOption Files LinkOption StandardCopyOption]
-   [java.nio.file.attribute BasicFileAttributes FileAttribute]
+   [java.io OutputStream]
+   [java.nio.file Files LinkOption]
+   [java.nio.file.attribute BasicFileAttributes]
    [java.util.concurrent ConcurrentHashMap]))
 
 (set! *warn-on-reflection* true)
@@ -266,36 +266,6 @@
     (catch Throwable e
       (logger/error logger-tag (str "Could not load cache from " cache-file) e))))
 
-(defn ^:private atomic-move!
-  "Rename `src` to `dest`. Tries an atomic move first so a crash mid-rename
-   cannot leave the destination half-written; falls back to a non-atomic
-   replace on filesystems that do not support ATOMIC_MOVE."
-  [^java.io.File src ^java.io.File dest]
-  (try
-    (Files/move (.toPath src)
-                (.toPath dest)
-                (into-array CopyOption
-                            [StandardCopyOption/ATOMIC_MOVE
-                             StandardCopyOption/REPLACE_EXISTING]))
-    (catch AtomicMoveNotSupportedException _
-      (Files/move (.toPath src)
-                  (.toPath dest)
-                  (into-array CopyOption
-                              [StandardCopyOption/REPLACE_EXISTING])))))
-
-(defonce ^:private ^ConcurrentHashMap file-locks (ConcurrentHashMap.))
-
-(defn ^:private file-lock
-  "Return a process-wide JVM monitor keyed by the absolute path of `f`.
-   Concurrent writers targeting the same cache file synchronize on this
-   monitor so they cannot race on the temp-file rename."
-  ^Object [^java.io.File f]
-  (let [^ConcurrentHashMap m file-locks
-        k (.getAbsolutePath f)]
-    (or (.get m k)
-        (let [o (Object.)]
-          (or (.putIfAbsent m k o) o)))))
-
 (defn ^:private upsert-cache!
   "Persist `cache` to `cache-file` durably.
 
@@ -310,33 +280,23 @@
     (metrics/task metrics :db/upsert-cache
       (io/make-parents cache-file)
       (let [dest ^java.io.File cache-file]
-        ;; `file-lock` interns the lock object in `file-locks`, so it is
-        ;; not actually local to this scope; suppress the false positive.
+        ;; The helper shares this monitor across callers; it is not local
+        ;; to this scope. Suppress the false positive.
         #_{:clj-kondo/ignore [:locking-suspicious-lock]}
-        (locking (file-lock dest)
+        (locking (file-io/file-lock dest)
           ;; Best-effort cleanup of the legacy fixed-name `<dest>.tmp` left by
           ;; pre-unique-tmp versions of ECA. Safe to delete because new code
           ;; only ever creates random-suffixed temps via Files/createTempFile.
           (let [legacy-tmp ^java.io.File (io/file (str (.getPath dest) ".tmp"))]
             (when (.exists legacy-tmp)
               (try (.delete legacy-tmp) (catch Throwable _))))
-          (let [parent ^java.io.File (.getParentFile dest)
-                prefix (str (.getName dest) ".")
-                tmp ^java.io.File (.toFile
-                                   (Files/createTempFile
-                                    (.toPath parent)
-                                    prefix
-                                    ".tmp"
-                                    (make-array FileAttribute 0)))]
-            (try
-              ;; https://github.com/cognitect/transit-clj/issues/43
-              (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream tmp))]
-                (let [writer (transit/writer os :json)]
-                  (transit/write writer cache)))
-              (atomic-move! tmp dest)
-              (finally
-                (when (.exists tmp)
-                  (.delete tmp))))))))
+          (file-io/replace-file!
+           dest
+           (fn [tmp]
+             ;; https://github.com/cognitect/transit-clj/issues/43
+             (with-open [os ^OutputStream (no-flush-output-stream (io/output-stream tmp))]
+               (let [writer (transit/writer os :json)]
+                 (transit/write writer cache))))))))
     (catch Throwable e
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
@@ -362,32 +322,6 @@
                        chats))
           {}
           chat-maps))
-
-(defn ^:private with-os-file-lock-fn
-  "Run `f` while holding both a JVM monitor for `lock-file` and an OS advisory
-   exclusive lock on it. The JVM monitor avoids `OverlappingFileLockException`
-   when two threads in the same ECA server race; the file lock serializes
-   across `eca server` processes that share the same cache dir. Blocks until
-   both are acquired."
-  [^java.io.File lock-file f]
-  ;; `file-lock` interns the lock object in `file-locks`, so it is
-  ;; not actually local to this scope; suppress the false positive.
-  #_{:clj-kondo/ignore [:locking-suspicious-lock]}
-  (locking (file-lock lock-file)
-    (io/make-parents lock-file)
-    (let [^RandomAccessFile raf (RandomAccessFile. lock-file "rw")
-          ^FileChannel channel (.getChannel raf)
-          lock-ref (volatile! nil)]
-      (try
-        (vreset! lock-ref ^FileLock (.lock channel))
-        (f)
-        (finally
-          (when-let [^FileLock lock @lock-ref]
-            (try (.release lock)
-                 (catch Throwable e
-                   (logger/warn logger-tag "Could not release cache lock" e))))
-          (try (.close channel) (catch Throwable _))
-          (try (.close raf) (catch Throwable _)))))))
 
 (defn ^:private workspace-cache-lock-file ^java.io.File [^java.io.File cache-file]
   (io/file (str (.getPath cache-file) ".lock")))
@@ -514,7 +448,7 @@
                  (upsert-cache! {:version chats-version :workspaces workspace-paths :chats entries} dest metrics)
                  (record-workspace-write-attrs! dest))]
     (try
-      (with-os-file-lock-fn
+      (file-io/with-os-file-lock-fn
         (workspace-cache-lock-file dest)
         (fn []
           (let [disk-entries (when (workspace-cache-changed-on-disk? dest)
@@ -702,7 +636,7 @@
           legacy-files (filterv fs/exists? (cons canonical redundant))]
       (when (seq legacy-files)
         (let [index-file (chats-index-file workspaces)]
-          (with-os-file-lock-fn
+          (file-io/with-os-file-lock-fn
             (workspace-cache-lock-file index-file)
             (fn []
               (let [legacy-chats (merge-chats (keep #(read-legacy-workspace-cache % metrics) legacy-files))]
@@ -727,7 +661,7 @@
                   (upsert-cache! {:version chats-version :workspaces workspace-paths :chats entries} index-file metrics)
                   (record-workspace-write-attrs! index-file))
                 (when (fs/exists? canonical)
-                  (atomic-move! canonical (io/file (str (.getPath canonical) ".bak"))))
+                  (file-io/atomic-move! canonical (io/file (str (.getPath canonical) ".bak"))))
                 (doseq [^java.io.File f redundant]
                   (try
                     (fs/delete-tree (.getParentFile f))
@@ -778,7 +712,7 @@
    race a renew; the file lock serializes across `eca server` processes
    that share `~/.cache/eca/`. Blocks until both are acquired."
   [f]
-  (with-os-file-lock-fn (global-cache-lock-file) f))
+  (file-io/with-os-file-lock-fn (global-cache-lock-file) f))
 
 (defmacro with-global-cache-lock
   "See `with-global-cache-lock-fn`. Runs `body` while holding the lock."

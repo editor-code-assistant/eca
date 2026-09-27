@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.features.memory.render :as memory.render]
    [eca.features.prompt :as prompt]
    [eca.test-helper :as h]))
 
@@ -313,3 +314,31 @@
           {:keys [static]} (build-instructions [] static-rules [] [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
       (is (not (string/includes? static "broken-rule")))
       (is (not (string/includes? static "## Rules"))))))
+
+(deftest build-instructions-memory-guidance-test
+  (let [enabled-config {:memory {:enabled true :writeMode "agent"}}]
+    (testing "memory write guidance joins the STATIC instructions when memory is enabled and writable"
+      (let [{:keys [static dynamic]} (build-instructions [] [] [] [] (delay "TREE") "code" enabled-config "chat-1" [] (h/db))]
+        (is (string/includes? static "## Memory write guidance"))
+        (is (not (string/includes? (or dynamic "") "## Memory write guidance"))
+            "guidance rides the cached static prefix, never the per-turn dynamic part")))
+    (testing "configuration cannot replace the bundled memory guidance"
+      (let [config (assoc enabled-config
+                          :prompts {:memoryGuidance "GLOBAL OVERRIDE"}
+                          :agent {"code" {:prompts {:memoryGuidance "AGENT OVERRIDE"}}})
+            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" config "chat-1" [] (h/db))]
+        (is (string/includes? static "## Memory write guidance"))
+        (is (not (string/includes? static "GLOBAL OVERRIDE")))
+        (is (not (string/includes? static "AGENT OVERRIDE")))))
+    (testing "absent when memory is disabled (default config)"
+      (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
+        (is (not (string/includes? static "## Memory write guidance")))))
+    (testing "passes the write mode to the guidance renderer"
+      (with-redefs [memory.render/guidance-text #(str "TEST-GUIDANCE:" (:write-mode %))]
+        (doseq [mode ["agent" "explicit"]]
+          (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {:memory {:enabled true :writeMode mode}} "chat-1" [] (h/db))]
+            (is (string/includes? static (str "TEST-GUIDANCE:" mode)))))))
+    (testing "absent for subagent chats (mirrors per-turn index gating)"
+      (let [db (assoc-in (h/db) [:chats "sub-chat" :subagent] {:name "explorer"})
+            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" enabled-config "sub-chat" [] db)]
+        (is (not (string/includes? static "## Memory write guidance")))))))

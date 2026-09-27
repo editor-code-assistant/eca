@@ -215,6 +215,36 @@
                  "bedrock" (api->handler :bedrock)
                  nil)))))
 
+(defn tail-system-injection-supported?
+  "True only when the selected model uses the Anthropic Messages handler and
+   explicitly supports mid-conversation system messages — the only config in
+   which `:tail-system-message` prompt-injections can be emitted. Elsewhere
+   per-turn content must ride the last user message instead."
+  [provider model model-capabilities config]
+  (and (:mid-conversation-system? model-capabilities)
+       (= :anthropic
+          (:api (provider->api-handler provider model model-capabilities config)))))
+
+(defn ^:private split-injections-by-target
+  "Partitions call-scoped `prompt-injections` for the outbound seams.
+
+   Returns `[user-message-injections tail-system-injections]`. When the
+   selected model cannot emit trailing system messages, `:tail-system-message`
+   injections degrade to the `:last-user-message` seam so per-turn content is
+   never silently dropped mid-loop (e.g. a mid-prompt model swap)."
+  [provider model model-capabilities config prompt-injections]
+  (let [tail-supported? (tail-system-injection-supported? provider model model-capabilities config)
+        user-injections (->> prompt-injections
+                             (mapv (fn [injection]
+                                     (if (and (not tail-supported?)
+                                              (= :tail-system-message (:target injection)))
+                                       (assoc injection :target :last-user-message)
+                                       injection)))
+                             (filterv #(not= :tail-system-message (:target %))))
+        tail-injections (when tail-supported?
+                          (filterv #(= :tail-system-message (:target %)) prompt-injections))]
+    [user-injections tail-injections]))
+
 (def ^:private reasoning-keys-by-api
   {:anthropic [:thinking]
    :bedrock [:thinking :output_config]
@@ -248,7 +278,7 @@
   [target-api past-messages]
   (let [past (vec past-messages)
         incompatible? (partial entry-incompatible-with-api? target-api)
-        kept (into [] (comp (remove incompatible?) (map message-sanitize/strip-internal-message-fields)) past)
+        kept (into [] (comp (remove incompatible?) (map message-sanitize/sanitize-outbound-message)) past)
         dropped (filterv incompatible? past)]
     {:messages kept
      :dropped-count (count dropped)
@@ -282,7 +312,7 @@
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized retry-request
-           past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
+           past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key prompt-injections]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
         tools (when (:tools model-capabilities) (tools-for-request tools))
@@ -296,6 +326,8 @@
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
         {:keys [handler] :as api-handler} (provider->api-handler provider model model-capabilities config)
+        [user-message-injections tail-system-injections]
+        (split-injections-by-target provider model model-capabilities config prompt-injections)
         _ (when (and (= "github-copilot" provider) (nil? (:api model-capabilities)))
             (logger/info logger-tag
                          (format "Copilot model '%s' has no API discovered from /models catalog, routing to %s by model name"
@@ -303,7 +335,7 @@
         {past-messages :messages
          sanitized-dropped-count :dropped-count
          sanitized-dropped-apis :dropped-apis} (sanitize-past-messages-for-api (:api api-handler) past-messages)
-        user-messages (message-sanitize/sanitize-outbound-messages user-messages)
+        user-messages (message-sanitize/sanitize-outbound-messages user-messages user-message-injections)
         _ (when (and on-history-sanitized (pos? sanitized-dropped-count))
             (try
               (on-history-sanitized {:dropped-count sanitized-dropped-count
@@ -322,6 +354,7 @@
         anthropic-opts {:model real-model
                         :instructions instructions
                         :user-messages user-messages
+                        :prompt-injections (vec (concat user-message-injections tail-system-injections))
                         :max-output-tokens max-output-tokens
                         :reason? reason?
                         :supports-image? supports-image?
@@ -372,6 +405,7 @@
           :provider-data (:provider-data model-capabilities)
           :account-id (:account-id provider-auth)
           :prompt-cache-key prompt-cache-key
+          :prompt-injections user-message-injections
           :cancelled? cancelled?
           :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
@@ -406,6 +440,7 @@
                          :past-messages past-messages
                          :tools tools
                          :reasoning-history reasoning-history
+                         :prompt-injections user-message-injections
                          :api-url api-url
                          :api-key api-key
                          :prompt-cache-key prompt-cache-key
@@ -457,6 +492,7 @@
           :extra-headers extra-headers
           :api-url api-url
           :api-key api-key
+          :prompt-injections user-message-injections
           :cancelled? cancelled?
           :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
          callbacks)
@@ -472,6 +508,7 @@
           :past-messages past-messages
           :tools tools
           :max-output-tokens max-output-tokens
+          :prompt-injections user-message-injections
           :extra-payload extra-payload
           :extra-headers extra-headers
           :cancelled? cancelled?
@@ -485,30 +522,37 @@
               think-tag-start (:thinkTagStart provider-config)
               think-tag-end (:thinkTagEnd provider-config)
               http-client (:httpClient provider-config)]
-          (handler
-           {:model real-model
-            :instructions flat-instructions
-            :user-messages user-messages
-            :max-output-tokens max-output-tokens
-            :web-search web-search
-            :image-generation image-generation
-            :reason? reason?
-            :supports-image? supports-image?
-            :past-messages past-messages
-            :tools tools
-            :extra-payload extra-payload
-            :extra-headers extra-headers
-            :url-relative-path url-relative-path
-            :think-tag-start think-tag-start
-            :think-tag-end think-tag-end
-            :reasoning-history reasoning-history
-            :http-client http-client
-            :api-url api-url
-            :api-key api-key
-            :cancelled? cancelled?
-            :cache-retention (:cacheRetention provider-config)
-            :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
-           callbacks))
+          (if (= :anthropic (:api api-handler))
+            (handler
+             (assoc anthropic-opts
+                    :url-relative-path url-relative-path
+                    :http-client http-client)
+             callbacks)
+            (handler
+             {:model real-model
+              :instructions flat-instructions
+              :user-messages user-messages
+              :max-output-tokens max-output-tokens
+              :web-search web-search
+              :image-generation image-generation
+              :reason? reason?
+              :supports-image? supports-image?
+              :past-messages past-messages
+              :tools tools
+              :extra-payload extra-payload
+              :extra-headers extra-headers
+              :url-relative-path url-relative-path
+              :think-tag-start think-tag-start
+              :think-tag-end think-tag-end
+              :reasoning-history reasoning-history
+              :http-client http-client
+              :prompt-injections user-message-injections
+              :api-url api-url
+              :api-key api-key
+              :cancelled? cancelled?
+              :cache-retention (:cacheRetention provider-config)
+              :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
+             callbacks)))
 
         :else
         (on-error {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
@@ -520,7 +564,7 @@
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized
            past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?
-           prompt-cache-key]
+           prompt-cache-key prompt-injections]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -669,6 +713,7 @@
                               :variant variant
                               :subagent? subagent?
                               :prompt-cache-key prompt-cache-key
+                              :prompt-injections prompt-injections
                               :on-error on-error-wrapper
                               :on-history-sanitized on-history-sanitized-wrapper
                               :config config})]
@@ -707,6 +752,7 @@
                 :variant variant
                 :subagent? subagent?
                 :prompt-cache-key prompt-cache-key
+                :prompt-injections prompt-injections
                 :cancelled? cancelled?
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
@@ -729,7 +775,7 @@
 
 (defn sync-prompt!
   [{:keys [provider model model-capabilities instructions
-           prompt past-messages user-messages config tools provider-auth subagent?]}]
+           prompt past-messages user-messages config tools provider-auth subagent? prompt-injections]}]
   (prompt!
    {:sync? true
     :provider provider
@@ -742,5 +788,6 @@
     :user-messages (or user-messages
                        [{:role "user" :content [{:type :text :text prompt}]}])
     :subagent? subagent?
+    :prompt-injections prompt-injections
     :config config
     :on-error (fn [error] {:error error})}))

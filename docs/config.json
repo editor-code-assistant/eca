@@ -171,6 +171,42 @@
     "toolCall": {
       "$ref": "#/definitions/toolCallConfig"
     },
+    "memory": {
+      "type": "object",
+      "description": "Optional file-based durable memory: plain markdown files with YAML frontmatter in two tiers (global and per-project personal).",
+      "markdownDescription": "Optional file-based durable memory: plain markdown files with YAML frontmatter in two tiers (global and per-project personal). Memory is opt-in, local, and personal. Do not store secrets, credentials, or authentication data.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable durable memory: scanning, index injection, and the memory protocol methods."
+        },
+        "writeMode": {
+          "type": "string",
+          "enum": ["agent", "explicit"],
+          "default": "agent",
+          "description": "Write policy while memory is enabled: agent permits automatic writes of well-supported technical findings and treats memory paths like workspace paths for approvals. In both modes, saving user preferences or instructions requires clear permission for future chats. Explicit instructs the model to write, update, or delete memory only when the user asks and does not grant extra write trust. These are model instructions, not strict file-write restrictions. Normal approval rules, remembered approvals, and chat trust still apply. Invalid values use explicit mode."
+        },
+        "index": {
+          "type": "object",
+          "description": "Always-on memory index injected into the prompt on each user turn.",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum number of memory entries rendered in the index; the rest is browsed with the agent's normal file tools."
+            },
+            "maxTokens": {
+              "type": "integer",
+              "default": 2000,
+              "description": "Estimated token budget for the whole memory index block. Entries are removed from the end until it fits. Zero, or a budget too small for the notice, omits the index; memory write guidance remains enabled."
+            }
+          }
+        }
+      }
+    },
     "mcpTimeoutSeconds": {
       "type": "integer",
       "description": "Timeout in seconds for MCP server operations.",
@@ -1506,6 +1542,11 @@
           "type": "string",
           "description": "Prompt for the /init command.",
           "markdownDescription": "Prompt for the /init command."
+        },
+        "memoryConsolidate": {
+          "type": "string",
+          "description": "Prompt for the /memory-consolidate command.",
+          "markdownDescription": "Prompt for the /memory-consolidate command."
         },
         "skillCreate": {
           "type": "string",
