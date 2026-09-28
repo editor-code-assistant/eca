@@ -1672,7 +1672,7 @@
 </ul>
 <h2 id="mcp">MCP<a class="headerlink" href="#mcp" title="Permanent link">#</a></h2>
 <p>For MCP servers configuration, use the <code>mcpServers</code> config, examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:9"><input checked="checked" id="stdio" name="__tabbed_1" type="radio" /><input id="http-streamable-or-sse" name="__tabbed_1" type="radio" /><input id="oauth-with-pre-registered-client" name="__tabbed_1" type="radio" /><input id="confidential-oauth-eg-slack" name="__tabbed_1" type="radio" /><input id="static-auth-header" name="__tabbed_1" type="radio" /><input id="youcom-web-search--research" name="__tabbed_1" type="radio" /><input id="advanced--dcr-client-name-override" name="__tabbed_1" type="radio" /><input id="per-project-auth--authscope" name="__tabbed_1" type="radio" /><input id="disabling-a-mcp" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="stdio">Stdio</label><label for="http-streamable-or-sse">HTTP (streamable or sse)</label><label for="oauth-with-pre-registered-client">OAuth with pre-registered client</label><label for="confidential-oauth-eg-slack">Confidential OAuth (e.g. Slack)</label><label for="static-auth-header">Static auth header</label><label for="youcom-web-search--research">You.com web search &amp; research</label><label for="advanced--dcr-client-name-override">Advanced — DCR client name override</label><label for="per-project-auth--authscope">Per-project auth — authScope</label><label for="disabling-a-mcp">Disabling a MCP</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:10"><input checked="checked" id="stdio" name="__tabbed_1" type="radio" /><input id="http-streamable-or-sse" name="__tabbed_1" type="radio" /><input id="oauth-with-pre-registered-client" name="__tabbed_1" type="radio" /><input id="confidential-oauth-eg-slack" name="__tabbed_1" type="radio" /><input id="static-auth-header" name="__tabbed_1" type="radio" /><input id="youcom-web-search--research" name="__tabbed_1" type="radio" /><input id="serply-web-search" name="__tabbed_1" type="radio" /><input id="advanced--dcr-client-name-override" name="__tabbed_1" type="radio" /><input id="per-project-auth--authscope" name="__tabbed_1" type="radio" /><input id="disabling-a-mcp" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="stdio">Stdio</label><label for="http-streamable-or-sse">HTTP (streamable or sse)</label><label for="oauth-with-pre-registered-client">OAuth with pre-registered client</label><label for="confidential-oauth-eg-slack">Confidential OAuth (e.g. Slack)</label><label for="static-auth-header">Static auth header</label><label for="youcom-web-search--research">You.com web search &amp; research</label><label for="serply-web-search">Serply web search</label><label for="advanced--dcr-client-name-override">Advanced — DCR client name override</label><label for="per-project-auth--authscope">Per-project auth — authScope</label><label for="disabling-a-mcp">Disabling a MCP</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1796,6 +1796,22 @@ set the <code>Authorization</code> header directly. This skips OAuth entirely.</
 <span class="p">}</span>
 </code></pre></div>
 <p>Available tools include <code>you_search</code> (web search with citations), <code>you_url_contents</code> (webpage content extraction), and <code>you_research</code> (multi-step research workflows).</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://serply.io">Serply</a> provides Google web, news, scholar, maps, jobs and video search, Bing search, URL scraping and Reddit lookups via MCP.</p>
+<p>Get an API key from <a href="https://serply.io">serply.io</a> and set it as the <code>SERPLY_API_KEY</code> environment variable. Serply reads the key from the <code>X-Api-Key</code> header:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;serply&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.serply.io/mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;X-Api-Key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:SERPLY_API_KEY}&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Available tools include <code>google_search</code>, <code>google_news_search</code>, <code>google_scholar_search</code>, <code>bing_search</code> and <code>scrape_url</code>. See the <a href="https://serply.io/docs">Serply docs</a> for the full list.</p>
 </div>
 <div class="tabbed-block">
 <p>Some OAuth-protected MCP servers allowlist clients during Dynamic Client
@@ -2302,7 +2318,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 25, 2026 16:58:54 UTC">September 25, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 28, 2026 13:07:08 UTC">September 28, 2026</span>
   </span>
 
     
