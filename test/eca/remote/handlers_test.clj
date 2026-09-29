@@ -363,6 +363,37 @@
           response (handlers/handle-prompt (components) request "c1")]
       (is (= 400 (:status response))))))
 
+(deftest handle-change-agent-test
+  (let [request (fn [body]
+                  {:body (java.io.ByteArrayInputStream.
+                          (.getBytes ^String (json/generate-string body) "UTF-8"))})
+        ;; config/all may pick up a local global config (e.g. a defaultModel
+        ;; adding model updates), so only look at agent updates.
+        select-agent-updates (fn []
+                               (filterv #(contains? (:chat %) :select-agent)
+                                        (:config-updated (h/messages))))]
+    (testing "tells the editor the chat's new agent so its next prompt doesn't revert it"
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :agent "code"}})
+      (let [response (handlers/handle-change-agent (components) (request {:agent "plan"}) "c1")]
+        (is (= 204 (:status response)))
+        (is (= "plan" (get-in (h/db) [:chats "c1" :agent])))
+        (is (= [{:chat-id "c1" :chat {:select-agent "plan"}}]
+               (select-agent-updates)))))
+
+    (testing "pushes the agent the server persisted when the requested one is unknown"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :agent "plan"}})
+      (handlers/handle-change-agent (components) (request {:agent "nonexistent"}) "c1")
+      (is (= "code" (get-in (h/db) [:chats "c1" :agent])))
+      (is (= [{:chat-id "c1" :chat {:select-agent "code"}}]
+             (select-agent-updates))))
+
+    (testing "does not notify for a missing chat"
+      (h/reset-components!)
+      (let [response (handlers/handle-change-agent (components) (request {:agent "plan"}) "ghost")]
+        (is (= 404 (:status response)))
+        (is (empty? (select-agent-updates)))))))
+
 (deftest handle-session-test
   (testing "returns session info"
     (let [response (handlers/handle-session (components) nil)

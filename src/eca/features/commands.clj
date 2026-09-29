@@ -752,7 +752,8 @@
                              :variants []
                              :select-variant nil}}
                      messenger
-                     db*)
+                     db*
+                     chat-id)
                     (chat-message
                      (multi-str (str "Selected model: `" selected-model "`")
                                 "Using model defaults.")))))
@@ -792,6 +793,9 @@
                     ((requiring-resolve 'eca.handlers/chat-selected-agent-changed)
                      (select-keys chat-ctx [:db* :messenger :config :metrics])
                      {:chat-id chat-id :agent selected-agent})
+                    ;; Unlike a client-side change, the client doesn't know
+                    ;; about this one and would revert it on its next prompt.
+                    (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
                     (chat-message (str "Selected agent: `" selected-agent "`.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
                    {new-id :id new-title :title new-messages :messages}
@@ -884,6 +888,11 @@
                      ;; chat's persisted :trust so the icon matches the
                      ;; auto-approval behavior the server will apply. #426
                      (config/notify-selected-trust-changed! (:trust chat) db* messenger chat-id)
+                     ;; Same for the agent, so the client's current agent isn't
+                     ;; sent on the next prompt instead of the resumed chat's one.
+                     (when-let [chat-agent (:agent chat)]
+                       (config/notify-selected-agent-changed!
+                        (config/validate-agent-name chat-agent config) db* messenger chat-id))
                      {:type :chat-messages
                       :clear-before? true
                       :chats {chat-id {:title (:title chat)

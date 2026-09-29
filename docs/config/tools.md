@@ -168,6 +168,27 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     Available tools include `you_search` (web search with citations), `you_url_contents` (webpage content extraction), and `you_research` (multi-step research workflows).
 
+=== "Serply web search"
+
+    [Serply](https://serply.io) provides Google web, news, scholar, maps, jobs and video search, Bing search, URL scraping and Reddit lookups via MCP.
+
+    Get an API key from [serply.io](https://serply.io) and set it as the `SERPLY_API_KEY` environment variable. Serply reads the key from the `X-Api-Key` header:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "serply": {
+          "url": "https://api.serply.io/mcp",
+          "headers": {
+            "X-Api-Key": "${env:SERPLY_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Available tools include `google_search`, `google_news_search`, `google_scholar_search`, `bing_search` and `scrape_url`. See the [Serply docs](https://serply.io/docs) for the full list.
+
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client

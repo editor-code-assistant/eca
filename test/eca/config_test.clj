@@ -909,7 +909,14 @@
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-sonnet-4-6" nil nil)))
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-sonnet-5" nil nil)))
         (is (= anthropic-variants
-               (config/effective-model-variants default-config "anthropic" "claude-sonnet-4-6" nil nil)))))
+               (config/effective-model-variants default-config "anthropic" "claude-sonnet-4-6" nil nil)))
+        (is (= {"default" {:thinking {:type "adaptive" :display "summarized"}}
+                "low" {:output_config {:effort "low"} :thinking {:type "adaptive" :display "summarized"}}
+                "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive" :display "summarized"}}
+                "high" {:output_config {:effort "high"} :thinking {:type "adaptive" :display "summarized"}}
+                "xhigh" {:output_config {:effort "xhigh"} :thinking {:type "adaptive" :display "summarized"}}
+                "max" {:output_config {:effort "max"} :thinking {:type "adaptive" :display "summarized"}}}
+               (config/effective-model-variants default-config "anthropic" "claude-opus-5-5" nil nil)))))
 
     (testing "Default config: Claude models on openai-chat providers (e.g. OpenRouter) get verbosity-based variants"
       (let [default-config (assoc-in (config/initial-config) [:providers "openrouter" :api] "openai-chat")]
@@ -936,6 +943,12 @@
                 "xhigh" {:verbosity "xhigh"}
                 "max" {:verbosity "max"}}
                (config/effective-model-variants default-config "openrouter" "anthropic/claude-mythos-5-1" nil nil)))
+        (is (= {"low" {:verbosity "low"}
+                "medium" {:verbosity "medium"}
+                "high" {:verbosity "high"}
+                "xhigh" {:verbosity "xhigh"}
+                "max" {:verbosity "max"}}
+               (config/effective-model-variants default-config "openrouter" "anthropic/claude-opus-5.5" nil nil)))
         ;; Copilot Claude models on the chat API keep discovery-only behavior
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-opus-4.5"
                                                    {:api :openai-chat} nil)))))
@@ -1179,6 +1192,22 @@
       (is (= [{:chat-id "chat-a" :chat {:select-trust true}}]
              (:config-updated (h/messages))))
       (is (= session-defaults (:last-config-notified (h/db)))))))
+
+(deftest notify-selected-agent-changed-test
+  (testing "scopes the agent to chat-id, even when it matches the session defaults"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :last-config-notified {:chat {:select-agent "plan"}})
+    (let [session-defaults (:last-config-notified (h/db))]
+      (config/notify-selected-agent-changed! "plan" (h/db*) (h/messenger) "chat-a")
+      (is (= [{:chat-id "chat-a" :chat {:select-agent "plan"}}]
+             (:config-updated (h/messages))))
+      (is (= session-defaults (:last-config-notified (h/db))))))
+
+  (testing "no-op without agent or chat-id"
+    (h/reset-components!)
+    (config/notify-selected-agent-changed! nil (h/db*) (h/messenger) "chat-a")
+    (config/notify-selected-agent-changed! "plan" (h/db*) (h/messenger) nil)
+    (is (empty? (:config-updated (h/messages))))))
 
 (deftest agent-modes-test
   (testing "scalar string :mode is honored"

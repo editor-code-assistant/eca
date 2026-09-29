@@ -137,6 +137,70 @@
   (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
   (hk/close ch))
 
+(defn ^:private send-text-response! [ch text]
+  (send-sse! ch {:choices [{:delta {:content text}}]})
+  (send-usage! ch {:prompt_tokens 10 :completion_tokens 5})
+  (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+  (hk/close ch))
+
+(defn ^:private send-tool-call-response! [ch call-id tool-name arguments]
+  (send-sse! ch {:choices [{:delta {:tool_calls [{:index 0
+                                                   :id call-id
+                                                   :type "function"
+                                                   :function {:name tool-name
+                                                              :arguments (json/generate-string arguments)}}]}}]})
+  (send-usage! ch {:prompt_tokens 10 :completion_tokens 5})
+  (send-sse! ch {:choices [{:delta {} :finish_reason "tool_calls"}]})
+  (hk/close ch))
+
+(defn ^:private tool-call-ids [messages]
+  (->> messages
+       (filter #(= "tool" (:role %)))
+       (keep :tool_call_id)
+       set))
+
+(defonce ^:private subagent-follow-up-attempt* (atom 0))
+
+(defn ^:private subagent-follow-up-bad-gateway?
+  "The subagent's first post-tool request hits a flaky gateway returning an nginx 502."
+  [messages]
+  (and (= :subagent-bad-gateway-0 llm.mocks/*case*)
+       (contains? (tool-call-ids messages) "sub-tool-1")
+       (= 1 (swap! subagent-follow-up-attempt* inc))))
+
+(def ^:private bad-gateway-response
+  {:status 502
+   :headers {"Content-Type" "text/html"}
+   :body (str "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n"
+              "<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n"
+              "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n")})
+
+(defn ^:private subagent-bad-gateway-0 [ch messages]
+  (let [tool-ids (tool-call-ids messages)
+        first-user-content (some #(when (= "user" (:role %)) (:content %)) messages)
+        subagent-call? (and (empty? tool-ids)
+                            (string? first-user-content)
+                            (string/includes? first-user-content "find files"))]
+    (cond
+      (contains? tool-ids "sub-tool-1")
+      (send-text-response! ch "Subagent done")
+
+      (contains? tool-ids "tool-1")
+      (send-text-response! ch "Final answer")
+
+      subagent-call?
+      (send-tool-call-response! ch "sub-tool-1" "eca__directory_tree"
+                                {:path h/default-root-project-path
+                                 :max_depth 1})
+
+      :else
+      (do
+        (reset! subagent-follow-up-attempt* 0)
+        (send-tool-call-response! ch "tool-1" "eca__spawn_agent"
+                                  {:agent "explorer"
+                                   :task "find files"
+                                   :activity "exploring"})))))
+
 (defn handle-openai-chat [req]
   ;; Capture and normalize the request body for assertions in tests
   (let [body (some-> (slurp (:body req)) (json/parse-string true))
@@ -144,34 +208,37 @@
         normalized (messages->normalized-input messages)
         normalized-body (merge normalized (select-keys body [:tools]))
         include-usage? (boolean (get-in body [:stream_options :include_usage]))]
-    (hk/as-channel
-     req
-     {:on-open (fn [ch]
-                 (binding [*include-usage?* include-usage?]
-                  ;; Send initial response headers for SSE
-                   (hk/send! ch {:status 200
-                                 :headers {"Content-Type" "text/event-stream; charset=utf-8"
-                                           "Cache-Control" "no-cache"
-                                           "Connection" "keep-alive"}}
-                             false)
-                   (if (string/includes? (:content (first (:messages body))) llm.mocks/chat-title-generator-str)
-                     (chat-title-text-0 ch)
-                     (do
-                       (llm.mocks/set-req-body! llm.mocks/*case* normalized-body)
-                       (llm.mocks/set-raw-messages! llm.mocks/*case* messages)
-                       (let [has-tool-message? (some #(= "tool" (:role %)) messages)]
-                         (case llm.mocks/*case*
-                           :simple-text-0 (simple-text-0 ch)
-                           :simple-text-1 (simple-text-1 ch)
-                           :simple-text-2 (simple-text-2 ch)
-                           :reasoning-0 (reasoning-text-0 ch)
-                           :reasoning-1 (reasoning-text-1 ch)
-                           :tool-calling-with-thought-signature-0
-                           (if has-tool-message?
-                             (tool-calling-with-thought-signature-1 ch)
-                             (tool-calling-with-thought-signature-0 ch (h/project-path->canon-path "resources")))
-                           ;; default fallback
-                           (do
-                             (send-sse! ch {:choices [{:delta {:content "hello"}}]})
-                             (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
-                             (hk/close ch))))))))})))
+    (if (subagent-follow-up-bad-gateway? messages)
+      bad-gateway-response
+      (hk/as-channel
+       req
+       {:on-open (fn [ch]
+                   (binding [*include-usage?* include-usage?]
+                     ;; Send initial response headers for SSE
+                     (hk/send! ch {:status 200
+                                   :headers {"Content-Type" "text/event-stream; charset=utf-8"
+                                             "Cache-Control" "no-cache"
+                                             "Connection" "keep-alive"}}
+                               false)
+                     (if (string/includes? (:content (first (:messages body))) llm.mocks/chat-title-generator-str)
+                       (chat-title-text-0 ch)
+                       (do
+                         (llm.mocks/set-req-body! llm.mocks/*case* normalized-body)
+                         (llm.mocks/set-raw-messages! llm.mocks/*case* messages)
+                         (let [has-tool-message? (some #(= "tool" (:role %)) messages)]
+                           (case llm.mocks/*case*
+                             :simple-text-0 (simple-text-0 ch)
+                             :simple-text-1 (simple-text-1 ch)
+                             :simple-text-2 (simple-text-2 ch)
+                             :reasoning-0 (reasoning-text-0 ch)
+                             :reasoning-1 (reasoning-text-1 ch)
+                             :tool-calling-with-thought-signature-0
+                             (if has-tool-message?
+                               (tool-calling-with-thought-signature-1 ch)
+                               (tool-calling-with-thought-signature-0 ch (h/project-path->canon-path "resources")))
+                             :subagent-bad-gateway-0 (subagent-bad-gateway-0 ch messages)
+                             ;; default fallback
+                             (do
+                               (send-sse! ch {:choices [{:delta {:content "hello"}}]})
+                               (send-sse! ch {:choices [{:delta {} :finish_reason "stop"}]})
+                               (hk/close ch))))))))}))))

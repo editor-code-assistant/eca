@@ -52,10 +52,11 @@ A `Connection closed unexpectedly` message, including TLS record-layer alerts su
 treats these failures as eligible for bounded recovery, not as a reason to disable TLS
 verification.
 
-Anthropic requests sent after tool execution have their own request-level retries when
-no new output has been emitted. These retries resend the same tool results without
-rerunning completed tools. Once output has started, or request retries are exhausted,
-ECA falls back to chat-level recovery when safe.
+Requests sent after tool execution have their own request-level retries on the Anthropic,
+OpenAI Responses and OpenAI-compatible chat (`openai-chat`) APIs when no new output has
+been emitted. These retries resend the same tool results without rerunning completed
+tools. Once output has started, or request retries are exhausted, ECA falls back to
+chat-level recovery when safe.
 
 Chat-level recovery is limited by `providers.<provider>.retry.maxAutoContinues`
 (default `3`) **per user turn**, not per connection. Truncated-response continuations

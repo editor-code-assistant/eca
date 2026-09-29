@@ -503,10 +503,31 @@
       (is (nil? (get-in @(h/db*) [:chats "chat-1" :variant])))
       (is (re-find #"Using model defaults\."
                    (get-in result [:chats "chat-1" :messages 0 :content 0 :text])))
-      (is (= [{:chat {:select-model "anthropic/claude-sonnet-4-6"
+      (is (= [{:chat-id "chat-1"
+               :chat {:select-model "anthropic/claude-sonnet-4-6"
                       :variants []
                       :select-variant nil}}]
              (:config-updated (h/messages))))))
+
+  (testing "selection is scoped to the chat, so session defaults can't swallow or leak it"
+    (h/reset-components!)
+    (swap! (h/db*) assoc
+           :models {"anthropic/claude-sonnet-4-6" {}
+                    "openai/gpt-5.2" {}}
+           ;; Session mirror already matches the requested model, e.g. the
+           ;; startup default, while this chat was switched away via the UI.
+           :last-config-notified {:chat {:select-model "anthropic/claude-sonnet-4-6"
+                                         :variants []
+                                         :select-variant nil}}
+           :chats {"chat-1" {:id "chat-1" :model "openai/gpt-5.2"}})
+    (let [session-defaults (:last-config-notified (h/db))]
+      (f.commands/handle-command! "model" ["anthropic/claude-sonnet-4-6"] (command-context "chat-1"))
+      (is (= [{:chat-id "chat-1"
+               :chat {:select-model "anthropic/claude-sonnet-4-6"
+                      :variants []
+                      :select-variant nil}}]
+             (:config-updated (h/messages))))
+      (is (= session-defaults (:last-config-notified (h/db))))))
 
   (testing "invalid model returns helpful error"
     (swap! (h/db*) assoc :models {"openai/gpt-5.2" {}})
@@ -556,12 +577,24 @@
       (is (= "openai/gpt-4.1" (get-in (h/db) [:chats "chat-1" :model]))
           "keeps an established model instead of applying the new agent default")
       (is (= "high" (get-in (h/db) [:chats "chat-1" :variant])))
-      (is (= "chat-1" (get-in (h/messages) [:config-updated 0 :chat-id])))
-      (is (= "openai/gpt-4.1" (get-in (h/messages) [:config-updated 0 :chat :select-model])))
-      (is (= ["high" "low"] (get-in (h/messages) [:config-updated 0 :chat :variants])))
-      (is (= "high" (get-in (h/messages) [:config-updated 0 :chat :select-variant])))
+      (is (= [{:chat-id "chat-1"
+               :chat {:select-model "openai/gpt-4.1"
+                      :variants ["high" "low"]
+                      :select-variant "high"}}
+              {:chat-id "chat-1"
+               :chat {:select-agent "plan"}}]
+             (:config-updated (h/messages))))
       (is (= "Selected agent: `plan`."
-             (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))))
+             (get-in result [:chats "chat-1" :messages 0 :content 0 :text])))))
+
+  (testing "tells the client the new agent even without any defaultModel, so its next prompt doesn't revert it"
+    (h/reset-components!)
+    (h/config! {:agent {"code" {} "plan" {}}})
+    (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :agent "code"}})
+    (f.commands/handle-command! "agent" ["plan"] (command-context "chat-1"))
+    (is (= "plan" (get-in (h/db) [:chats "chat-1" :agent])))
+    (is (= [{:chat-id "chat-1" :chat {:select-agent "plan"}}]
+           (:config-updated (h/messages)))))
 
   (testing "unknown and subagent-only names do not change chat state"
     (h/reset-components!)
@@ -572,7 +605,7 @@
       (is (= "code" (get-in (h/db) [:chats "chat-1" :agent])))
       (is (empty? (:config-updated (h/messages))))
       (is (string/includes? (get-in result [:chats "chat-1" :messages 0 :content 0 :text])
-                            "Unknown agent: `worker`"))))))
+                            "Unknown agent: `worker`")))))
 
 (deftest restore-command-selection-scoping-test
   (testing "/resume scopes restored selection to the current chat"
@@ -612,6 +645,31 @@
              (select-keys (get-in (h/db) [:chats "chat-b"])
                           [:model :variant :trust])))
       (is (= session-defaults (:last-config-notified (h/db))))))
+
+  (testing "/resume restores the resumed chat's agent, scoped to the current chat"
+    (h/reset-components!)
+    (h/config! {:agent {"code" {} "plan" {}}})
+    (swap! (h/db*) assoc
+           :chats {"chat-a" {:id "chat-a" :created-at 1 :agent "plan" :messages []}
+                   "chat-b" {:id "chat-b" :created-at 2 :agent "code" :messages []}})
+    (with-redefs [db/save-chat! (fn [& _])
+                  db/delete-chat-from-cache! (fn [& _])]
+      (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
+    (is (= "plan" (get-in (h/db) [:chats "chat-b" :agent])))
+    (is (= [{:chat-id "chat-b" :chat {:select-agent "plan"}}]
+           (filterv #(contains? (:chat %) :select-agent) (:config-updated (h/messages))))))
+
+  (testing "/resume falls back to the default agent when the persisted one no longer exists"
+    (h/reset-components!)
+    (h/config! {:agent {"code" {} "plan" {}}})
+    (swap! (h/db*) assoc
+           :chats {"chat-a" {:id "chat-a" :created-at 1 :agent "removed-agent" :messages []}
+                   "chat-b" {:id "chat-b" :created-at 2 :messages []}})
+    (with-redefs [db/save-chat! (fn [& _])
+                  db/delete-chat-from-cache! (fn [& _])]
+      (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
+    (is (= [{:chat-id "chat-b" :chat {:select-agent "code"}}]
+           (filterv #(contains? (:chat %) :select-agent) (:config-updated (h/messages))))))
 
   (testing "/import scopes restored selection to the imported chat"
     (h/reset-components!)

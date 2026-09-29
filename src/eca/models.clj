@@ -219,6 +219,7 @@
     "anthropic/claude-opus-4.8"
     "anthropic/claude-opus-4-8"
     "anthropic/claude-opus-5"
+    "anthropic/claude-opus-5-5"
     "anthropic/claude-sonnet-5"
     "anthropic/claude-fable-5"
     "anthropic/claude-fable-5-1"
