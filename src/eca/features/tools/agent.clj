@@ -46,9 +46,6 @@
   [agent-name config parent-agent-name]
   (first (filter #(= agent-name (:name %)) (all-agents config parent-agent-name))))
 
-(defn ^:private max-steps [subagent]
-  (:max-steps subagent))
-
 (defn ^:private extract-final-assistant-text
   "Extracts text from the final assistant message, or nil when none exists."
   [messages]
@@ -61,12 +58,6 @@
            (map :text)
            (str/join "\n")
            not-empty))
-
-(defn ^:private extract-final-summary
-  "Extract the final assistant message as summary from chat messages."
-  [messages]
-  (or (extract-final-assistant-text messages)
-      "Agent completed without producing output."))
 
 (defn ^:private failure-guidance
   "Actionable next-step hint for the parent agent based on the error type."
@@ -158,7 +149,7 @@
               variants (config/effective-model-variants config provider model model-capabilities user-variants)]
           (config/selectable-variant-names variants))))))
 
-(defn ^:private resumable-run
+(defn ^:private validate-resume!
   [db id parent-id agent-name config trust]
   (let [run (get-in db [:subagent-runs id])
         child (get-in db [:chats id])]
@@ -174,8 +165,7 @@
     (when-not (and (= (:config-hash run) (hash config))
                    (= (:workspace-folders run) (:workspace-folders db))
                    (= (:trust run) trust (:trust child)))
-      (throw (ex-info "Subagent config, workspace, or trust changed; spawn a new agent." {})))
-    run))
+      (throw (ex-info "Subagent config, workspace, or trust changed; spawn a new agent." {})))))
 
 (defn ^:private spawn-agent
   "Handler for the spawn_agent tool.
@@ -206,11 +196,11 @@
 
         resume? (contains? arguments "chat_id")
         subagent-chat-id (if resume? (get arguments "chat_id") (->subagent-chat-id tool-call-id))
-        _ (when (and resume? (or (not (string? subagent-chat-id)) (str/blank? subagent-chat-id)))
+        _ (when (and resume? (not (shared/not-blank subagent-chat-id)))
             (throw (ex-info "chat_id must be a nonblank string." {})))
         _ (when (and resume? (some #(contains? arguments %) ["model" "variant"]))
             (throw (ex-info "model and variant overrides are not allowed when resuming." {})))
-        run (when resume? (resumable-run db subagent-chat-id chat-id agent-name config trust))
+        run (when resume? (get-in db [:subagent-runs subagent-chat-id]))
 
         user-model (get arguments "model")
         _ (when user-model
@@ -254,7 +244,7 @@
                     db*
                     (fn [db]
                       (if resume?
-                        (do (resumable-run db subagent-chat-id chat-id agent-name config trust)
+                        (do (validate-resume! db subagent-chat-id chat-id agent-name config trust)
                             (-> db
                                 (update-in [:subagent-runs subagent-chat-id]
                                            #(-> % (assoc :token token) (dissoc :interrupted?)))
@@ -276,7 +266,7 @@
                                         (cond-> {:id subagent-chat-id :parent-chat-id chat-id
                                                  :agent-name agent-name :subagent subagent
                                                  :trust trust :current-step 0}
-                                          (max-steps subagent) (assoc :max-steps (max-steps subagent)))))))))
+                                          (:max-steps subagent) (assoc :max-steps (:max-steps subagent)))))))))
         starting-message-count (count (get-in before [:chats subagent-chat-id :messages]))
         max-steps-limit (get-in @db* [:chats subagent-chat-id :max-steps])]
     (logger/with-chat-context chat-id (get-in db [:chats chat-id :parent-chat-id])
@@ -333,8 +323,8 @@
                   (and (#{:idle :error} status)
                        (zero? (get-in db [:subagent-runs subagent-chat-id :workers] 0)))
                   (let [messages (drop starting-message-count (get-in db [:chats subagent-chat-id :messages] []))
-                        summary (extract-final-summary messages)
                         partial-output (extract-final-assistant-text messages)
+                        summary (or partial-output "Agent completed without producing output.")
                         prompt-error (get-in db [:chats subagent-chat-id :prompt-error])
                         failed? (boolean (or (= :error status) prompt-error
                                              (get-in db [:subagent-runs subagent-chat-id :interrupted?])))
@@ -350,8 +340,7 @@
                       :else
                       (logger/info logger-tag (format "Agent '%s' completed after %d steps" agent-name current-step)))
                     (swap! db* update-in [:subagent-runs subagent-chat-id]
-                           #(cond-> (merge % (select-keys (get-in db [:chats subagent-chat-id]) [:model :variant]))
-                              failed? (assoc :interrupted? true)))
+                           merge (select-keys (get-in db [:chats subagent-chat-id]) [:model :variant]))
                     (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
                     (cond
                       max-steps-reached?
@@ -439,7 +428,7 @@
         subagent-chat-id (if resume? (get arguments "chat_id")
                             (when tool-call-id (->subagent-chat-id tool-call-id)))
         child (get-in db [:chats subagent-chat-id])
-        owned? (and (string? subagent-chat-id) (not (str/blank? subagent-chat-id))
+        owned? (and (shared/not-blank subagent-chat-id)
                     subagent (:subagent child)
                     (get-in db [:subagent-runs subagent-chat-id])
                     (= chat-id (:parent-chat-id child))
@@ -457,7 +446,7 @@
              :model subagent-model
              :agent-name agent-name
              :step (get child :current-step 1)
-             :max-steps (if resume? (:max-steps child) (max-steps subagent))}
+             :max-steps (if resume? (:max-steps child) (:max-steps subagent))}
       variant (assoc :variant variant))))
 
 (defmethod tools.util/tool-call-details-after-invocation :spawn_agent
