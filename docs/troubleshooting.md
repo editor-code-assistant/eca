@@ -99,6 +99,25 @@ One way to workaround that is to start the editor from your terminal.
    launchctl setenv ANTHROPIC_API_KEY "your-key-here"
    ```
 
+## Image-generation deployment errors
+
+An error such as `imagegen deployment must be provided through header: x-ms-oai-image-generation-deployment` means the endpoint rejected the Responses API `image_generation` tool because no image deployment was selected. A gateway serving an OpenAI chat model does not necessarily support OpenAI's built-in image-generation tool.
+
+ECA automatically enables this tool only for capable models on the direct OpenAI API. Gateways and Copilot require explicit opt-in. To disable it, set `"imageGeneration": false` in `providers.<provider>.models.<model>`. This does not disable image input or ordinary function/MCP tools.
+
+If your gateway supports image generation and requires the deployment header, configure that model with:
+
+```json
+{
+  "imageGeneration": true,
+  "extraHeaders": {
+    "x-ms-oai-image-generation-deployment": "your-image-deployment-name"
+  }
+}
+```
+
+Use the actual image-generation deployment name supplied by your gateway administrator, not the chat model name. The header can also be set in provider-level `extraHeaders`; model-level values take precedence. ECA cannot infer or provision the deployment.
+
 ## Ask for help
 
 You can ask for help via chat [here](https://clojurians.slack.com/archives/C093426FPUG)

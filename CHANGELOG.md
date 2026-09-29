@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix gateway image-generation deployment errors: infer the built-in tool only for the direct OpenAI API; gateways can opt in with model `imageGeneration` and `extraHeaders`.
+
 ## 0.161.2
 
 - List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.

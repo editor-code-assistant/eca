@@ -473,28 +473,85 @@
         (is (= {:effort "medium" :summary "auto"} (get-in @captured* [:extra-payload :reasoning])))
         (is (nil? (get-in @captured* [:extra-payload :reasoning_effort])))))))
 
-(deftest prompt-passes-image-generation-to-openai-handler-test
-  (testing "openai branch forwards :image-generation true to create-response! when capability is on"
-    (let [captured* (atom nil)]
-      (with-redefs [llm-providers.openai/create-response!
-                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
-        (#'eca.llm-api/prompt!
-         {:provider "openai"
-          :model "gpt-5.2"
-          :model-capabilities {:tools true
-                               :reason? false
-                               :web-search false
-                               :image-generation? true
-                               :model-name "gpt-5.2"}
-          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
-          :past-messages []
-          :tools []
-          :provider-auth {:api-key "test-key"}
-          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
-          :sync? false}))
-      (is (= true (:image-generation @captured*))
-          "openai handler should receive :image-generation true")))
+(deftest prompt-image-generation-provider-boundaries-test
+  (doseq [{:keys [label provider url model-config catalog-image? expected-image?]
+           :or {provider "openai"
+                url "https://api.openai.com"
+                model-config {}
+                catalog-image? true}}
+          [{:label "direct OpenAI retains image generation" :expected-image? true}
+           {:label "custom provider using direct OpenAI" :provider "custom" :expected-image? true}
+           {:label "unknown model does not gain image generation" :catalog-image? false :expected-image? false}
+           {:label "explicit opt-out overrides direct OpenAI capability"
+            :model-config {:imageGeneration false} :expected-image? false}
+           {:label "gateway does not inherit server tools from the model name"
+            :provider "gateway" :url "https://gateway.example.com" :expected-image? false}
+           {:label "overriding the built-in OpenAI URL also disables inference"
+            :url "https://gateway.example.com" :expected-image? false}
+           {:label "Copilot Responses does not inherit image generation"
+            :provider "github-copilot" :url "https://api.githubcopilot.com" :expected-image? false}
+           {:label "an OpenAI-looking gateway hostname is not the direct API"
+            :url "https://api.openai.com.gateway.example.com" :expected-image? false}
+           {:label "gateway opt-in supports a configured deployment and unknown model"
+            :provider "gateway" :url "https://gateway.example.com" :catalog-image? false
+            :model-config {:imageGeneration true
+                           :extraHeaders {"x-ms-oai-image-generation-deployment" "image-deployment"}}
+            :expected-image? true}
+           {:label "a deployment header alone does not override an explicit opt-out"
+            :provider "gateway" :url "https://gateway.example.com"
+            :model-config {:imageGeneration false
+                           :extraHeaders {"x-ms-oai-image-generation-deployment" "image-deployment"}}
+            :expected-image? false}]]
+    (testing label
+      (let [requests* (atom [])
+            messages* (atom [])
+            errors* (atom [])
+            tool {:full-name "eca__directory_tree" :description "list" :parameters {:type "object"}}
+            user-message {:role "user" :content [{:type :text :text "hello"}
+                                                {:type :image :media-type "image/png" :base64 "AAA"}]}]
+        (with-redefs [http/post
+                      (fn [_ opts]
+                        (swap! requests* conj (update opts :body #(json/parse-string % true)))
+                        {:status 200
+                         :body (java.io.ByteArrayInputStream.
+                                (.getBytes
+                                 (str "event: response.completed\ndata: "
+                                      (json/generate-string
+                                       {:response {:status "completed"
+                                                   :usage {:input_tokens 1 :output_tokens 1}
+                                                   :output (if (= 1 (count @requests*))
+                                                             [{:type "function_call" :id "item-1" :call_id "call-1"
+                                                               :name "eca__directory_tree" :arguments "{}"}]
+                                                             [])}})
+                                      "\n\n")
+                                 java.nio.charset.StandardCharsets/UTF_8))})]
+          (#'llm-api/prompt!
+           {:provider provider :model "gpt-5.2"
+            :model-capabilities {:api :openai-responses :tools true :web-search true
+                                 :image-generation? catalog-image? :image-input? true}
+            :instructions "test" :user-messages [user-message] :past-messages [] :tools [tool]
+            :config {:providers {provider {:api "openai-responses" :url url :key "test-key"
+                                           :models {"gpt-5.2" model-config}}}}
+            :on-message-received #(swap! messages* conj %)
+            :on-error #(swap! errors* conj %)
+            :on-usage-updated identity :on-prepare-tool-call identity
+            :on-tools-called (fn [_]
+                               {:new-messages [user-message
+                                               {:role "tool_call_output"
+                                                :content {:id "call-1" :output {:contents [{:type :text :text "result"}]}}}]
+                                :tools [tool]})}))
+        (is (empty? @errors*))
+        (is (= [{:type :finish :finish-reason "completed"}] @messages*))
+        (is (= 2 (count @requests*)))
+        (doseq [request @requests*]
+          (is (= (cond-> ["function" "web_search"] expected-image? (conj "image_generation"))
+                 (mapv :type (get-in request [:body :tools]))))
+          (is (= (get-in model-config [:extraHeaders "x-ms-oai-image-generation-deployment"])
+                 (get-in request [:headers "x-ms-oai-image-generation-deployment"]))))
+        (is (= {:type "input_image" :image_url "data:image/png;base64,AAA"}
+               (get-in (first @requests*) [:body :input 0 :content 1])))))))
 
+(deftest prompt-sanitizes-openai-messages-test
   (testing "openai branch strips internal top-level message fields before reaching handler"
     (let [captured* (atom nil)]
       (with-redefs [llm-providers.openai/create-response!
@@ -573,28 +630,7 @@
       (is (= 2 (count @seen-bodies*)))
       (is (= [{:role "assistant"
                :content [{:type :text :text "after tool"}]}]
-             (:input (second @seen-bodies*))))))
-
-  (testing "openai branch forwards :image-generation false (or nil) when capability is off"
-    (let [captured* (atom nil)]
-      (with-redefs [llm-providers.openai/create-response!
-                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
-        (#'eca.llm-api/prompt!
-         {:provider "openai"
-          :model "gpt-4-legacy"
-          :model-capabilities {:tools true
-                               :reason? false
-                               :web-search false
-                               :image-generation? false
-                               :model-name "gpt-4-legacy"}
-          :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
-          :past-messages []
-          :tools []
-          :provider-auth {:api-key "test-key"}
-          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
-          :sync? false}))
-      (is (not (true? (:image-generation @captured*)))
-          "openai handler should NOT receive :image-generation true when capability is off"))))
+             (:input (second @seen-bodies*)))))))
 
 (deftest prompt-forwards-codex-decision-inputs-only-for-openai-test
   (let [base-opts {:model "gpt-5.6-sol"
