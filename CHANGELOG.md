@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow `spawn_agent` to continue a subagent conversation using optional `chat_id`, preserving its history and model selections within the same live parent chat.
+
 ## 0.161.2
 
 - List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.

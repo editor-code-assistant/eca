@@ -173,7 +173,7 @@
 
 (defn omit-optional-empty-string-args
   "Drops optional tool arguments whose value is the empty string.
-   Required arguments are preserved exactly as provided."
+   Required arguments and arguments with positive minLength are preserved for validation."
   [parameters args]
   (let [required (->> (:required parameters)
                       (map name)
@@ -181,7 +181,8 @@
     (into {}
           (remove (fn [[k v]]
                     (and (= "" v)
-                         (not (contains? required (name k))))))
+                         (not (contains? required (name k)))
+                         (not (pos? (get-in parameters [:properties (name k) :minLength] 0))))))
           args)))
 
 (defn contents->text
