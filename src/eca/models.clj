@@ -682,6 +682,10 @@
                 ;; the provider adapter that discovered it.
                 :provider-data (not-empty (:discovered-provider-data model-config))
                 :image-input? (:imageInput model-config)
+                ;; Built-in Responses `image_generation` server-tool opt-out/opt-in;
+                ;; gateways (e.g. Azure-backed) may reject the tool even when the
+                ;; model name matches the OpenAI catalog entry that allows it.
+                :image-generation? (:imageGeneration model-config)
                 :limit (not-empty limit-overrides)
                 :max-output-tokens output-override
                 :input-token-cost (cost-per-1m->per-token (:input cost))

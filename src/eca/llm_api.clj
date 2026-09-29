@@ -290,7 +290,6 @@
         supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)
         mid-conversation-system? (:mid-conversation-system? model-capabilities)
-        image-generation (:image-generation? model-capabilities)
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
         model-config (get-in provider-config [:models model])
@@ -317,6 +316,16 @@
         reasoning-history (or (:reasoningHistory model-config) :all)
         [auth-type api-key] (llm-util/provider-api-key provider provider-auth config)
         api-url (llm-util/provider-api-url provider config)
+        ;; Model-name inference cannot establish gateway-side tool support.
+        ;; Keep explicit opt-in/out, but infer only for the direct OpenAI API.
+        image-generation (if-some [enabled (:imageGeneration model-config)]
+                           enabled
+                           (boolean
+                            (and (:image-generation? model-capabilities)
+                                 (not= "github-copilot" provider)
+                                 (not (and (= "openai" provider) (= :auth/oauth auth-type)))
+                                 api-url
+                                 (re-matches #"(?i)https://api\.openai\.com(?::443)?(?:/.*)?" api-url))))
         ;; Flatten {:static :dynamic} instructions map into a single string for non-Anthropic providers
         flat-instructions (if (map? instructions) (f.prompt/instructions->str instructions) instructions)
         anthropic-opts {:model real-model

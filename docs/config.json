@@ -868,6 +868,11 @@
           "markdownDescription": "Whether this model accepts image input (vision). Useful for custom/local models models.dev doesn't know about.",
           "default": false
         },
+        "imageGeneration": {
+          "type": "boolean",
+          "description": "Enable the built-in image_generation tool on compatible Responses API endpoints. When omitted, enabled only for capable models on the direct OpenAI API, not gateways or Copilot. Azure-backed gateways may require x-ms-oai-image-generation-deployment in extraHeaders. Does not affect image input.",
+          "markdownDescription": "Enable the built-in `image_generation` tool on compatible Responses API endpoints. When omitted, enabled only for capable models on the direct OpenAI API, not gateways or Copilot. Azure-backed gateways may require `x-ms-oai-image-generation-deployment` in `extraHeaders`. Does not affect image input."
+        },
         "limit": {
           "type": "object",
           "description": "Override the model's token limits (overrides models.dev). Useful for local models or to cap a known model's context window.",
