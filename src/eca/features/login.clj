@@ -206,13 +206,14 @@
    otherwise call provider endpoints with a stale short-lived token (e.g.
    Copilot's session token) and get a 401. `ctx` needs {:db* :messenger :config
    :metrics}."
-  [{:keys [db*] :as ctx}]
+  [{:keys [db* on-renew-error] :as ctx}]
   (doseq [provider (keys (:auth @db*))]
     (maybe-renew-auth-token!
      {:provider provider
       :on-error (fn [msg]
                   (logger/warn logger-tag
-                               (format "Could not renew '%s' auth token before sync: %s" provider msg)))}
+                               (format "Could not renew '%s' auth token before sync: %s" provider msg))
+                  (when on-renew-error (on-renew-error provider msg)))}
      ctx)))
 
 (defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}
@@ -223,12 +224,15 @@
     (db/update-global-auth-cache! @db* provider metrics))
   (when-not skip-models-sync?
     (models/sync-models! db*
-                         (config/all @db*) ;; force get updated config
+                         #(config/all @db*)
                          (fn [new-models]
-                           (messenger/config-updated
-                            messenger
-                            {:chat
-                             {:models (sort (keys new-models))}}))))
+                           (config/notify-fields-changed-only!
+                            {:chat {:models (sort (keys new-models))}}
+                            messenger db*))
+                         {:before-sync (fn [config _warn!]
+                                         (renew-expiring-auth-tokens!
+                                          {:db* db* :messenger messenger
+                                           :config config :metrics metrics}))}))
   (swap! db* assoc-in [:chats chat-id :login-provider] nil)
   (swap! db* assoc-in [:chats chat-id :status] :idle)
   (when-not silent?

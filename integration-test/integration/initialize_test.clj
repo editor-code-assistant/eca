@@ -4,6 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
+   [llm-mock.mocks :as llm.mocks]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
@@ -96,3 +97,27 @@
                    :selectAgent "code"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
            (eca/client-awaits-server-notification :config/updated))))))
+
+(deftest refresh-models-in-running-server
+  (eca/start-process!)
+  (eca/request! (fixture/initialize-request
+                 {:initializationOptions
+                  (assoc fixture/default-init-options :providers
+                         {"ollama" {:url (str fixture/base-llm-mock-url "/ollama")}})}))
+  (eca/notify! (fixture/initialized-notification))
+  (is (match? {:chat {:models ["ollama/qwen3"]}}
+              (eca/client-awaits-server-notification :config/updated)))
+
+  (testing "a refresh returns its result and publishes a changed catalog"
+    (llm.mocks/set-case! :refresh-new-model)
+    (is (match? {:modelCount (m/pred number?)
+                 :warnings (m/pred vector?)}
+                (eca/request! [:models/refresh {}])))
+    (is (match? {:chat {:models ["ollama/qwen4"]}}
+                (eca/client-awaits-server-notification :config/updated))))
+
+  (testing "an empty catalog returns a JSON-RPC error, not a success result"
+    (llm.mocks/set-case! :refresh-empty)
+    (let [response (eca/request! [:models/refresh {}])]
+      (is (match? {:error {:code "no_usable_model_catalog"}} response))
+      (is (not (contains? response :result))))))

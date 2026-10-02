@@ -8,6 +8,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.models :as models]
    [eca.nrepl :as nrepl]
    [eca.opentelemetry :as opentelemetry]
    [eca.remote.messenger :as remote.messenger]
@@ -239,6 +240,10 @@
 
 (defmethod jsonrpc.server/receive-request "jobs/readOutput" [_ components params]
   (eventually (handlers/jobs-read-output (with-config components) params)))
+
+(defmethod jsonrpc.server/receive-request "models/refresh" [_ components params]
+  (let [turn (models/reserve-sync!)]
+    (eventually (handlers/models-refresh (assoc components :model-sync-turn turn) params))))
 
 (defmethod jsonrpc.server/receive-request "providers/list" [_ components params]
   (eventually (handlers/providers-list (with-config components) params)))

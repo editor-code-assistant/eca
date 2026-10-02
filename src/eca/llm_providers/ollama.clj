@@ -2,6 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]
+   [clojure.string :as string]
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -28,12 +29,17 @@
       (if (= 200 status)
         (do
           (llm-util/log-response logger-tag rid "api/tags" body)
-          (:models body))
+          (let [models (:models body)]
+            (when (and (vector? models)
+                       (every? #(and (map? %)
+                                     (string? (:model %))
+                                     (not (string/blank? (:model %)))) models))
+              models)))
         (do
           (logger/warn logger-tag "Unknown status code:" status)
-          [])))
+          nil)))
     (catch Exception _
-      [])))
+      nil)))
 
 (defn model-capabilities [{:keys [model api-url]}]
   (try

@@ -213,11 +213,18 @@
    and send both config/updated and providers/updated notifications."
   [provider-name db* messenger metrics]
   (db/update-global-auth-cache! @db* provider-name metrics)
-  (let [config (config/all @db*)]
-    (models/sync-models! db* config
+  (let [sync-config* (volatile! nil)]
+    (models/sync-models! db* #(config/all @db*)
                          (fn [new-models]
-                           (messenger/config-updated messenger {:chat {:models (sort (keys new-models))}})
-                           (notify-provider-updated! provider-name db* config messenger)))))
+                           (config/notify-fields-changed-only!
+                            {:chat {:models (sort (keys new-models))}} messenger db*)
+                           (notify-provider-updated! provider-name db* @sync-config* messenger))
+                         {:before-sync (fn [config _warn!]
+                                         (vreset! sync-config* config)
+                                         ;; Login already depends on providers, so resolve renewal at call time.
+                                         ((requiring-resolve 'eca.features.login/renew-expiring-auth-tokens!)
+                                          {:db* db* :messenger messenger
+                                           :config config :metrics metrics}))})))
 
 ;; --- Login dispatch ---
 

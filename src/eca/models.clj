@@ -17,6 +17,23 @@
 
 (def ^:private logger-tag "[MODELS]")
 
+;; Every caller uses the same queue, including login and startup syncs.
+(def ^:private sync-tail* (atom (promise)))
+(deliver @sync-tail* true)
+(defn reserve-sync!
+  "Reserve a catalog sync turn before scheduling async work, preserving request order."
+  []
+  (let [done (promise)]
+    {:previous (first (swap-vals! sync-tail* (constantly done)))
+     :done done}))
+
+(def ^:dynamic *refresh-warnings* nil)
+(def ^:dynamic *cached-models-dev?* nil)
+
+(defn ^:private warn-refresh! [provider message]
+  (when *refresh-warnings*
+    (swap! *refresh-warnings* conj {:provider provider :message message})))
+
 (def ^:private models-dev-api-url "https://models.dev/api.json")
 (def ^:private models-dev-timeout-ms 5000)
 (def ^:private provider-models-timeout-ms 10000)
@@ -129,6 +146,7 @@
         fetched)
       (if-let [cached (read-models-dev-cache)]
         (do
+          (when *cached-models-dev?* (reset! *cached-models-dev?* true))
           (logger/info logger-tag " Using cached models.dev catalog fallback")
           cached)
         {}))))
@@ -765,10 +783,26 @@
                                  (if (provider-configured? provider provider-config db config)
                                    [provider
                                     (future
-                                      (or (fetch-provider-native-models-with-fallback
-                                           provider provider-config config db)
-                                          (fetch-single-provider-models-dev
-                                           provider provider-config config models-dev-index)))]
+                                      (let [native? (contains? native-models-endpoint-providers (:api provider-config))
+                                            native (when native?
+                                                     (try
+                                                       (fetch-provider-native-models-with-fallback
+                                                        provider provider-config config db)
+                                                       (catch Exception e
+                                                         (logger/warn logger-tag
+                                                                      (format "Provider '%s': Model discovery failed: %s"
+                                                                              provider (.getMessage e)))
+                                                         nil)))
+                                            fallback (when (nil? native)
+                                                       (fetch-single-provider-models-dev
+                                                        provider provider-config config models-dev-index))]
+                                        (when (and native? (nil? native))
+                                          (warn-refresh! provider (if (some? fallback)
+                                                                    "Native catalog failed; using models.dev fallback"
+                                                                    "Native catalog failed")))
+                                        (when (and (not native?) (nil? fallback))
+                                          (warn-refresh! provider "No usable remote catalog available"))
+                                        (or native fallback)))]
                                    (do
                                      (logger/debug logger-tag
                                                    (format "Provider '%s': Skipping model fetch (not configured)"
@@ -836,8 +870,10 @@
         (and alias-model (contains? models alias-model)) alias-model
         (contains? models model-id) model-id))))
 
-(defn sync-models! [db* config on-models-updated]
+(defn ^:private sync-models-now! [db* config on-models-updated refresh?]
   (let [models-dev-data (models-dev)
+        _ (when (and *cached-models-dev?* @*cached-models-dev?*)
+            (warn-refresh! "models.dev" "Remote catalog unavailable; cached metadata or fallback lists can be stale"))
         known-models (all models-dev-data)
         db @db*
         {:keys [models]} (fetch-provider-model-catalogs config db models-dev-data)
@@ -846,13 +882,15 @@
                               config
                               models)
         ollama-api-url (llm-util/provider-api-url "ollama" config)
+        ollama-catalog (when (or (not refresh?) (contains? (:providers config) "ollama"))
+                         (llm-providers.ollama/list-models {:api-url ollama-api-url}))
         ollama-models (mapv
                        (fn [{:keys [model] :as ollama-model}]
                          (let [capabilities (llm-providers.ollama/model-capabilities {:api-url ollama-api-url :model model})]
                            (assoc ollama-model
                                   :tools (boolean (some #(= % "tools") capabilities))
                                   :reason? (boolean (some #(= % "thinking") capabilities)))))
-                       (llm-providers.ollama/list-models {:api-url ollama-api-url}))
+                       ollama-catalog)
         ollama-models-config (get-in config [:providers "ollama" :models])
         local-models (reduce
                       (fn [models {:keys [model] :as ollama-model}]
@@ -865,9 +903,60 @@
                       ollama-models)
         authenticated-models (into {}
                                    (filter #(auth-valid? (first %) db config) all-supported-models))
-        all-models (merge authenticated-models local-models)]
-    (swap! db* assoc :models all-models)
-    (on-models-updated all-models)))
+        retained-models (when refresh?
+                          (into {}
+                                (filter (fn [[full-model _]]
+                                          (let [[provider _] (shared/full-model->provider+model full-model)
+                                                provider-config (get-in config [:providers provider])]
+                                            (and provider-config
+                                                 (fetch-model-catalog-enabled? provider-config)
+                                                 (provider-configured? provider provider-config db config)
+                                                 (not (contains? models provider))
+                                                 (auth-valid? full-model db config)))))
+                                (:models db)))
+        retained-ollama-models (when (and refresh? (contains? (:providers config) "ollama")
+                                          (nil? ollama-catalog))
+                                 (into {}
+                                       (filter (fn [[full-model _]]
+                                                 (= "ollama" (first (shared/full-model->provider+model full-model)))))
+                                       (:models db)))
+        all-models (merge retained-models retained-ollama-models authenticated-models local-models)]
+    (when refresh?
+      (doseq [provider (distinct (map (comp first shared/full-model->provider+model first) retained-models))]
+        (warn-refresh! provider "No usable remote catalog; retained last known in-memory models (stale)"))
+      (when (and (contains? (:providers config) "ollama") (nil? ollama-catalog))
+        (warn-refresh! "ollama" (if (seq retained-ollama-models)
+                                  "Ollama catalog fetch failed; retained last known in-memory models (stale)"
+                                  "Ollama catalog fetch failed"))))
+    (if (and refresh? (empty? all-models))
+      (throw (ex-info "No usable model catalog available; current models unchanged" {:type :no-usable-model-catalog}))
+      (do
+        (swap! db* assoc :models all-models)
+        (let [callback-result (on-models-updated all-models)]
+          (if refresh?
+            {:model-count (count all-models)}
+            callback-result))))))
+
+(defn sync-models!
+  "Accept a config map or a zero-argument config function. Resolve it inside the
+   reserved turn, then call before-sync with the resolved config and warn function."
+  ([db* config on-models-updated]
+   (sync-models! db* config on-models-updated {}))
+  ([db* config on-models-updated {:keys [refresh? before-sync turn]}]
+   (let [{:keys [previous done]} (or turn (reserve-sync!))
+         warnings* (when refresh? (atom []))]
+     (try
+       @previous
+       (binding [*refresh-warnings* warnings*
+                 *cached-models-dev?* (when refresh? (atom false))]
+         (let [config (if (fn? config) (config) config)]
+           (when before-sync
+             (before-sync config (fn [provider message] (warn-refresh! provider message))))
+           (let [result (sync-models-now! db* config on-models-updated refresh?)]
+             (when refresh?
+               (assoc result :warnings @warnings*)))))
+       (finally
+         (deliver done true))))))
 
 (comment
   (require '[clojure.pprint :as pprint])

@@ -7,6 +7,7 @@
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]
    [eca.cache :as cache]
+   [eca.llm-providers.ollama :as ollama]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.models :as models]))
@@ -18,6 +19,342 @@
   (let [known-models (#'models/all models-dev-data)
         {:keys [models]} (#'models/fetch-provider-model-catalogs config db models-dev-data)]
     (#'models/build-all-supported-models known-models config models)))
+
+(deftest manual-refresh-catalog-test
+  (let [config {:providers {"remote" {:api "openai-chat" :url "https://example.test"
+                                       :key "test" :models {"pinned" {}}}}}
+        db* (atom {:models {"remote/old" {:tools false}}})
+        notified* (atom [])
+        catalog* (atom [{:id "new"}])]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [_ _] {:status 200 :body {:data @catalog*}})]
+      (let [refresh! #(models/sync-models! db* config
+                                           (fn [found] (swap! notified* conj found))
+                                           {:refresh? true})]
+        (is (= {:model-count 2 :warnings []} (refresh!)))
+        (is (= #{"remote/new" "remote/pinned"} (set (keys (:models @db*)))))
+        (is (= {:model-count 2 :warnings []} (refresh!)))
+        (is (= 2 (count @notified*)))
+        (reset! catalog* [{:id "newer"}])
+        (is (= {:model-count 2 :warnings []} (refresh!)))
+        (is (= #{"remote/newer" "remote/pinned"} (set (keys (:models @db*)))))))))
+
+(deftest manual-refresh-fallback-test
+  (let [config {:providers {"remote" {:api "openai-chat" :url "https://example.test" :key "test"}}}
+        db* (atom {:models {"remote/old" {:tools false :limit {:context 123}}}})
+        response* (atom {:status 503 :body "offline"})]
+    (with-redefs [models/models-dev (fn [] {"remote" {"api" "https://example.test"
+                                                        "models" {"from-dev" {}}}})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [_ _] @response*)]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= #{"remote/from-dev"} (set (keys (:models @db*)))))
+        (is (= 1 (:model-count result)))
+        (is (= "remote" (get-in result [:warnings 0 :provider])))
+        (is (re-find #"models.dev" (get-in result [:warnings 0 :message])))))
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [_ _] @response*)]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (contains? (:models @db*) "remote/from-dev")
+            "the last known provider models remain available")
+        (is (= 1 (:model-count result)))
+        (is (some #(re-find #"stale" (:message %)) (:warnings result)))))))
+
+(deftest manual-refresh-static-and-ollama-test
+  (let [db* (atom {:models {}})
+        config {:providers {"local" {:api "openai-chat" :url "https://local.test"
+                                      :fetchModels false :models {"pinned" {}}}
+                            "ollama" {:models {"llama" {}}}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  http/get (fn [& _] (throw (ex-info "unexpected remote fetch" {})))
+                  ollama/list-models (fn [_] [{:model "llama"}])
+                  ollama/model-capabilities (fn [_] ["tools"])]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= {:model-count 2 :warnings []} result))
+        (is (= #{"local/pinned" "ollama/llama"} (set (keys (:models @db*)))))))))
+
+(deftest manual-refresh-cached-models-dev-warning-test
+  (let [temp-dir (fs/create-temp-dir "eca-refresh-cache-test")
+        config {:providers {"remote" {:api "openai-chat" :url "https://example.test" :key "test"}}}]
+    (try
+      (spit (io/file (str temp-dir) "models-dev.json")
+            "{\"remote\":{\"api\":\"https://example.test\",\"models\":{\"cached\":{}}}}")
+      (with-redefs [cache/global-dir (fn [] (io/file (str temp-dir)))
+                    ollama/list-models (fn [_] [])
+                    http/get (fn [_ _] {:status 503 :body "offline"})]
+        (let [db* (atom {:models {}})
+              result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+          (is (= 1 (:model-count result)))
+          (is (contains? (:models @db*) "remote/cached"))
+          (is (= 1 (count (filter #(= "models.dev" (:provider %)) (:warnings result)))))
+          (is (some #(and (= "models.dev" (:provider %))
+                          (re-find #"cached metadata or fallback lists can be stale" (:message %)))
+                    (:warnings result)))))
+      (finally
+        (fs/delete-tree temp-dir)))))
+
+(deftest manual-refresh-cached-models-dev-native-success-warning-test
+  (let [temp-dir (fs/create-temp-dir "eca-refresh-native-cache-test")
+        config {:providers {"remote" {:api "openai-chat" :url "https://example.test" :key "test"}}}]
+    (try
+      (spit (io/file (str temp-dir) "models-dev.json")
+            "{\"remote\":{\"api\":\"https://example.test\",\"models\":{\"cached\":{}}}}")
+      (with-redefs [cache/global-dir (fn [] (io/file (str temp-dir)))
+                    ollama/list-models (fn [_] [])
+                    http/get (fn [url _]
+                               (if (re-find #"models.dev" url)
+                                 {:status 503 :body "offline"}
+                                 {:status 200 :body {:data [{:id "live"}]}}))]
+        (let [db* (atom {:models {}})
+              result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+          (is (= #{"remote/live"} (set (keys (:models @db*)))))
+          (is (= [{:provider "models.dev"
+                   :message "Remote catalog unavailable; cached metadata or fallback lists can be stale"}]
+                 (:warnings result)))))
+      (finally
+        (fs/delete-tree temp-dir)))))
+
+(deftest manual-refresh-partial-failure-test
+  (let [db* (atom {:models {"stale/old" {:tools false :limit {:context 123}}}})
+        config {:providers {"stale" {:api "openai-chat" :url "https://stale.test" :key "test"}
+                            "fresh" {:api "openai-chat" :url "https://fresh.test" :key "test"}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [url _]
+                             (if (re-find #"fresh.test" url)
+                               {:status 200 :body {:data [{:id "new"}]}}
+                               {:status 503 :body "offline"}))]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= 2 (:model-count result)))
+        (is (= #{"fresh/new" "stale/old"} (set (keys (:models @db*)))))
+        (is (= {:tools false :limit {:context 123}}
+               (get-in @db* [:models "stale/old"])))
+        (is (some #(and (= "stale" (:provider %))
+                        (re-find #"stale" (:message %))) (:warnings result)))))))
+
+(deftest manual-refresh-missing-provider-catalog-warning-test
+  (let [db* (atom {:models {}})
+        config {:providers {"missing" {:api "google" :url "https://missing.test" :key "test"}
+                            "fresh" {:api "openai-chat" :url "https://fresh.test" :key "test"}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [url _]
+                             (if (re-find #"fresh.test" url)
+                               {:status 200 :body {:data [{:id "new"}]}}
+                               (throw (ex-info "unexpected request" {:url url}))))]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= 1 (:model-count result)))
+        (is (= #{"fresh/new"} (set (keys (:models @db*)))))
+        (is (some #(= "missing" (:provider %)) (:warnings result)))))))
+
+(deftest manual-refresh-serializes-syncs-test
+  (let [db* (atom {:models {}})
+        config {:providers {"remote" {:api "openai-chat" :url "https://example.test" :key "test"}}}
+        entered (promise)
+        release (promise)
+        second-started (promise)
+        active* (atom 0)
+        max-active* (atom 0)
+        calls* (atom 0)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [_ _]
+                             (let [active (swap! active* inc)
+                                   call (swap! calls* inc)]
+                               (swap! max-active* max active)
+                               (when (= 1 call)
+                                 (deliver entered true)
+                                 @release)
+                               (swap! active* dec)
+                               {:status 200 :body {:data [{:id (str "model-" call)}]}}))]
+      (let [first-sync (future (models/sync-models! db* config (fn [_]) {:refresh? true}))]
+        (try
+          (is (= true (deref entered 5000 false)))
+          (let [second-sync (future
+                              (deliver second-started true)
+                              (models/sync-models! db* config (fn [_]) {:refresh? true}))]
+            (is (= true (deref second-started 5000 false)))
+            (deliver release true)
+            (is (= 1 (:model-count (deref first-sync 5000 nil))))
+            (is (= 1 (:model-count (deref second-sync 5000 nil))))
+            (is (= 1 @max-active*))
+            (is (= #{"remote/model-2"} (set (keys (:models @db*))))))
+          (finally
+            (deliver release true)))))))
+
+(deftest manual-refresh-reserved-request-order-test
+  (let [db* (atom {:models {}})
+        config {:providers {"remote" {:api "openai-chat" :url "https://example.test" :key "test"}}}
+        first-turn (models/reserve-sync!)
+        second-turn (models/reserve-sync!)
+        second-started (promise)
+        calls* (atom 0)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [_ _]
+                             {:status 200
+                              :body {:data [{:id (str "model-" (swap! calls* inc))}]}})]
+      (let [second-sync (future
+                          (deliver second-started true)
+                          (models/sync-models! db* config (fn [_])
+                                               {:refresh? true :turn second-turn}))]
+        (is (= true (deref second-started 5000 false)))
+        (let [first-sync (future (models/sync-models! db* config (fn [_])
+                                                      {:refresh? true :turn first-turn}))]
+          (is (= 1 (:model-count (deref first-sync 5000 nil))))
+          (is (= 1 (:model-count (deref second-sync 5000 nil))))
+          (is (= #{"remote/model-2"} (set (keys (:models @db*))))))))))
+
+(deftest queued-sync-resolves-config-and-renews-inside-turn-test
+  (let [db* (atom {:models {}})
+        current* (atom {:providers {"old" {:api "openai-chat" :url "https://old.test" :key "key"}}})
+        entered (promise)
+        release (promise)
+        renewed* (atom [])
+        fetched* (atom [])
+        first-turn (models/reserve-sync!)
+        second-turn (models/reserve-sync!)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  http/get (fn [url _]
+                             (swap! fetched* conj url)
+                             {:status 200 :body {:data [{:id "found"}]}})]
+      (let [first-sync (future (models/sync-models! db*
+                                                    {:providers {}}
+                                                    (fn [_] (deliver entered true) @release)
+                                                    {:turn first-turn}))]
+        (try
+          (is (= true (deref entered 5000 false)))
+          (let [second-sync (future (models/sync-models! db* (fn [] @current*) (fn [_])
+                                                         {:turn second-turn
+                                                          :before-sync (fn [config _warn!]
+                                                                         (swap! renewed* conj config))}))]
+            (reset! current* {:providers {"new" {:api "openai-chat" :url "https://new.test" :key "key"}}})
+            (is (empty? @renewed*))
+            (is (empty? @fetched*))
+            (deliver release true)
+            (is (not= :timeout (deref first-sync 5000 :timeout)))
+            (is (not= :timeout (deref second-sync 5000 :timeout)))
+            (is (= [@current*] @renewed*))
+            (is (= ["https://new.test/models"] @fetched*))
+            (is (= #{"new/found"} (set (keys (:models @db*))))))
+          (finally (deliver release true)))))))
+
+(deftest queued-sync-releases-turn-after-before-sync-error-test
+  (let [db* (atom {:models {}})
+        first-turn (models/reserve-sync!)
+        second-turn (models/reserve-sync!)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (models/sync-models! db* {:providers {}} (fn [_])
+                                        {:turn first-turn
+                                         :before-sync (fn [_ _] (throw (ex-info "renewal failed" {})))})))
+      (is (not= :timeout
+                (deref (future (models/sync-models! db* {:providers {}} (fn [_])
+                                                    {:turn second-turn})) 5000 :timeout))))))
+
+(deftest manual-refresh-ollama-failure-test
+  (let [old {:tools true :reason? true :limit {:context 4096}}
+        db* (atom {:models {"ollama/old" old}})
+        config {:providers {"ollama" {}
+                            "local" {:api "openai-chat" :fetchModels false
+                                     :models {"pinned" {}}}}}
+        notified* (atom nil)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] nil)]
+      (let [result (models/sync-models! db* config #(reset! notified* %) {:refresh? true})]
+        (is (= 2 (:model-count result)))
+        (is (= old (get-in @db* [:models "ollama/old"])))
+        (is (= (:models @db*) @notified*))
+        (is (some #(and (= "ollama" (:provider %))
+                        (re-find #"stale" (:message %))) (:warnings result)))))))
+
+(deftest manual-refresh-ollama-failure-without-prior-models-test
+  (let [db* (atom {:models {}})
+        config {:providers {"ollama" {}
+                            "local" {:api "openai-chat" :fetchModels false
+                                     :models {"pinned" {}}}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] nil)]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= 1 (:model-count result)))
+        (is (= #{"local/pinned"} (set (keys (:models @db*)))))
+        (is (some #(and (= "ollama" (:provider %))
+                        (re-find #"fetch failed" (:message %))
+                        (not (re-find #"stale" (:message %))))
+                  (:warnings result)))))))
+
+(deftest manual-refresh-ollama-valid-empty-test
+  (let [db* (atom {:models {"ollama/old" {:tools true}}})
+        config {:providers {"ollama" {}
+                            "local" {:api "openai-chat" :fetchModels false
+                                     :models {"pinned" {}}}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= {:model-count 1 :warnings []} result))
+        (is (= #{"local/pinned"} (set (keys (:models @db*)))))))))
+
+(deftest manual-refresh-ollama-removed-test
+  (let [db* (atom {:models {"ollama/old" {:tools true}}})
+        config {:providers {"local" {:api "openai-chat" :fetchModels false
+                                     :models {"pinned" {}}}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] nil)]
+      (let [result (models/sync-models! db* config (fn [_]) {:refresh? true})]
+        (is (= {:model-count 1 :warnings []} result))
+        (is (= #{"local/pinned"} (set (keys (:models @db*)))))))))
+
+(deftest manual-refresh-ollama-only-failure-test
+  (let [old {"ollama/old" {:tools true}}
+        db* (atom {:models old})
+        notified* (atom 0)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] nil)]
+      (let [result (models/sync-models! db* {:providers {"ollama" {}}}
+                                        (fn [_] (swap! notified* inc)) {:refresh? true})]
+        (is (= 1 (:model-count result)))
+        (is (= old (:models @db*)))
+        (is (= 1 @notified*))
+        (is (some #(and (= "ollama" (:provider %))
+                        (re-find #"stale" (:message %))) (:warnings result)))))))
+
+(deftest startup-ollama-failure-does-not-retain-models-test
+  (let [db* (atom {:models {"ollama/old" {:tools true}}})
+        config {:providers {"ollama" {}
+                            "local" {:api "openai-chat" :fetchModels false
+                                     :models {"pinned" {}}}}}]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] nil)]
+      (models/sync-models! db* config (fn [_]))
+      (is (= #{"local/pinned"} (set (keys (:models @db*))))))))
+
+(deftest manual-refresh-ollama-no-prior-models-test
+  (let [db* (atom {:models {}})
+        notified* (atom 0)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] nil)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No usable model catalog"
+                            (models/sync-models! db* {:providers {"ollama" {}}}
+                                                 (fn [_] (swap! notified* inc))
+                                                 {:refresh? true})))
+      (is (= {} (:models @db*)))
+      (is (zero? @notified*)))))
+
+(deftest manual-refresh-total-failure-test
+  (let [db* (atom {:models {"removed/old" {:tools true}}})
+        notified* (atom 0)]
+    (with-redefs [models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"No usable model catalog"
+                            (models/sync-models! db* {:providers {}}
+                                                 (fn [_] (swap! notified* inc))
+                                                 {:refresh? true})))
+      (is (= {"removed/old" {:tools true}} (:models @db*)))
+      (is (zero? @notified*)))))
 
 (deftest fetch-models-dev-data-test
   (testing "Uses hato with json-string-keys and global client options"

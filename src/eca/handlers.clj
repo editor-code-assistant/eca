@@ -120,15 +120,15 @@
             (let [new-providers-hash (hash (:providers config))]
               (when (not= (:providers-config-hash @db*) new-providers-hash)
                 (swap! db* assoc :providers-config-hash new-providers-hash)
-                ;; Refresh near-expiry OAuth tokens before fetching catalogs, so
-                ;; this non-interactive path doesn't hit /models with a stale
-                ;; short-lived token (e.g. Copilot) and 401.
-                (f.login/renew-expiring-auth-tokens!
-                 {:db* db* :messenger messenger :config config :metrics metrics})
                 ;; The callback re-reads config, so plugin agents are included
                 ;; when plugin resolution finishes before model sync.
-                (models/sync-models! db* config (fn [_models]
-                                                  (notify-chat-config-state! db* messenger))))))]
+                (models/sync-models! db* #(config/all @db*)
+                                     (fn [_models]
+                                       (notify-chat-config-state! db* messenger))
+                                     {:before-sync (fn [config _warn!]
+                                                     (f.login/renew-expiring-auth-tokens!
+                                                      {:db* db* :messenger messenger
+                                                       :config config :metrics metrics}))}))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models]
              (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
       (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
@@ -612,6 +612,29 @@
       {:lines []
        :status nil
        :exit-code nil})))
+
+(defn models-refresh [{:keys [db* messenger metrics model-sync-turn]} _params]
+  (metrics/task metrics :eca/models-refresh
+    (try
+      (let [{:keys [model-count warnings]}
+            (models/sync-models!
+             db* #(config/all @db*)
+             (fn [new-models]
+               (config/notify-fields-changed-only!
+                {:chat {:models (sort (keys new-models))}} messenger db*))
+             {:refresh? true
+              :turn model-sync-turn
+              :before-sync (fn [config warn!]
+                             (f.login/renew-expiring-auth-tokens!
+                              {:db* db* :messenger messenger :config config
+                               :metrics metrics :on-renew-error warn!}))})]
+        {:modelCount model-count :warnings warnings})
+      (catch clojure.lang.ExceptionInfo e
+        (if (= :no-usable-model-catalog (:type (ex-data e)))
+          {:error {:code "no_usable_model_catalog" :message (ex-message e)}}
+          (throw e)))
+      (finally
+        (when model-sync-turn (deliver (:done model-sync-turn) true))))))
 
 (defn providers-list [{:keys [db* config metrics]} _params]
   (metrics/task metrics :eca/providers-list

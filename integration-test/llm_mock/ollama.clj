@@ -95,7 +95,11 @@
 (defn handle-ollama-tags [_req]
   {:status 200
    :headers {"Content-Type" "application/json"}
-   :body (json/generate-string {:models [{:model "qwen3"}]})})
+   :body (json/generate-string
+          {:models (case llm.mocks/*case*
+                     :refresh-new-model [{:model "qwen4"}]
+                     :refresh-empty []
+                     [{:model "qwen3"}])})})
 
 (defn handle-ollama-show [req]
   (let [_body (some-> (slurp (:body req)) (json/parse-string true))]

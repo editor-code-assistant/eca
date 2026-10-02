@@ -2,8 +2,27 @@
   (:require
    [babashka.process :as p]
    [clojure.test :refer [deftest is testing]]
+   [eca.handlers :as handlers]
    [eca.server :as server]
-   [eca.test-helper :as h]))
+   [eca.test-helper :as h]
+   [jsonrpc4clj.server :as jsonrpc.server]))
+
+(deftest models-refresh-request-test
+  (let [entered (promise)
+        release (promise)]
+    (with-redefs [handlers/models-refresh (fn [{:keys [model-sync-turn]} _]
+                                           (deliver entered model-sync-turn)
+                                           @release
+                                           (deliver (:done model-sync-turn) true)
+                                           {:model-count 1 :warnings []})]
+      (let [response (jsonrpc.server/receive-request "models/refresh" {} {})]
+        (try
+          (is (some? (:done (deref entered 5000 nil)))
+              "the request dispatches with a reserved sync turn")
+          (deliver release true)
+          (is (= {:model-count 1 :warnings []} (deref response 5000 nil)))
+          (finally
+            (deliver release true)))))))
 
 (defn ^:private spawn-blocking-process []
   ;; Long-running child whose pid we own. `sleep 600` is fine on Linux/macOS;
