@@ -665,7 +665,9 @@
                        (case body-projection
                          :codex-lite (codex-responses-lite-body body)
                          :codex-parallel (-> body
-                                             (update :tools #(filterv function-tool? %))
+                                             (update :tools #(filterv (fn [tool]
+                                                                       (or (function-tool? tool)
+                                                                           (#{"web_search" "image_generation"} (:type tool)))) %))
                                              (update :reasoning #(assoc (or % {})
                                                                        :context "all_turns")))
                          body))

@@ -598,7 +598,7 @@
       (doseq [request @requests*]
         (is (false? (:responses-lite? request)))
         (is (= "test" (get-in request [:body :instructions])))
-        (is (= ["function"] (mapv :type (get-in request [:body :tools]))))
+        (is (= ["function" "web_search" "image_generation"] (mapv :type (get-in request [:body :tools]))))
         (is (true? (get-in request [:body :parallel_tool_calls])))
         (is (= "all_turns" (get-in request [:body :reasoning :context]))))
       (is (= [["function_call" "call-1"]
@@ -979,6 +979,50 @@
           (is (true? (:responses-lite? @request*)))
           (is (false? (get-in @request* [:body :parallel_tool_calls])))
           (is (= "additional_tools" (get-in @request* [:body :input 0 :type]))))))))
+
+(deftest create-response-codex-parallel-native-tools-retry-test
+  (let [requests* (atom [])
+        tools-called* (atom 0)
+        completed {:response {:status "completed" :output []
+                              :usage {:input_tokens 1 :output_tokens 1}}}]
+    (with-redefs [llm-providers.openai/base-responses-request!
+                  (fn [{:keys [on-stream on-error] :as opts}]
+                    (case (count (swap! requests* conj opts))
+                      1 (on-stream "response.completed"
+                                   (assoc-in completed [:response :output]
+                                             [{:type "function_call" :id "item-1" :call_id "call-1"
+                                               :name "eca__read_file" :arguments "{}"}]))
+                      2 (on-error {:code "server_is_overloaded"})
+                      3 (on-stream "response.completed" completed)))]
+      (llm-providers.openai/create-response!
+       (assoc (base-provider-params)
+              :provider "openai" :auth-type :auth/oauth
+              :web-search true :image-generation true :reason? true
+              :extra-payload {:parallel_tool_calls true}
+              :provider-data {:responses-lite? true :parallel-tool-calls? true
+                              :parallel-tool-calls-without-lite? true
+                              :default-reasoning-effort "low"})
+       (assoc (base-callbacks
+               {:on-tools-called (fn [_]
+                                   (swap! tools-called* inc)
+                                   {:new-messages [] :tools []})})
+              :retry-request (fn [{:keys [retry-fn attempt replay-safe?]}]
+                               (is (true? replay-safe?))
+                               (retry-fn (inc attempt)))))
+      (is (= 3 (count @requests*)))
+      (is (= 1 @tools-called*))
+      (is (= (mapv :body (rest @requests*))
+             (repeat 2 (:body (second @requests*)))))
+      (is (= [["function" "web_search" "image_generation"]
+              ["web_search" "image_generation"]
+              ["web_search" "image_generation"]]
+             (mapv #(mapv :type (get-in % [:body :tools])) @requests*)))
+      (doseq [request @requests*]
+        (is (false? (:responses-lite? request)))
+        (is (true? (get-in request [:body :parallel_tool_calls])))
+        (is (= {:effort "low" :summary "auto" :context "all_turns"}
+               (get-in request [:body :reasoning])))
+        (is (identical? (:turn-context (first @requests*)) (:turn-context request)))))))
 
 (deftest create-response-codex-request-shapes-test
   (testing "API-key requests ignore Codex-only Lite metadata, even for Lite models"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing.
+
 ## 0.161.2
 
 - List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
