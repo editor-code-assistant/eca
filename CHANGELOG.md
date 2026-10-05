@@ -4,6 +4,7 @@
 
 - Reject unknown tool args (e.g. `offset` for `read_file`) with an `INVALID_ARGS` error listing supported params; MCP tools only when `additionalProperties: false`.
 - Fix user messages being lost when a prompt fails, is stopped or superseded before the LLM responds; the next prompt and `/resume` now include them. eca-intellij#27
+- Fix tool-call continuations sending the provider `key` resolved at prompt start, so a `${cmd:...}` key that prints a short-lived token no longer expires mid-prompt; continuations read the key from the current config. #634
 
 ## 0.161.3
 

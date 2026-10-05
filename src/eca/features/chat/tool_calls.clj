@@ -1,6 +1,7 @@
 (ns eca.features.chat.tool-calls
   (:require
    [clojure.string :as string]
+   [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
@@ -1011,7 +1012,7 @@
                   refreshed-provider-auth (get-in @db* [:auth (:provider chat-ctx)])
                   [_ refreshed-api-key] (llm-util/provider-api-key (:provider chat-ctx)
                                                                    refreshed-provider-auth
-                                                                   config)
+                                                                   (config/all @db*))
                   with-fresh-auth #(some-> % (assoc :fresh-api-key refreshed-api-key
                                                     :provider-auth refreshed-provider-auth))]
               (if-let [blocked-info @blocked-tool-call-info*]
