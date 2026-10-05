@@ -1454,8 +1454,8 @@
         },
         "clientId": {
           "type": "string",
-          "description": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, dynamic client registration is skipped.",
-          "markdownDescription": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, dynamic client registration is skipped."
+          "description": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, Client ID Metadata Document (CIMD) and dynamic client registration are skipped.",
+          "markdownDescription": "OAuth client ID for servers that require a pre-registered OAuth application (e.g. Databricks, Slack). When set, Client ID Metadata Document (CIMD) and dynamic client registration are skipped."
         },
         "clientSecret": {
           "type": "string",
@@ -1471,8 +1471,8 @@
         },
         "clientName": {
           "type": "string",
-          "description": "Override the client_name sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to 'ECA (Editor Code Assistant)' when not set.",
-          "markdownDescription": "Override the `client_name` sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to `ECA (Editor Code Assistant)` when not set."
+          "description": "Override the client_name sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to 'ECA (Editor Code Assistant)' when not set. When set, Dynamic Client Registration is used even if the server supports Client ID Metadata Documents (CIMD).",
+          "markdownDescription": "Override the `client_name` sent during OAuth Dynamic Client Registration. Required for servers that allowlist clients by name (e.g. Figma). Defaults to `ECA (Editor Code Assistant)` when not set. When set, Dynamic Client Registration is used even if the server supports Client ID Metadata Documents (CIMD)."
         },
         "authScope": {
           "type": "string",

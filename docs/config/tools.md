@@ -45,6 +45,8 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+    If the server's authorization server supports [Client ID Metadata Documents](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents) (CIMD), ECA identifies itself with `https://eca.dev/oauth/client-metadata.json`; otherwise it registers a client via Dynamic Client Registration (DCR). Setting `clientId`, `clientSecret`, `clientName` or `oauthPort` keeps the pre-registered client or DCR.
+
 === "OAuth with pre-registered client"
 
     Some providers (e.g. Databricks) require a pre-registered OAuth application
@@ -208,6 +210,9 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     The DCR attempt, its result and the chosen `client_name` are logged at
     `info`/`warn` level so you can verify behavior in the ECA log.
+
+    Setting `clientName` also makes ECA use DCR when the server supports CIMD,
+    useful if a server rejects ECA's CIMD client.
 
 === "Per-project auth — authScope"
 

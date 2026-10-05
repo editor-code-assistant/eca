@@ -1,0 +1,14 @@
+{
+  "client_id": "https://eca.dev/oauth/client-metadata.json",
+  "client_name": "ECA (Editor Code Assistant)",
+  "client_uri": "https://eca.dev",
+  "logo_uri": "https://eca.dev/images/logo.png",
+  "redirect_uris": [
+    "http://localhost/auth/callback",
+    "http://127.0.0.1/auth/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}
