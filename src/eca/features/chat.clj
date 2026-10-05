@@ -667,6 +667,17 @@
   (when-not (string/blank? text)
     (odd? (count (re-seq #"(?m)^```" text)))))
 
+(def ^:private interrupted-tool-call-reason
+  {:code :interrupted
+   :text "Tool call interrupted because the LLM response failed"})
+
+(defn ^:private reject-active-tool-calls!
+  "Requests a stop for every unfinished tool call of the chat, so the ones
+   that won't make progress anymore are rejected for clients."
+  [db* {:keys [chat-id] :as chat-ctx} reason]
+  (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+    (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested {:reason reason})))
+
 (defn ^:private compact-finished-side-effect!
   "on-finished-side-effect for a mid-turn compaction: clear the auto-compacting
    flag, apply the compact side effects and run postCompact hooks for `trigger`
@@ -1521,6 +1532,11 @@
                                   ;; under a new prompt-id and the error would never surface to the user. (#491)
                                   compactable? (boolean (seq (shared/messages-after-last-compact-marker
                                                               (get-in db [:chats chat-id :messages] []))))]
+                              ;; Tool calls the failed response was still streaming are never
+                              ;; resumed (a retry starts new ones), so reject them or clients
+                              ;; keep showing them as in progress forever.
+                              (when-not stale?
+                                (reject-active-tool-calls! db* chat-ctx interrupted-tool-call-reason))
                               (cond
                                 stale?
                                 (logger/info logger-tag "Ignoring error for finished or superseded prompt"
@@ -1734,6 +1750,7 @@
               (catch Exception e
                 (when-not (:silent? (ex-data e))
                   (logger/error e)
+                  (reject-active-tool-calls! db* chat-ctx interrupted-tool-call-reason)
                   (swap! db* assoc-in [:chats chat-id :prompt-error]
                          (prompt-error-data {:exception e} :unknown))
                   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
@@ -2448,11 +2465,8 @@
           (lifecycle/send-content! chat-ctx :system {:type :text
                                                      :text "\nPrompt stopped\n"}))
 
-        ;; Handle each active tool call
-        (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-          (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                    {:reason {:code :user-prompt-stop
-                                              :text "Tool call rejected because of user prompt stop"}}))
+        (reject-active-tool-calls! db* chat-ctx {:code :user-prompt-stop
+                                                 :text "Tool call rejected because of user prompt stop"})
         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
         (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
         (lifecycle/finish-chat-prompt! :stopping (lifecycle/strip-hook-callbacks chat-ctx))))))

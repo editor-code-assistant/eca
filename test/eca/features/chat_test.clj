@@ -444,6 +444,60 @@
                              :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 for this turn\).*"}}])}
                 (h/messages)))))
 
+(deftest stream-error-rejects-preparing-tool-calls-test
+  (let [exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")
+        error-data {:exception exception :message (llm-util/connection-error-message exception)}
+        prepare-write! (fn [on-first-response-received on-prepare-tool-call]
+                         (on-first-response-received)
+                         (on-prepare-tool-call {:id "call-1"
+                                                :full-name "eca__write_file"
+                                                :arguments-text "{\"path\":\"/foo/core.cljs\",\"content\":\"(ns"}))
+        rejections (fn []
+                     (->> (:chat-content-received (h/messages))
+                          (filter #(= :toolCallRejected (get-in % [:content :type])))))]
+    (testing "a tool call still preparing when the stream drops is rejected before the automatic retry"
+      (h/reset-components!)
+      (let [attempts* (atom 0)
+            {:keys [chat-id]}
+            (prompt!
+             {:message "Write the file"}
+             {:all-tools-mock (constantly [])
+              :api-mock (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-error]}]
+                          (if (= 1 (swap! attempts* inc))
+                            (do (prepare-write! on-first-response-received on-prepare-tool-call)
+                                (on-error error-data))
+                            (do (on-first-response-received {:type :text :text "Done"})
+                                (on-message-received {:type :text :text "Done"})
+                                (on-message-received {:type :finish}))))})]
+        (is (= 2 @attempts*))
+        (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
+        (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))
+
+    (testing "a tool call still preparing is rejected when automatic recovery gives up"
+      (h/reset-components!)
+      (h/config! {:providers {"openai" {:retry {:maxAutoContinues 0}}}})
+      (let [{:keys [chat-id]}
+            (prompt!
+             {:message "Write the file"}
+             {:all-tools-mock (constantly [])
+              :api-mock (fn [{:keys [on-first-response-received on-prepare-tool-call on-error]}]
+                          (prepare-write! on-first-response-received on-prepare-tool-call)
+                          (on-error error-data))})]
+        (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
+        (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))
+
+    (testing "a tool call still preparing is rejected when the request throws"
+      (h/reset-components!)
+      (let [{:keys [chat-id]}
+            (prompt!
+             {:message "Write the file"}
+             {:all-tools-mock (constantly [])
+              :api-mock (fn [{:keys [on-first-response-received on-prepare-tool-call]}]
+                          (prepare-write! on-first-response-received on-prepare-tool-call)
+                          (throw (ex-info "boom" {})))})]
+        (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
+        (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))))
+
 (deftest transient-tls-recovery-guards-test
   (doseq [[state reason] [[{:status :stopping} :stopping]
                           [{:auto-compacting? true} :compacting]

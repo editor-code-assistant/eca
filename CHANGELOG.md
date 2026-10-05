@@ -3,6 +3,7 @@
 ## Unreleased
 
 - List the new OpenAI `gpt-6.1-sol` model for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
+- Fix tool calls staying in progress forever when the LLM response streaming them fails or is auto-recovered; they are now rejected with reason `interrupted`.
 
 ## 0.161.2
 
