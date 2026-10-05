@@ -413,33 +413,31 @@
         arguments (if-let [parameters (:parameters tool-meta)]
                     (tools.util/omit-optional-empty-string-args parameters arguments)
                     arguments)
-        required-args-error (when-let [parameters (:parameters tool-meta)]
-                              (tools.util/required-params-error parameters arguments))]
+        args-error (tools.util/invalid-params-error (:parameters tool-meta) arguments (:origin tool-meta))]
     (try
       (when-not tool-meta
         (throw (ex-info (format "Tool '%s' not found" full-name) {:full-name full-name
                                                                   :arguments arguments
                                                                   :all-tools (mapv :full-name all-tools)})))
-      (let [result (-> (if required-args-error
-                         required-args-error
-                         (if-let [native-tool-handler (and (= "eca" server-name)
-                                                           (get-in (native-definitions chat-id agent-name db config) [tool-name :handler]))]
-                           (native-tool-handler arguments {:db db
-                                                           :db* db*
-                                                           :config config
-                                                           :messenger messenger
-                                                           :agent agent-name
-                                                           :metrics metrics
-                                                           :chat-id chat-id
-                                                           :all-tools all-tools
-                                                           :tool-call-id tool-call-id
-                                                           :call-state-fn call-state-fn
-                                                           :state-transition-fn state-transition-fn
-                                                           :trust trust})
-                           (f.mcp/call-tool! server-name tool-name arguments {:db db
-                                                                              :db* db*
-                                                                              :config config
-                                                                              :metrics metrics})))
+      (let [result (-> (or args-error
+                           (if-let [native-tool-handler (and (= "eca" server-name)
+                                                             (get-in (native-definitions chat-id agent-name db config) [tool-name :handler]))]
+                             (native-tool-handler arguments {:db db
+                                                             :db* db*
+                                                             :config config
+                                                             :messenger messenger
+                                                             :agent agent-name
+                                                             :metrics metrics
+                                                             :chat-id chat-id
+                                                             :all-tools all-tools
+                                                             :tool-call-id tool-call-id
+                                                             :call-state-fn call-state-fn
+                                                             :state-transition-fn state-transition-fn
+                                                             :trust trust})
+                             (f.mcp/call-tool! server-name tool-name arguments {:db db
+                                                                                :db* db*
+                                                                                :config config
+                                                                                :metrics metrics})))
                        (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name resolved-full-name :error (:error result)} metrics)

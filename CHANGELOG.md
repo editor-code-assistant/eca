@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject unknown tool args (e.g. `offset` for `read_file`) with an `INVALID_ARGS` error listing supported params; MCP tools only when `additionalProperties: false`.
+
 ## 0.161.3
 
 - List the new OpenAI `gpt-6.1-sol` model for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
