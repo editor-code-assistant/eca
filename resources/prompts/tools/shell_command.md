@@ -24,7 +24,6 @@ Background execution:
 
 Usage notes:
   - The `command` argument is required.
-  - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
   - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings).
   - For search and reading, default to `eca__grep`, `eca__read_file`, and `eca__directory_tree` (bounded, line-numbered output) over shell `grep`, `cat`, `head`, `tail`, `ls`. If the user explicitly asks for the shell command (e.g. to pipe), run it as asked.
   - Commands start in the workspace root (or `working_directory`); `cd` does not persist between them, so prefer absolute paths.

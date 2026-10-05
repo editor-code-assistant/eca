@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Reject unknown tool args (e.g. `offset` for `read_file`) with an `INVALID_ARGS` error listing supported params; MCP tools only when `additionalProperties: false`.
+- Stop the `shell_command` prompt from asking for a description of the command, as the tool has no such param and calls with it now fail.
 
 ## 0.161.3
 
