@@ -46,9 +46,8 @@
 ;; the Codex CLI request identity and supports a Responses Lite payload shape
 ;; for some models. All Codex specifics live in the `codex-` fns below.
 
-;; Keep >= the `minimal_client_version` of the newest model we want the Codex
-;; /models endpoint to list (gpt-6-sol/gpt-6-luna require 0.155.0).
-(def ^:private codex-compatibility-version "0.155.1")
+;; Keep >= the newest model's `minimal_client_version`; the live gate is stricter than the catalog, so pin a recent released Codex version.
+(def ^:private codex-compatibility-version "0.160.0")
 
 (def ^:private codex-responses-url "https://chatgpt.com/backend-api/codex/responses")
 
