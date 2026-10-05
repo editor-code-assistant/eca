@@ -472,7 +472,7 @@
   ;; and chats that hit a provider error before any token arrived. Cleanup of
   ;; stale chats is handled by cleanup-old-chats! instead.
   (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
-      (dissoc :tool-calls :last-status-payload)
+      (dissoc :tool-calls :last-status-payload :unsent-user-messages)
       (assoc :id chat-id)))
 
 (defn ^:private read-chat-file

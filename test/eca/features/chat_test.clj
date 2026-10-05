@@ -263,8 +263,9 @@
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
       (is (match?
-           {chat-id {:id chat-id :messages m/absent}}
-           (:chats (h/db))))
+           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
+           (:chats (h/db)))
+          "the unanswered message is kept so the next prompt and /resume still have it (eca-intellij#27)")
       (is (match?
            {:chat-content-received
             [{:chat-id chat-id
@@ -497,6 +498,44 @@
                           (throw (ex-info "boom" {})))})]
         (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
         (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))))
+
+(deftest unanswered-user-message-is-kept-test
+  (testing "eca-intellij#27: a message the LLM never answered (network down until
+            automatic recovery gave up) stays in history and reaches the model
+            with the next prompt"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:retry {:maxAutoContinues 0}}}})
+    (let [exception (java.net.ConnectException. "Connection refused")
+          error-data {:exception exception :message (llm-util/connection-error-message exception)}
+          past-messages* (atom nil)
+          {:keys [chat-id]} (prompt! {:message "hello"}
+                                     {:all-tools-mock (constantly [])
+                                      :api-mock (fn [{:keys [on-error]}] (on-error error-data))})]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+                  (get-in (h/db) [:chats chat-id :messages])))
+      (is (not (contains? (get-in (h/db) [:chats chat-id]) :unsent-user-messages)))
+      (prompt! {:message "second" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock (fn [{:keys [past-messages on-first-response-received on-message-received]}]
+                            (reset! past-messages* past-messages)
+                            (on-first-response-received {:type :text :text "ok"})
+                            (on-message-received {:type :text :text "ok"})
+                            (on-message-received {:type :finish}))})
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"}]}]) @past-messages*))
+      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}
+                   {:role "user" :content [{:type :text :text "second"}]}
+                   {:role "assistant" :content [{:type :text :text "ok"}]}]
+                  (get-in (h/db) [:chats chat-id :messages])))))
+
+  (testing "a message stopped before the LLM answered stays in history"
+    (h/reset-components!)
+    (let [chat-id "stopped-before-response"]
+      (prompt! {:message "hello" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock (fn [_]
+                            (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics) {}))})
+      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+                  (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest transient-tls-recovery-guards-test
   (doseq [[state reason] [[{:status :stopping} :stopping]

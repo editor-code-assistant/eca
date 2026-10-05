@@ -1047,6 +1047,13 @@
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+      (when (and run-hooks? (:user-content-id chat-ctx))
+        ;; Kept until the LLM responds, so a turn that is stopped, fails or is
+        ;; superseded before that doesn't lose what the user typed.
+        (lifecycle/record-unsent-user-messages! db* chat-id)
+        (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
+               {:content-id (:user-content-id chat-ctx)
+                :messages user-messages}))
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)
