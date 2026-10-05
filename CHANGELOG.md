@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- List the new OpenAI `gpt-6.1-sol` model for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
+
 ## 0.161.2
 
 - List the new OpenAI `gpt-6-sol`/`gpt-6-luna` models for ChatGPT OAuth accounts by bumping the Codex client version the backend gates on.
