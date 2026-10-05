@@ -2,7 +2,10 @@
   (:require
    [babashka.process :as p]
    [clojure.test :refer [deftest is testing]]
+   [eca.db :as db]
+   [eca.features.login :as login]
    [eca.handlers :as handlers]
+   [eca.models :as models]
    [eca.server :as server]
    [eca.test-helper :as h]
    [jsonrpc4clj.server :as jsonrpc.server]))
@@ -23,6 +26,84 @@
           (is (= {:model-count 1 :warnings []} (deref response 5000 nil)))
           (finally
             (deliver release true)))))))
+
+(deftest provider-mutation-precedes-refresh-test
+  (doseq [[method handler provider-params initial-auth]
+          [["providers/logout" #'handlers/providers-logout {:provider "openai"} true]
+           ["providers/loginInput" #'handlers/providers-login-input
+            {:provider "openai" :data {:api-key "new-key"}} false]]]
+    (testing method
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:auth "openai"]
+             (if initial-auth {:step :login/done :type :auth/token :api-key "old-key"} {}))
+      (let [entered (promise)
+            refresh-entered (promise)
+            release (promise)
+            original @handler
+            original-refresh handlers/models-refresh
+            catalog (fn [] (if (get-in @(h/db*) [:auth "openai" :api-key])
+                             "openai/authorized" "openai/anonymous"))]
+        (with-redefs-fn
+          {handler (fn [components params]
+                     (deliver entered true)
+                     @release
+                     (original components params))
+           #'handlers/models-refresh (fn [components params]
+                                       (deliver refresh-entered true)
+                                       (original-refresh components params))
+           #'db/update-global-cache! (fn [& _])
+           #'login/renew-expiring-auth-tokens! (fn [& _])
+           #'eca.models/sync-models-now!
+           (fn [db* _config callback _refresh?]
+             (let [name (catalog)
+                   models {name {}}]
+               (swap! db* assoc :models models)
+               (callback models)
+               {:model-count 1}))}
+          (fn []
+            (let [mutation (jsonrpc.server/receive-request method (h/components) provider-params)]
+              (try
+                (is (= true (deref entered 5000 :timeout)))
+                (let [refresh (jsonrpc.server/receive-request "models/refresh" (h/components) {})]
+                  (is (= true (deref refresh-entered 5000 :timeout)))
+                  (deliver release true)
+                  (is (not= :timeout (deref mutation 5000 :timeout)))
+                  (is (= {:modelCount 1 :warnings []} (deref refresh 5000 :timeout)))
+                  (is (= [(if initial-auth "openai/anonymous" "openai/authorized")]
+                         (get-in (last (:config-updated (h/messages))) [:chat :models])))
+                  (is (= 1 (count (:config-updated (h/messages))))
+                      "refresh must not publish the old catalog before the mutation"))
+                (finally (deliver release true))))))))))
+
+(deftest provider-unused-turn-does-not-block-refresh-test
+  (doseq [[result handler] [[:no-sync (fn [_ _] {:action "input"})]
+                          [:error (fn [_ _] (throw (ex-info "invalid input" {})))]]]
+    (testing (name result)
+      (h/reset-components!)
+      (let [entered (promise)
+            release (promise)]
+        (with-redefs [handlers/providers-login-input (fn [components params]
+                                                       (deliver entered true)
+                                                       @release
+                                                       (handler components params))
+                      login/renew-expiring-auth-tokens! (fn [& _])
+                      models/models-dev (fn [] {})]
+          (let [mutation (jsonrpc.server/receive-request
+                          "providers/loginInput" (h/components)
+                          {:provider "openai" :data {:api-key "key"}})]
+            (try
+              (is (= true (deref entered 5000 :timeout)))
+              (let [refresh (jsonrpc.server/receive-request "models/refresh" (h/components) {})]
+                (deliver release true)
+                (is (if (= result :error)
+                      (try
+                        (deref mutation 5000 :timeout)
+                        false
+                        (catch java.util.concurrent.ExecutionException _ true))
+                      (= {:action "input"} (deref mutation 5000 :timeout))))
+                (is (not= :timeout (deref refresh 5000 :timeout))
+                    "an unused turn must not strand later refreshes"))
+              (finally (deliver release true)))))))))
 
 (defn ^:private spawn-blocking-process []
   ;; Long-running child whose pid we own. `sleep 600` is fine on Linux/macOS;

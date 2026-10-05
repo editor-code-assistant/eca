@@ -645,11 +645,11 @@
     (handle-expected-errors
      (f.providers/provider-login (:provider params) (:method params) db* config messenger metrics))))
 
-(defn providers-login-input [{:keys [db* config messenger metrics]} params]
+(defn providers-login-input [{:keys [db* config messenger metrics model-sync-turn]} params]
   (metrics/task metrics :eca/providers-login-input
     (handle-expected-errors
-     (f.providers/provider-login-input (:provider params) (:data params) db* config messenger metrics))))
+     (f.providers/provider-login-input (:provider params) (:data params) db* config messenger metrics model-sync-turn))))
 
-(defn providers-logout [{:keys [db* config messenger metrics]} params]
+(defn providers-logout [{:keys [db* config messenger metrics model-sync-turn]} params]
   (metrics/task metrics :eca/providers-logout
-    (f.providers/provider-logout (:provider params) db* config messenger metrics)))
+    (f.providers/provider-logout (:provider params) db* config messenger metrics model-sync-turn)))

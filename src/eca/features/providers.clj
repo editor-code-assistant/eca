@@ -208,23 +208,28 @@
   (messenger/provider-updated messenger
                               (build-provider-status provider-name @db* config)))
 
+(def ^:dynamic *model-sync-turn* nil)
+
 (defn sync-and-notify!
   "Common post-login/logout action: persist auth cache, re-sync models,
    and send both config/updated and providers/updated notifications."
-  [provider-name db* messenger metrics]
-  (db/update-global-auth-cache! @db* provider-name metrics)
-  (let [sync-config* (volatile! nil)]
-    (models/sync-models! db* #(config/all @db*)
-                         (fn [new-models]
-                           (config/notify-fields-changed-only!
-                            {:chat {:models (sort (keys new-models))}} messenger db*)
-                           (notify-provider-updated! provider-name db* @sync-config* messenger))
-                         {:before-sync (fn [config _warn!]
-                                         (vreset! sync-config* config)
-                                         ;; Login already depends on providers, so resolve renewal at call time.
-                                         ((requiring-resolve 'eca.features.login/renew-expiring-auth-tokens!)
-                                          {:db* db* :messenger messenger
-                                           :config config :metrics metrics}))})))
+  ([provider-name db* messenger metrics]
+   (sync-and-notify! provider-name db* messenger metrics nil))
+  ([provider-name db* messenger metrics turn]
+   (db/update-global-auth-cache! @db* provider-name metrics)
+   (let [sync-config* (volatile! nil)]
+     (models/sync-models! db* #(config/all @db*)
+                          (fn [new-models]
+                            (config/notify-fields-changed-only!
+                             {:chat {:models (sort (keys new-models))}} messenger db*)
+                            (notify-provider-updated! provider-name db* @sync-config* messenger))
+                          {:turn (or turn *model-sync-turn*)
+                           :before-sync (fn [config _warn!]
+                                          (vreset! sync-config* config)
+                                          ;; Login already depends on providers, so resolve renewal at call time.
+                                          ((requiring-resolve 'eca.features.login/renew-expiring-auth-tokens!)
+                                           {:db* db* :messenger messenger
+                                            :config config :metrics metrics}))}))))
 
 ;; --- Login dispatch ---
 
@@ -294,38 +299,43 @@
 
 (defn provider-login-input
   "Processes login input submitted by the client."
-  [provider-name data db* config messenger metrics]
-  (if (:code data)
-    ;; OAuth code exchange (e.g., Anthropic after browser auth)
-    (complete-oauth-code! provider-name data db* config messenger metrics)
-    ;; API key input
-    (let [base-provider (config/provider-base provider-name config)
-          api-key (get data :api-key)
-          models-str (get data :models)
-          url (get data :url)
-          provider-cfg (get provider-configs base-provider)
-          models-map (when (not-empty models-str)
-                       (into {} (map (fn [m] [(string/trim m) {}])
-                                     (string/split models-str #","))))]
-      (if (get provider-login-fields base-provider)
-        ;; Providers that save to config (google, deepseek, openrouter, z-ai, azure)
-        (let [config-update (shared/assoc-some
-                             (merge {:key api-key} provider-cfg)
-                             :url (or url (:url provider-cfg))
-                             :models models-map)]
-          (config/update-global-config! {:providers {provider-name config-update}})
-          (swap! db* assoc-in [:auth provider-name] {:step :login/done :type :auth/token}))
-        ;; Manual key for OAuth providers (anthropic, openai)
-        (swap! db* assoc-in [:auth provider-name] {:step :login/done
-                                                    :type :auth/token
-                                                    :api-key api-key
-                                                    :mode :manual}))
-      (sync-and-notify! provider-name db* messenger metrics)
-      {:action "done"})))
+  ([provider-name data db* config messenger metrics]
+   (provider-login-input provider-name data db* config messenger metrics nil))
+  ([provider-name data db* config messenger metrics turn]
+   (if (:code data)
+     ;; OAuth code exchange (e.g., Anthropic after browser auth)
+     (binding [*model-sync-turn* turn]
+       (complete-oauth-code! provider-name data db* config messenger metrics))
+     ;; API key input
+     (let [base-provider (config/provider-base provider-name config)
+           api-key (get data :api-key)
+           models-str (get data :models)
+           url (get data :url)
+           provider-cfg (get provider-configs base-provider)
+           models-map (when (not-empty models-str)
+                        (into {} (map (fn [m] [(string/trim m) {}])
+                                      (string/split models-str #","))))]
+       (if (get provider-login-fields base-provider)
+         ;; Providers that save to config (google, deepseek, openrouter, z-ai, azure)
+         (let [config-update (shared/assoc-some
+                              (merge {:key api-key} provider-cfg)
+                              :url (or url (:url provider-cfg))
+                              :models models-map)]
+           (config/update-global-config! {:providers {provider-name config-update}})
+           (swap! db* assoc-in [:auth provider-name] {:step :login/done :type :auth/token}))
+         ;; Manual key for OAuth providers (anthropic, openai)
+         (swap! db* assoc-in [:auth provider-name] {:step :login/done
+                                                     :type :auth/token
+                                                     :api-key api-key
+                                                     :mode :manual}))
+       (sync-and-notify! provider-name db* messenger metrics turn)
+       {:action "done"}))))
 
 (defn provider-logout
   "Clears auth for a provider and re-syncs models."
-  [provider-name db* _config messenger metrics]
-  (swap! db* assoc-in [:auth provider-name] {})
-  (sync-and-notify! provider-name db* messenger metrics)
-  {})
+  ([provider-name db* config messenger metrics]
+   (provider-logout provider-name db* config messenger metrics nil))
+  ([provider-name db* _config messenger metrics turn]
+   (swap! db* assoc-in [:auth provider-name] {})
+   (sync-and-notify! provider-name db* messenger metrics turn)
+   {}))
